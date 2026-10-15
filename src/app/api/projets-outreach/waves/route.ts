@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
                 campaignId: true,
                 condensationRole: true,
                 sentAt: true,
+                brandCooldownUntil: true,
                 campaign: { select: { title: true, status: true } },
               },
             },
@@ -81,26 +82,34 @@ export async function GET(request: NextRequest) {
           talentName: `${c.talent.prenom} ${c.talent.nom}`.trim(),
           missionCount: c._count.contactMissions,
         })),
-        clusters: w.clusters.map((cl) => ({
-          id: cl.id,
-          targetBrand: cl.targetBrand,
-          targetBrandKey: cl.targetBrandKey,
-          marqueId: cl.marqueId,
-          decision: cl.decision,
-          primaryMissionId: cl.primaryMissionId,
-          condensationGroupId: cl.condensationGroupId,
-          missionCount: cl._count.missions,
-          missions: cl.missions.map((m) => ({
-            id: m.id,
-            creatorName: m.creatorName,
-            talentId: m.talentId,
-            campaignId: m.campaignId,
-            campaignTitle: m.campaign?.title ?? null,
-            campaignStatus: m.campaign?.status ?? null,
-            condensationRole: m.condensationRole,
-            sentAt: m.sentAt,
-          })),
-        })),
+        clusters: w.clusters.map((cl) => {
+          const heldCount = cl.missions.filter((m) => Boolean(m.brandCooldownUntil))
+            .length;
+          return {
+            id: cl.id,
+            targetBrand: cl.targetBrand,
+            targetBrandKey: cl.targetBrandKey,
+            marqueId: cl.marqueId,
+            decision: cl.decision,
+            primaryMissionId: cl.primaryMissionId,
+            condensationGroupId: cl.condensationGroupId,
+            missionCount: cl._count.missions,
+            /** ≥ 2 projets en attente → Solo interdit, auto-condensé. */
+            forceHoldCondense: heldCount >= 2,
+            heldCount,
+            missions: cl.missions.map((m) => ({
+              id: m.id,
+              creatorName: m.creatorName,
+              talentId: m.talentId,
+              campaignId: m.campaignId,
+              campaignTitle: m.campaign?.title ?? null,
+              campaignStatus: m.campaign?.status ?? null,
+              condensationRole: m.condensationRole,
+              sentAt: m.sentAt,
+              brandCooldownUntil: m.brandCooldownUntil,
+            })),
+          };
+        }),
       })),
     });
   } catch (error) {

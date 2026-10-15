@@ -123,6 +123,9 @@ type Mission = {
   clickCount: number;
   awaitingContactsCompletion?: boolean;
   contactsCompletionRequestedAt?: string | null;
+  /** SOLO : déjà contactée ailleurs — bloquée jusqu’à cette date. */
+  brandCooldownUntil?: string | null;
+  brandCooldownReason?: string | null;
   selectedTalentIds?: string[];
   condensationGroupId?: string | null;
   condensationRole?: "PRIMARY" | "MEMBER" | null;
@@ -135,6 +138,171 @@ type Mission = {
   sendError: string | null;
   createdAt: string;
 };
+
+function brandCooldownActive(m: Mission, now: Date = new Date()): boolean {
+  if (!m.brandCooldownUntil) return false;
+  const t = new Date(m.brandCooldownUntil);
+  return !Number.isNaN(t.getTime()) && t.getTime() > now.getTime();
+}
+
+type CachedBrandResearch = {
+  recentCampaigns: string;
+  newProducts: string;
+  availabilityFrEu?: string;
+  brandPositioning: string;
+  influenceStrategy: string;
+};
+
+type CachedTalentResearchItem = {
+  talentId: string;
+  name: string;
+  whoTheyAre: string;
+  whatTheyDo?: string;
+  profileAnalysis?: string;
+  contentThemes: string;
+  whyRelevant: string;
+  proofPoints: string;
+  sourcesUsed?: string;
+};
+
+/** Clé cache stable : ignore casse, accents, espaces (JouéClub ≈ Joué club). */
+function brandResearchKey(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
+/** Variantes de clé (nouveau + anciens caches sessionStorage). */
+function brandResearchKeys(name: string): string[] {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return [];
+  const lower = trimmed.toLowerCase();
+  const noSpace = lower.replace(/\s+/g, "");
+  const normalized = brandResearchKey(trimmed);
+  return Array.from(new Set([normalized, lower, noSpace].filter(Boolean)));
+}
+
+/** Cherche dans le cache sous plusieurs libellés (marqueNom / targetBrand / company). */
+function lookupBrandCache<T>(
+  cache: Record<string, T>,
+  ...names: Array<string | null | undefined>
+): T | null {
+  for (const n of names) {
+    for (const key of brandResearchKeys(String(n || ""))) {
+      if (key && cache[key] != null) return cache[key];
+    }
+  }
+  return null;
+}
+
+function hasBrandCacheEntry(
+  cache: Record<string, unknown>,
+  ...names: Array<string | null | undefined>
+): boolean {
+  return lookupBrandCache(cache, ...names) != null;
+}
+
+function loadJsonCache<T>(storageKey: string): Record<string, T> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = sessionStorage.getItem(storageKey);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, T>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveJsonCache<T>(storageKey: string, cache: Record<string, T>) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(storageKey, JSON.stringify(cache));
+  } catch {
+    // quota / private mode
+  }
+}
+
+function loadBrandResearchCache(campaignId: string) {
+  return loadJsonCache<CachedBrandResearch>(`po-brand-research:${campaignId}`);
+}
+
+function saveBrandResearchCache(
+  campaignId: string,
+  cache: Record<string, CachedBrandResearch>
+) {
+  saveJsonCache(`po-brand-research:${campaignId}`, cache);
+}
+
+function loadTalentResearchCache(campaignId: string) {
+  return loadJsonCache<CachedTalentResearchItem[]>(
+    `po-talent-research:${campaignId}`
+  );
+}
+
+function saveTalentResearchCache(
+  campaignId: string,
+  cache: Record<string, CachedTalentResearchItem[]>
+) {
+  saveJsonCache(`po-talent-research:${campaignId}`, cache);
+}
+
+type CachedLeynaExchange = {
+  hasExchange: boolean;
+  tone?: "tu" | "vous" | null;
+  bannerLabel?: string | null;
+  contacts?: Array<{
+    email: string;
+    subject?: string | null;
+    tone?: "tu" | "vous" | null;
+    notes?: string;
+    lastExchangeAt?: string | null;
+  }>;
+};
+
+/** v2 : ignore anciens faux « aucun échange » (fils Glow Up internes comptés à tort). */
+function loadLeynaExchangeCache(campaignId: string) {
+  return loadJsonCache<CachedLeynaExchange>(`po-leyna-exchange:v2:${campaignId}`);
+}
+
+function saveLeynaExchangeCache(
+  campaignId: string,
+  cache: Record<string, CachedLeynaExchange>
+) {
+  saveJsonCache(`po-leyna-exchange:v2:${campaignId}`, cache);
+}
+
+async function mapPool<T>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<void>
+): Promise<void> {
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, concurrency), Math.max(1, items.length)) },
+    async () => {
+      while (next < items.length) {
+        const i = next++;
+        await fn(items[i], i);
+      }
+    }
+  );
+  await Promise.all(workers);
+}
+
+function brandCooldownLabel(m: Mission): string {
+  if (!m.brandCooldownUntil) return "";
+  const t = new Date(m.brandCooldownUntil);
+  if (Number.isNaN(t.getTime())) return "";
+  return t.toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 function effectiveMissionContacts(m: Mission) {
   // Toujours prioriser la fiche CRM (hors AO) — clientContacts ne sert qu'à
@@ -1606,6 +1774,12 @@ function MarquesTab({
   const [priority, setPriority] = useState("MEDIUM");
   const [savingId, setSavingId] = useState<string | null>(null);
   const [requestingId, setRequestingId] = useState<string | null>(null);
+  /** Marque bloquée à l’ajout → proposer « Mise en attente ». */
+  const [holdOffer, setHoldOffer] = useState<{
+    hit: MarqueHit;
+    nextAllowedAt: string | null;
+    message: string;
+  } | null>(null);
   const campaignTalents = campaign.talents || [];
   const isMulti = campaign.mode === "MULTI" && campaignTalents.length >= 2;
   const [brandTalentIds, setBrandTalentIds] = useState<string[]>(() =>
@@ -1697,10 +1871,13 @@ function MarquesTab({
 
   const listLoading = filter.trim().length >= 2 ? searchLoading : crmLoading;
 
-  async function postBrand(item: {
-    targetBrand: string;
-    marqueId?: string | null;
-  }) {
+  async function postBrand(
+    item: {
+      targetBrand: string;
+      marqueId?: string | null;
+    },
+    opts?: { hold?: boolean }
+  ) {
     if (isMulti && brandTalentIds.length < 1) {
       throw new Error("Sélectionne au moins 1 talent pour cette marque.");
     }
@@ -1709,6 +1886,7 @@ function MarquesTab({
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        hold: opts?.hold === true,
         items: [
           {
             targetBrand: item.targetBrand,
@@ -1723,7 +1901,17 @@ function MarquesTab({
       }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || "Ajout impossible.");
+    if (!res.ok) {
+      const err = new Error(data.error || "Ajout impossible.") as Error & {
+        code?: string;
+        canHold?: boolean;
+        nextAllowedAt?: string | null;
+      };
+      err.code = data.code;
+      err.canHold = data.canHold === true;
+      err.nextAllowedAt = data.nextAllowedAt ?? null;
+      throw err;
+    }
     if (typeof data.waveNotice === "string" && data.waveNotice.trim()) {
       setSuccess(data.waveNotice);
     }
@@ -1738,10 +1926,52 @@ function MarquesTab({
     }
     setSavingId(hit.id);
     setError(null);
+    setHoldOffer(null);
     try {
       const data = await postBrand({ targetBrand: hit.nom, marqueId: hit.id });
       if (!(typeof data?.waveNotice === "string" && data.waveNotice.trim())) {
         setSuccess(`${hit.nom} ajoutée.`);
+      }
+      await onChanged();
+    } catch (err) {
+      const e = err as Error & {
+        code?: string;
+        canHold?: boolean;
+        nextAllowedAt?: string | null;
+      };
+      if (e.code === "BRAND_COOLDOWN" && e.canHold) {
+        setHoldOffer({
+          hit,
+          nextAllowedAt: e.nextAllowedAt ?? null,
+          message: e.message,
+        });
+        setError(
+          `${hit.nom} déjà contactée récemment — Ajouter est bloqué. Utilise « Mise en attente » (déblocage auto J+30).`
+        );
+      } else {
+        setError(e.message || "Erreur");
+      }
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function holdFromCrm(hit: MarqueHit) {
+    if (!canManage || savingId || isMulti) return;
+    if (alreadyIds.has(hit.id) || alreadyNames.has(hit.nom.trim().toLowerCase())) {
+      setError(`${hit.nom} est déjà dans le projet.`);
+      return;
+    }
+    setSavingId(hit.id);
+    setError(null);
+    try {
+      const data = await postBrand(
+        { targetBrand: hit.nom, marqueId: hit.id },
+        { hold: true }
+      );
+      setHoldOffer(null);
+      if (!(typeof data?.waveNotice === "string" && data.waveNotice.trim())) {
+        setSuccess(`${hit.nom} mise en attente — déblocage auto à J+30.`);
       }
       await onChanged();
     } catch (err) {
@@ -1827,7 +2057,7 @@ function MarquesTab({
     }
   }
 
-  async function addManual(e: FormEvent) {
+  async function addManual(e: FormEvent, opts?: { hold?: boolean }) {
     e.preventDefault();
     if (!canManage || savingId) return;
     const targetBrand = manualBrand.trim();
@@ -1842,14 +2072,33 @@ function MarquesTab({
     setSavingId("__manual__");
     setError(null);
     try {
-      const data = await postBrand({ targetBrand, marqueId: null });
+      const data = await postBrand(
+        { targetBrand, marqueId: null },
+        { hold: opts?.hold === true }
+      );
       if (!(typeof data?.waveNotice === "string" && data.waveNotice.trim())) {
-        setSuccess(`${targetBrand} ajoutée.`);
+        setSuccess(
+          opts?.hold
+            ? `${targetBrand} mise en attente — déblocage auto à J+30.`
+            : `${targetBrand} ajoutée.`
+        );
       }
       setManualBrand("");
+      setHoldOffer(null);
       await onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur");
+      const e2 = err as Error & {
+        code?: string;
+        canHold?: boolean;
+        nextAllowedAt?: string | null;
+      };
+      if (e2.code === "BRAND_COOLDOWN" && e2.canHold && !opts?.hold) {
+        setError(
+          `${targetBrand} déjà contactée — Ajouter libre bloqué. Clique « Mise en attente » à côté.`
+        );
+      } else {
+        setError(e2.message || "Erreur");
+      }
     } finally {
       setSavingId(null);
     }
@@ -2119,7 +2368,11 @@ function MarquesTab({
                       h.nom.trim().toLowerCase()
                   );
                 const awaiting = Boolean(existingMission?.awaitingContactsCompletion);
+                const onCooldown = existingMission
+                  ? brandCooldownActive(existingMission)
+                  : false;
                 const rowBusy = savingId === h.id || requestingId === h.id;
+                const offerHold = holdOffer?.hit.id === h.id;
                 const showCompleter = !awaiting;
                 return (
                   <div
@@ -2128,7 +2381,12 @@ function MarquesTab({
                     style={{
                       padding: "10px 14px",
                       borderBottom: "1px solid var(--po-sep-soft)",
-                      background: already ? "transparent" : "var(--po-white)",
+                      background:
+                        offerHold || onCooldown
+                          ? "var(--po-prio-med-bg)"
+                          : already
+                            ? "transparent"
+                            : "var(--po-white)",
                     }}
                   >
                     <PoAvatar name={h.nom} size={28} />
@@ -2144,7 +2402,11 @@ function MarquesTab({
                       >
                         {h.contactCount} contact{h.contactCount === 1 ? "" : "s"}
                         {h.ville ? ` · ${h.ville}` : ""}
-                        {awaiting ? " · en attente" : ""}
+                        {awaiting ? " · en attente contacts" : ""}
+                        {onCooldown
+                          ? ` · attente déblocage ${brandCooldownLabel(existingMission!)}`
+                          : ""}
+                        {offerHold ? " · déjà contactée récemment" : ""}
                       </div>
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
@@ -2153,21 +2415,55 @@ function MarquesTab({
                           className="po-badge po-badge-stage"
                           style={{ fontSize: 11 }}
                         >
-                          Déjà ajoutée
+                          {onCooldown ? "En attente" : "Déjà ajoutée"}
                         </span>
                       ) : (
-                        <button
-                          type="button"
-                          disabled={busy || rowBusy}
-                          onClick={() => void addFromCrm(h)}
-                          className="po-btn po-btn-primary"
-                          style={{ padding: "6px 12px", fontSize: 12.5 }}
-                        >
-                          {rowBusy && savingId === h.id && !requestingId ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <>
+                          <button
+                            type="button"
+                            disabled={busy || rowBusy || offerHold}
+                            onClick={() => void addFromCrm(h)}
+                            className="po-btn po-btn-primary"
+                            style={{
+                              padding: "6px 12px",
+                              fontSize: 12.5,
+                              opacity: offerHold ? 0.45 : 1,
+                            }}
+                            title={
+                              offerHold
+                                ? "Bloqué — marque déjà contactée. Utilise Mise en attente."
+                                : "Ajouter au projet"
+                            }
+                          >
+                            {rowBusy && savingId === h.id && !requestingId && !offerHold ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : null}
+                            {offerHold ? "Bloqué" : "Ajouter"}
+                          </button>
+                          {!isMulti ? (
+                            <button
+                              type="button"
+                              disabled={busy || rowBusy}
+                              onClick={() => void holdFromCrm(h)}
+                              className="po-btn"
+                              style={{
+                                padding: "6px 12px",
+                                fontSize: 12.5,
+                                fontWeight: offerHold ? 700 : 500,
+                                borderColor: offerHold ? "#C9A227" : undefined,
+                                color: offerHold ? "#956A15" : undefined,
+                              }}
+                              title="Ajoute la marque en attente — déblocage automatique à J+30"
+                            >
+                              {rowBusy &&
+                              savingId === h.id &&
+                              holdOffer?.hit.id === h.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : null}
+                              Mise en attente
+                            </button>
                           ) : null}
-                          Ajouter
-                        </button>
+                        </>
                       )}
                       {awaiting && existingMission && isAdmin ? (
                         <button
@@ -2205,7 +2501,7 @@ function MarquesTab({
           </div>
 
           <form
-            onSubmit={addManual}
+            onSubmit={(e) => void addManual(e)}
             className="flex flex-wrap items-end gap-2"
             style={{ marginTop: 12 }}
           >
@@ -2229,6 +2525,17 @@ function MarquesTab({
               )}
               Ajouter libre
             </button>
+            {!isMulti ? (
+              <button
+                type="button"
+                disabled={busy || !manualBrand.trim() || savingId === "__manual__"}
+                onClick={(e) => void addManual(e, { hold: true })}
+                className="po-btn"
+                title="Ajoute en attente — déblocage automatique à J+30"
+              >
+                Mise en attente
+              </button>
+            ) : null}
           </form>
         </div>
       )}
@@ -2259,6 +2566,7 @@ function MarquesTab({
             const name = m.marqueNom || m.targetBrand;
             const contactCount = effectiveMissionContacts(m).length;
             const awaiting = Boolean(m.awaitingContactsCompletion);
+            const onCooldown = brandCooldownActive(m);
             const needsCompletion = Boolean(m.marqueId) && !awaiting;
             return (
               <div
@@ -2266,13 +2574,22 @@ function MarquesTab({
                 className="po-table-row"
                 style={{
                   gridTemplateColumns: tableCols,
-                  background: awaiting ? "var(--po-prio-med-bg)" : undefined,
+                  background:
+                    awaiting || onCooldown ? "var(--po-prio-med-bg)" : undefined,
                 }}
               >
                 <div className="flex min-w-0 items-center gap-2.5">
                   <PoAvatar name={name} size={26} />
                     <div className="min-w-0">
                     <div style={{ fontWeight: 600, color: "var(--po-ink)" }}>{name}</div>
+                    {onCooldown ? (
+                      <div
+                        style={{ fontSize: 11, color: "#956A15", fontWeight: 700 }}
+                        title={m.brandCooldownReason || undefined}
+                      >
+                        En attente · déblocage {brandCooldownLabel(m)}
+                      </div>
+                    ) : null}
                     {isMulti &&
                     Array.isArray(m.selectedTalentIds) &&
                     m.selectedTalentIds.length > 0 ? (
@@ -2537,6 +2854,1314 @@ function RedactionTab({
   const [composerContact, setComposerContact] = useState<ComposerContact | null>(null);
   const [busy, setBusy] = useState(false);
   const [requestingId, setRequestingId] = useState<string | null>(null);
+  const [brandResearchCache, setBrandResearchCache] = useState<
+    Record<string, CachedBrandResearch>
+  >(() => loadBrandResearchCache(campaign.id));
+  const [talentResearchCache, setTalentResearchCache] = useState<
+    Record<string, CachedTalentResearchItem[]>
+  >(() => loadTalentResearchCache(campaign.id));
+  const [leynaExchangeCache, setLeynaExchangeCache] = useState<
+    Record<string, CachedLeynaExchange>
+  >(() => loadLeynaExchangeCache(campaign.id));
+  const [batchResearch, setBatchResearch] = useState<{
+    running: boolean;
+    phase: "marques" | "talents";
+    done: number;
+    total: number;
+    phaseDone: number;
+    phaseTotal: number;
+    current: string;
+    failed: number;
+    /** Noms des marques en échec (pour l’UI). */
+    failedNames?: string[];
+    /** true = vague de relance (échecs uniquement). */
+    isRetry?: boolean;
+  } | null>(null);
+  /** Boîte mail peut tourner en parallèle des talents (état séparé). */
+  const [batchLeyna, setBatchLeyna] = useState<{
+    running: boolean;
+    done: number;
+    total: number;
+    current: string;
+    failed: number;
+    failedNames?: string[];
+    isRetry?: boolean;
+  } | null>(null);
+  /** Pipeline marque → talents → Leyna → rédaction (casting n’a plus qu’à corriger). */
+  const [batchPipeline, setBatchPipeline] = useState<{
+    running: boolean;
+    step: 1 | 2 | 3 | 4;
+    label: string;
+  } | null>(null);
+  const [batchDraft, setBatchDraft] = useState<{
+    running: boolean;
+    done: number;
+    total: number;
+    current: string;
+    failed: number;
+    failedNames?: string[];
+    isRetry?: boolean;
+  } | null>(null);
+  const batchAbortRef = useRef<AbortController | null>(null);
+  const batchLeynaAbortRef = useRef<AbortController | null>(null);
+  const batchDraftAbortRef = useRef<AbortController | null>(null);
+  const batchPipelineActiveRef = useRef(false);
+
+  useEffect(() => {
+    setBrandResearchCache(loadBrandResearchCache(campaign.id));
+    setTalentResearchCache(loadTalentResearchCache(campaign.id));
+    setLeynaExchangeCache(loadLeynaExchangeCache(campaign.id));
+  }, [campaign.id]);
+
+  const cacheBrandResearch = useCallback(
+    (brandName: string, research: CachedBrandResearch) => {
+      const key = brandResearchKey(brandName);
+      if (!key) return;
+      setBrandResearchCache((prev) => {
+        const next = { ...prev, [key]: research };
+        saveBrandResearchCache(campaign.id, next);
+        return next;
+      });
+      // Nouvelle analyse marque → invalide le cache talents de cette marque.
+      setTalentResearchCache((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        saveTalentResearchCache(campaign.id, next);
+        return next;
+      });
+    },
+    [campaign.id]
+  );
+
+  const cacheTalentResearch = useCallback(
+    (brandName: string, research: CachedTalentResearchItem[]) => {
+      const key = brandResearchKey(brandName);
+      if (!key || research.length === 0) return;
+      setTalentResearchCache((prev) => {
+        const next = { ...prev, [key]: research };
+        saveTalentResearchCache(campaign.id, next);
+        return next;
+      });
+    },
+    [campaign.id]
+  );
+
+  const cacheLeynaExchange = useCallback(
+    (brandName: string, research: CachedLeynaExchange) => {
+      const key = brandResearchKey(brandName);
+      if (!key) return;
+      setLeynaExchangeCache((prev) => {
+        const next = { ...prev, [key]: research };
+        saveLeynaExchangeCache(campaign.id, next);
+        return next;
+      });
+    },
+    [campaign.id]
+  );
+
+  const composerLockedTalentIds = useMemo(() => {
+    const briefs = composerContact?.missionBrief?.condensationBriefs;
+    if (!briefs || briefs.length < 2) return null;
+    const fromBriefs = briefs
+      .map((b) => String(b.talentId || "").trim())
+      .filter(Boolean);
+    if (fromBriefs.length >= 2) return Array.from(new Set(fromBriefs));
+    const currentId = campaign.talent.id;
+    return Array.from(
+      new Set([currentId, ...fromBriefs.filter((id) => id !== currentId)])
+    );
+  }, [composerContact, campaign.talent.id]);
+
+  const composerInitialBrandResearch = useMemo(() => {
+    // Même priorité que le batch : marqueNom (company) puis targetBrand.
+    return lookupBrandCache(
+      brandResearchCache,
+      composerContact?.company,
+      composerContact?.missionBrief?.targetBrand
+    );
+  }, [composerContact, brandResearchCache]);
+
+  const composerInitialTalentResearch = useMemo(() => {
+    return lookupBrandCache(
+      talentResearchCache,
+      composerContact?.company,
+      composerContact?.missionBrief?.targetBrand
+    );
+  }, [composerContact, talentResearchCache]);
+
+  const composerInitialLeynaExchange = useMemo(() => {
+    return lookupBrandCache(
+      leynaExchangeCache,
+      composerContact?.company,
+      composerContact?.missionBrief?.targetBrand
+    );
+  }, [composerContact, leynaExchangeCache]);
+
+  /**
+   * Marques à analyser en batch : une entrée / marque (cache projet).
+   * Inclus PRIMARY et MEMBER (sinon Cultura condensée MEMBER n’était jamais analysée ici).
+   * Si les deux existent pour la même marque, on préfère PRIMARY (meilleurs briefs).
+   */
+  const brandsToBatchResearch = useMemo(() => {
+    const byKey = new Map<string, Mission>();
+    for (const m of draftable) {
+      if (brandCooldownActive(m)) continue;
+      const name = (m.marqueNom || m.targetBrand || "").trim();
+      if (!name) continue;
+      const key = brandResearchKey(name);
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, m);
+        continue;
+      }
+      if (
+        existing.condensationRole === "MEMBER" &&
+        m.condensationRole === "PRIMARY"
+      ) {
+        byKey.set(key, m);
+      }
+    }
+    return Array.from(byKey.values());
+  }, [draftable]);
+
+  const brandCacheCount = useMemo(
+    () =>
+      brandsToBatchResearch.filter((m) =>
+        hasBrandCacheEntry(brandResearchCache, m.marqueNom, m.targetBrand)
+      ).length,
+    [brandsToBatchResearch, brandResearchCache]
+  );
+  const talentCacheCount = useMemo(
+    () =>
+      brandsToBatchResearch.filter((m) => {
+        const hit = lookupBrandCache(
+          talentResearchCache,
+          m.marqueNom,
+          m.targetBrand
+        );
+        return Array.isArray(hit) && hit.length > 0;
+      }).length,
+    [brandsToBatchResearch, talentResearchCache]
+  );
+  const leynaCacheCount = useMemo(
+    () =>
+      brandsToBatchResearch.filter((m) =>
+        hasBrandCacheEntry(leynaExchangeCache, m.marqueNom, m.targetBrand)
+      ).length,
+    [brandsToBatchResearch, leynaExchangeCache]
+  );
+
+  async function buildProjectPayloadForMission(
+    m: Mission,
+    brandName: string,
+    signal: AbortSignal
+  ): Promise<{
+    projectPayload: Record<string, unknown>;
+    talentIds: string[];
+  }> {
+    let projectPayload: Record<string, unknown> = {
+      projectBrief: {
+        talentId: campaign.talent.id,
+        projectTitle: campaign.title,
+        projectDescription: campaign.description,
+        creatorName: campaign.talent.name,
+        targetBrand: brandName,
+        strategyReason: m.strategyReason,
+        recommendedAngle: m.recommendedAngle,
+        objective: m.objective || campaign.objective,
+        deliverables: campaign.deliverables,
+        angles: campaign.angles,
+        timeline: campaign.timeline,
+        budgetRange: campaign.budgetRange,
+        dos: m.dos || campaign.dos,
+        donts: m.donts || campaign.donts,
+      },
+    };
+    let talentIds: string[] = [campaign.talent.id];
+
+    if (campaign.mode === "MULTI" && (campaign.talents?.length || 0) >= 2) {
+      const all = campaign.talents || [];
+      const selected =
+        Array.isArray(m.selectedTalentIds) && m.selectedTalentIds.length > 0
+          ? all.filter((t) => m.selectedTalentIds!.includes(t.id))
+          : all;
+      const forMail = selected.length >= 1 ? selected : all;
+      talentIds = forMail.map((t) => t.id).filter(Boolean);
+      if (forMail.length >= 2) {
+        projectPayload = {
+          sharedProject: true,
+          projectBriefs: forMail.map((t) => ({
+            talentId: t.id,
+            projectTitle: campaign.title,
+            projectDescription: campaign.description,
+            creatorName: t.name,
+            targetBrand: brandName,
+            strategyReason: m.strategyReason,
+            recommendedAngle: m.recommendedAngle,
+            objective: m.objective || campaign.objective,
+            deliverables: campaign.deliverables,
+            angles: campaign.angles,
+            timeline: campaign.timeline,
+            budgetRange: campaign.budgetRange,
+            dos: m.dos || campaign.dos,
+            donts: m.donts || campaign.donts,
+          })),
+        };
+      }
+    } else if (
+      m.condensationGroupId ||
+      m.condensationStatus === "CONDENSED" ||
+      m.condensationRole === "PRIMARY" ||
+      m.condensationRole === "MEMBER"
+    ) {
+      try {
+        const briefsRes = await fetch(
+          `/api/projets-outreach/condensation-briefs?missionId=${encodeURIComponent(m.id)}`,
+          { credentials: "include", signal }
+        );
+        const briefsData = await briefsRes.json().catch(() => ({}));
+        if (
+          briefsRes.ok &&
+          Array.isArray(briefsData.condensationBriefs) &&
+          briefsData.condensationBriefs.length >= 2
+        ) {
+          const briefs = briefsData.condensationBriefs as Array<{
+            talentId?: string | null;
+          }>;
+          projectPayload = {
+            sharedProject: false,
+            projectBriefs: briefsData.condensationBriefs,
+          };
+          const fromBriefs = briefs
+            .map((b) => String(b.talentId || "").trim())
+            .filter(Boolean);
+          if (fromBriefs.length > 0) talentIds = Array.from(new Set(fromBriefs));
+        }
+      } catch {
+        // fallback mono
+      }
+    }
+
+    return { projectPayload, talentIds: talentIds.slice(0, 8) };
+  }
+
+  function missionLabel(m: Mission): string {
+    return (m.marqueNom || m.targetBrand || "").trim() || "marque";
+  }
+
+  function startBatchProgress(
+    phase: "marques" | "talents",
+    total: number,
+    current: string,
+    opts?: { isRetry?: boolean }
+  ) {
+    setBatchResearch({
+      running: true,
+      phase,
+      done: 0,
+      total,
+      phaseDone: 0,
+      phaseTotal: total,
+      current: opts?.isRetry ? `Relance · ${current}` : current,
+      failed: 0,
+      failedNames: [],
+      isRetry: Boolean(opts?.isRetry),
+    });
+  }
+
+  function bumpBatchProgress(args: {
+    phase: "marques" | "talents";
+    done: number;
+    total: number;
+    current: string;
+    failed: number;
+    failedNames?: string[];
+    isRetry?: boolean;
+  }) {
+    setBatchResearch({
+      running: true,
+      phase: args.phase,
+      done: args.done,
+      total: args.total,
+      phaseDone: args.done,
+      phaseTotal: args.total,
+      current: args.isRetry ? `Relance · ${args.current}` : args.current,
+      failed: args.failed,
+      failedNames: args.failedNames || [],
+      isRetry: Boolean(args.isRetry),
+    });
+  }
+
+  /** Relance auto : uniquement les missions en échec, jusqu’à maxAttempts fois. */
+  async function retryFailedOnly(
+    label: string,
+    failed: Mission[],
+    runWave: (
+      wave: Mission[],
+      waveOpts?: { isRetry?: boolean }
+    ) => Promise<{ failedMissions: Mission[] }>,
+    ac: AbortController,
+    maxAttempts = 2
+  ): Promise<Mission[]> {
+    let pending = failed;
+    for (let attempt = 1; attempt <= maxAttempts && pending.length > 0; attempt++) {
+      if (ac.signal.aborted) break;
+      const names = pending.map(missionLabel).join(", ");
+      setSuccess(
+        `Relance auto ${attempt}/${maxAttempts} — uniquement : ${names}`
+      );
+      await new Promise((r) => setTimeout(r, 600));
+      if (ac.signal.aborted) break;
+      const retry = await runWave(pending, { isRetry: true });
+      pending = retry.failedMissions;
+    }
+    return pending;
+  }
+
+  type BatchRunOpts = { quiet?: boolean };
+
+  /** Même logique que le composer : d’abord les marques. @returns false si abort. */
+  async function runBatchBrandResearch(opts?: BatchRunOpts): Promise<boolean> {
+    if (batchResearch?.running) return false;
+    if (brandsToBatchResearch.length === 0) {
+      if (!opts?.quiet) setSuccess("Aucune marque à analyser pour l’instant.");
+      return true;
+    }
+    const targets = brandsToBatchResearch.filter(
+      (m) => !hasBrandCacheEntry(brandResearchCache, m.marqueNom, m.targetBrand)
+    );
+    if (targets.length === 0) {
+      if (!opts?.quiet) {
+        setSuccess(
+          `Toutes les marques sont déjà analysées (${brandCacheCount}). Tu peux lancer les talents.`
+        );
+      }
+      return true;
+    }
+
+    batchAbortRef.current?.abort();
+    const ac = new AbortController();
+    batchAbortRef.current = ac;
+
+    const analyzeOne = async (m: Mission): Promise<boolean> => {
+      const brandName = (m.marqueNom || m.targetBrand || "").trim();
+      const { projectPayload } = await buildProjectPayloadForMission(
+        m,
+        brandName,
+        ac.signal
+      );
+      const res = await fetch("/api/casting/brand-research", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        signal: ac.signal,
+        body: JSON.stringify({
+          brandName,
+          availabilityFocus: "FR",
+          ...projectPayload,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Analyse marque impossible"
+        );
+      }
+      cacheBrandResearch(brandName, data as CachedBrandResearch);
+      return true;
+    };
+
+    const runWave = async (wave: Mission[]) => {
+      let done = 0;
+      let failed = 0;
+      const failedMissions: Mission[] = [];
+      startBatchProgress(
+        "marques",
+        wave.length,
+        wave[0]?.marqueNom || wave[0]?.targetBrand || ""
+      );
+      await mapPool(wave, 2, async (m) => {
+        if (ac.signal.aborted) return;
+        const brandName = (m.marqueNom || m.targetBrand || "").trim();
+        bumpBatchProgress({
+          phase: "marques",
+          done,
+          total: wave.length,
+          current: brandName,
+          failed,
+        });
+        try {
+          await analyzeOne(m);
+        } catch (e) {
+          if (ac.signal.aborted) return;
+          failed += 1;
+          failedMissions.push(m);
+          console.error(`Batch brand-research ${brandName}:`, e);
+        } finally {
+          if (!ac.signal.aborted) {
+            done += 1;
+            bumpBatchProgress({
+              phase: "marques",
+              done,
+              total: wave.length,
+              current: brandName,
+              failed,
+            });
+          }
+        }
+      });
+      return { done, failed, failedMissions };
+    };
+
+    try {
+      let result = await runWave(targets);
+      // 1 retry auto sur les échecs (timeouts x.ai fréquents).
+      if (!ac.signal.aborted && result.failedMissions.length > 0) {
+        setSuccess(
+          `Relance auto de ${result.failedMissions.length} marque(s) en échec…`
+        );
+        const retry = await runWave(result.failedMissions);
+        const stillFailed = retry.failedMissions.map(
+          (m) => m.marqueNom || m.targetBrand
+        );
+        const ok =
+          targets.length - stillFailed.length;
+        setBatchResearch(null);
+        if (stillFailed.length > 0) {
+          setError(
+            `Marques OK ${ok}/${targets.length}. Encore en échec : ${stillFailed.join(", ")}. Relance « Analyser toutes les marques ».`
+          );
+        } else if (!opts?.quiet) {
+          setSuccess(
+            `Marques OK (${targets.length}, dont ${result.failedMissions.length} en retry). Ensuite : Analyser tous les talents.`
+          );
+        }
+        return !ac.signal.aborted;
+      }
+      if (ac.signal.aborted) return false;
+      setBatchResearch(null);
+      if (!opts?.quiet) {
+        setSuccess(
+          `Marques OK (${result.done}). Ensuite : Analyser tous les talents.`
+        );
+      }
+      return true;
+    } catch (e) {
+      if (ac.signal.aborted) return false;
+      setBatchResearch(null);
+      setError(e instanceof Error ? e.message : "Batch marques impossible.");
+      return false;
+    }
+  }
+
+  /** Même logique que le composer : talents seulement après analyse marque. */
+  async function runBatchTalentResearch(opts?: BatchRunOpts): Promise<boolean> {
+    if (batchResearch?.running) return false;
+    if (brandsToBatchResearch.length === 0) {
+      if (!opts?.quiet) setSuccess("Aucune marque à analyser pour l’instant.");
+      return true;
+    }
+
+    const brandCacheNow = {
+      ...brandResearchCache,
+      ...loadBrandResearchCache(campaign.id),
+    };
+    const withBrand = brandsToBatchResearch.filter((m) =>
+      hasBrandCacheEntry(brandCacheNow, m.marqueNom, m.targetBrand)
+    );
+    if (withBrand.length === 0) {
+      if (!opts?.quiet) {
+        setError("Analyse d’abord les marques (bouton « Analyser toutes les marques »).");
+      }
+      return false;
+    }
+
+    const talentCacheNow = {
+      ...talentResearchCache,
+      ...loadTalentResearchCache(campaign.id),
+    };
+    const targets = withBrand.filter((m) => {
+      const hit = lookupBrandCache(talentCacheNow, m.marqueNom, m.targetBrand);
+      return !(Array.isArray(hit) && hit.length > 0);
+    });
+    if (targets.length === 0) {
+      if (!opts?.quiet) {
+        setSuccess(`Tous les talents sont déjà analysés (${talentCacheCount}).`);
+      }
+      return true;
+    }
+
+    batchAbortRef.current?.abort();
+    const ac = new AbortController();
+    batchAbortRef.current = ac;
+
+    const analyzeOne = async (m: Mission) => {
+      const brandName = (m.marqueNom || m.targetBrand || "").trim();
+      const { projectPayload, talentIds } = await buildProjectPayloadForMission(
+        m,
+        brandName,
+        ac.signal
+      );
+      // Filet : toujours au moins le talent du projet (évite 0 id sur MEMBER condensé).
+      const ids =
+        talentIds.length > 0
+          ? talentIds
+          : [campaign.talent.id].filter(Boolean);
+      if (ids.length === 0) {
+        throw new Error("Aucun talent pour cette marque");
+      }
+      const res = await fetch("/api/casting/talent-research", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        signal: ac.signal,
+        body: JSON.stringify({
+          brandName,
+          talentIds: ids,
+          strategyReason: m.strategyReason || "",
+          recommendedAngle: m.recommendedAngle || "",
+          ...projectPayload,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Analyse talent impossible"
+        );
+      }
+      const list = Array.isArray(data.talents)
+        ? (data.talents as CachedTalentResearchItem[])
+        : [];
+      if (list.length === 0) throw new Error("Réponse talents vide");
+      cacheTalentResearch(brandName, list);
+    };
+
+    const runWave = async (wave: Mission[]) => {
+      let done = 0;
+      let failed = 0;
+      const failedMissions: Mission[] = [];
+      startBatchProgress(
+        "talents",
+        wave.length,
+        wave[0]?.marqueNom || wave[0]?.targetBrand || ""
+      );
+      await mapPool(wave, 2, async (m) => {
+        if (ac.signal.aborted) return;
+        const brandName = (m.marqueNom || m.targetBrand || "").trim();
+        bumpBatchProgress({
+          phase: "talents",
+          done,
+          total: wave.length,
+          current: brandName,
+          failed,
+        });
+        try {
+          await analyzeOne(m);
+        } catch (e) {
+          if (ac.signal.aborted) return;
+          failed += 1;
+          failedMissions.push(m);
+          console.error(`Batch talent-research ${brandName}:`, e);
+        } finally {
+          if (!ac.signal.aborted) {
+            done += 1;
+            bumpBatchProgress({
+              phase: "talents",
+              done,
+              total: wave.length,
+              current: brandName,
+              failed,
+            });
+          }
+        }
+      });
+      return { done, failed, failedMissions };
+    };
+
+    try {
+      const result = await runWave(targets);
+      if (!ac.signal.aborted && result.failedMissions.length > 0) {
+        setSuccess(
+          `Relance auto de ${result.failedMissions.length} talent(s)/marque en échec…`
+        );
+        const retry = await runWave(result.failedMissions);
+        const stillFailed = retry.failedMissions.map(
+          (m) => m.marqueNom || m.targetBrand
+        );
+        const ok = targets.length - stillFailed.length;
+        setBatchResearch(null);
+        if (stillFailed.length > 0) {
+          setError(
+            `Talents OK ${ok}/${targets.length}. Encore en échec : ${stillFailed.join(", ")}. Relance « Analyser tous les talents ».`
+          );
+        } else if (!opts?.quiet) {
+          setSuccess(
+            `Talents OK (${targets.length}, dont ${result.failedMissions.length} en retry). Boîte mail peut tourner en parallèle.`
+          );
+        }
+        return !ac.signal.aborted;
+      }
+      if (ac.signal.aborted) return false;
+      setBatchResearch(null);
+      if (!opts?.quiet) {
+        setSuccess(
+          `Talents OK (${result.done}). Boîte mail peut tourner en parallèle.`
+        );
+      }
+      return true;
+    } catch (e) {
+      if (ac.signal.aborted) return false;
+      setBatchResearch(null);
+      setError(e instanceof Error ? e.message : "Batch talents impossible.");
+      return false;
+    }
+  }
+
+  /**
+   * Scan boîte Leyna — indépendant des talents (peut tourner en parallèle).
+   * Requis : marques analysées (pour cibler les mêmes lignes projet).
+   */
+  async function runBatchLeynaExchange(opts?: BatchRunOpts): Promise<boolean> {
+    if (batchLeyna?.running) return false;
+    if (brandsToBatchResearch.length === 0) {
+      if (!opts?.quiet) setSuccess("Aucune marque à analyser pour l’instant.");
+      return true;
+    }
+    const brandCacheNow = {
+      ...brandResearchCache,
+      ...loadBrandResearchCache(campaign.id),
+    };
+    const withBrand = brandsToBatchResearch.filter((m) =>
+      hasBrandCacheEntry(brandCacheNow, m.marqueNom, m.targetBrand)
+    );
+    if (withBrand.length === 0) {
+      if (!opts?.quiet) setError("Analyse d’abord les marques.");
+      return false;
+    }
+
+    const leynaCacheNow = {
+      ...leynaExchangeCache,
+      ...loadLeynaExchangeCache(campaign.id),
+    };
+    const targets = withBrand.filter(
+      (m) => !hasBrandCacheEntry(leynaCacheNow, m.marqueNom, m.targetBrand)
+    );
+    if (targets.length === 0) {
+      if (!opts?.quiet) {
+        setSuccess(
+          `Boîte mail déjà scannée (${leynaCacheCount}/${withBrand.length}).`
+        );
+      }
+      return true;
+    }
+
+    batchLeynaAbortRef.current?.abort();
+    const ac = new AbortController();
+    batchLeynaAbortRef.current = ac;
+
+    const analyzeOne = async (m: Mission) => {
+      const brandName = (m.marqueNom || m.targetBrand || "").trim();
+      const emails = effectiveMissionContacts(m)
+        .map((c) => String(c.email || "").trim())
+        .filter((e) => e.includes("@"));
+      const talentCacheLive = {
+        ...talentResearchCache,
+        ...loadTalentResearchCache(campaign.id),
+      };
+      const talentCached =
+        lookupBrandCache(talentCacheLive, brandName, m.marqueNom, m.targetBrand) ||
+        [];
+      const talentNames = talentCached.map((t) => t.name);
+      const res = await fetch("/api/casting/leyna-exchange-context", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        signal: ac.signal,
+        body: JSON.stringify({
+          recipientEmails: emails,
+          brandName,
+          talentNames:
+            talentNames.length > 0
+              ? talentNames
+              : [campaign.talent.name].filter(Boolean),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Scan boîte mail impossible"
+        );
+      }
+      const ctx = (data?.context || {
+        hasExchange: false,
+      }) as CachedLeynaExchange;
+      cacheLeynaExchange(brandName, {
+        hasExchange: Boolean(ctx.hasExchange),
+        tone: ctx.tone ?? null,
+        bannerLabel: ctx.bannerLabel ?? null,
+        contacts: Array.isArray(ctx.contacts) ? ctx.contacts : [],
+      });
+    };
+
+    const runWave = async (wave: Mission[]) => {
+      let done = 0;
+      let failed = 0;
+      const failedMissions: Mission[] = [];
+      setBatchLeyna({
+        running: true,
+        done: 0,
+        total: wave.length,
+        current: wave[0]?.marqueNom || wave[0]?.targetBrand || "",
+        failed: 0,
+      });
+      await mapPool(wave, 2, async (m) => {
+        if (ac.signal.aborted) return;
+        const brandName = (m.marqueNom || m.targetBrand || "").trim();
+        setBatchLeyna({
+          running: true,
+          done,
+          total: wave.length,
+          current: brandName,
+          failed,
+        });
+        try {
+          await analyzeOne(m);
+        } catch (e) {
+          if (ac.signal.aborted) return;
+          failed += 1;
+          failedMissions.push(m);
+          console.error(`Batch leyna-exchange ${brandName}:`, e);
+        } finally {
+          if (!ac.signal.aborted) {
+            done += 1;
+            setBatchLeyna({
+              running: true,
+              done,
+              total: wave.length,
+              current: brandName,
+              failed,
+            });
+          }
+        }
+      });
+      return { done, failed, failedMissions };
+    };
+
+    try {
+      const result = await runWave(targets);
+      if (!ac.signal.aborted && result.failedMissions.length > 0) {
+        setSuccess(
+          `Relance auto de ${result.failedMissions.length} boîte mail en échec…`
+        );
+        const retry = await runWave(result.failedMissions);
+        const stillFailed = retry.failedMissions.map(
+          (m) => m.marqueNom || m.targetBrand
+        );
+        const ok = targets.length - stillFailed.length;
+        setBatchLeyna(null);
+        if (stillFailed.length > 0) {
+          setError(
+            `Boîte mail OK ${ok}/${targets.length}. Encore en échec : ${stillFailed.join(", ")}. Relance « Analyser boîte mail ».`
+          );
+        } else if (!opts?.quiet) {
+          setSuccess(
+            `Boîte mail OK (${targets.length}, dont ${result.failedMissions.length} en retry).`
+          );
+        }
+        return !ac.signal.aborted;
+      }
+      if (ac.signal.aborted) return false;
+      setBatchLeyna(null);
+      if (!opts?.quiet) setSuccess(`Boîte mail OK (${result.done}).`);
+      return true;
+    } catch (e) {
+      if (ac.signal.aborted) return false;
+      setBatchLeyna(null);
+      setError(e instanceof Error ? e.message : "Batch boîte mail impossible.");
+      return false;
+    }
+  }
+
+  /**
+   * Rédige les mails (generate-email) et les pose en « À valider »
+   * pour que casting n’ait plus qu’à relire / corriger.
+   */
+  async function runBatchDraftEmails(opts?: BatchRunOpts): Promise<boolean> {
+    if (batchDraft?.running) return false;
+    if (waveBlocksCasting) {
+      if (!opts?.quiet) {
+        setError(
+          "Casting bloquée : Strategy n’a pas encore validé la vague / condensations."
+        );
+      }
+      return false;
+    }
+    if (brandsToBatchResearch.length === 0) {
+      if (!opts?.quiet) setSuccess("Aucune marque à rédiger pour l’instant.");
+      return true;
+    }
+
+    const brandCacheNow = {
+      ...brandResearchCache,
+      ...loadBrandResearchCache(campaign.id),
+    };
+    const talentCacheNow = {
+      ...talentResearchCache,
+      ...loadTalentResearchCache(campaign.id),
+    };
+    type BatchTalent = {
+      id: string;
+      name: string;
+      prenom?: string;
+      nom?: string;
+      instagram?: string | null;
+      niches?: string[];
+      igFollowers?: number;
+      ttFollowers?: number;
+    };
+    const campaignTalentById = new Map<string, BatchTalent>(
+      (campaign.talents && campaign.talents.length > 0
+        ? campaign.talents
+        : [
+            {
+              id: campaign.talent.id,
+              name: campaign.talent.name,
+              instagram: campaign.talent.instagram,
+              niches: [] as string[],
+              igFollowers: 0,
+              ttFollowers: 0,
+            },
+          ]
+      ).map((t) => [t.id, t])
+    );
+
+    const targets = brandsToBatchResearch.filter((m) => {
+      if (m.awaitingContactsCompletion || brandCooldownActive(m)) return false;
+      if (m.sentAt || m.stage === "SENT") return false;
+      // Déjà prêt pour relecture casting → skip
+      if (
+        m.stage === "DRAFTED_FOR_VALIDATION" &&
+        String(m.draftEmailSubject || "").trim() &&
+        String(m.draftEmailBody || "").trim()
+      ) {
+        return false;
+      }
+      if (!hasBrandCacheEntry(brandCacheNow, m.marqueNom, m.targetBrand)) {
+        return false;
+      }
+      const talentHit = lookupBrandCache(
+        talentCacheNow,
+        m.marqueNom,
+        m.targetBrand
+      );
+      if (!(Array.isArray(talentHit) && talentHit.length > 0)) return false;
+      return true;
+    });
+
+    if (targets.length === 0) {
+      if (!opts?.quiet) {
+        setSuccess(
+          "Rien à rédiger (déjà à valider, ou analyses marque/talents manquantes, ou sans contacts)."
+        );
+      }
+      return true;
+    }
+
+    batchDraftAbortRef.current?.abort();
+    const ac = new AbortController();
+    batchDraftAbortRef.current = ac;
+
+    const resolveContacts = async (m: Mission) => {
+      let local = effectiveMissionContacts(m);
+      const brand = (m.marqueNom || m.targetBrand || "").trim();
+      if (brand.length >= 2) {
+        try {
+          const res = await fetch(
+            `/api/marques/contacts?brand=${encodeURIComponent(brand)}`,
+            { credentials: "include", signal: ac.signal }
+          );
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && Array.isArray(data.contacts)) {
+            const live = (
+              data.contacts as Array<{
+                id?: string;
+                firstname?: string;
+                lastname?: string;
+                email?: string;
+                role?: string;
+                language?: string;
+              }>
+            )
+              .map((c) => ({
+                id: String(c.id || "").trim(),
+                firstname: String(c.firstname || "").trim(),
+                lastname: String(c.lastname || "").trim(),
+                email: String(c.email || "").trim(),
+                role: String(c.role || "").trim(),
+                linkedinUrl: "",
+                language: (String(c.language || "").toLowerCase() === "en"
+                  ? "en"
+                  : "fr") as "fr" | "en",
+              }))
+              .filter((c) => c.email.includes("@"));
+            if (live.length > 0) local = live;
+          }
+        } catch {
+          // snapshot campagne
+        }
+      }
+      return local.filter((c) => String(c.email || "").includes("@"));
+    };
+
+    const draftOne = async (m: Mission) => {
+      const brandName = (m.marqueNom || m.targetBrand || "").trim();
+      const brandResearch = lookupBrandCache(
+        brandCacheNow,
+        m.marqueNom,
+        m.targetBrand,
+        brandName
+      );
+      const talentResearchAll =
+        lookupBrandCache(
+          talentCacheNow,
+          m.marqueNom,
+          m.targetBrand,
+          brandName
+        ) || [];
+      if (!brandResearch) throw new Error("Analyse marque manquante");
+
+      const contacts = await resolveContacts(m);
+      if (contacts.length === 0) {
+        throw new Error("Aucun contact email");
+      }
+
+      const { projectPayload, talentIds } = await buildProjectPayloadForMission(
+        m,
+        brandName,
+        ac.signal
+      );
+      const ids =
+        talentIds.length > 0
+          ? talentIds
+          : [campaign.talent.id].filter(Boolean);
+
+      // Même payload talents que CastingComposer (ordre = briefs / sélection).
+      const talentsPayload = ids.map((id) => {
+        const t = campaignTalentById.get(id);
+        const prenom = String(t?.prenom || "").trim();
+        const nom = String(t?.nom || "").trim();
+        const name =
+          prenom || nom
+            ? `${prenom} ${nom}`.trim()
+            : t?.name || campaign.talent.name;
+        const ig = typeof t?.igFollowers === "number" ? t.igFollowers : 0;
+        const tt = typeof t?.ttFollowers === "number" ? t.ttFollowers : 0;
+        return {
+          talentId: id,
+          name,
+          niche: (t?.niches || []).join(", ") || "—",
+          followers: Math.max(ig, tt),
+          igFollowers: ig,
+          ttFollowers: tt,
+          instagram: t?.instagram ?? campaign.talent.instagram ?? null,
+        };
+      });
+      if (talentsPayload.length === 0) {
+        throw new Error("Aucun talent");
+      }
+
+      // Même filtre que le composer : recherche créateur des talents du mail uniquement.
+      const idSet = new Set(ids);
+      const talentResearch = talentResearchAll
+        .filter((r) => !r.talentId || idSet.has(r.talentId))
+        .map((r) => ({
+          talentId: r.talentId,
+          name: r.name,
+          whoTheyAre: r.whoTheyAre,
+          whatTheyDo: r.whatTheyDo,
+          profileAnalysis: r.profileAnalysis,
+          contentThemes: r.contentThemes,
+          whyRelevant: r.whyRelevant,
+          proofPoints: r.proofPoints,
+          sourcesUsed: r.sourcesUsed,
+        }));
+      if (talentResearch.length === 0) {
+        throw new Error("Analyse talents manquante pour ces profils");
+      }
+
+      // Aligné CastingComposer : nettoie projectBriefs comme à la rédaction manuelle.
+      const rawBriefs = Array.isArray(
+        (projectPayload as { projectBriefs?: unknown[] }).projectBriefs
+      )
+        ? ((projectPayload as { projectBriefs: Array<Record<string, unknown>> })
+            .projectBriefs)
+        : null;
+      const sharedProject = Boolean(
+        (projectPayload as { sharedProject?: boolean }).sharedProject
+      );
+      const projectPart =
+        rawBriefs && rawBriefs.length >= 2
+          ? {
+              sharedProject,
+              projectBriefs: rawBriefs.map((b) => ({
+                projectTitle: (b.projectTitle as string) || null,
+                projectDescription: (b.projectDescription as string) || null,
+                creatorName: (b.creatorName as string) || null,
+                targetBrand:
+                  (b.targetBrand as string) || m.targetBrand || brandName || null,
+                strategyReason: (b.strategyReason as string) || null,
+                recommendedAngle: (b.recommendedAngle as string) || null,
+                objective: (b.objective as string) || null,
+                deliverables: (b.deliverables as string) || null,
+                angles: (b.angles as string) || null,
+                timeline: (b.timeline as string) || null,
+                budgetRange: (b.budgetRange as string) || null,
+                dos: (b.dos as string) || null,
+                donts: (b.donts as string) || null,
+              })),
+            }
+          : {
+              projectBrief: {
+                projectTitle: campaign.title || null,
+                projectDescription: campaign.description || null,
+                creatorName:
+                  talentsPayload.map((t) => t.name).join(", ") ||
+                  campaign.talent.name,
+                targetBrand: m.targetBrand || brandName,
+                strategyReason: m.strategyReason || null,
+                recommendedAngle: m.recommendedAngle || null,
+                objective: m.objective || campaign.objective || null,
+                deliverables: campaign.deliverables || null,
+                angles: campaign.angles || null,
+                timeline: campaign.timeline || null,
+                budgetRange: campaign.budgetRange || null,
+                dos: m.dos || campaign.dos || null,
+                donts: m.donts || campaign.donts || null,
+              },
+            };
+
+      const lang = deriveClientLanguage(contacts, m.clientLanguage);
+      const genLanguage = lang === "EN" ? "en" : "fr";
+      const recipientEmails = contacts
+        .map((c) => String(c.email || "").trim())
+        .filter((e) => e.includes("@"));
+
+      // Même endpoint + mêmes champs que le bouton « Rédiger » du composer.
+      const res = await fetch("/api/casting/generate-email", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        signal: ac.signal,
+        body: JSON.stringify({
+          language: genLanguage,
+          market: "FR",
+          availabilityFocus: "FR",
+          brandName,
+          brandResearch,
+          talents: talentsPayload,
+          recipientEmails,
+          talentResearch,
+          ...projectPart,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Rédaction impossible"
+        );
+      }
+      const subject = String(data.subject || "").trim();
+      const body = String(data.body || "").trim();
+      if (!subject || !body) throw new Error("Brouillon vide");
+
+      await patchMission(m.id, {
+        stage: "DRAFTED_FOR_VALIDATION",
+        status: "EMAIL_DRAFTED",
+        draftEmailSubject: subject,
+        draftEmailBody: body,
+        draftLanguage: genLanguage,
+        clientContacts: contacts.map((c) => ({
+          firstname: c.firstname || "",
+          lastname: c.lastname || "",
+          email: c.email,
+          role: c.role || "",
+        })),
+      });
+    };
+
+    const runWave = async (wave: Mission[]) => {
+      let done = 0;
+      let failed = 0;
+      const failedMissions: Mission[] = [];
+      setBatchDraft({
+        running: true,
+        done: 0,
+        total: wave.length,
+        current: wave[0]?.marqueNom || wave[0]?.targetBrand || "",
+        failed: 0,
+      });
+      // 1 à la fois : generate-email est lourd (Grok + Gmail)
+      await mapPool(wave, 1, async (m) => {
+        if (ac.signal.aborted) return;
+        const brandName = (m.marqueNom || m.targetBrand || "").trim();
+        setBatchDraft({
+          running: true,
+          done,
+          total: wave.length,
+          current: brandName,
+          failed,
+        });
+        try {
+          await draftOne(m);
+        } catch (e) {
+          if (ac.signal.aborted) return;
+          failed += 1;
+          failedMissions.push(m);
+          console.error(`Batch draft ${brandName}:`, e);
+        } finally {
+          if (!ac.signal.aborted) {
+            done += 1;
+            setBatchDraft({
+              running: true,
+              done,
+              total: wave.length,
+              current: brandName,
+              failed,
+            });
+          }
+        }
+      });
+      return { done, failed, failedMissions };
+    };
+
+    try {
+      const result = await runWave(targets);
+      if (!ac.signal.aborted && result.failedMissions.length > 0) {
+        setSuccess(
+          `Relance auto de ${result.failedMissions.length} rédaction(s) en échec…`
+        );
+        const retry = await runWave(result.failedMissions);
+        const stillFailed = retry.failedMissions.map(
+          (m) => m.marqueNom || m.targetBrand
+        );
+        const ok = targets.length - stillFailed.length;
+        setBatchDraft(null);
+        await onChanged();
+        if (stillFailed.length > 0) {
+          setError(
+            `Rédaction OK ${ok}/${targets.length}. Encore en échec : ${stillFailed.join(", ")}.`
+          );
+        } else if (!opts?.quiet) {
+          setSuccess(
+            `Mails rédigés (${targets.length}) — à valider / corriger par casting.`
+          );
+        }
+        return !ac.signal.aborted;
+      }
+      if (ac.signal.aborted) return false;
+      setBatchDraft(null);
+      await onChanged();
+      if (!opts?.quiet) {
+        setSuccess(
+          `Mails rédigés (${result.done}) — à valider / corriger par casting.`
+        );
+      }
+      return true;
+    } catch (e) {
+      if (ac.signal.aborted) return false;
+      setBatchDraft(null);
+      setError(e instanceof Error ? e.message : "Batch rédaction impossible.");
+      return false;
+    }
+  }
+
+  /**
+   * Un clic : marques → talents → Leyna → rédaction.
+   * Casting n’a plus qu’à ouvrir et corriger.
+   */
+  async function runBatchFullPipeline() {
+    if (
+      batchResearch?.running ||
+      batchLeyna?.running ||
+      batchDraft?.running ||
+      batchPipelineActiveRef.current
+    ) {
+      return;
+    }
+    if (brandsToBatchResearch.length === 0) {
+      setSuccess("Aucune marque à analyser pour l’instant.");
+      return;
+    }
+    batchPipelineActiveRef.current = true;
+    setError(null);
+    try {
+      setBatchPipeline({ running: true, step: 1, label: "Marques" });
+      const brandsOk = await runBatchBrandResearch({ quiet: true });
+      if (!batchPipelineActiveRef.current || !brandsOk) return;
+
+      setBatchPipeline({ running: true, step: 2, label: "Talents" });
+      const talentsOk = await runBatchTalentResearch({ quiet: true });
+      if (!batchPipelineActiveRef.current || !talentsOk) return;
+
+      setBatchPipeline({ running: true, step: 3, label: "Boîte mail Leyna" });
+      await runBatchLeynaExchange({ quiet: true });
+      if (!batchPipelineActiveRef.current) return;
+
+      setBatchPipeline({ running: true, step: 4, label: "Rédaction mails" });
+      await runBatchDraftEmails({ quiet: true });
+      if (!batchPipelineActiveRef.current) return;
+
+      setSuccess(
+        "Pipeline terminé (marque → talents → Leyna → mails). Casting peut relire et corriger."
+      );
+    } finally {
+      batchPipelineActiveRef.current = false;
+      setBatchPipeline(null);
+    }
+  }
+
+  function stopBatchResearch() {
+    batchPipelineActiveRef.current = false;
+    batchAbortRef.current?.abort();
+    batchAbortRef.current = null;
+    setBatchResearch(null);
+    setBatchPipeline(null);
+    setSuccess("Analyse marques/talents interrompue — cache conservé.");
+  }
+
+  function stopBatchLeyna() {
+    batchPipelineActiveRef.current = false;
+    batchLeynaAbortRef.current?.abort();
+    batchLeynaAbortRef.current = null;
+    setBatchLeyna(null);
+    setBatchPipeline(null);
+    setSuccess("Analyse boîte mail interrompue — cache conservé.");
+  }
+
+  function stopBatchDraft() {
+    batchPipelineActiveRef.current = false;
+    batchDraftAbortRef.current?.abort();
+    batchDraftAbortRef.current = null;
+    setBatchDraft(null);
+    setBatchPipeline(null);
+    setSuccess("Rédaction interrompue — brouillons déjà sauvés conservés.");
+  }
+
+  function stopBatchPipeline() {
+    batchPipelineActiveRef.current = false;
+    batchAbortRef.current?.abort();
+    batchAbortRef.current = null;
+    batchLeynaAbortRef.current?.abort();
+    batchLeynaAbortRef.current = null;
+    batchDraftAbortRef.current?.abort();
+    batchDraftAbortRef.current = null;
+    setBatchResearch(null);
+    setBatchLeyna(null);
+    setBatchDraft(null);
+    setBatchPipeline(null);
+    setSuccess("Pipeline interrompu — cache / brouillons conservés.");
+  }
 
   async function requestCompletion(m: Mission) {
     if (!m.marqueId) {
@@ -2638,6 +4263,13 @@ function RedactionTab({
       );
       return;
     }
+    if (brandCooldownActive(m)) {
+      setError(
+        m.brandCooldownReason ||
+          `« ${m.marqueNom || m.targetBrand} » est en attente jusqu’au ${brandCooldownLabel(m)} (déjà contactée récemment).`
+      );
+      return;
+    }
     let localContacts = effectiveMissionContacts(m);
 
     // Recharge live depuis le CRM (évite le bug Prisma NOT source=AO qui
@@ -2708,7 +4340,13 @@ function RedactionTab({
           donts: m.donts || campaign.donts,
         }));
       }
-    } else if (m.condensationGroupId || m.condensationStatus === "CONDENSED") {
+    } else if (
+      m.condensationGroupId ||
+      m.condensationStatus === "CONDENSED" ||
+      m.condensationRole === "PRIMARY" ||
+      m.condensationRole === "MEMBER" ||
+      (m.condensationPeerNames && m.condensationPeerNames.length > 0)
+    ) {
       try {
         const res = await fetch(
           `/api/projets-outreach/condensation-briefs?missionId=${encodeURIComponent(m.id)}`,
@@ -2718,10 +4356,19 @@ function RedactionTab({
         if (res.ok && Array.isArray(data.condensationBriefs)) {
           condensationBriefs = data.condensationBriefs;
         }
+        if (!condensationBriefs || condensationBriefs.length < 2) {
+          setError(
+            `Condensation incomplète pour ${m.targetBrand} (${condensationBriefs?.length || 0} talent(s) chargé(s)). Réessaie ou rescane les condensations.`
+          );
+        }
       } catch {
-        // mono-brief fallback
+        setError(`Impossible de charger les talents condensés pour ${m.targetBrand}.`);
       }
     }
+
+    const isCondensedMail = Boolean(
+      condensationBriefs && condensationBriefs.length >= 2
+    );
 
     const priority = (["LOW", "MEDIUM", "HIGH", "URGENT"].includes(m.priority)
       ? m.priority
@@ -2735,8 +4382,11 @@ function RedactionTab({
     ) as ComposerContact["missionBrief"]["status"];
 
     const creatorLabel =
-      sharedProject && condensationBriefs && condensationBriefs.length >= 2
-        ? condensationBriefs.map((b) => b.creatorName).filter(Boolean).join(", ")
+      isCondensedMail || sharedProject
+        ? (condensationBriefs || [])
+            .map((b) => b.creatorName)
+            .filter(Boolean)
+            .join(", ") || campaign.talent.name
         : campaign.talent.name;
 
     setComposerContact({
@@ -3012,31 +4662,18 @@ function RedactionTab({
             useHubspot={false}
             allowSchedule={false}
             enableTalentResearch
+            initialBrandResearch={composerInitialBrandResearch}
+            onBrandResearchCached={cacheBrandResearch}
+            initialTalentResearch={composerInitialTalentResearch}
+            onTalentResearchCached={cacheTalentResearch}
+            initialLeynaExchange={composerInitialLeynaExchange}
+            onLeynaExchangeCached={cacheLeynaExchange}
             lockedTalentId={
-              composerContact?.missionBrief?.condensationBriefs &&
-              composerContact.missionBrief.condensationBriefs.length >= 2
+              composerLockedTalentIds && composerLockedTalentIds.length >= 2
                 ? null
                 : campaign.talent.id
             }
-            lockedTalentIds={
-              composerContact?.missionBrief?.condensationBriefs &&
-              composerContact.missionBrief.condensationBriefs.length >= 2
-                ? (() => {
-                    const briefs = composerContact.missionBrief.condensationBriefs;
-                    const fromBriefs = briefs
-                      .map((b) => String(b.talentId || "").trim())
-                      .filter(Boolean);
-                    if (fromBriefs.length >= 2) {
-                      return Array.from(new Set(fromBriefs));
-                    }
-                    const currentId = campaign.talent.id;
-                    const peerIds = fromBriefs;
-                    return Array.from(
-                      new Set([currentId, ...peerIds.filter((id) => id !== currentId)])
-                    );
-                  })()
-                : null
-            }
+            lockedTalentIds={composerLockedTalentIds}
             readyLabel="Envoyer depuis Leyna"
             onClose={() => {
               setComposerOpen(false);
@@ -3048,11 +4685,299 @@ function RedactionTab({
           />
         </div>
       ) : (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div
+          className="po-card"
+          style={{
+            padding: "14px 16px",
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 12,
+            justifyContent: "space-between",
+          }}
+        >
+          <div style={{ minWidth: 0, flex: "1 1 280px" }}>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 12.5,
+                color: "var(--po-tertiary)",
+                lineHeight: 1.45,
+              }}
+            >
+              {batchPipeline?.running
+                ? `Pipeline ${batchPipeline.step}/4 · ${batchPipeline.label} — tu peux quitter, cache + brouillons restent.`
+                : "Tout analyser + rédiger : marque → talents → Leyna → mails. Casting n’a plus qu’à corriger."}
+            </p>
+            {(batchResearch?.running ||
+              batchLeyna?.running ||
+              batchDraft?.running) && (
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                {batchResearch?.running ? (
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        color: "#5B3F9E",
+                        marginBottom: 6,
+                      }}
+                    >
+                      <span>
+                        {batchPipeline?.running
+                          ? `${batchPipeline.step}/4 · `
+                          : ""}
+                        {batchResearch.phase === "marques" ? "Marques" : "Talents"}
+                        {batchResearch.current ? ` · ${batchResearch.current}` : ""}
+                      </span>
+                      <span>
+                        {batchResearch.phaseDone}/{batchResearch.phaseTotal}
+                        {batchResearch.failed > 0
+                          ? ` · ${batchResearch.failed} échec${batchResearch.failed > 1 ? "s" : ""}`
+                          : ""}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        height: 8,
+                        borderRadius: 999,
+                        background: "#EEEAFB",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.min(
+                            100,
+                            Math.round(
+                              (batchResearch.phaseTotal > 0
+                                ? batchResearch.phaseDone / batchResearch.phaseTotal
+                                : 0) * 100
+                            )
+                          )}%`,
+                          background: "linear-gradient(90deg, #7B5CC8, #5B3F9E)",
+                          borderRadius: 999,
+                          transition: "width 0.35s ease",
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+                {batchLeyna?.running ? (
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        color: "#5B3F9E",
+                        marginBottom: 6,
+                      }}
+                    >
+                      <span>
+                        {batchPipeline?.running ? "3/4 · " : ""}
+                        Boîte mail
+                        {batchLeyna.current ? ` · ${batchLeyna.current}` : ""}
+                      </span>
+                      <span>
+                        {batchLeyna.done}/{batchLeyna.total}
+                        {batchLeyna.failed > 0
+                          ? ` · ${batchLeyna.failed} échec${batchLeyna.failed > 1 ? "s" : ""}`
+                          : ""}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        height: 8,
+                        borderRadius: 999,
+                        background: "#EEEAFB",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.min(
+                            100,
+                            Math.round(
+                              (batchLeyna.total > 0
+                                ? batchLeyna.done / batchLeyna.total
+                                : 0) * 100
+                            )
+                          )}%`,
+                          background: "linear-gradient(90deg, #7B5CC8, #5B3F9E)",
+                          borderRadius: 999,
+                          transition: "width 0.35s ease",
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+                {batchDraft?.running ? (
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        color: "#5B3F9E",
+                        marginBottom: 6,
+                      }}
+                    >
+                      <span>
+                        {batchPipeline?.running ? "4/4 · " : ""}
+                        Rédaction
+                        {batchDraft.current ? ` · ${batchDraft.current}` : ""}
+                      </span>
+                      <span>
+                        {batchDraft.done}/{batchDraft.total}
+                        {batchDraft.failed > 0
+                          ? ` · ${batchDraft.failed} échec${batchDraft.failed > 1 ? "s" : ""}`
+                          : ""}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        height: 8,
+                        borderRadius: 999,
+                        background: "#EEEAFB",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${Math.min(
+                            100,
+                            Math.round(
+                              (batchDraft.total > 0
+                                ? batchDraft.done / batchDraft.total
+                                : 0) * 100
+                            )
+                          )}%`,
+                          background: "linear-gradient(90deg, #7B5CC8, #5B3F9E)",
+                          borderRadius: 999,
+                          transition: "width 0.35s ease",
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {batchPipeline?.running ||
+            batchResearch?.running ||
+            batchLeyna?.running ||
+            batchDraft?.running ? (
+              <button
+                type="button"
+                className="po-btn po-btn-secondary"
+                onClick={
+                  batchPipeline?.running
+                    ? stopBatchPipeline
+                    : batchResearch?.running
+                      ? stopBatchResearch
+                      : batchLeyna?.running
+                        ? stopBatchLeyna
+                        : stopBatchDraft
+                }
+              >
+                {batchPipeline?.running
+                  ? "Arrêter le pipeline"
+                  : batchResearch?.running
+                    ? "Arrêter marques/talents"
+                    : batchLeyna?.running
+                      ? "Arrêter boîte mail"
+                      : "Arrêter rédaction"}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="po-btn po-btn-primary"
+                  disabled={brandsToBatchResearch.length === 0 || !canEdit}
+                  onClick={() => void runBatchFullPipeline()}
+                  title="Marque → talents → Leyna → rédaction auto (À valider)"
+                >
+                  Tout analyser + rédiger
+                </button>
+                <button
+                  type="button"
+                  className="po-btn po-btn-secondary"
+                  disabled={brandsToBatchResearch.length === 0 || !canEdit}
+                  onClick={() => void runBatchBrandResearch()}
+                >
+                  Marques
+                </button>
+                <button
+                  type="button"
+                  className="po-btn po-btn-secondary"
+                  disabled={
+                    brandsToBatchResearch.length === 0 || !canEdit || brandCacheCount === 0
+                  }
+                  onClick={() => void runBatchTalentResearch()}
+                  title={
+                    brandCacheCount === 0
+                      ? "Analyse d’abord les marques"
+                      : "Même logique que dans le mail"
+                  }
+                >
+                  Talents
+                </button>
+                <button
+                  type="button"
+                  className="po-btn po-btn-secondary"
+                  disabled={
+                    brandsToBatchResearch.length === 0 || !canEdit || brandCacheCount === 0
+                  }
+                  onClick={() => void runBatchLeynaExchange()}
+                  title={
+                    brandCacheCount === 0
+                      ? "Analyse d’abord les marques"
+                      : "Peut tourner en parallèle des talents"
+                  }
+                >
+                  Boîte mail
+                </button>
+                <button
+                  type="button"
+                  className="po-btn po-btn-secondary"
+                  disabled={
+                    brandsToBatchResearch.length === 0 ||
+                    !canEdit ||
+                    brandCacheCount === 0 ||
+                    talentCacheCount === 0
+                  }
+                  onClick={() => void runBatchDraftEmails()}
+                  title={
+                    talentCacheCount === 0
+                      ? "Analyse d’abord marques + talents"
+                      : "Rédige les mails → statut À valider"
+                  }
+                >
+                  Rédiger les mails
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
       <div className="po-card po-table-scroll">
         <div
           className="po-table-head"
           style={{
-            gridTemplateColumns: "minmax(140px,1.2fr) minmax(0,2fr) 120px 100px 180px",
+            gridTemplateColumns: "minmax(200px,1.5fr) minmax(0,2fr) 120px 100px 180px",
           }}
         >
           <span>Marque</span>
@@ -3065,39 +4990,142 @@ function RedactionTab({
           const contactCount = effectiveMissionContacts(m).length;
           const name = m.marqueNom || m.targetBrand;
           const awaiting = Boolean(m.awaitingContactsCompletion);
+          const onCooldown = brandCooldownActive(m);
           const needsCompletion = Boolean(m.marqueId) && !awaiting;
+          const hasBrandAnalysis = hasBrandCacheEntry(
+            brandResearchCache,
+            m.marqueNom,
+            m.targetBrand,
+            name
+          );
+          const talentHit = lookupBrandCache(
+            talentResearchCache,
+            m.marqueNom,
+            m.targetBrand,
+            name
+          );
+          const hasTalentAnalysis = Array.isArray(talentHit) && talentHit.length > 0;
+          const leynaHit = lookupBrandCache(
+            leynaExchangeCache,
+            m.marqueNom,
+            m.targetBrand,
+            name
+          );
+          const hasLeynaAnalysis = leynaHit != null;
           return (
             <div
               key={m.id}
               className="po-table-row"
               style={{
-                gridTemplateColumns: "minmax(140px,1.2fr) minmax(0,2fr) 120px 100px 180px",
-                background: awaiting ? "var(--po-prio-med-bg)" : undefined,
+                gridTemplateColumns: "minmax(200px,1.5fr) minmax(0,2fr) 120px 100px 180px",
+                background:
+                  awaiting || onCooldown ? "var(--po-prio-med-bg)" : undefined,
               }}
             >
-              <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex min-w-0 items-start gap-2.5">
                 <PoAvatar name={name} size={26} />
-                <span style={{ fontWeight: 600, color: "var(--po-ink)" }} className="truncate">
-                  {name}
-                </span>
-                {m.condensationStatus === "CONDENSED" ||
-                m.condensationRole === "PRIMARY" ||
-                m.condensationRole === "MEMBER" ? (
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: "#5B3F9E",
-                      background: "#EEEAFB",
-                      borderRadius: 999,
-                      padding: "2px 7px",
-                    }}
+                <div className="min-w-0 flex-1">
+                  <div
+                    style={{ fontWeight: 600, color: "var(--po-ink)", lineHeight: 1.25 }}
+                    className="truncate"
+                    title={name}
                   >
-                    {m.condensationPeerNames && m.condensationPeerNames.length > 0
-                      ? `Avec ${m.condensationPeerNames.join(", ")}`
-                      : "Condensée · 1 mail"}
-                  </span>
-                ) : null}
+                    {name}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {hasBrandAnalysis ? (
+                      <span
+                        title="Analyse marque en cache"
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: "#1F6B4A",
+                          background: "#E5F6EE",
+                          borderRadius: 999,
+                          padding: "2px 7px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Marque ✓
+                      </span>
+                    ) : null}
+                    {hasTalentAnalysis ? (
+                      <span
+                        title="Analyse talents en cache"
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: "#5B3F9E",
+                          background: "#EEEAFB",
+                          borderRadius: 999,
+                          padding: "2px 7px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Talents ✓
+                      </span>
+                    ) : null}
+                    {hasLeynaAnalysis ? (
+                      <span
+                        title={
+                          leynaHit?.hasExchange
+                            ? leynaHit.bannerLabel || "Échange Leyna trouvé"
+                            : "Boîte Leyna scannée — aucun échange"
+                        }
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: leynaHit?.hasExchange ? "#5B3F9E" : "#6B5B4A",
+                          background: leynaHit?.hasExchange ? "#EEEAFB" : "#F3EEE6",
+                          borderRadius: 999,
+                          padding: "2px 7px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {leynaHit?.hasExchange ? "Leyna ✓" : "Leyna —"}
+                      </span>
+                    ) : null}
+                    {onCooldown ? (
+                      <span
+                        title={m.brandCooldownReason || undefined}
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: "#956A15",
+                          background: "#FBF1DC",
+                          borderRadius: 999,
+                          padding: "2px 8px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Attente · {brandCooldownLabel(m)}
+                      </span>
+                    ) : null}
+                    {m.condensationStatus === "CONDENSED" ||
+                    m.condensationRole === "PRIMARY" ||
+                    m.condensationRole === "MEMBER" ? (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: "#5B3F9E",
+                          background: "#EEEAFB",
+                          borderRadius: 999,
+                          padding: "2px 7px",
+                        }}
+                        title={
+                          m.condensationPeerNames && m.condensationPeerNames.length > 0
+                            ? `Avec ${m.condensationPeerNames.join(", ")}`
+                            : undefined
+                        }
+                      >
+                        {m.condensationPeerNames && m.condensationPeerNames.length > 0
+                          ? `Avec ${m.condensationPeerNames.join(", ")}`
+                          : "Condensée · 1 mail"}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
               </div>
               <div
                 className="truncate"
@@ -3109,6 +5137,8 @@ function RedactionTab({
               <div style={{ fontSize: 12, color: "var(--po-tertiary)" }}>
                 {awaiting ? (
                   <StageDotBadge label="En attente contacts" />
+                ) : onCooldown ? (
+                  <StageDotBadge label={`Attente · ${brandCooldownLabel(m)}`} />
                 ) : (
                   <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
                 )}
@@ -3116,8 +5146,11 @@ function RedactionTab({
                   style={{
                     marginTop: 4,
                     fontSize: 11,
-                    color: awaiting ? "var(--po-prio-med-fg)" : "var(--po-muted)",
-                    fontWeight: awaiting ? 600 : 400,
+                    color:
+                      awaiting || onCooldown
+                        ? "var(--po-prio-med-fg)"
+                        : "var(--po-muted)",
+                    fontWeight: awaiting || onCooldown ? 600 : 400,
                   }}
                 >
                   {contactCount} contact(s)
@@ -3178,23 +5211,26 @@ function RedactionTab({
                 {canEdit ? (
                   <button
                     type="button"
-                    disabled={busy || awaiting}
+                    disabled={busy || awaiting || onCooldown}
                     onClick={() => void openComposer(m)}
                     className="po-btn po-btn-primary po-btn-cta-accent"
                     style={{
                       padding: "7px 12px",
                       fontSize: 12,
-                      opacity: awaiting ? 0.45 : 1,
+                      opacity: awaiting || onCooldown ? 0.45 : 1,
                     }}
                     title={
                       awaiting
                         ? "Bloqué — contacts en attente"
-                        : m.draftEmailSubject
-                          ? "Ouvrir le composer"
-                          : "Rédiger le mail"
+                        : onCooldown
+                          ? m.brandCooldownReason ||
+                            `En attente jusqu’au ${brandCooldownLabel(m)}`
+                          : m.draftEmailSubject
+                            ? "Ouvrir le composer"
+                            : "Rédiger le mail"
                     }
                   >
-                    {awaiting
+                    {awaiting || onCooldown
                       ? "Bloqué"
                       : m.draftEmailSubject
                         ? "Ouvrir"
@@ -3207,6 +5243,7 @@ function RedactionTab({
             </div>
           );
         })}
+      </div>
       </div>
       )}
     </div>

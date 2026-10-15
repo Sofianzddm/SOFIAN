@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { canEditBrief, isProjetsOutreachRole } from "@/lib/projets-outreach";
-import { applyClusterDecision } from "@/lib/brand-condensation";
+import {
+  applyClusterDecision,
+  clusterHasMultiProjectHold,
+} from "@/lib/brand-condensation";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -43,17 +46,25 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     if (body.all === true) {
       const clusters = await prisma.outreachWaveBrandCluster.findMany({
         where: { waveId },
-        include: { missions: { select: { id: true } } },
+        include: {
+          missions: { select: { id: true, brandCooldownUntil: true } },
+        },
       });
 
       let updatedCount = 0;
+      let forcedHold = 0;
       for (const cluster of clusters) {
+        const forceHold = clusterHasMultiProjectHold(cluster.missions);
+        const effectiveDecision =
+          forceHold && decision === "SOLO" ? "CONDENSE" : decision;
+        if (forceHold && decision === "SOLO") forcedHold += 1;
+
         await prisma.outreachWaveBrandCluster.update({
           where: { id: cluster.id },
           data: {
-            decision,
+            decision: effectiveDecision,
             primaryMissionId:
-              decision === "CONDENSE"
+              effectiveDecision === "CONDENSE"
                 ? cluster.primaryMissionId || cluster.missions[0]?.id || null
                 : null,
           },
@@ -65,10 +76,14 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       return NextResponse.json({
         updated: updatedCount,
         decision,
+        forcedHold,
         message:
           decision === "CONDENSE"
             ? `${updatedCount} marque(s) condensée(s).`
-            : `${updatedCount} marque(s) en solo.`,
+            : `${updatedCount} marque(s) en solo` +
+              (forcedHold > 0
+                ? ` (${forcedHold} en attente multi-projets restées condensées).`
+                : "."),
       });
     }
 
@@ -82,9 +97,22 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const cluster = await prisma.outreachWaveBrandCluster.findFirst({
       where: { id: clusterId, waveId },
-      include: { missions: { select: { id: true } } },
+      include: {
+        missions: { select: { id: true, brandCooldownUntil: true } },
+      },
     });
     if (!cluster) return NextResponse.json({ error: "Cluster introuvable." }, { status: 404 });
+
+    if (decision === "SOLO" && clusterHasMultiProjectHold(cluster.missions)) {
+      return NextResponse.json(
+        {
+          error:
+            "Cette marque est en attente sur plusieurs projets : Solo interdit — elle reste condensée (1 mail à J+30).",
+          code: "HOLD_FORCE_CONDENSE",
+        },
+        { status: 400 }
+      );
+    }
 
     let primaryMissionId = cluster.primaryMissionId;
     if (decision === "CONDENSE" && body.primaryMissionId) {

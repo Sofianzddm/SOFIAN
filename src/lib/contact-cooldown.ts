@@ -45,6 +45,17 @@ export const PIPELINE_CASTING_SCOPE = {
   ],
 };
 
+/**
+ * Scope Prisma : missions du module Projets outreach (event CREATED).
+ * Utilisé pour le plafond marque à l'ajout (SOLO) — les MULTI restent libres.
+ */
+export const PROJET_OUTREACH_SCOPE = {
+  campaign: { events: { some: { type: "CREATED" as const } } },
+};
+
+/** Fenêtre anti-recontact marque sur la ligne projet (ajout SOLO). */
+export const PROJET_BRAND_WAVE_DAYS = EMAIL_LINE_CAP_DAYS;
+
 function lineCapDays(line: SendLine): number {
   return line === "indiv" ? INDIV_EMAIL_LINE_CAP_DAYS : EMAIL_LINE_CAP_DAYS;
 }
@@ -721,6 +732,140 @@ export type IndivBrandWaveSend = {
   daysAgo: number;
   daysLeft: number;
 };
+
+/** True tant que la date de déblocage marque n’est pas atteinte. */
+export function isBrandCooldownActive(
+  until: Date | string | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (!until) return false;
+  const t = until instanceof Date ? until : new Date(until);
+  if (Number.isNaN(t.getTime())) return false;
+  return t.getTime() > now.getTime();
+}
+
+/**
+ * Projets outreach SOLO : une marque déjà contactée (n'importe quel projet /
+ * talent) dans les PROJET_BRAND_WAVE_DAYS derniers jours → ajout possible
+ * mais mission « en attente » jusqu’à nextAllowedAt.
+ * Les campagnes MULTI (« projet commun ») ne passent pas par ce garde-fou.
+ */
+export async function evaluateProjetBrandAddGuard(opts: {
+  marqueId?: string | null;
+  targetBrandKey?: string | null;
+  targetBrand?: string | null;
+  /** Exclure le projet courant (ré-ajout / même campagne). */
+  excludeCampaignId?: string | null;
+}): Promise<
+  | { allowed: true }
+  | {
+      allowed: false;
+      message: string;
+      nextAllowedAt: Date;
+      prior: {
+        id: string;
+        creatorName: string;
+        sentAt: Date;
+        targetBrand: string;
+        campaignTitle: string | null;
+      };
+    }
+> {
+  const marqueId = String(opts.marqueId || "").trim() || null;
+  const brandKey = String(opts.targetBrandKey || "").trim() || null;
+  const targetBrand = String(opts.targetBrand || "").trim() || null;
+  if (!marqueId && !brandKey && !targetBrand) return { allowed: true };
+
+  const since = new Date(
+    Date.now() - PROJET_BRAND_WAVE_DAYS * 24 * 60 * 60 * 1000
+  );
+  const excludeCampaignId = String(opts.excludeCampaignId || "").trim() || null;
+
+  let prior = await prisma.contactMission.findFirst({
+    where: {
+      sentAt: { gte: since, not: null },
+      ...(excludeCampaignId ? { campaignId: { not: excludeCampaignId } } : {}),
+      AND: [
+        {
+          OR: [
+            ...(marqueId ? [{ marqueId }] : []),
+            ...(brandKey ? [{ targetBrandKey: brandKey }] : []),
+          ],
+        },
+        PROJET_OUTREACH_SCOPE,
+      ],
+    },
+    select: {
+      id: true,
+      creatorName: true,
+      sentAt: true,
+      targetBrand: true,
+      campaign: { select: { title: true } },
+    },
+    orderBy: { sentAt: "desc" },
+  });
+
+  if (!prior?.sentAt) {
+    const recent = await prisma.contactMission.findMany({
+      where: {
+        sentAt: { gte: since, not: null },
+        ...(excludeCampaignId ? { campaignId: { not: excludeCampaignId } } : {}),
+        ...PROJET_OUTREACH_SCOPE,
+      },
+      select: {
+        id: true,
+        creatorName: true,
+        sentAt: true,
+        targetBrand: true,
+        marque: { select: { nom: true } },
+        campaign: { select: { title: true } },
+      },
+      orderBy: { sentAt: "desc" },
+      take: 800,
+    });
+    const myLabels = [targetBrand];
+    for (const row of recent) {
+      if (!row.sentAt) continue;
+      if (anyBrandLabelsMatch(myLabels, [row.targetBrand, row.marque?.nom])) {
+        prior = {
+          id: row.id,
+          creatorName: row.creatorName,
+          sentAt: row.sentAt,
+          targetBrand: row.targetBrand,
+          campaign: row.campaign,
+        };
+        break;
+      }
+    }
+  }
+
+  if (!prior?.sentAt) return { allowed: true };
+
+  const nextAllowedAt = new Date(
+    prior.sentAt.getTime() + PROJET_BRAND_WAVE_DAYS * 24 * 60 * 60 * 1000
+  );
+  const brandLabel = prior.targetBrand || targetBrand || "cette marque";
+  const via = prior.creatorName || "un autre talent";
+  const viaCamp = prior.campaign?.title
+    ? ` (« ${prior.campaign.title} »)`
+    : "";
+  return {
+    allowed: false,
+    message:
+      `« ${brandLabel} » a déjà été contactée en projet outreach ` +
+      `pour ${via}${viaCamp} le ${formatFrDate(prior.sentAt)}. ` +
+      `Mise en attente jusqu’au ${formatFrDate(nextAllowedAt)} ` +
+      `(${PROJET_BRAND_WAVE_DAYS} j). Les projets communs MULTI restent libres.`,
+    nextAllowedAt,
+    prior: {
+      id: prior.id,
+      creatorName: prior.creatorName,
+      sentAt: prior.sentAt,
+      targetBrand: prior.targetBrand,
+      campaignTitle: prior.campaign?.title ?? null,
+    },
+  };
+}
 
 /**
  * Envois Pipeline Casting des INDIV_BRAND_WAVE_DAYS derniers jours —

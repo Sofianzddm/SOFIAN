@@ -97,7 +97,7 @@ export interface EmailComposerProps {
   /**
    * Pipeline / casting / outreach clients / projets :
    * 1) Analyser la marque → 2) Sélectionner les créateurs →
-   * 3) Analyser les créateurs → 4) Rédiger.
+   * 3) Analyser les créateurs → 4) Historique Leyna → 5) Rédiger.
    */
   enableTalentResearch?: boolean;
   /** Projets-outreach : libellés / hints orientés brief projet. */
@@ -105,6 +105,25 @@ export interface EmailComposerProps {
   onTalentResearch?: () => void;
   isResearchingTalent?: boolean;
   talentResearch?: TalentResearchItem[] | null;
+  /** Étape boîte Leyna (vrais échanges) — même UX que marque / talent. */
+  enableLeynaExchange?: boolean;
+  onLeynaExchangeResearch?: () => void;
+  isResearchingLeynaExchange?: boolean;
+  leynaExchange?: {
+    hasExchange: boolean;
+    tone?: "tu" | "vous" | null;
+    bannerLabel?: string | null;
+    alerts?: string[];
+    contacts?: Array<{
+      email: string;
+      subject?: string | null;
+      tone?: "tu" | "vous" | null;
+      notes?: string;
+      alerts?: string[];
+    }>;
+  } | null;
+  /** true une fois le check lancé (même si aucun échange). */
+  leynaExchangeChecked?: boolean;
   talentsSelected: Talent[];
   isGenerating: boolean;
   onGenerate: () => void;
@@ -151,6 +170,11 @@ export default function EmailComposer({
   onTalentResearch,
   isResearchingTalent = false,
   talentResearch = null,
+  enableLeynaExchange = false,
+  onLeynaExchangeResearch,
+  isResearchingLeynaExchange = false,
+  leynaExchange = null,
+  leynaExchangeChecked = false,
   talentsSelected,
   isGenerating,
   onGenerate,
@@ -177,11 +201,18 @@ export default function EmailComposer({
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [tone, setTone] = useState<"tu" | "vous">("vous");
   const [isRewritingTone, setIsRewritingTone] = useState(false);
-  const [researchOpen, setResearchOpen] = useState(false);
+  const [researchOpen, setResearchOpen] = useState(() => Boolean(brandResearch));
   const [talentResearchOpen, setTalentResearchOpen] = useState(true);
+  const [leynaExchangeOpen, setLeynaExchangeOpen] = useState(true);
+
+  // Cache batch hydraté après mount → ouvrir le panneau marque automatiquement.
+  useEffect(() => {
+    if (brandResearch) setResearchOpen(true);
+  }, [brandResearch]);
   const researchReady =
     Boolean(brandResearch) &&
-    (!enableTalentResearch || (Array.isArray(talentResearch) && talentResearch.length > 0));
+    (!enableTalentResearch || (Array.isArray(talentResearch) && talentResearch.length > 0)) &&
+    (!enableLeynaExchange || leynaExchangeChecked);
   const researchBlockedReason = enableTalentResearch
     ? !brandResearch
       ? "Analyse d’abord la marque"
@@ -189,12 +220,16 @@ export default function EmailComposer({
         ? "Sélectionne ensuite les créateurs à gauche"
         : !talentResearch?.length
           ? "Analyse ensuite les créateurs sélectionnés"
-          : null
+          : enableLeynaExchange && !leynaExchangeChecked
+            ? "Analyse ensuite l’historique Leyna"
+            : null
     : !brandResearch
       ? "D’abord « Par recherche » pour analyser la marque"
       : talentsSelected.length === 0
         ? "Sélectionne au moins un talent à gauche"
-        : null;
+        : enableLeynaExchange && !leynaExchangeChecked
+          ? "Analyse ensuite l’historique Leyna"
+          : null;
   const talentResearchButtonLabel =
     talentsSelected.length > 1
       ? projectResearchMode
@@ -214,18 +249,21 @@ export default function EmailComposer({
       : projectResearchMode
         ? "Analyse le fit talent × projet × marque"
         : "Analyse les créateurs sélectionnés";
+  const stepTotal = enableLeynaExchange ? 5 : 4;
   const stepHint = enableTalentResearch
     ? !brandResearch
       ? projectResearchMode
-        ? "1/4 — Analyse la marque (projet)"
-        : "1/4 — Analyse la marque"
+        ? `1/${stepTotal} — Analyse la marque (projet)`
+        : `1/${stepTotal} — Analyse la marque`
       : talentsSelected.length === 0
-        ? "2/4 — Sélectionne les créateurs"
+        ? `2/${stepTotal} — Sélectionne les créateurs`
         : !talentResearch?.length
           ? projectResearchMode
-            ? "3/4 — Analyse les talents pour le projet"
-            : "3/4 — Analyse les créateurs"
-          : "4/4 — Tu peux rédiger"
+            ? `3/${stepTotal} — Analyse les talents pour le projet`
+            : `3/${stepTotal} — Analyse les créateurs`
+          : enableLeynaExchange && !leynaExchangeChecked
+            ? `4/${stepTotal} — Analyse l’historique Leyna`
+            : `${stepTotal}/${stepTotal} — Tu peux rédiger`
     : null;
   const talentTokensFromSelection = useMemo<
     { token: string; label: string; node?: Record<string, unknown> }[]
@@ -414,12 +452,12 @@ export default function EmailComposer({
 
   return (
     <div className={`flex flex-col gap-2 ${fillHeight ? "h-full min-h-0" : ""}`}>
-      {/* 1) Marque → 2) Sélection créateurs → 3) Analyse créateurs → 4) Rédiger */}
+      {/* 1) Marque → 2) Créateurs → 3) Analyse créateurs → 4) Historique Leyna → 5) Rédiger */}
       <div className="flex flex-wrap items-center gap-2 shrink-0">
         <button
           type="button"
           onClick={onBrandResearch}
-          disabled={isResearching || isResearchingTalent}
+          disabled={isResearching || isResearchingTalent || isResearchingLeynaExchange}
           className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-opacity disabled:opacity-60"
           style={{ borderColor: OLD_ROSE, color: LICORICE }}
           title={
@@ -450,6 +488,7 @@ export default function EmailComposer({
             disabled={
               isResearching ||
               isResearchingTalent ||
+              isResearchingLeynaExchange ||
               !brandResearch ||
               talentsSelected.length === 0
             }
@@ -464,6 +503,31 @@ export default function EmailComposer({
               </>
             ) : (
               <>{talentResearchButtonLabel}</>
+            )}
+          </button>
+        )}
+        {enableLeynaExchange && onLeynaExchangeResearch && (
+          <button
+            type="button"
+            onClick={onLeynaExchangeResearch}
+            disabled={
+              isResearching ||
+              isResearchingTalent ||
+              isResearchingLeynaExchange ||
+              !brandResearch ||
+              (enableTalentResearch && !talentResearch?.length)
+            }
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border transition-opacity disabled:opacity-60"
+            style={{ borderColor: OLD_ROSE, color: LICORICE }}
+            title="Vrais échanges dans la boîte Leyna (réponse client) — adapte ton + angle"
+          >
+            {isResearchingLeynaExchange ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                Analyse historique Leyna…
+              </>
+            ) : (
+              <>Analyser historique Leyna</>
             )}
           </button>
         )}
@@ -489,6 +553,23 @@ export default function EmailComposer({
               ? `${talentResearch.length} créateurs analysés`
               : "Créateur analysé"}
             {talentResearchOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+        )}
+        {enableLeynaExchange && leynaExchangeChecked && (
+          <button
+            type="button"
+            onClick={() => setLeynaExchangeOpen((v) => !v)}
+            className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg hover:bg-black/5"
+            style={{ color: OLD_ROSE }}
+          >
+            {leynaExchange?.hasExchange
+              ? leynaExchange.tone === "tu"
+                ? "Leyna OK · tutoiement"
+                : leynaExchange.tone === "vous"
+                  ? "Leyna OK · vouvoiement"
+                  : "Leyna OK · échange"
+              : "Leyna OK · aucun échange"}
+            {leynaExchangeOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
         )}
         {stepHint && (
@@ -540,6 +621,81 @@ export default function EmailComposer({
           ) : null}
           <p>{brandResearch.brandPositioning}</p>
           <p>{brandResearch.influenceStrategy}</p>
+        </div>
+      )}
+      {enableLeynaExchange &&
+        (isResearchingLeynaExchange || (leynaExchangeChecked && leynaExchangeOpen)) && (
+        <div
+          className="rounded-lg border px-3 py-2 space-y-1.5 text-xs shrink-0 max-h-52 overflow-y-auto"
+          style={{
+            borderColor:
+              (leynaExchange?.alerts?.length || 0) > 0
+                ? "#E11D48"
+                : leynaExchange?.hasExchange
+                  ? "#C4B5E8"
+                  : `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+            background:
+              (leynaExchange?.alerts?.length || 0) > 0
+                ? "#FFF1F2"
+                : leynaExchange?.hasExchange
+                  ? "#F4F0FC"
+                  : undefined,
+            color: LICORICE,
+          }}
+        >
+          <p className="font-semibold opacity-70">Historique boîte Leyna</p>
+          {isResearchingLeynaExchange ? (
+            <p className="opacity-70 inline-flex items-center gap-1.5">
+              <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+              Scan de la boîte en cours…
+            </p>
+          ) : leynaExchange?.hasExchange ? (
+            <>
+              {(leynaExchange.alerts || []).length > 0 ? (
+                <div
+                  className="rounded-md px-2 py-1.5 space-y-1"
+                  style={{
+                    background: "#FFE4E6",
+                    border: "1px solid #FB7185",
+                    color: "#9F1239",
+                  }}
+                >
+                  <p className="font-bold text-[11px]">⚠ Alertes urgentes</p>
+                  {(leynaExchange.alerts || []).map((a) => (
+                    <p key={a} className="font-semibold leading-snug">
+                      {a}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+              {(leynaExchange.contacts || []).map((c) => (
+                <div key={c.email} className="space-y-0.5">
+                  <p className="font-semibold">
+                    {c.email}
+                    {c.tone ? ` · ${c.tone === "tu" ? "tutoiement" : "vouvoiement"}` : ""}
+                    {c.subject ? ` — « ${c.subject} »` : ""}
+                  </p>
+                  {(c.alerts || []).length > 0 &&
+                  !(leynaExchange.alerts || []).length ? (
+                    <div style={{ color: "#9F1239" }} className="space-y-0.5">
+                      {c.alerts!.map((a) => (
+                        <p key={a} className="font-semibold">
+                          ⚠ {a}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                  {c.notes ? (
+                    <p className="whitespace-pre-wrap opacity-90">{c.notes}</p>
+                  ) : null}
+                </div>
+              ))}
+            </>
+          ) : (
+            <p className="opacity-70">
+              Aucun vrai échange (réponse client) trouvé — rédaction cold classique.
+            </p>
+          )}
         </div>
       )}
       {enableTalentResearch &&

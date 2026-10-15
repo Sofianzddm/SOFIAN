@@ -63,7 +63,11 @@ export type WaveCastingGate =
   | { blocked: false; waveId: string | null; waveStatus: OutreachWaveStatus | null }
   | {
       blocked: true;
-      code: "WAVE_COLLECTING" | "WAVE_REVIEWING" | "CONDENSATION_MEMBER";
+      code:
+        | "WAVE_COLLECTING"
+        | "WAVE_REVIEWING"
+        | "CONDENSATION_MEMBER"
+        | "BRAND_COOLDOWN";
       message: string;
       waveId: string | null;
       waveStatus: OutreachWaveStatus | null;
@@ -81,6 +85,9 @@ export async function getMissionCastingGate(
       condensationStatus: true,
       condensationGroupId: true,
       sentAt: true,
+      brandCooldownUntil: true,
+      brandCooldownReason: true,
+      forceSend: true,
       campaign: {
         select: {
           waveId: true,
@@ -116,12 +123,36 @@ export async function getMissionCastingGate(
     };
   }
 
+  // Marque en attente (déjà contactée récemment) — se débloque à brandCooldownUntil.
+  // forceSend (projet urgent) contourne.
+  if (
+    !mission.forceSend &&
+    mission.brandCooldownUntil &&
+    mission.brandCooldownUntil.getTime() > Date.now()
+  ) {
+    const untilLabel = mission.brandCooldownUntil.toLocaleDateString("fr-FR", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+    return {
+      blocked: true,
+      code: "BRAND_COOLDOWN",
+      message:
+        mission.brandCooldownReason ||
+        `Marque en attente jusqu’au ${untilLabel} (déjà contactée récemment en projet outreach).`,
+      waveId: mission.campaign?.waveId ?? null,
+      waveStatus: mission.campaign?.wave?.status ?? null,
+    };
+  }
+
   const wave = mission.campaign?.wave ?? null;
   if (!wave) {
     return { blocked: false, waveId: null, waveStatus: null };
   }
 
   // Admin : pas bloqué par la vague (seul Casting l’est).
+  // Le cooldown marque reste actif même pour Admin (sauf forceSend ci-dessus).
   if (opts?.role === "ADMIN") {
     return { blocked: false, waveId: wave.id, waveStatus: wave.status };
   }
@@ -270,50 +301,31 @@ export function pickPrimaryMissionId(missions: MissionForCluster[]): string {
   return (unsent[0] || sorted[0]).id;
 }
 
-/** Scan vague → crée clusters PENDING (multi) + rattache missions. */
+/**
+ * Scan vague → crée clusters PENDING (marques partagées entre projets SOLO).
+ *
+ * Les campagnes MULTI (« projet commun » : Calendrier, etc.) sont exclues :
+ * elles pitchent déjà plusieurs talents dans un seul mail — ce ne sont pas
+ * des condensations cross-projets.
+ */
 export async function rebuildWaveClusters(waveId: string) {
   const campaigns = await prisma.talentProspectingCampaign.findMany({
     where: { waveId, isActive: true, status: { not: "CLOSED" } },
-    select: { id: true },
+    select: { id: true, mode: true },
   });
-  const campaignIds = campaigns.map((c) => c.id);
-  if (campaignIds.length === 0) {
+  const soloCampaignIds = campaigns
+    .filter((c) => c.mode !== "MULTI")
+    .map((c) => c.id);
+  const multiCampaignIds = campaigns
+    .filter((c) => c.mode === "MULTI")
+    .map((c) => c.id);
+
+  if (campaigns.length === 0) {
     await prisma.outreachWaveBrandCluster.deleteMany({ where: { waveId } });
     return { multiCount: 0, soloCount: 0 };
   }
 
-  const missions = await prisma.contactMission.findMany({
-    where: { campaignId: { in: campaignIds } },
-    select: {
-      id: true,
-      campaignId: true,
-      talentId: true,
-      creatorName: true,
-      targetBrand: true,
-      targetBrandKey: true,
-      marqueId: true,
-      stage: true,
-      status: true,
-      sentAt: true,
-      marque: { select: { nom: true } },
-    },
-  });
-
-  const missionsForCluster: MissionForCluster[] = missions.map((m) => ({
-    id: m.id,
-    campaignId: m.campaignId,
-    talentId: m.talentId,
-    creatorName: m.creatorName,
-    targetBrand: m.targetBrand,
-    targetBrandKey: m.targetBrandKey,
-    marqueId: m.marqueId,
-    marqueNom: m.marque?.nom ?? null,
-    stage: m.stage,
-    status: m.status,
-    sentAt: m.sentAt,
-  }));
-
-  // Reset previous proposals for this wave
+  // Reset previous proposals for this wave (SOLO + MULTI)
   const previousClusters = await prisma.outreachWaveBrandCluster.findMany({
     where: { waveId },
     select: { id: true },
@@ -331,17 +343,79 @@ export async function rebuildWaveClusters(waveId: string) {
   }
   await prisma.outreachWaveBrandCluster.deleteMany({ where: { waveId } });
 
+  // Projet commun MULTI : hors condensation — prêt en solo de campagne.
+  if (multiCampaignIds.length > 0) {
+    await prisma.contactMission.updateMany({
+      where: {
+        campaignId: { in: multiCampaignIds },
+        status: { not: "CANCELLED" },
+      },
+      data: {
+        waveClusterId: null,
+        condensationStatus: "SOLO",
+        condensationRole: null,
+        condensationGroupId: null,
+      },
+    });
+  }
+
+  if (soloCampaignIds.length === 0) {
+    return { multiCount: 0, soloCount: 0 };
+  }
+
+  const missions = await prisma.contactMission.findMany({
+    where: { campaignId: { in: soloCampaignIds } },
+    select: {
+      id: true,
+      campaignId: true,
+      talentId: true,
+      creatorName: true,
+      targetBrand: true,
+      targetBrandKey: true,
+      marqueId: true,
+      stage: true,
+      status: true,
+      sentAt: true,
+      brandCooldownUntil: true,
+      marque: { select: { nom: true } },
+    },
+  });
+
+  const holdByMissionId = new Map(
+    missions.map((m) => [m.id, m.brandCooldownUntil] as const)
+  );
+
+  const missionsForCluster: MissionForCluster[] = missions.map((m) => ({
+    id: m.id,
+    campaignId: m.campaignId,
+    talentId: m.talentId,
+    creatorName: m.creatorName,
+    targetBrand: m.targetBrand,
+    targetBrandKey: m.targetBrandKey,
+    marqueId: m.marqueId,
+    marqueNom: m.marque?.nom ?? null,
+    stage: m.stage,
+    status: m.status,
+    sentAt: m.sentAt,
+  }));
+
   const { multi, solo } = buildBrandClusters(missionsForCluster);
 
+  let autoCondensedHold = 0;
   for (const cluster of multi) {
     const primaryId = pickPrimaryMissionId(cluster.missions);
+    const heldCount = cluster.missions.filter((m) =>
+      Boolean(holdByMissionId.get(m.id))
+    ).length;
+    // Marque en attente sur ≥ 2 projets → toujours Condenser (1 mail à J+30).
+    const forceHoldCondense = heldCount >= 2;
     const created = await prisma.outreachWaveBrandCluster.create({
       data: {
         waveId,
         marqueId: cluster.marqueId,
         targetBrandKey: cluster.targetBrandKey,
         targetBrand: cluster.targetBrand,
-        decision: "PENDING",
+        decision: forceHoldCondense ? "CONDENSE" : "PENDING",
         primaryMissionId: primaryId,
       },
     });
@@ -352,6 +426,10 @@ export async function rebuildWaveClusters(waveId: string) {
         condensationStatus: "PROPOSED",
       },
     });
+    if (forceHoldCondense) {
+      await applyClusterDecision(created.id);
+      autoCondensedHold += 1;
+    }
   }
 
   // Solo missions stay IN_WAVE until validation marks them SOLO
@@ -363,7 +441,19 @@ export async function rebuildWaveClusters(waveId: string) {
     });
   }
 
-  return { multiCount: multi.length, soloCount: solo.length };
+  return {
+    multiCount: multi.length,
+    soloCount: solo.length,
+    autoCondensedHold,
+  };
+}
+
+/** True si ≥ 2 missions du cluster sont en « mise en attente » marque. */
+export function clusterHasMultiProjectHold(
+  missions: Array<{ brandCooldownUntil?: Date | string | null }>
+): boolean {
+  const held = missions.filter((m) => Boolean(m.brandCooldownUntil)).length;
+  return held >= 2;
 }
 
 export async function applyWaveClusterDecisions(waveId: string, actorId: string) {

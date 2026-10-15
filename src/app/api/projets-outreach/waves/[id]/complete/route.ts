@@ -46,7 +46,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     });
 
-    const { multiCount, soloCount } = await rebuildWaveClusters(waveId);
+    const { multiCount, soloCount, autoCondensedHold } =
+      await rebuildWaveClusters(waveId);
 
     const updated = await prisma.outreachWave.update({
       where: { id: waveId },
@@ -61,10 +62,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     });
 
+    const pendingLeft = Math.max(0, multiCount - (autoCondensedHold || 0));
     const baseMsg =
       multiCount > 0
-        ? `${multiCount} marque(s) partagée(s) à valider (condenser ou solo).`
+        ? pendingLeft > 0
+          ? `${pendingLeft} marque(s) partagée(s) à valider (condenser ou solo).`
+          : `${multiCount} marque(s) partagée(s) déjà tranchées.`
         : "Aucune marque partagée — tu peux valider pour ouvrir le Casting.";
+    const holdNote =
+      autoCondensedHold && autoCondensedHold > 0
+        ? ` ${autoCondensedHold} marque(s) en attente multi-projets auto-condensée(s) (1 mail à J+30).`
+        : "";
     const awaitingNote =
       awaiting > 0
         ? ` ${awaiting} marque(s) encore sans contacts : la rédaction restera bloquée sur celles-là.`
@@ -76,8 +84,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       wave: updated,
       multiCount,
       soloCount,
+      autoCondensedHold: autoCondensedHold || 0,
       awaitingContacts: awaiting,
-      message: `${baseMsg}${awaitingNote}${rescanNote}`,
+      message: `${baseMsg}${holdNote}${awaitingNote}${rescanNote}`,
     });
   } catch (error) {
     console.error("POST /api/projets-outreach/waves/[id]/complete:", error);

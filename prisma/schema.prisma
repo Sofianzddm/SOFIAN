@@ -3257,6 +3257,10 @@ model ContactMission {
   sendError            String?                    @db.Text
   awaitingContactsCompletion Boolean              @default(false)
   contactsCompletionRequestedAt DateTime?
+  /// SOLO projet outreach : marque déjà contactée ailleurs — rédaction/envoi bloqués jusqu’à cette date.
+  brandCooldownUntil      DateTime?
+  /// Motif court (ex. « Déjà contactée via Tatiana le 29 sept. »).
+  brandCooldownReason    String?                    @db.Text
   /// Talents à pitcher pour cette marque (projet MULTI). Vide = tous les talents du projet.
   selectedTalentIds    String[]                   @default([])
   condensationGroupId  String?

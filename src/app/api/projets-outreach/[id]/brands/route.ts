@@ -4,6 +4,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import { normalizeMissionBrandKey, parseMissionPriority } from "@/lib/contact-missions";
 import { linkMarqueFromBrandName } from "@/lib/marque-resolver";
 import { canManageBrands } from "@/lib/projets-outreach";
+import { evaluateProjetBrandAddGuard } from "@/lib/contact-cooldown";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -50,8 +51,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const body = (await request.json()) as {
       items?: Array<BrandItem & { selectedTalentIds?: string[] }>;
+      /** SOLO : ajoute quand même en attente jusqu’à J+30 (sinon ajout bloqué). */
+      hold?: boolean;
     };
     const items = Array.isArray(body.items) ? body.items : [];
+    const holdRequested = body.hold === true;
     if (items.length === 0) {
       return NextResponse.json({ error: "Aucune marque fournie." }, { status: 400 });
     }
@@ -70,6 +74,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
           "Talent";
 
     const created = [];
+    const held: Array<{ brand: string; until: string; reason: string }> = [];
+    const blocked: Array<{
+      brand: string;
+      reason: string;
+      nextAllowedAt: string;
+    }> = [];
+    const isMulti = campaign.mode === "MULTI";
+
     for (const item of items) {
       let targetBrand = String(item.targetBrand || "").trim();
       let marqueId = String(item.marqueId || "").trim() || null;
@@ -93,11 +105,38 @@ export async function POST(request: NextRequest, context: RouteContext) {
       const strategyReason = String(item.strategyReason || "").trim();
       if (!targetBrand) continue;
 
+      const targetBrandKey = normalizeMissionBrandKey(targetBrand);
+
+      // SOLO : déjà contactée → bloqué sauf si hold=true (mise en attente J+30).
+      // MULTI (projet commun) : libre.
+      let brandCooldownUntil: Date | null = null;
+      let brandCooldownReason: string | null = null;
+      if (!isMulti) {
+        const guard = await evaluateProjetBrandAddGuard({
+          marqueId,
+          targetBrandKey,
+          targetBrand,
+          excludeCampaignId: campaignId,
+        });
+        if (!guard.allowed) {
+          if (!holdRequested) {
+            blocked.push({
+              brand: targetBrand,
+              reason: guard.message,
+              nextAllowedAt: guard.nextAllowedAt.toISOString(),
+            });
+            continue;
+          }
+          brandCooldownUntil = guard.nextAllowedAt;
+          brandCooldownReason = guard.message;
+        }
+      }
+
       const rawSelected = Array.isArray(item.selectedTalentIds)
         ? item.selectedTalentIds.map((id) => String(id || "").trim()).filter(Boolean)
         : [];
       const selectedTalentIds =
-        campaign.mode === "MULTI"
+        isMulti
           ? (rawSelected.length > 0
               ? rawSelected.filter((id) => allTalentIds.includes(id))
               : allTalentIds)
@@ -109,7 +148,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
           talentId: campaign.talentId,
           creatorName,
           targetBrand,
-          targetBrandKey: normalizeMissionBrandKey(targetBrand),
+          targetBrandKey,
           marqueId,
           strategyReason,
           recommendedAngle: String(item.recommendedAngle || "").trim() || null,
@@ -122,15 +161,33 @@ export async function POST(request: NextRequest, context: RouteContext) {
           selectedTalentIds,
           clientContacts: item.clientContacts ?? undefined,
           createdById: session.user.id,
+          brandCooldownUntil,
+          brandCooldownReason,
         },
       });
       created.push(mission);
+      if (brandCooldownUntil && brandCooldownReason) {
+        held.push({
+          brand: targetBrand,
+          until: brandCooldownUntil.toISOString(),
+          reason: brandCooldownReason,
+        });
+      }
     }
 
     if (created.length === 0) {
+      const block = blocked[0];
       return NextResponse.json(
-        { error: "Aucune marque valide (nom requis)." },
-        { status: 400 }
+        {
+          error:
+            block?.reason ||
+            "Aucune marque valide (nom requis).",
+          code: block ? "BRAND_COOLDOWN" : undefined,
+          canHold: Boolean(block),
+          nextAllowedAt: block?.nextAllowedAt ?? null,
+          blocked,
+        },
+        { status: 409 }
       );
     }
 
@@ -182,11 +239,33 @@ export async function POST(request: NextRequest, context: RouteContext) {
       waveNotice = result.message;
     }
 
+    const heldNotice =
+      held.length > 0
+        ? held.length === 1
+          ? `${held[0].brand} mise en attente — déblocage auto le ${new Date(
+              held[0].until
+            ).toLocaleDateString("fr-FR")}.`
+          : `${held.length} marque(s) mises en attente (déblocage auto J+30).`
+        : null;
+    const blockedNotice =
+      blocked.length > 0
+        ? `${blocked.length} marque(s) non ajoutée(s) (déjà contactées — utilise « Mise en attente »).`
+        : null;
+
     return NextResponse.json(
       {
         created: created.length,
         missions: created,
-        ...(waveNotice ? { waveNotice, castingRefrozen: true } : {}),
+        held,
+        blocked,
+        ...(heldNotice || blockedNotice || waveNotice
+          ? {
+              waveNotice: [heldNotice, blockedNotice, waveNotice]
+                .filter(Boolean)
+                .join(" "),
+              ...(waveNotice ? { castingRefrozen: true } : {}),
+            }
+          : {}),
       },
       { status: 201 }
     );

@@ -23,7 +23,12 @@ import {
 
 export const maxDuration = 300;
 
-const ALLOWED_ROLES = ["CASTING_MANAGER", "STRATEGY_PLANNER", "ADMIN"] as const;
+const ALLOWED_ROLES = [
+  "CASTING_MANAGER",
+  "STRATEGY_PLANNER",
+  "HEAD_OF_SALES",
+  "ADMIN",
+] as const;
 
 function isAllowed(role: string | undefined): boolean {
   return role !== undefined && (ALLOWED_ROLES as readonly string[]).includes(role);

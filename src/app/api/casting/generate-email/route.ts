@@ -11,10 +11,11 @@ import {
   buildTalentPerfReachHighlight,
   mergeReachHighlights,
 } from "@/lib/talent-perf-reach";
+import { getLeynaExchangeContext } from "@/lib/leyna-exchange-context";
 
-export const maxDuration = 120;
+export const maxDuration = 180;
 
-const ALLOWED_ROLES = ["CASTING_MANAGER", "ADMIN"] as const;
+const ALLOWED_ROLES = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"] as const;
 
 function isAllowed(role: string | undefined): boolean {
   return role !== undefined && (ALLOWED_ROLES as readonly string[]).includes(role);
@@ -49,12 +50,12 @@ function stripDuplicateGreeting(htmlOrText: string): string {
   let out = htmlOrText;
   // Texte / markdown : bloc salut répété à la suite
   out = out.replace(
-    /((?:Bonjour|Hi|Hello)[^\n<]*[\s\S]*?(?:J'espère que vous allez bien\s*\?|I hope you are doing well\s*\?))\s*\1/gi,
+    /((?:Bonjour|Hi|Hello)[^\n<]*[\s\S]*?(?:J'espère que (?:vous allez|tu vas) bien\s*\?|I hope you are doing well\s*\?))\s*\1/gi,
     "$1"
   );
   // HTML : <p>Bonjour…</p><p>J'espère…</p> répété
   out = out.replace(
-    /((?:<p[^>]*>\s*)?(?:Bonjour|Hi|Hello)[\s\S]*?(?:J'espère que vous allez bien\s*\?|I hope you are doing well\s*\?)(?:\s*<\/p>)?)\s*\1/gi,
+    /((?:<p[^>]*>\s*)?(?:Bonjour|Hi|Hello)[\s\S]*?(?:J'espère que (?:vous allez|tu vas) bien\s*\?|I hope you are doing well\s*\?)(?:\s*<\/p>)?)\s*\1/gi,
     "$1"
   );
   return out;
@@ -170,6 +171,10 @@ export interface GenerateEmailBody {
     dos?: string | null;
     donts?: string | null;
   } | null;
+  /**
+   * Emails destinataires cochés — pour chercher un vrai échange Leyna (réponse client).
+   */
+  recipientEmails?: string[];
   /**
    * Condensation multi-projets : N briefs (Alice + Bob…) pour UN mail à UNE marque.
    * Prioritaire sur projectBrief si length >= 2.
@@ -665,7 +670,7 @@ Règles projet :
 - Les talents listés dans "Talents disponibles" sont le cœur du projet : présente-les dans ce cadre.
 - Tu peux citer 1 élément concret issu de la recherche marque si ça renforce le fit avec le projet.
 - Si une RECHERCHE CRÉATEUR est fournie, le fit projet de chaque talent DOIT en venir (qui c'est / ce qu'il fait / whyRelevant) croisé avec le brief projet.
-- LONGUEUR : mail COURT et scannable — accroche 1–2 phrases, talent + projet 1–2 courts paragraphes, CTA 1 phrase. Vise ~150–220 mots. Pas de pavé.
+- LONGUEUR : mail scannable, aéré. Accroche courte ; chaque talent/projet a le room qu'il faut (preuves utiles OK). Pas de plafond artificiel ~220/300 mots — surtout avec 2+ talents : développe chaque section sans couper. CTA 1 phrase.
 - Ne dilue pas le message avec une proposition de roster / talentbook hors projet : AUCUNE mention du book, du catalogue, du roster complet, ni de lien talentbook.
 
 INTERDITS PROJET (absolus) :
@@ -712,7 +717,7 @@ Project rules:
 - Talents in "Available talents" are the core of the project — present them in that frame.
 - You may cite 1 concrete brand-research detail if it strengthens the project fit.
 - When CREATOR RESEARCH is provided, the project fit for each talent MUST come from it (who they are / what they do / whyRelevant) crossed with the project brief.
-- LENGTH: keep it SHORT and scannable — hook 1–2 sentences, talent + project 1–2 short paragraphs, CTA 1 sentence. Aim for ~150–220 words. No walls of text.
+- LENGTH: scannable and airy. Short hook; give each talent/project enough room (useful proof OK). No artificial ~220/300-word ceiling — especially with 2+ talents: develop each section fully. CTA 1 sentence.
 - Don't dilute with an off-project roster / talentbook pitch: NEVER mention the talent book, catalog, full roster, or any talentbook link.
 
 PROJECT PROHIBITIONS (absolute):
@@ -1078,6 +1083,61 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
       ? `\nCONTEXTE MARCHÉ BENELUX (OBLIGATOIRE) : Tu écris à une marque basée au Benelux. Tu DOIS indiquer naturellement, tôt dans le mail (juste après l'accroche), que Glow Up Agence est une agence française qui se développe sur le Benelux, avec des créateurs benelux. Formule-le simplement et varie à chaque mail (ex. « Nous sommes une agence française qui développe le marché Benelux, avec des créateurs benelux. »). Une seule phrase, sans en faire un argument commercial lourd.\n`
       : "";
 
+    const recipientEmails = Array.isArray(body.recipientEmails)
+      ? body.recipientEmails.map((e) => String(e || "").trim()).filter(Boolean)
+      : [];
+    let leynaExchange = await getLeynaExchangeContext({
+      recipientEmails,
+      brandName,
+      talentNames: body.talents.map((t) => String(t.name || "").trim()).filter(Boolean),
+    }).catch((e) => {
+      console.warn(
+        "[generate-email] leyna-exchange soft-fail:",
+        e instanceof Error ? e.message : e
+      );
+      return null;
+    });
+    if (!leynaExchange?.hasExchange) {
+      leynaExchange = null;
+    }
+    const useTutoiement = language === "fr" && leynaExchange?.tone === "tu";
+    const hopeLineFr = useTutoiement
+      ? "J'espère que tu vas bien ?"
+      : "J'espère que vous allez bien ?";
+    const toneIntroFr = useTutoiement
+      ? "Ton attendu : professionnel, posé et soigné, mais naturel et incarné — jamais corporate. Le TUTOIEMENT est de rigueur (cohérent avec les échanges déjà en cours dans la boîte Leyna)."
+      : "Ton attendu : professionnel, posé et soigné, mais naturel et incarné — jamais corporate, jamais familier. Le vouvoiement est de rigueur.";
+    const toneBodyFr = useTutoiement
+      ? "- Le mail doit rester professionnel et crédible. TUTOIEMENT obligatoire (tu / te / ton / ta / tes). Pas d'argot."
+      : "- Le mail doit rester professionnel, soigné et crédible : c'est un mail d'affaires envoyé à une marque, pas un message décontracté.\n- Naturel ne veut PAS dire familier. Vouvoiement obligatoire. Bannis l'argot et les anglicismes relâchés (\"bossez\", \"sans blabla\", \"matcher\", \"clairement partants\", \"monter un truc\", \"jeter un œil\", \"du coup\", \"carrément\"…).";
+    const exchangeBlockFr = leynaExchange?.promptBlockFr
+      ? `\n${leynaExchange.promptBlockFr}\n`
+      : "";
+    const exchangeBlockEn = leynaExchange?.promptBlockEn
+      ? `\n${leynaExchange.promptBlockEn}\n`
+      : "";
+    const hasLeynaExchange = Boolean(leynaExchange?.hasExchange);
+    const exchangeStructureOverrideFr = hasLeynaExchange
+      ? `
+OVERRIDE ACCROCHE (PRIORITAIRE — historique Leyna présent) :
+- Après le salut + « ${hopeLineFr} », le 1er paragraphe DOIT ancrer l'échange passé en 2e personne (« suite à notre échange », « comme vous me l'indiquiez ») — statut refus / en étude / porte ouverte si dans les notes.
+- INTERDIT de nommer un contact (prénom/nom/email) dans le mail — pas de « Mathilde », « Charlotte », etc.
+- INTERDIT d'ouvrir uniquement en cold discovery « J'ai vu que ${brandNameToken}… » sans ce rappel.
+- Ensuite seulement : pitch du/des projet(s) + talent(s) comme suite / offre plus ciblée / autre moment.
+- LONGUEUR : pas de plafond ~300 mots. Avec plusieurs talents, développe chaque projet correctement (ne compress pas pour « rester court »).
+`
+      : "";
+    const exchangeStructureOverrideEn = hasLeynaExchange
+      ? `
+OPENING OVERRIDE (PRIORITY — Leyna history present):
+- After greeting + "I hope you are doing well?", the first body paragraph MUST anchor the prior exchange in 2nd person ("following our exchange", "as you mentioned") — refusal / reviewing / door left open if in notes.
+- FORBIDDEN to name any contact (first/last name/email) in the email — no "Mathilde", "Charlotte", etc.
+- FORBIDDEN to open only as cold discovery "I noticed ${brandNameToken}…" without that recall.
+- Then pitch the project(s) + talent(s) as a follow-up / more specific offer / different timing.
+- LENGTH: no ~300-word ceiling. With several talents, develop each project properly (do not compress just to stay short).
+`
+      : "";
+
     const GROK_SYSTEM_PROMPT =
       language === "en"
         ? `You write like a human who works in influencer marketing and knows the field well, not like an AI. You're part of the Glow Up Agence team and you're writing to a professional (a brand, a marketing/influence team) you respect.
@@ -1096,6 +1156,8 @@ ${reachRuleEn}
 ${notesRuleEn}
 ${momentumRuleEn}
 ${beneluxContextEn}
+${exchangeBlockEn}
+${exchangeStructureOverrideEn}
 ${projectOrCondensationEn}
 ${
           useDirectRecipient
@@ -1111,7 +1173,11 @@ STRUCTURE (a logical flow, not a rigid template — vary the wording on every em
 - MUST start with: "Hi ${firstNameToken},"
 - MUST add right after, on a new line, this EXACT sentence without modifying it: "I hope you are doing well?"
 - The greeting pair (Hi + I hope…) appears EXACTLY ONCE at the top — never repeat it later in the body.
-- Open with a concrete, professional hook, not flattery: start from something specific and verifiable (a launch, a product, a recent direction ${brandNameToken} is taking). E.g. "I noticed you recently launched [product] / that you've been expanding your collaborations around [profile types]." A composed observation, not a casual remark.
+-${
+  hasLeynaExchange
+    ? ` After the greeting: FIRST paragraph = prior-exchange anchor (mandatory). Brand product/season may come AFTER that, not instead.`
+    : ` Open with a concrete, professional hook, not flattery: start from something specific and verifiable (a launch, a product, a recent direction ${brandNameToken} is taking). E.g. "I noticed you recently launched [product] / that you've been expanding your collaborations around [profile types]." A composed observation, not a casual remark.`
+}
 - Mention the strongest new launch ONCE ONLY, in a SHORT, spoken form, never the full commercial name. A human writing fast says "your Baby Rose lip serum" or "the SPF plumper", not "Plumping Lip Serum SPF30 + Peptides tinted 'Baby Rose'". Keep just enough to identify it (1 to 3 words, the line/shade name).
   FORBIDDEN: re-describing features already contained in the product's name ("X with its peptides and sun protection" when "Peptides" and "SPF" are already in X). If an info is in the name, do not repeat it.
   Cite the product to SAY something useful (it's performing well, it fits the kind of content our creators make…), not to prove you know the product. Avoid hollow observations like "is still well promoted" (promoted where? by whom?). A single sentence that flows into what comes next.
@@ -1152,7 +1218,7 @@ ${
 - CTA MANDATORY: last body sentence before Best regards = question CTA (e.g. "Would this project be of interest to you?").`
       : `PROJECT STRUCTURE OVERRIDE (takes priority over the STRUCTURE section above):
 - FORBIDDEN to use the casting transition "several creators who could be a fit" / roster selection.
-- After the brand hook, state clearly that you currently have ${condensationBriefs.length} projects where your talents could fit, then explain EACH project separately (talent + fit + useful deliverables/angle), measured — not too long.
+- After the brand hook, state clearly that you currently have ${condensationBriefs.length} projects where your talents could fit, then explain EACH project separately (talent + fit + useful deliverables/angle). Give each section enough room — no artificial word ceiling.
 - Each talent's full name MUST appear as a clickable Instagram HTML link: <a href="https://www.instagram.com/HANDLE"><strong>Firstname Lastname</strong></a>.
 - FORBIDDEN: any talentbook / roster / catalog link or mention (including https://app.glowupagence.fr/talentbook).
 - FORBIDDEN: the words "paid", "paid collab", "paid collaboration". Say "collaboration" / "project" only.
@@ -1212,7 +1278,7 @@ Reply ONLY with valid JSON and nothing else:
 }
 `
         : `Tu écris comme un humain qui travaille dans l'influence et connaît bien le milieu, pas comme une IA. Tu fais partie de l'équipe Glow Up Agence et tu t'adresses à un·e professionnel·le (marque, équipe marketing/influence) que tu respectes.
-Ton attendu : professionnel, posé et soigné, mais naturel et incarné — jamais corporate, jamais familier. Le vouvoiement est de rigueur. L'objectif est que la personne en face ne devine pas que c'est généré : ça doit ressembler à un vrai mail bien écrit par un humain, pas à un mail commercial calibré ni à un message décontracté entre potes.
+${toneIntroFr} L'objectif est que la personne en face ne devine pas que c'est généré : ça doit ressembler à un vrai mail bien écrit par un humain, pas à un mail commercial calibré ni à un message décontracté entre potes.
 Évite l'accumulation de superlatifs : maximum 1 à 2 compliments dans tout le mail, et seulement s'ils sont mérités. Préfère toujours une observation concrète et vérifiable (un produit précis, un lancement, un type de collaboration qu'ils mènent) plutôt qu'une flatterie générale. Pas d'argot ni d'anglicismes relâchés.
 
 CONTEXTE ACTUEL : avril 2026
@@ -1227,6 +1293,8 @@ ${reachRuleFr}
 ${notesRuleFr}
 ${momentumRuleFr}
 ${beneluxContextFr}
+${exchangeBlockFr}
+${exchangeStructureOverrideFr}
 ${projectOrCondensationFr}
 ${
           useDirectRecipient
@@ -1239,10 +1307,14 @@ ${
         }
 
 STRUCTURE (un fil logique, pas un gabarit rigide — varie les formulations à chaque mail) :
-- Commencer OBLIGATOIREMENT par : "Bonjour ${firstNameToken},"
-- Ajouter OBLIGATOIREMENT juste après, sur une nouvelle ligne, cette phrase EXACTE sans la modifier : "J'espère que vous allez bien ?"
-- Le couple de salut (Bonjour + J'espère…) apparaît EXACTEMENT UNE FOIS en tête — ne le répète JAMAIS plus bas dans le corps.
-- Enchaîner sur une accroche concrète et professionnelle, pas une flatterie : pars d'un élément précis et vérifiable (un lancement, un produit, une orientation récente de ${brandNameToken}). Ex. "J'ai vu que vous aviez lancé [produit] récemment / que vous développiez vos collaborations autour de [type de profils]." Une observation posée, pas une remarque familière.
+- Commencer OBLIGATOIREMENT par : "${useTutoiement ? "Hello" : "Bonjour"} ${firstNameToken},"
+- Ajouter OBLIGATOIREMENT juste après, sur une nouvelle ligne, cette phrase EXACTE sans la modifier : "${hopeLineFr}"
+- Le couple de salut (ouverture + J'espère…) apparaît EXACTEMENT UNE FOIS en tête — ne le répète JAMAIS plus bas dans le corps.
+-${
+  hasLeynaExchange
+    ? ` Après le salut : 1er paragraphe = ancrage de l'échange passé (obligatoire). Un élément produit/saison peut venir ENSUITE, pas à la place.`
+    : ` Enchaîner sur une accroche concrète et professionnelle, pas une flatterie : pars d'un élément précis et vérifiable (un lancement, un produit, une orientation récente de ${brandNameToken}). Ex. "J'ai vu que vous aviez lancé [produit] récemment / que vous développiez vos collaborations autour de [type de profils]." Une observation posée, pas une remarque familière.`
+}
 - Citer la nouveauté la plus forte UNE SEULE FOIS, en VERSION COURTE et parlée, jamais le nom commercial complet. Un humain qui écrit vite dit "votre sérum lèvres Baby Rose" ou "le repulpant SPF", pas "Sérum Lèvres Repulpant SPF30 + Peptides teinté 'Baby Rose'". Garde juste ce qui permet de l'identifier (1 à 3 mots, le nom de gamme/coloris).
   INTERDIT : re-décrire des caractéristiques déjà contenues dans le nom du produit ("X avec ses peptides et sa protection solaire" alors que "Peptides" et "SPF" sont déjà dans X). Si une info est dans le nom, ne la répète pas.
   Cite le produit pour DIRE quelque chose d'utile (il marche bien, il colle au type de contenu de nos créatrices…), pas pour prouver que tu connais le produit. Évite les constats creux du type "reste bien mis en avant" (mis en avant où ? par qui ?). Une seule phrase qui enchaîne vers la suite.
@@ -1283,7 +1355,7 @@ ${
 - CTA OBLIGATOIRE : dernière phrase avant Cordialement = question (ex. « Le projet serait-il intéressant pour vous ? »).`
       : `OVERRIDE STRUCTURE PROJET (prioritaire sur le paragraphe STRUCTURE ci-dessus) :
 - INTERDIT d'utiliser la transition casting « plusieurs créateurs qui peuvent correspondre » / sélection roster.
-- Après l'accroche marque, dis clairement que vous avez actuellement ${projectCountLabelFr} pour lesquels vos talents pourraient coller, puis explique CHAQUE projet séparément (talent + fit + livrables/angle utiles), de façon mesurée — sans en faire trop.
+- Après l'accroche marque, dis clairement que vous avez actuellement ${projectCountLabelFr} pour lesquels vos talents pourraient coller, puis explique CHAQUE projet séparément (talent + fit + livrables/angle utiles). Donne assez de room à chaque section — pas de plafond artificiel de mots.
 - Chaque nom de talent DOIT apparaître en lien Instagram HTML cliquable : <a href="https://www.instagram.com/HANDLE"><strong>Prénom Nom</strong></a>.
 - INTERDIT : toute mention ou lien talentbook / book / roster / catalogue (y compris https://app.glowupagence.fr/talentbook).
 - INTERDIT : les mots « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Dis seulement « collaboration » / « projet ».
@@ -1316,8 +1388,7 @@ FORMATAGE :
 - Le body du mail doit contenir des \\n pour les sauts de ligne.
 
 TON : PROFESSIONNEL MAIS HUMAIN (équilibre essentiel) :
-- Le mail doit rester professionnel, soigné et crédible : c'est un mail d'affaires envoyé à une marque, pas un message décontracté.
-- Naturel ne veut PAS dire familier. Vouvoiement obligatoire. Bannis l'argot et les anglicismes relâchés ("bossez", "sans blabla", "matcher", "clairement partants", "monter un truc", "jeter un œil", "du coup", "carrément"…).
+${toneBodyFr}
 - Varie tout de même le rythme (toutes les phrases ne doivent pas être de la même longueur), mais sans casser le registre professionnel.
 - Maximum 1 à 2 compliments dans TOUT le mail. Pas d'empilement d'adjectifs ni de superlatifs ("extrêmement", "incroyable", "parfaitement", "passionné"…).
 - Pas de tournures corporate ni de mots-valises (synergie, ADN, écosystème, levier, authenticité, univers de marque…).
@@ -1418,7 +1489,23 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
 
       parsed.subject = ensureBrandInSubject(parsed.subject, brandNameToken);
 
-      return NextResponse.json(parsed);
+      return NextResponse.json({
+        ...parsed,
+        leynaExchange: leynaExchange
+          ? {
+              hasExchange: true,
+              tone: leynaExchange.tone,
+              bannerLabel: leynaExchange.bannerLabel,
+              contacts: leynaExchange.contacts.map((c) => ({
+                email: c.email,
+                subject: c.subject,
+                tone: c.tone,
+                notes: c.notes,
+                lastExchangeAt: c.lastExchangeAt,
+              })),
+            }
+          : { hasExchange: false },
+      });
     } catch {
       return NextResponse.json(
         { error: "Erreur de parsing Grok" },

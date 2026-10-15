@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, Check, RefreshCw } from "lucide-react";
+import { Loader2, Check, RefreshCw, Search } from "lucide-react";
 import { canEditBrief } from "@/lib/projets-outreach";
 
 type WaveCluster = {
@@ -11,6 +11,8 @@ type WaveCluster = {
   decision: "PENDING" | "CONDENSE" | "SOLO";
   primaryMissionId: string | null;
   missionCount: number;
+  forceHoldCondense?: boolean;
+  heldCount?: number;
   missions: Array<{
     id: string;
     creatorName: string;
@@ -18,6 +20,7 @@ type WaveCluster = {
     campaignTitle: string | null;
     condensationRole: string | null;
     sentAt?: string | null;
+    brandCooldownUntil?: string | null;
   }>;
 };
 
@@ -38,13 +41,67 @@ type WaveRow = {
   clusters: WaveCluster[];
 };
 
+function pendingCount(w: WaveRow): number {
+  return w.clusters.filter((cl) => cl.decision === "PENDING").length;
+}
+
+function statusBadgeStyle(status: WaveRow["status"]): {
+  background: string;
+  color: string;
+} {
+  if (status === "OPEN_FOR_DRAFTING") return { background: "#E6F6EE", color: "#1F7A4D" };
+  if (status === "REVIEWING_CONDENSATIONS")
+    return { background: "#FBF1DC", color: "#956A15" };
+  return { background: "#EEEAFB", color: "#5B3F9E" };
+}
+
+/** Priorité : review avec PENDING → collecte → review → ouverte. */
+function sortWaves(list: WaveRow[]): WaveRow[] {
+  const rank = (w: WaveRow) => {
+    const pending = pendingCount(w);
+    if (w.status === "REVIEWING_CONDENSATIONS" && pending > 0) return 0;
+    if (w.status === "COLLECTING") return 1;
+    if (w.status === "REVIEWING_CONDENSATIONS") return 2;
+    return 3;
+  };
+  return [...list].sort((a, b) => {
+    const d = rank(a) - rank(b);
+    if (d !== 0) return d;
+    return pendingCount(b) - pendingCount(a);
+  });
+}
+
 export function OutreachWavePanel({ role }: { role: string }) {
   const canStrategy = canEditBrief(role);
   const [waves, setWaves] = useState<WaveRow[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  const orderedWaves = useMemo(() => sortWaves(waves), [waves]);
+  const wave =
+    orderedWaves.find((w) => w.id === selectedId) || orderedWaves[0] || null;
+  const pendingClusters = wave
+    ? wave.clusters.filter((cl) => cl.decision === "PENDING")
+    : [];
+  const autoHoldCondensed = wave
+    ? wave.clusters.filter(
+        (cl) => cl.decision === "CONDENSE" && Boolean(cl.forceHoldCondense)
+      )
+    : [];
+  const totalPendingAcrossWaves = useMemo(
+    () => waves.reduce((sum, w) => sum + pendingCount(w), 0),
+    [waves]
+  );
+  const reviewingWaves = useMemo(
+    () =>
+      waves.filter(
+        (w) => w.status === "REVIEWING_CONDENSATIONS" && pendingCount(w) > 0
+      ),
+    [waves]
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,7 +112,12 @@ export function OutreachWavePanel({ role }: { role: string }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Chargement vague impossible.");
-      setWaves(Array.isArray(data.waves) ? data.waves : []);
+      const next = Array.isArray(data.waves) ? (data.waves as WaveRow[]) : [];
+      setWaves(next);
+      setSelectedId((prev) => {
+        if (prev && next.some((w) => w.id === prev)) return prev;
+        return sortWaves(next)[0]?.id ?? null;
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -101,7 +163,7 @@ export function OutreachWavePanel({ role }: { role: string }) {
       if (!res.ok) throw new Error(data.error || "Rattachement impossible.");
       setSuccess(
         data.message ||
-          `${data.attached ?? 0} projet(s) rattaché(s). Clique ensuite sur Terminé.`
+          `${data.attached ?? 0} projet(s) rattaché(s). Clique ensuite sur Analyser les condensations.`
       );
       await load();
     } catch (e) {
@@ -111,11 +173,12 @@ export function OutreachWavePanel({ role }: { role: string }) {
     }
   }
 
-  async function completeWave(waveId: string, opts?: { rescan?: boolean }) {
+  async function completeWave(waveId: string, opts?: { rescan?: boolean; silent?: boolean }) {
     if (
       !opts?.rescan &&
+      !opts?.silent &&
       !window.confirm(
-        "Terminer la collecte ? Casting restera bloquée jusqu’à ta validation des condensations."
+        "Analyser les condensations ? Casting restera bloquée jusqu’à ta validation (Condenser / Solo)."
       )
     ) {
       return;
@@ -128,8 +191,81 @@ export function OutreachWavePanel({ role }: { role: string }) {
         credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Impossible de terminer.");
-      setSuccess(data.message || "Collecte terminée — valide les condensations.");
+      if (!res.ok) throw new Error(data.error || "Analyse impossible.");
+      setSelectedId(waveId);
+      setSuccess(data.message || "Analyse terminée — valide les condensations.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Bouton principal : scan/rescan la vague concernée (ou toutes les vagues en review). */
+  async function analyzeCondensations() {
+    if (!canStrategy) return;
+
+    // Priorité : vague sélectionnée si scannable
+    const target =
+      wave &&
+      (wave.status === "COLLECTING" || wave.status === "REVIEWING_CONDENSATIONS") &&
+      wave.campaignCount > 0
+        ? wave
+        : reviewingWaves[0] ||
+          orderedWaves.find(
+            (w) =>
+              (w.status === "COLLECTING" || w.status === "REVIEWING_CONDENSATIONS") &&
+              w.campaignCount > 0
+          ) ||
+          null;
+
+    if (!target) {
+      setError(
+        "Aucune vague à analyser. Ouvre une vague en collecte, ou choisis une vague encore en validation."
+      );
+      return;
+    }
+
+    const isRescan = target.status === "REVIEWING_CONDENSATIONS";
+    if (
+      !window.confirm(
+        isRescan
+          ? `Rescanner « ${target.title} » pour mettre à jour les marques en commun ?`
+          : `Analyser les condensations de « ${target.title} » ?\nCasting restera bloquée jusqu’à ta validation.`
+      )
+    ) {
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      // Si plusieurs vagues encore en review avec PENDING, on les rescane toutes
+      const toScan =
+        isRescan && reviewingWaves.length > 1
+          ? reviewingWaves
+          : [target];
+
+      const messages: string[] = [];
+      for (const w of toScan) {
+        const res = await fetch(`/api/projets-outreach/waves/${w.id}/complete`, {
+          method: "POST",
+          credentials: "include",
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(
+            data.error || `Analyse impossible sur « ${w.title} ».`
+          );
+        }
+        messages.push(
+          `« ${w.title} » : ${data.message || "OK"}`
+        );
+      }
+      setSelectedId(toScan[0]?.id ?? target.id);
+      setSuccess(messages.join(" · "));
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -156,7 +292,8 @@ export function OutreachWavePanel({ role }: { role: string }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Décision impossible.");
 
-      const pendingLeft = (wave?.clusters || []).filter(
+      const current = waves.find((w) => w.id === waveId);
+      const pendingLeft = (current?.clusters || []).filter(
         (cl) => cl.id !== clusterId && cl.decision === "PENDING"
       ).length;
 
@@ -264,9 +401,15 @@ export function OutreachWavePanel({ role }: { role: string }) {
     }
   }
 
-  const wave = waves[0] || null;
-  const pendingClusters =
-    wave?.clusters.filter((cl) => cl.decision === "PENDING") || [];
+  const canAnalyze =
+    canStrategy &&
+    (Boolean(
+      wave &&
+        (wave.status === "COLLECTING" ||
+          wave.status === "REVIEWING_CONDENSATIONS") &&
+        wave.campaignCount > 0
+    ) ||
+      reviewingWaves.length > 0);
 
   return (
     <div
@@ -281,26 +424,51 @@ export function OutreachWavePanel({ role }: { role: string }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-wide text-[#7A5AF8]">
-            Vague du mois
+            Vagues & condensations
           </div>
           <h2 className="mt-1 text-[16px] font-semibold text-[#1A1110]">
             {wave ? wave.title : "Aucune vague active"}
           </h2>
           <p className="mt-1 text-[13px] text-[#6B6B76] max-w-2xl">
-            Tu prépares les projets, tu cliques Terminé, puis tu choisis pour chaque marque
-            en commun : un seul mail ou des envois séparés. Casting ne peut rédiger qu’après
-            ta validation.
+            Analyse les marques en commun entre projets SOLO, puis choisis Condenser
+            (1 mail) ou Solo. Les projets communs MULTI sont exclus (déjà multi-talents).
+            Casting ne rédige qu’après validation.
           </p>
+          {totalPendingAcrossWaves > 0 && (
+            <p className="mt-2 text-[13px] font-semibold text-[#956A15]">
+              {totalPendingAcrossWaves} marque(s) encore à trancher sur{" "}
+              {reviewingWaves.length} vague(s).
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             className="po-btn po-btn-icon"
             onClick={() => void load()}
-            aria-label="Rafraîchir vague"
+            aria-label="Rafraîchir vagues"
           >
             <RefreshCw className="h-3.5 w-3.5" />
           </button>
+          {canStrategy && canAnalyze && (
+            <button
+              type="button"
+              className="po-btn po-btn-primary"
+              disabled={busy}
+              onClick={() => void analyzeCondensations()}
+              style={{ fontWeight: 700, padding: "10px 16px" }}
+            >
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4" />
+              )}
+              Analyser les condensations
+              {totalPendingAcrossWaves > 0
+                ? ` (${totalPendingAcrossWaves})`
+                : ""}
+            </button>
+          )}
           {canStrategy && !wave && (
             <button
               type="button"
@@ -330,30 +498,69 @@ export function OutreachWavePanel({ role }: { role: string }) {
         </div>
       ) : wave ? (
         <div className="mt-4 space-y-4">
+          {orderedWaves.length > 1 && (
+            <div className="flex flex-wrap gap-2">
+              {orderedWaves.map((w) => {
+                const pending = pendingCount(w);
+                const active = w.id === wave.id;
+                const badge = statusBadgeStyle(w.status);
+                return (
+                  <button
+                    key={w.id}
+                    type="button"
+                    onClick={() => setSelectedId(w.id)}
+                    className="rounded-lg border px-3 py-2 text-left text-[12px] transition"
+                    style={{
+                      borderColor: active ? "#7A5AF8" : "#E8E8EC",
+                      background: active ? "#F4F0FC" : "#fff",
+                      boxShadow: active ? "0 0 0 1px #7A5AF8" : undefined,
+                    }}
+                  >
+                    <div className="font-semibold text-[#1A1110]">{w.title}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      <span
+                        style={{
+                          borderRadius: 999,
+                          padding: "2px 8px",
+                          fontWeight: 600,
+                          fontSize: 11,
+                          ...badge,
+                        }}
+                      >
+                        {w.statusLabel}
+                      </span>
+                      <span className="text-[#6B6B76]">
+                        {w.campaignCount} projet(s)
+                      </span>
+                      {pending > 0 && (
+                        <span className="font-semibold text-[#956A15]">
+                          · {pending} à trancher
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2 text-[13px]">
             <span
               style={{
                 borderRadius: 999,
                 padding: "4px 10px",
-                background:
-                  wave.status === "OPEN_FOR_DRAFTING"
-                    ? "#E6F6EE"
-                    : wave.status === "REVIEWING_CONDENSATIONS"
-                      ? "#FBF1DC"
-                      : "#EEEAFB",
-                color:
-                  wave.status === "OPEN_FOR_DRAFTING"
-                    ? "#1F7A4D"
-                    : wave.status === "REVIEWING_CONDENSATIONS"
-                      ? "#956A15"
-                      : "#5B3F9E",
                 fontWeight: 600,
+                ...statusBadgeStyle(wave.status),
               }}
             >
               {wave.statusLabel}
             </span>
             <span className="text-[#6B6B76]">
-              {wave.campaignCount} projet(s) · {wave.clusterCount} marque(s) partagée(s)
+              {wave.campaignCount} projet(s) · {wave.clusterCount} marque(s)
+              partagée(s)
+              {pendingClusters.length > 0
+                ? ` · ${pendingClusters.length} en attente`
+                : ""}
             </span>
           </div>
 
@@ -373,7 +580,8 @@ export function OutreachWavePanel({ role }: { role: string }) {
             </div>
           )}
 
-          {wave.status === "COLLECTING" || wave.status === "REVIEWING_CONDENSATIONS" ? (
+          {wave.status === "COLLECTING" ||
+          wave.status === "REVIEWING_CONDENSATIONS" ? (
             <div
               style={{
                 marginTop: 12,
@@ -398,14 +606,14 @@ export function OutreachWavePanel({ role }: { role: string }) {
               {wave.campaignCount === 0 && (
                 <button
                   type="button"
-                  className="po-btn po-btn-primary"
+                  className="po-btn"
                   disabled={busy}
                   onClick={() => void attachExisting(wave.id)}
                 >
                   {busy ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : null}
-                  Analyser les projets déjà créés
+                  Rattacher les projets déjà créés
                 </button>
               )}
               {wave.campaignCount > 0 && (
@@ -431,29 +639,65 @@ export function OutreachWavePanel({ role }: { role: string }) {
                 {busy ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Check className="h-3.5 w-3.5" />
+                  <Search className="h-3.5 w-3.5" />
                 )}
-                Terminé — chercher les marques en commun
+                Analyser les condensations
               </button>
             </div>
           )}
 
           {wave.status === "REVIEWING_CONDENSATIONS" && canStrategy && (
-            <div className="mb-3">
+            <div className="mb-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="po-btn po-btn-primary"
+                disabled={busy}
+                onClick={() => void analyzeCondensations()}
+              >
+                {busy ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Search className="h-3.5 w-3.5" />
+                )}
+                Analyser les condensations
+              </button>
               <button
                 type="button"
                 className="po-btn"
                 disabled={busy}
                 onClick={() => void completeWave(wave.id, { rescan: true })}
               >
-                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                Rescanner
+                {busy ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Rescanner cette vague
               </button>
             </div>
           )}
 
           {wave.status === "REVIEWING_CONDENSATIONS" && (
             <div className="space-y-3">
+              {autoHoldCondensed.length > 0 ? (
+                <div
+                  style={{
+                    borderRadius: 10,
+                    padding: "10px 12px",
+                    background: "#FFFBF0",
+                    border: "1px solid #E8D48B",
+                    fontSize: 13,
+                    color: "#956A15",
+                  }}
+                >
+                  <strong>
+                    {autoHoldCondensed.length} marque(s) auto-condensée(s)
+                  </strong>{" "}
+                  (en attente sur plusieurs projets) — Solo interdit, 1 mail à
+                  J+30 :{" "}
+                  {autoHoldCondensed.map((c) => c.targetBrand).join(", ")}
+                </div>
+              ) : null}
               {wave.clusters.length === 0 ? (
                 <p className="text-[13px] text-[#6B6B76]">
                   Aucune marque en commun entre talents. Tu peux ouvrir le Casting.
@@ -484,57 +728,97 @@ export function OutreachWavePanel({ role }: { role: string }) {
                       </button>
                     </div>
                   )}
-                  {pendingClusters.map((cl) => (
-                  <div
-                    key={cl.id}
-                    className="rounded-xl border border-[#E8E4F5] bg-white p-3"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <div className="font-semibold text-[14px]">{cl.targetBrand}</div>
-                        <div className="mt-1 text-[12px] text-[#6B6B76]">
-                          {cl.missions.map((m) => m.creatorName).join(" · ")}
-                        </div>
-                        <ul className="mt-2 space-y-0.5 text-[12px] text-[#4A4A52]">
-                          {cl.missions.map((m) => (
-                            <li key={m.id}>
-                              {m.creatorName}
-                              {m.campaignTitle ? ` — ${m.campaignTitle}` : ""}
-                              {m.sentAt ? " · déjà contactée" : ""}
-                            </li>
-                          ))}
-                        </ul>
-                        {cl.missions.some((m) => m.sentAt) &&
-                          cl.missions.some((m) => !m.sentAt) && (
+                  {pendingClusters.map((cl) => {
+                    const forceHold = Boolean(cl.forceHoldCondense);
+                    return (
+                    <div
+                      key={cl.id}
+                      className="rounded-xl border border-[#E8E4F5] bg-white p-3"
+                      style={
+                        forceHold
+                          ? { borderColor: "#E8D48B", background: "#FFFBF0" }
+                          : undefined
+                      }
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <div className="font-semibold text-[14px]">
+                            {cl.targetBrand}
+                            {forceHold ? (
+                              <span
+                                style={{
+                                  marginLeft: 8,
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: "#956A15",
+                                }}
+                              >
+                                Auto-condensée (attente multi-projets)
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-1 text-[12px] text-[#6B6B76]">
+                            {cl.missions.map((m) => m.creatorName).join(" · ")}
+                          </div>
+                          <ul className="mt-2 space-y-0.5 text-[12px] text-[#4A4A52]">
+                            {cl.missions.map((m) => (
+                              <li key={m.id}>
+                                {m.creatorName}
+                                {m.campaignTitle ? ` — ${m.campaignTitle}` : ""}
+                                {m.sentAt ? " · déjà contactée" : ""}
+                                {m.brandCooldownUntil ? " · en attente" : ""}
+                              </li>
+                            ))}
+                          </ul>
+                          {forceHold ? (
                             <p className="mt-2 text-[11px] text-[#956A15]">
-                              Une partie déjà envoyée : si tu condensés, pas de 2ᵉ mail — le talent
-                              restant sera porté par la prochaine relance PRIMARY.
+                              Marque en attente sur plusieurs projets → Solo
+                              interdit. 1 mail commun au déblocage J+30.
                             </p>
-                          )}
-                      </div>
-                      {canStrategy && (
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            className="po-btn po-btn-primary"
-                            disabled={busy}
-                            onClick={() => void setDecision(wave.id, cl.id, "CONDENSE")}
-                          >
-                            Condenser
-                          </button>
-                          <button
-                            type="button"
-                            className="po-btn"
-                            disabled={busy}
-                            onClick={() => void setDecision(wave.id, cl.id, "SOLO")}
-                          >
-                            Solo
-                          </button>
+                          ) : null}
+                          {cl.missions.some((m) => m.sentAt) &&
+                            cl.missions.some((m) => !m.sentAt) && (
+                              <p className="mt-2 text-[11px] text-[#956A15]">
+                                Une partie déjà envoyée : si tu condensés, pas de 2ᵉ
+                                mail — le talent restant sera porté par la prochaine
+                                relance PRIMARY.
+                              </p>
+                            )}
                         </div>
-                      )}
+                        {canStrategy && (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              className="po-btn po-btn-primary"
+                              disabled={busy}
+                              onClick={() =>
+                                void setDecision(wave.id, cl.id, "CONDENSE")
+                              }
+                            >
+                              Condenser
+                            </button>
+                            <button
+                              type="button"
+                              className="po-btn"
+                              disabled={busy || forceHold}
+                              title={
+                                forceHold
+                                  ? "Solo interdit : marque en attente multi-projets"
+                                  : undefined
+                              }
+                              style={forceHold ? { opacity: 0.4 } : undefined}
+                              onClick={() =>
+                                void setDecision(wave.id, cl.id, "SOLO")
+                              }
+                            >
+                              Solo
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  ))}
+                    );
+                  })}
                 </>
               )}
 
@@ -557,10 +841,19 @@ export function OutreachWavePanel({ role }: { role: string }) {
           )}
 
           {wave.status === "OPEN_FOR_DRAFTING" && (
-            <p className="text-[13px] text-[#1F7A4D] font-medium">
-              C’est bon : Casting peut rédiger. Pour les marques condensées, un seul mail
-              couvre tous les projets.
-            </p>
+            <div className="space-y-2">
+              <p className="text-[13px] text-[#1F7A4D] font-medium">
+                C’est bon : Casting peut rédiger sur cette vague.
+              </p>
+              {reviewingWaves.length > 0 && canStrategy && (
+                <p className="text-[13px] text-[#956A15]">
+                  Attention : {reviewingWaves.length} autre(s) vague(s) ont encore des
+                  condensations à valider — utilise le bouton{" "}
+                  <strong>Analyser les condensations</strong> ou sélectionne-les
+                  ci-dessus.
+                </p>
+              )}
+            </div>
           )}
         </div>
       ) : (

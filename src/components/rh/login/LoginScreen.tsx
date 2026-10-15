@@ -279,8 +279,7 @@ export function LoginScreen() {
             className="m-0 text-[14px] leading-[1.6]"
             style={{ color: "#8B95A5", maxWidth: "38ch" }}
           >
-            Même identifiant que la plateforme Glow Up. Connexion sécurisée pour
-            poser, valider et exporter.
+            Même identifiant que la plateforme Glow Up.
           </p>
         </div>
       </div>

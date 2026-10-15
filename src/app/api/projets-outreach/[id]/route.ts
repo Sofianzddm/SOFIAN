@@ -239,6 +239,8 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
       clickCount: m.clickCount,
       awaitingContactsCompletion: m.awaitingContactsCompletion,
       contactsCompletionRequestedAt: m.contactsCompletionRequestedAt,
+      brandCooldownUntil: m.brandCooldownUntil,
+      brandCooldownReason: m.brandCooldownReason,
       condensationGroupId: m.condensationGroupId,
       condensationRole: m.condensationRole,
       condensationStatus: m.condensationStatus,

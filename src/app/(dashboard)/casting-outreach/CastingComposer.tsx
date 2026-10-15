@@ -299,6 +299,65 @@ export interface CastingComposerProps {
    */
   enableTalentResearch?: boolean;
   /**
+   * Analyse marque pré-chargée (ex. batch « Analyser toutes les marques »
+   * depuis l’onglet Rédaction) — évite de relancer l’API à l’ouverture.
+   */
+  initialBrandResearch?: BrandResearchState | null;
+  /** Remonte une analyse fraîche au parent pour le cache projet. */
+  onBrandResearchCached?: (brandName: string, research: BrandResearchState) => void;
+  /** Analyse talents pré-chargée (même batch). */
+  initialTalentResearch?: Array<{
+    talentId: string;
+    name: string;
+    whoTheyAre: string;
+    whatTheyDo?: string;
+    profileAnalysis?: string;
+    contentThemes: string;
+    whyRelevant: string;
+    proofPoints: string;
+    sourcesUsed?: string;
+  }> | null;
+  onTalentResearchCached?: (
+    brandName: string,
+    research: Array<{
+      talentId: string;
+      name: string;
+      whoTheyAre: string;
+      whatTheyDo?: string;
+      profileAnalysis?: string;
+      contentThemes: string;
+      whyRelevant: string;
+      proofPoints: string;
+      sourcesUsed?: string;
+    }>
+  ) => void;
+  /** Historique Leyna préchargé (batch projet). */
+  initialLeynaExchange?: {
+    hasExchange: boolean;
+    tone?: "tu" | "vous" | null;
+    bannerLabel?: string | null;
+    contacts?: Array<{
+      email: string;
+      subject?: string | null;
+      tone?: "tu" | "vous" | null;
+      notes?: string;
+    }>;
+  } | null;
+  onLeynaExchangeCached?: (
+    brandName: string,
+    research: {
+      hasExchange: boolean;
+      tone?: "tu" | "vous" | null;
+      bannerLabel?: string | null;
+      contacts?: Array<{
+        email: string;
+        subject?: string | null;
+        tone?: "tu" | "vous" | null;
+        notes?: string;
+      }>;
+    }
+  ) => void;
+  /**
    * `modal` (défaut) : overlay plein écran.
    * `inline` : panneau intégré dans la page (projets outreach / Rédaction).
    */
@@ -344,22 +403,44 @@ export default function CastingComposer({
   lockedTalentId = null,
   lockedTalentIds = null,
   enableTalentResearch = false,
+  initialBrandResearch = null,
+  onBrandResearchCached,
+  initialTalentResearch = null,
+  onTalentResearchCached,
+  initialLeynaExchange = null,
+  onLeynaExchangeCached,
   variant = "modal",
   onClose,
   onSaved,
   onError,
   onSuccess,
 }: CastingComposerProps) {
-  const effectiveLockedTalentIds = useMemo(() => {
-    if (Array.isArray(lockedTalentIds) && lockedTalentIds.length > 0) {
-      return lockedTalentIds.filter(Boolean);
+  const condensationBriefs = contact?.missionBrief?.condensationBriefs ?? null;
+
+  // Clé stable (contenu) — évite qu'un nouveau tableau `lockedTalentIds` à chaque
+  // render parent remonte l'effet d'init et efface le mail en cours de rédaction.
+  const lockedTalentIdsKey = useMemo(() => {
+    if (Array.isArray(condensationBriefs) && condensationBriefs.length >= 2) {
+      const fromBriefs = condensationBriefs
+        .map((b) => String(b.talentId || "").trim())
+        .filter(Boolean);
+      if (fromBriefs.length >= 2) {
+        return Array.from(new Set(fromBriefs)).join("|");
+      }
     }
-    if (lockedTalentId) return [lockedTalentId];
-    return [] as string[];
-  }, [lockedTalentId, lockedTalentIds]);
+    if (Array.isArray(lockedTalentIds) && lockedTalentIds.length > 0) {
+      return lockedTalentIds.filter(Boolean).join("|");
+    }
+    if (lockedTalentId) return String(lockedTalentId);
+    return "";
+  }, [lockedTalentId, lockedTalentIds, condensationBriefs]);
+
+  const effectiveLockedTalentIds = useMemo(
+    () => (lockedTalentIdsKey ? lockedTalentIdsKey.split("|") : ([] as string[])),
+    [lockedTalentIdsKey]
+  );
   const isTalentLocked = effectiveLockedTalentIds.length > 0;
 
-  const condensationBriefs = contact?.missionBrief?.condensationBriefs ?? null;
   const isCondensation = Boolean(
     condensationBriefs && condensationBriefs.length >= 2
   );
@@ -476,9 +557,23 @@ export default function CastingComposer({
       sourcesUsed?: string;
     }> | null
   >(null);
+  const prevSelectedTalentKeyRef = useRef<string | null>(null);
   const [isResearching, setIsResearching] = useState(false);
   const [isResearchingTalent, setIsResearchingTalent] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [leynaExchange, setLeynaExchange] = useState<{
+    hasExchange: boolean;
+    tone?: "tu" | "vous" | null;
+    bannerLabel?: string | null;
+    contacts?: Array<{
+      email: string;
+      subject?: string | null;
+      tone?: "tu" | "vous" | null;
+      notes?: string;
+    }>;
+  } | null>(null);
+  const [leynaExchangeChecked, setLeynaExchangeChecked] = useState(false);
+  const [leynaExchangeLoading, setLeynaExchangeLoading] = useState(false);
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
   // Programmation d'envoi (mode "at") — heure de Paris.
   const [sendMode, setSendMode] = useState<"now" | "at">("now");
@@ -708,8 +803,8 @@ export default function CastingComposer({
     const hasHubspotDraft = sub.length > 0 || bodyRaw.length > 0;
 
     setSelectedIds(
-      effectiveLockedTalentIds.length > 0
-        ? new Set(effectiveLockedTalentIds)
+      lockedTalentIdsKey
+        ? new Set(lockedTalentIdsKey.split("|"))
         : new Set()
     );
     setSelectedRecipientIds(
@@ -723,8 +818,17 @@ export default function CastingComposer({
           contact.missionBrief.condensationBriefs.length >= 2
       )
     );
-    setBrandResearch(null);
-    setTalentResearch(null);
+    // Cache batch parent : lu à l’ouverture seulement (pas en deps → pas de reset frappe).
+    setBrandResearch(initialBrandResearch ?? null);
+    setTalentResearch(initialTalentResearch ?? null);
+    if (initialLeynaExchange) {
+      setLeynaExchange(initialLeynaExchange);
+      setLeynaExchangeChecked(true);
+    } else {
+      setLeynaExchange(null);
+      setLeynaExchangeChecked(false);
+    }
+    prevSelectedTalentKeyRef.current = null;
     // Client EN (fiche CRM / mission) → anglais d'emblée.
     setEmailLanguage(resolveClientEmailLanguage(contact) || defaultLanguage);
     setSendMode("now");
@@ -741,7 +845,16 @@ export default function CastingComposer({
     }
     setEditorEmpty(!editor.getText().trim());
     setBodyTick((n) => n + 1);
-  }, [open, contact, editor, defaultLanguage, effectiveLockedTalentIds]);
+    // Ne pas dépendre de effectiveLockedTalentIds / initialBrandResearch :
+    // nouvelles refs parent réinitialisaient sujet/corps pendant la frappe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialBrandResearch snapshot à l’open
+  }, [open, contact, editor, defaultLanguage, lockedTalentIdsKey]);
+
+  // Sync sélection talents si le lock change sans remonter le brouillon.
+  useEffect(() => {
+    if (!open || !lockedTalentIdsKey) return;
+    setSelectedIds(new Set(lockedTalentIdsKey.split("|")));
+  }, [open, lockedTalentIdsKey]);
 
   useEffect(() => {
     if (!open || !contact?.missionBrief) {
@@ -866,6 +979,76 @@ export default function CastingComposer({
     effectiveLockedTalentIds,
   ]);
 
+  const selectedRecipientEmails = useMemo(() => {
+    if (!contact) return [] as string[];
+    return (contact.contacts || [])
+      .filter((c) => selectedRecipientIds.has(c.id) && String(c.email || "").includes("@"))
+      .map((c) => String(c.email).trim());
+  }, [contact, selectedRecipientIds]);
+
+  const fetchLeynaExchange = useCallback(async () => {
+    const brand = (researchBrandName || contact?.company || "").trim();
+    // Ne pas dépendre de `selectedTalents` (déclaré plus bas) — même logique inline.
+    const talentNames = (
+      effectiveLockedTalentIds.length > 0
+        ? effectiveLockedTalentIds
+            .map((id) => talents.find((t) => t.id === id))
+            .filter((t): t is PresskitTalent => Boolean(t))
+        : talents.filter((t) => selectedIds.has(t.id))
+    ).map((t) => `${t.prenom} ${t.nom}`.trim());
+
+    // Masque l’ancien « Aucun échange » pendant le scan (évite le flash cold → historique).
+    setLeynaExchangeLoading(true);
+    setLeynaExchangeChecked(false);
+    try {
+      const res = await fetch("/api/casting/leyna-exchange-context", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // OK si vide : le serveur cherche aussi par nom/domaine marque.
+          recipientEmails: selectedRecipientEmails,
+          brandName: brand,
+          talentNames,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const ctx = data?.context;
+      const next =
+        ctx && typeof ctx === "object"
+          ? (ctx as {
+              hasExchange: boolean;
+              tone?: "tu" | "vous" | null;
+              bannerLabel?: string | null;
+              contacts?: Array<{
+                email: string;
+                subject?: string | null;
+                tone?: "tu" | "vous" | null;
+                notes?: string;
+              }>;
+            })
+          : { hasExchange: false };
+      setLeynaExchange(next);
+      setLeynaExchangeChecked(true);
+      if (brand) onLeynaExchangeCached?.(brand, next);
+    } catch {
+      const next = { hasExchange: false };
+      setLeynaExchange(next);
+      setLeynaExchangeChecked(true);
+      if (brand) onLeynaExchangeCached?.(brand, next);
+    } finally {
+      setLeynaExchangeLoading(false);
+    }
+  }, [
+    selectedRecipientEmails,
+    researchBrandName,
+    contact?.company,
+    talents,
+    selectedIds,
+    effectiveLockedTalentIds,
+    onLeynaExchangeCached,
+  ]);
+
   const runBrandResearch = useCallback(async () => {
     if (!researchBrandName.trim()) {
       onError("Nom de marque manquant pour la recherche.");
@@ -889,9 +1072,13 @@ export default function CastingComposer({
           typeof data.error === "string" ? data.error : "Recherche marque impossible."
         );
       }
-      setBrandResearch(data as BrandResearchState);
-      // Nouvelle analyse marque → l'ancien fit créateurs n'est plus valide.
+      const research = data as BrandResearchState;
+      setBrandResearch(research);
+      onBrandResearchCached?.(researchBrandName.trim(), research);
+      // Nouvelle analyse marque → l'ancien fit créateurs / Leyna n'est plus valide.
       if (effectiveTalentResearch) setTalentResearch(null);
+      setLeynaExchange(null);
+      setLeynaExchangeChecked(false);
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
@@ -903,6 +1090,7 @@ export default function CastingComposer({
     onError,
     effectiveTalentResearch,
     projectResearchPayload,
+    onBrandResearchCached,
   ]);
 
   const runTalentResearch = useCallback(async () => {
@@ -948,7 +1136,14 @@ export default function CastingComposer({
             : "Recherche créateur impossible."
         );
       }
-      setTalentResearch(Array.isArray(data.talents) ? data.talents : []);
+      const list = Array.isArray(data.talents) ? data.talents : [];
+      setTalentResearch(list);
+      if (list.length > 0) {
+        onTalentResearchCached?.(researchBrandName.trim(), list);
+      }
+      // Nouvelle analyse talent → historique Leyna à relancer (étape dédiée).
+      setLeynaExchange(null);
+      setLeynaExchangeChecked(false);
     } catch (e: unknown) {
       setTalentResearch(null);
       onError(e instanceof Error ? e.message : "Erreur réseau.");
@@ -966,6 +1161,7 @@ export default function CastingComposer({
     contact?.missionBrief?.strategyReason,
     contact?.missionBrief?.recommendedAngle,
     projectResearchPayload,
+    onTalentResearchCached,
   ]);
   useEffect(() => {
     if (!open) return;
@@ -1058,7 +1254,7 @@ export default function CastingComposer({
     return () => {
       cancelled = true;
     };
-  }, [open, market, effectiveLockedTalentIds]);
+  }, [open, market, lockedTalentIdsKey]);
 
   const selectedTalents = useMemo(() => {
     const selected = talents.filter((t) => selectedIds.has(t.id));
@@ -1080,8 +1276,15 @@ export default function CastingComposer({
   );
 
   // Si on change de talent, l'ancienne analyse créateur n'est plus valide.
+  // Skip le 1er run après ouverture pour ne pas écraser le cache batch.
   useEffect(() => {
     if (!effectiveTalentResearch) return;
+    if (prevSelectedTalentKeyRef.current === null) {
+      prevSelectedTalentKeyRef.current = selectedTalentKey;
+      return;
+    }
+    if (prevSelectedTalentKeyRef.current === selectedTalentKey) return;
+    prevSelectedTalentKeyRef.current = selectedTalentKey;
     setTalentResearch(null);
   }, [selectedTalentKey, effectiveTalentResearch]);
 
@@ -1138,6 +1341,7 @@ export default function CastingComposer({
           brandName: researchBrandName || contact.company,
           brandResearch,
           talents: talentsPayload,
+          recipientEmails: selectedRecipientEmails,
           ...(effectiveTalentResearch && talentResearch
             ? { talentResearch }
             : {}),
@@ -1192,6 +1396,10 @@ export default function CastingComposer({
           typeof data.error === "string" ? data.error : "Génération impossible."
         );
       }
+      if (data.leynaExchange && typeof data.leynaExchange === "object") {
+        setLeynaExchange(data.leynaExchange);
+        setLeynaExchangeChecked(true);
+      }
       const subjectNext = typeof data.subject === "string" ? data.subject : "";
       let bodyNext = typeof data.body === "string" ? data.body : "";
       const asHtml = bodyNext.trim().startsWith("<")
@@ -1210,10 +1418,14 @@ export default function CastingComposer({
       editor?.commands.setContent(normalizeEditorHtmlForEmail(linkedHtml) || linkedHtml);
       setEditorEmpty(!editor?.getText().trim());
       setBodyTick((n) => n + 1);
+      const exchangeNote =
+        data.leynaExchange?.hasExchange && data.leynaExchange?.bannerLabel
+          ? ` · ${data.leynaExchange.bannerLabel}`
+          : "";
       onSuccess(
         genLanguage === "en"
-          ? "Brouillon prêt (anglais — langue client)."
-          : "Brouillon prêt."
+          ? `Brouillon prêt (anglais — langue client).${exchangeNote}`
+          : `Brouillon prêt.${exchangeNote}`
       );
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Erreur réseau.");
@@ -1236,6 +1448,7 @@ export default function CastingComposer({
     onSuccess,
     isCondensation,
     orderedCondensationBriefs,
+    selectedRecipientEmails,
   ]);
 
   const previewSubjectResolved = useMemo(() => {
@@ -2140,6 +2353,11 @@ export default function CastingComposer({
                   onTalentResearch={runTalentResearch}
                   isResearchingTalent={isResearchingTalent}
                   talentResearch={talentResearch}
+                  enableLeynaExchange={Boolean(contact?.missionBrief) || effectiveTalentResearch}
+                  onLeynaExchangeResearch={() => void fetchLeynaExchange()}
+                  isResearchingLeynaExchange={leynaExchangeLoading}
+                  leynaExchange={leynaExchange}
+                  leynaExchangeChecked={leynaExchangeChecked}
                   talentsSelected={selectedTalents}
                   isGenerating={isGenerating}
                   onGenerate={runGenerateEmail}

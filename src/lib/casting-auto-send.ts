@@ -859,7 +859,13 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
       scheduledSendAt: null,
       // Le flag de forcage est a usage unique : on le remet a false apres
       // l'execution pour ne pas court-circuiter le cooldown sur de futurs ajouts.
-      ...(mission.forceSend ? { forceSend: false } : {}),
+      ...(mission.forceSend
+        ? {
+            forceSend: false,
+            brandCooldownUntil: null,
+            brandCooldownReason: null,
+          }
+        : {}),
       ...(outcome.succeeded > 0 && bodyTpl !== bodyRaw ? { draftEmailBody: bodyTpl } : {}),
     },
   });
