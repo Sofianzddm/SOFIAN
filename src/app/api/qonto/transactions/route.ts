@@ -33,6 +33,13 @@ export async function GET(request: NextRequest) {
       searchParams.get("includeHorsPlateforme") === "true";
     const horsPlateformeOnly =
       searchParams.get("horsPlateforme") === "true";
+    const daysBackRaw = searchParams.get("daysBack");
+    const daysBack = daysBackRaw ? Number(daysBackRaw) : null;
+    const limitRaw = searchParams.get("limit");
+    const limit = Math.min(
+      Math.max(limitRaw ? Number(limitRaw) : 2000, 1),
+      5000
+    );
 
     // Build where clause
     // La réconciliation ne concerne que les encaissements : les débits
@@ -49,6 +56,14 @@ export async function GET(request: NextRequest) {
       where.horsPlateforme = true;
     } else if (!includeHorsPlateforme) {
       where.horsPlateforme = false;
+    }
+
+    // Filtre période (ex. année) pour la réconciliation / historique
+    if (daysBack && Number.isFinite(daysBack) && daysBack > 0) {
+      const dateFrom = new Date();
+      dateFrom.setDate(dateFrom.getDate() - daysBack);
+      dateFrom.setHours(0, 0, 0, 0);
+      where.dateTransaction = { gte: dateFrom };
     }
 
     // Récupérer les transactions
@@ -93,7 +108,7 @@ export async function GET(request: NextRequest) {
           },
         },
       },
-      take: 100, // Limit pour éviter de surcharger
+      take: limit,
     });
 
     // Enrichit chaque transaction d'un montantAlloue / restant pour faciliter l'UI.

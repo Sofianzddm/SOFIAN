@@ -140,7 +140,7 @@ export default function ReconciliationPage() {
   const [factures, setFactures] = useState<Facture[]>([]);
   const [markingHorsPlateforme, setMarkingHorsPlateforme] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [periodDays, setPeriodDays] = useState<number>(90);
+  const [periodDays, setPeriodDays] = useState<number>(365);
   const [previewFacture, setPreviewFacture] = useState<Facture | null>(null);
   const [showHorsPlateforme, setShowHorsPlateforme] = useState(false);
 
@@ -155,11 +155,13 @@ export default function ReconciliationPage() {
   const [reconcileError, setReconcileError] = useState<string | null>(null);
   const [dissociating, setDissociating] = useState<string | null>(null);
 
-  const fetchData = async () => {
+  const fetchData = async (days: number = periodDays) => {
     setLoading(true);
     try {
       const [transactionsRes, facturesRes] = await Promise.all([
-        fetch("/api/qonto/transactions?includeHorsPlateforme=true"),
+        fetch(
+          `/api/qonto/transactions?includeHorsPlateforme=true&daysBack=${days}&limit=5000`
+        ),
         fetch(`/api/documents?type=FACTURE&statut=${FACTURE_STATUTS_RAPPROCHEMENT}`),
       ]);
 
@@ -394,8 +396,9 @@ export default function ReconciliationPage() {
     new Date(dateStr).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    void fetchData(periodDays);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rechargement volontaire sur changement de période
+  }, [periodDays]);
 
   useEffect(() => {
     if (!previewFacture && !reconcileTx) return;
@@ -805,7 +808,7 @@ export default function ReconciliationPage() {
               </h2>
             </div>
             <div className="md:hidden divide-y divide-slate-100">
-              {transactionsAssociees.slice(0, 25).map((transaction) => (
+              {transactionsAssociees.map((transaction) => (
                 <article key={transaction.id} className="px-4 py-4 space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -886,7 +889,7 @@ export default function ReconciliationPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactionsAssociees.slice(0, 25).map((transaction) => (
+                  {transactionsAssociees.map((transaction) => (
                     <tr
                       key={transaction.id}
                       className="border-b border-slate-100 last:border-0 hover:bg-slate-50/30 align-top"
@@ -959,11 +962,6 @@ export default function ReconciliationPage() {
                 </tbody>
               </table>
             </div>
-            {transactionsAssociees.length > 25 && (
-              <div className="px-5 py-2 border-t border-slate-100 text-xs text-slate-500">
-                Affichage des 25 dernières. Total : {transactionsAssociees.length} réconciliées.
-              </div>
-            )}
           </div>
         )}
 

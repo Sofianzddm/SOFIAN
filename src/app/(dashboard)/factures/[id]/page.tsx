@@ -535,9 +535,10 @@ export default function FactureDetailPage() {
     setReconcileLoading(true);
     setReconcileError(null);
     try {
-      const r = await fetch("/api/qonto/transactions?nonAssociees=true", {
-        cache: "no-store",
-      });
+      const r = await fetch(
+        "/api/qonto/transactions?nonAssociees=true&daysBack=365&limit=5000",
+        { cache: "no-store" }
+      );
       if (!r.ok) {
         const data = await r.json().catch(() => ({}));
         setReconcileError(data.error || "Impossible de charger les transactions");
@@ -573,7 +574,7 @@ export default function FactureDetailPage() {
       const r = await fetch("/api/qonto/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ daysBack: 30 }),
+        body: JSON.stringify({ daysBack: 365 }),
       });
       if (!r.ok) {
         const data = await r.json().catch(() => ({}));
@@ -2035,7 +2036,7 @@ export default function FactureDetailPage() {
                         {reconcileTransactions.length === 0 && (
                           <p className="text-xs text-gray-500 mt-1">
                             Cliquez sur « Synchroniser Qonto » pour récupérer les
-                            dernières transactions.
+                            transactions des 12 derniers mois.
                           </p>
                         )}
                       </div>
