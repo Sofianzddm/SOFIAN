@@ -5279,6 +5279,25 @@ function EnvoisTab({
     (campaign.wave?.status === "COLLECTING" ||
       campaign.wave?.status === "REVIEWING_CONDENSATIONS");
 
+  function askUrgentForceReason(label: string, detail?: string): string | null {
+    const confirmed = window.confirm(
+      `${label}\n\n${
+        detail ||
+        "Ces contacts ont déjà reçu un mail sur la ligne projet récemment (plafond 1 / 30 j)."
+      }\n\nProjet urgent — envoyer quand même ? (un motif sera demandé)`
+    );
+    if (!confirmed) return null;
+    const reason = window.prompt(
+      "Motif du projet urgent (obligatoire, min. 5 caractères) :",
+      ""
+    );
+    if (!reason || reason.trim().length < 5) {
+      setError("Envoi annulé : motif urgent trop court ou vide.");
+      return null;
+    }
+    return reason.trim();
+  }
+
   async function scheduleAndSend(
     missionId: string,
     force = false,
@@ -5310,24 +5329,19 @@ function EnvoisTab({
       );
       const scheduleData = await scheduleRes.json().catch(() => ({}));
       if (!scheduleRes.ok) {
-        if (scheduleData?.canForce && !force) {
-          const confirmed = window.confirm(
-            `${brandLabel}\n\n${
-              scheduleData.error ||
-              "Ces contacts ont déjà reçu un mail sur la ligne projet récemment (plafond 1 / 30 j)."
-            }\n\nProjet urgent — envoyer quand même ? (un motif sera demandé)`
+        // Bloqué cooldown : demander motif puis réessayer en force.
+        // Aussi si force=true sans motif (bouton « Forcer » mal câblé / refresh).
+        const needsMotif =
+          (scheduleData?.canForce && !force) ||
+          (force && !forceReason && scheduleData?.needsForceReason);
+        if (needsMotif) {
+          const reason = askUrgentForceReason(
+            brandLabel,
+            scheduleData.error || undefined
           );
-          if (!confirmed) return;
-          const reason = window.prompt(
-            "Motif du projet urgent (obligatoire, min. 5 caractères) :",
-            ""
-          );
-          if (!reason || reason.trim().length < 5) {
-            setError("Envoi annulé : motif urgent trop court ou vide.");
-            return;
-          }
+          if (!reason) return;
           setBusyId(null);
-          await scheduleAndSend(missionId, true, reason.trim());
+          await scheduleAndSend(missionId, true, reason);
           return;
         }
         throw new Error(scheduleData.error || "Planification impossible.");
@@ -5451,10 +5465,11 @@ function EnvoisTab({
                     type="button"
                     disabled={busyId === m.id}
                     onClick={() => {
-                      const ok = window.confirm(
-                        `${m.marqueNom || m.targetBrand}\n\nForcer l’envoi ignore le plafond projet 30 jours (contacts déjà contactés sur cette ligne).\n\nConfirmer ?`
+                      const reason = askUrgentForceReason(
+                        m.marqueNom || m.targetBrand,
+                        "Forcer l’envoi ignore le plafond projet 30 jours (contacts déjà contactés sur cette ligne)."
                       );
-                      if (ok) void scheduleAndSend(m.id, true);
+                      if (reason) void scheduleAndSend(m.id, true, reason);
                     }}
                     className="po-btn po-btn-secondary"
                     style={{ padding: "7px 12px", fontSize: 12 }}
