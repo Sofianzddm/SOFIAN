@@ -638,6 +638,38 @@
   border-color: #f0c24e;
 }
 
+/* Demande en validation — croix sur les jours demandés */
+.rh-approval-planning {
+  margin-top: 4px;
+}
+.rh-gantt-dayhead[data-request="1"] {
+  color: var(--rh-accent);
+}
+.rh-gantt-dayhead[data-request="1"] .rh-mono {
+  color: var(--rh-accent);
+  font-weight: 700;
+}
+.rh-gantt-name[data-requester="1"] {
+  color: var(--rh-accent);
+  font-weight: 700;
+}
+.rh-gantt-cell[data-kind="REQUEST"],
+.rh-gantt-cell[data-request="1"] {
+  color: #0e1116;
+  background: var(--rh-accent);
+  border-color: var(--rh-accent);
+  font-size: 11px;
+  font-weight: 800;
+}
+.rh-gantt-cell[data-col-request="1"][data-empty="1"]:not([data-request="1"]) {
+  background: rgba(229, 242, 181, 0.06);
+  border-color: rgba(229, 242, 181, 0.18);
+  color: transparent;
+}
+.rh-gantt-cell[data-col-request="1"]:not([data-request="1"]):not([data-empty="1"]) {
+  box-shadow: inset 0 0 0 1px rgba(229, 242, 181, 0.35);
+}
+
 @media (max-width: 900px) {
   .rh-gantt-card {
     --rh-gantt-name: 108px;

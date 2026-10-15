@@ -2,7 +2,9 @@ import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import {
   assertLegalBreak,
+  dayNetMinutes,
   LEGAL_BREAK_MIN_MINUTES,
+  slotsBreakMinutes,
   slotsGrossMinutes,
   splitOvertime,
 } from "@/lib/rh/calculations";
@@ -18,8 +20,14 @@ import { getRhSettings } from "@/lib/rh/settings";
 
 type Slot = { from: string; to: string };
 
+/** Pause effective : trou entre créneaux, sinon valeur saisie. */
+function effectiveBreakMinutes(slots: Slot[], breakMinutes: number): number {
+  const gaps = slotsBreakMinutes(slots);
+  return gaps > 0 ? gaps : Math.max(0, breakMinutes);
+}
+
 function dayMinutes(slots: Slot[], breakMinutes: number): number {
-  return Math.max(0, slotsGrossMinutes(slots) - breakMinutes);
+  return dayNetMinutes(slots, breakMinutes);
 }
 
 export async function getOrCreateTimesheet(
@@ -43,12 +51,13 @@ export async function getOrCreateTimesheet(
     const dayRows: Prisma.RhTimesheetDayCreateWithoutTimesheetInput[] = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date(info.weekStart);
-      d.setDate(info.weekStart.getDate() + i);
+      d.setUTCDate(info.weekStart.getUTCDate() + i);
       dayRows.push({
         date: d,
         slots: [],
-        breakMinutes: i < 5 ? 60 : 0,
+        breakMinutes: 0,
         totalMinutes: 0,
+        exception: false,
       });
     }
     ts = await prisma.rhTimesheet.create({
@@ -87,6 +96,11 @@ function recalculateTotals(
   return { totalMinutes, ot25Minutes: at25, ot50Minutes: at50 };
 }
 
+function isWeekendOrHolidayIso(iso: string): boolean {
+  const dow = new Date(`${iso}T12:00:00`).getDay();
+  return dow === 0 || dow === 6 || isFrenchHoliday(iso);
+}
+
 export async function updateTimesheetDays(params: {
   timesheetId: string;
   employeeId: string;
@@ -95,6 +109,9 @@ export async function updateTimesheetDays(params: {
     date: string;
     slots: Slot[];
     breakMinutes: number;
+    exception?: boolean;
+    /** Justification HS / exception pour ce jour */
+    note?: string | null;
   }[];
 }) {
   const ts = await prisma.rhTimesheet.findFirst({
@@ -108,14 +125,31 @@ export async function updateTimesheetDays(params: {
   const settings = await getRhSettings();
 
   for (const day of params.days) {
-    if (day.slots.length > 0) {
+    const iso = day.date.slice(0, 10);
+    const special = isWeekendOrHolidayIso(iso);
+    const exception = special ? !!day.exception : false;
+    const slots =
+      special && !exception
+        ? []
+        : (day.slots || []).filter((s) => s.from && s.to);
+
+    if (special && slots.length > 0 && !exception) {
+      throw new Error(
+        `Coche « Exception » pour saisir des heures le ${iso} (week-end / férié)`
+      );
+    }
+
+    const breakMinutes = effectiveBreakMinutes(slots, day.breakMinutes);
+    if (slots.length > 0) {
       // L3121-16 : ≥ 20 min dès 6 h brutes (plancher légal, indépendant du défaut UI)
-      assertLegalBreak(slotsGrossMinutes(day.slots), day.breakMinutes, {
+      assertLegalBreak(slotsGrossMinutes(slots), breakMinutes, {
         minBreak: LEGAL_BREAK_MIN_MINUTES,
       });
     }
     const date = new Date(day.date);
-    const totalMinutes = dayMinutes(day.slots, day.breakMinutes);
+    const totalMinutes = dayMinutes(slots, breakMinutes);
+    const note =
+      typeof day.note === "string" ? day.note.trim() || null : undefined;
     await prisma.rhTimesheetDay.upsert({
       where: {
         timesheetId_date: { timesheetId: ts.id, date },
@@ -123,14 +157,18 @@ export async function updateTimesheetDays(params: {
       create: {
         timesheetId: ts.id,
         date,
-        slots: day.slots,
-        breakMinutes: day.breakMinutes,
+        slots,
+        breakMinutes: slots.length ? breakMinutes : 0,
         totalMinutes,
+        exception,
+        note: note ?? null,
       },
       update: {
-        slots: day.slots,
-        breakMinutes: day.breakMinutes,
+        slots,
+        breakMinutes: slots.length ? breakMinutes : 0,
         totalMinutes,
+        exception,
+        ...(note !== undefined ? { note } : {}),
       },
     });
   }
@@ -144,13 +182,12 @@ export async function updateTimesheetDays(params: {
     settings.ot25CapHours
   );
 
-  // Week-end / férié → audit + notif SAZ + manager + RH
+  // Week-end / férié exception → audit + notif SAZ + manager + RH
   const weekendDates = params.days
     .filter((d) => {
-      if (!d.slots.length) return false;
       const iso = d.date.slice(0, 10);
-      const dow = new Date(`${iso}T12:00:00`).getDay();
-      return dow === 0 || dow === 6 || isFrenchHoliday(iso);
+      if (!isWeekendOrHolidayIso(iso) || !d.exception) return false;
+      return (d.slots || []).some((s) => s.from && s.to);
     })
     .map((d) => d.date.slice(0, 10));
   if (weekendDates.length > 0) {
@@ -187,15 +224,23 @@ export async function submitTimesheet(params: {
   const settings = await getRhSettings();
   for (const d of ts.days) {
     const slots = (Array.isArray(d.slots) ? d.slots : []) as Slot[];
+    const iso = d.date.toISOString().slice(0, 10);
+    if (slots.length > 0 && isWeekendOrHolidayIso(iso) && !d.exception) {
+      throw new Error(
+        `Coche « Exception » pour le ${iso} (week-end / férié) avant envoi`
+      );
+    }
     if (slots.length > 0) {
-      assertLegalBreak(slotsGrossMinutes(slots), d.breakMinutes, {
-        minBreak: LEGAL_BREAK_MIN_MINUTES,
-      });
+      assertLegalBreak(
+        slotsGrossMinutes(slots),
+        effectiveBreakMinutes(slots, d.breakMinutes),
+        { minBreak: LEGAL_BREAK_MIN_MINUTES }
+      );
     }
   }
   const dayOverHours = ts.days.some((d) => {
-    const dow = new Date(d.date).getUTCDay();
-    if (dow === 0 || dow === 6) return false;
+    const iso = d.date.toISOString().slice(0, 10);
+    if (isWeekendOrHolidayIso(iso)) return d.totalMinutes > 0;
     return d.totalMinutes > settings.workdayMinutes;
   });
   const otTotal = ts.ot25Minutes + ts.ot50Minutes;

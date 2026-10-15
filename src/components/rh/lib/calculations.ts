@@ -100,17 +100,69 @@ export function assertLegalBreak(
   }
 }
 
-/** Minutes brutes des créneaux (avant pause). */
+/** "HH:MM" → minutes depuis minuit (NaN si invalide). */
+export function hhmmToMinutes(value: string): number {
+  const [h, m] = String(value || "")
+    .split(":")
+    .map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return NaN;
+  return h * 60 + m;
+}
+
+/** Minutes brutes des créneaux (somme des plages travail, hors trous). */
 export function slotsGrossMinutes(
   slots: Array<{ from: string; to: string }>
 ): number {
   let total = 0;
   for (const s of slots) {
-    const [fh, fm] = s.from.split(":").map(Number);
-    const [th, tm] = s.to.split(":").map(Number);
-    total += Math.max(0, th * 60 + tm - (fh * 60 + fm));
+    const from = hhmmToMinutes(s.from);
+    const to = hhmmToMinutes(s.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+    total += Math.max(0, to - from);
   }
   return total;
+}
+
+/**
+ * Pause auto = somme des trous entre créneaux consécutifs (triés).
+ * Ex. 09:30→12:00 + 14:00→18:30 → 120 min (pas un forfait 60/120).
+ */
+export function slotsBreakMinutes(
+  slots: Array<{ from: string; to: string }>
+): number {
+  const sorted = slots
+    .map((s) => ({
+      from: hhmmToMinutes(s.from),
+      to: hhmmToMinutes(s.to),
+    }))
+    .filter(
+      (s) =>
+        Number.isFinite(s.from) &&
+        Number.isFinite(s.to) &&
+        s.to > s.from
+    )
+    .sort((a, b) => a.from - b.from || a.to - b.to);
+
+  let gaps = 0;
+  for (let i = 0; i < sorted.length - 1; i++) {
+    gaps += Math.max(0, sorted[i + 1].from - sorted[i].to);
+  }
+  return gaps;
+}
+
+/**
+ * Temps de travail net d’une journée.
+ * - Plusieurs créneaux : le trou (pause) est déjà exclu du brut → on ne re-soustrait pas.
+ * - Un seul créneau continu : on déduit `breakMinutes` (saisi / défaut).
+ */
+export function dayNetMinutes(
+  slots: Array<{ from: string; to: string }>,
+  breakMinutes = 0
+): number {
+  const gross = slotsGrossMinutes(slots);
+  const gaps = slotsBreakMinutes(slots);
+  if (gaps > 0) return Math.max(0, gross);
+  return Math.max(0, gross - Math.max(0, breakMinutes));
 }
 
 /** 25 CP / an, crédités 2,08 j à chaque mois clos (Lucca). */
@@ -218,9 +270,12 @@ export function mileageAllowance(
 }
 
 export function minutesToLabel(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return `${h} h ${String(m).padStart(2, "0")}`;
+  if (!Number.isFinite(minutes)) return "0 h 00";
+  const sign = minutes < 0 ? "-" : "";
+  const abs = Math.abs(Math.round(minutes));
+  const h = Math.floor(abs / 60);
+  const m = abs % 60;
+  return `${sign}${h} h ${String(m).padStart(2, "0")}`;
 }
 
 export function coverageAfter(

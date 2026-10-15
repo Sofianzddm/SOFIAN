@@ -71,27 +71,40 @@ export async function createRhRequest(params: {
   });
 }
 
-/** ISO week helpers (lundi = début). */
+/** Date calendaire → Date UTC midi (stable pour colonnes @db.Date). */
+export function utcNoonFromYmd(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+}
+
+export function ymdLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** ISO week helpers (lundi = début). Dates en UTC midi. */
 export function isoWeekInfo(d: Date): {
   isoYear: number;
   isoWeek: number;
   weekStart: Date;
   weekEnd: Date;
 } {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const day = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() + 4 - day);
-  const isoYear = date.getUTCFullYear();
-  const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+  // Ancre sur le jour calendaire local, puis calcul ISO en UTC
+  const anchor = utcNoonFromYmd(ymdLocal(d));
+  const day = anchor.getUTCDay() || 7; // 1=lun … 7=dim
+  const thursday = new Date(anchor);
+  thursday.setUTCDate(anchor.getUTCDate() + 4 - day);
+  const isoYear = thursday.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(isoYear, 0, 1, 12));
   const isoWeek = Math.ceil(
-    ((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7
+    ((thursday.getTime() - yearStart.getTime()) / 86400000 + 1) / 7
   );
-  const weekStart = new Date(d);
-  const dow = (weekStart.getDay() + 6) % 7;
-  weekStart.setHours(0, 0, 0, 0);
-  weekStart.setDate(weekStart.getDate() - dow);
+  const weekStart = new Date(anchor);
+  weekStart.setUTCDate(anchor.getUTCDate() - (day - 1));
   const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekStart.getDate() + 6);
+  weekEnd.setUTCDate(weekStart.getUTCDate() + 6);
   return { isoYear, isoWeek, weekStart, weekEnd };
 }
 

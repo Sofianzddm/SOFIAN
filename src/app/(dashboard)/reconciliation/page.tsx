@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import {
   Loader2,
@@ -17,6 +17,7 @@ import {
   Search,
   Plus,
   Minus,
+  Upload,
 } from "lucide-react";
 
 interface TransactionMatch {
@@ -155,6 +156,17 @@ export default function ReconciliationPage() {
   const [reconcileError, setReconcileError] = useState<string | null>(null);
   const [dissociating, setDissociating] = useState<string | null>(null);
 
+  // Modale « Hors app » (facture Evoliz / externe)
+  const [externeTx, setExterneTx] = useState<TransactionQonto | null>(null);
+  const [externeFile, setExterneFile] = useState<File | null>(null);
+  const [externeClientNom, setExterneClientNom] = useState("");
+  const [externeRef, setExterneRef] = useState("");
+  const [externeMontant, setExterneMontant] = useState("");
+  const [externeError, setExterneError] = useState<string | null>(null);
+  const [submittingExterne, setSubmittingExterne] = useState(false);
+  const [externeDragOver, setExterneDragOver] = useState(false);
+  const externeFileInputRef = useRef<HTMLInputElement>(null);
+
   const fetchData = async (days: number = periodDays) => {
     setLoading(true);
     try {
@@ -260,6 +272,86 @@ export default function ReconciliationPage() {
     setSelection([]);
     setReconcileSearch("");
     setReconcileError(null);
+  };
+
+  const openExterne = (transaction: TransactionQonto) => {
+    const restant = toNumber(transaction.restant ?? transaction.montant);
+    setExterneTx(transaction);
+    setExterneFile(null);
+    setExterneClientNom(transaction.emetteur || "");
+    setExterneRef("");
+    setExterneMontant(restant > 0 ? restant.toFixed(2) : "");
+    setExterneError(null);
+    setExterneDragOver(false);
+  };
+
+  const closeExterne = () => {
+    setExterneTx(null);
+    setExterneFile(null);
+    setExterneClientNom("");
+    setExterneRef("");
+    setExterneMontant("");
+    setExterneError(null);
+    setExterneDragOver(false);
+  };
+
+  const pickExterneFile = (file: File | null | undefined) => {
+    if (!file) return;
+    const okType =
+      file.type === "application/pdf" ||
+      file.type.startsWith("image/") ||
+      file.name.toLowerCase().endsWith(".pdf");
+    if (!okType) {
+      setExterneError("Format non supporté (PDF, JPG, PNG, WebP)");
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setExterneError("Fichier trop volumineux (max 15 Mo)");
+      return;
+    }
+    setExterneError(null);
+    setExterneFile(file);
+  };
+
+  const submitExterne = async () => {
+    if (!externeTx || !externeFile) {
+      setExterneError("Glissez ou sélectionnez la facture externe (PDF)");
+      return;
+    }
+    setSubmittingExterne(true);
+    setExterneError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", externeFile);
+      formData.append("transactionId", externeTx.id);
+      if (externeClientNom.trim()) {
+        formData.append("clientNom", externeClientNom.trim());
+      }
+      if (externeRef.trim()) {
+        formData.append("referenceExterne", externeRef.trim());
+      }
+      if (externeMontant.trim()) {
+        formData.append("montant", externeMontant.trim().replace(",", "."));
+      }
+      formData.append("modePaiement", "Virement");
+
+      const res = await fetch("/api/qonto/associate-externe", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setExterneError(data.error || "Erreur lors du rapprochement externe");
+        return;
+      }
+      await fetchData();
+      closeExterne();
+    } catch (err) {
+      console.error("Erreur association externe:", err);
+      setExterneError("Erreur lors du rapprochement externe");
+    } finally {
+      setSubmittingExterne(false);
+    }
   };
 
   const reconcileTotals = useMemo(() => {
@@ -401,10 +493,11 @@ export default function ReconciliationPage() {
   }, [periodDays]);
 
   useEffect(() => {
-    if (!previewFacture && !reconcileTx) return;
+    if (!previewFacture && !reconcileTx && !externeTx) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         if (previewFacture) setPreviewFacture(null);
+        else if (externeTx) closeExterne();
         else if (reconcileTx) closeReconcile();
       }
     };
@@ -415,7 +508,7 @@ export default function ReconciliationPage() {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [previewFacture, reconcileTx]);
+  }, [previewFacture, reconcileTx, externeTx]);
 
   if (session?.user?.role !== "ADMIN") {
     return (
@@ -641,6 +734,15 @@ export default function ReconciliationPage() {
                           <Link2 className="w-3.5 h-3.5" />
                           {partial ? "Compléter" : "Rapprocher"}
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => openExterne(transaction)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 text-slate-700 rounded-md hover:bg-slate-50"
+                          title="Rapprocher une facture Evoliz / hors app"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          Hors app
+                        </button>
                         {!partial && (
                           <button
                             type="button"
@@ -670,7 +772,7 @@ export default function ReconciliationPage() {
                       <th className="text-right py-3 px-4 font-medium text-slate-600">Montant</th>
                       <th className="text-right py-3 px-4 font-medium text-slate-600">Restant</th>
                       <th className="text-left py-3 px-4 font-medium text-slate-600">Rapprochements</th>
-                      <th className="text-right py-3 px-4 font-medium text-slate-600 w-44">Action</th>
+                      <th className="text-right py-3 px-4 font-medium text-slate-600 w-56">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -768,6 +870,15 @@ export default function ReconciliationPage() {
                               >
                                 <Link2 className="w-3.5 h-3.5" />
                                 {partial ? "Compléter" : "Rapprocher"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openExterne(transaction)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs border border-slate-200 text-slate-700 rounded-md hover:bg-slate-50"
+                                title="Rapprocher une facture Evoliz / hors app"
+                              >
+                                <Upload className="w-3.5 h-3.5" />
+                                Hors app
                               </button>
                               {!partial && (
                                 <button
@@ -1374,6 +1485,176 @@ export default function ReconciliationPage() {
                   Rapprocher
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ───────────── MODALE : Hors app (facture Evoliz / externe) ───────────── */}
+      {externeTx && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={closeExterne}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 px-6 py-4 border-b border-slate-200">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold text-slate-900">
+                  Réconcilier hors app
+                </h2>
+                <p className="text-sm text-slate-500 mt-0.5">
+                  Déposez la facture Evoliz (ou autre) pour rapprocher ce
+                  paiement
+                </p>
+                <p className="text-xs text-slate-500 mt-2">
+                  {externeTx.emetteur || "Émetteur"} ·{" "}
+                  {formatMoney(toNumber(externeTx.montant))} ·{" "}
+                  {formatDate(externeTx.dateTransaction)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeExterne}
+                className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 shrink-0"
+                aria-label="Fermer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <input
+                ref={externeFileInputRef}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/*"
+                className="hidden"
+                onChange={(e) => {
+                  pickExterneFile(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+              />
+
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => externeFileInputRef.current?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    externeFileInputRef.current?.click();
+                  }
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setExterneDragOver(true);
+                }}
+                onDragLeave={() => setExterneDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setExterneDragOver(false);
+                  pickExterneFile(e.dataTransfer.files?.[0]);
+                }}
+                className={`rounded-lg border-2 border-dashed px-4 py-8 text-center cursor-pointer transition-colors ${
+                  externeDragOver
+                    ? "border-amber-400 bg-amber-50"
+                    : externeFile
+                    ? "border-emerald-300 bg-emerald-50/50"
+                    : "border-slate-200 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-50"
+                }`}
+              >
+                {externeFile ? (
+                  <div className="space-y-1">
+                    <FileText className="w-8 h-8 text-emerald-600 mx-auto" />
+                    <p className="text-sm font-medium text-slate-900 truncate">
+                      {externeFile.name}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {(externeFile.size / 1024).toFixed(0)} Ko · cliquer pour
+                      changer
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <Upload className="w-8 h-8 text-slate-400 mx-auto" />
+                    <p className="text-sm font-medium text-slate-800">
+                      Glissez la facture ici
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      PDF Evoliz ou image · max 15 Mo
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Client
+                  </label>
+                  <input
+                    type="text"
+                    value={externeClientNom}
+                    onChange={(e) => setExterneClientNom(e.target.value)}
+                    placeholder="Nom du client"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    N° facture externe
+                  </label>
+                  <input
+                    type="text"
+                    value={externeRef}
+                    onChange={(e) => setExterneRef(e.target.value)}
+                    placeholder="ex. Evoliz F-…"
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">
+                    Montant alloué (€)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={externeMontant}
+                    onChange={(e) => setExterneMontant(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200 tabular-nums"
+                  />
+                </div>
+              </div>
+
+              {externeError && (
+                <p className="text-sm text-red-600 flex items-start gap-1.5">
+                  <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  {externeError}
+                </p>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-200 bg-slate-50/50 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeExterne}
+                className="px-4 py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-md hover:bg-white"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={submitExterne}
+                disabled={!externeFile || submittingExterne}
+                className="px-4 py-2 text-sm font-medium bg-slate-900 text-white rounded-md hover:bg-slate-800 disabled:opacity-50 disabled:pointer-events-none inline-flex items-center gap-2"
+              >
+                {submittingExterne && (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                )}
+                Rapprocher
+              </button>
             </div>
           </div>
         </div>

@@ -16,6 +16,7 @@ import {
 } from "@/components/rh/employee/parts";
 import { useRhData } from "@/components/rh/RhDataContext";
 import { buildThreeMonths, LEAVE_LEGEND } from "@/lib/rh/calendar-ui";
+import { TeamOfficialCalendar } from "@/components/rh/employee/TeamOfficialCalendar";
 
 type Balance = {
   accountCode: string;
@@ -511,86 +512,95 @@ export function LeaveScreen() {
         </div>
       </RhCard>
 
+      <TeamOfficialCalendar
+        kind="ABSENCE"
+        title="Calendrier officiel des absences"
+        subtitle="Visible par toute l’équipe — absences posées et en validation."
+      />
+
       <button
         type="button"
         onClick={() => setShowCalendar((v) => !v)}
         className="border-0 bg-transparent cursor-pointer self-start text-[13px] font-medium px-0"
         style={{ color: EMP_COLORS.dim }}
       >
-        {showCalendar ? "Masquer le calendrier" : "Voir mon calendrier"}
+        {showCalendar ? "Masquer mon calendrier" : "Voir mon calendrier perso"}
       </button>
 
       {showCalendar ? (
-      <div className="rh-layout-inspect">
-        <RhCard>
-          <RhCardHead
-            title="Ton calendrier"
-            right={
-              <div className="flex flex-wrap items-center gap-2.5">
-                {LEAVE_LEGEND.map((l) => (
-                  <span key={l.label} className="flex items-center gap-1.5">
-                    <span
-                      className="block rounded-full"
-                      style={{ width: 8, height: 8, background: l.color }}
-                    />
-                    <span
-                      className="text-[11.5px]"
-                      style={{ color: EMP_COLORS.dim }}
-                    >
-                      {l.label}
-                    </span>
-                  </span>
-                ))}
-              </div>
-            }
-          />
-          {loading ? (
-            <div className="p-6 text-[13px]" style={{ color: EMP_COLORS.muted }}>
-              Chargement…
-            </div>
-          ) : (
-            <div className="grid gap-4 p-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
-              {months.map((m) => (
-                <div key={m.title}>
-                  <div
-                    className="mb-2 text-[13px] font-semibold"
-                    style={{ color: EMP_COLORS.muted }}
-                  >
-                    {m.title}
-                  </div>
-                  <div className="grid grid-cols-7 gap-1 mb-1">
-                    {m.dows.map((d, i) => (
-                      <div
-                        key={`${d}-${i}`}
-                        className="text-center text-[10.5px] font-medium"
+        <div className="rh-layout-inspect">
+          <RhCard>
+            <RhCardHead
+              title="Ton calendrier"
+              right={
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {LEAVE_LEGEND.map((l) => (
+                    <span key={l.label} className="flex items-center gap-1.5">
+                      <span
+                        className="block rounded-full"
+                        style={{ width: 8, height: 8, background: l.color }}
+                      />
+                      <span
+                        className="text-[11.5px]"
                         style={{ color: EMP_COLORS.dim }}
                       >
-                        {d}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="grid grid-cols-7 gap-1">
-                    {m.days.map((d, i) => (
-                      <div
-                        key={i}
-                        className="aspect-square grid place-items-center rounded-[8px] text-[12px]"
-                        style={{
-                          background: d.bg,
-                          color: d.fg,
-                          fontWeight: d.fw as never,
-                          boxShadow: d.ring,
-                        }}
-                      >
-                        {d.n}
-                      </div>
-                    ))}
-                  </div>
+                        {l.label}
+                      </span>
+                    </span>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-        </RhCard>
-      </div>
+              }
+            />
+            {loading ? (
+              <div
+                className="p-6 text-[13px]"
+                style={{ color: EMP_COLORS.muted }}
+              >
+                Chargement…
+              </div>
+            ) : (
+              <div className="grid gap-4 p-4 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
+                {months.map((m) => (
+                  <div key={m.title}>
+                    <div
+                      className="mb-2 text-[13px] font-semibold"
+                      style={{ color: EMP_COLORS.muted }}
+                    >
+                      {m.title}
+                    </div>
+                    <div className="mb-1 grid grid-cols-7 gap-1">
+                      {m.dows.map((d, i) => (
+                        <div
+                          key={`${d}-${i}`}
+                          className="text-center text-[10.5px] font-medium"
+                          style={{ color: EMP_COLORS.dim }}
+                        >
+                          {d}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-1">
+                      {m.days.map((d, i) => (
+                        <div
+                          key={i}
+                          className="aspect-square grid place-items-center rounded-[8px] text-[12px]"
+                          style={{
+                            background: d.bg,
+                            color: d.fg,
+                            fontWeight: d.fw as never,
+                            boxShadow: d.ring,
+                          }}
+                        >
+                          {d.n}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </RhCard>
+        </div>
       ) : null}
     </div>
   );

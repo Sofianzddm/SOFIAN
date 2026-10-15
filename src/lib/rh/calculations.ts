@@ -29,6 +29,9 @@ export {
   assertRecupMinutes,
   assertLegalBreak,
   slotsGrossMinutes,
+  slotsBreakMinutes,
+  dayNetMinutes,
+  hhmmToMinutes,
 } from "@/components/rh/lib/calculations";
 
 export {

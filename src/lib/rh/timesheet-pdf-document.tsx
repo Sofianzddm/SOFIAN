@@ -225,6 +225,7 @@ export type TimesheetPdfDay = {
   isWeekend: boolean;
   isHoliday: boolean;
   holidayLabel?: string | null;
+  exception?: boolean;
 };
 
 export type TimesheetPdfData = {
@@ -364,9 +365,11 @@ export function TimesheetPdfDocument({ data }: { data: TimesheetPdfData }) {
               style={[styles.cellMuted, { width: "16%", textAlign: "right" }]}
             >
               {d.isHoliday
-                ? d.holidayLabel || "Férié"
+                ? `${d.holidayLabel || "Férié"}${d.exception ? " · Exc." : ""}`
                 : d.isWeekend
-                  ? "Week-end"
+                  ? d.exception
+                    ? "Week-end · Exc."
+                    : "Week-end"
                   : d.totalMinutes
                     ? "Travaillé"
                     : "—"}

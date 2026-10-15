@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateDocumentPDF, documentToPDFData } from "@/lib/documents/generatePDF";
+import { isFactureExterne } from "@/lib/qonto/associate";
 
 export async function GET(
   request: NextRequest,
@@ -36,6 +37,29 @@ export async function GET(
 
     if (!document) {
       return NextResponse.json({ error: "Document non trouvé" }, { status: 404 });
+    }
+
+    // Factures hors app (Evoliz…) : servir le PDF uploadé, jamais régénérer un PDF GlowUp
+    const externe = isFactureExterne(document);
+    if (externe) {
+      if (document.pdfBase64) {
+        const pdfBuffer = Buffer.from(document.pdfBase64, "base64");
+        return new NextResponse(pdfBuffer as any, {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `inline; filename="${document.reference}.pdf"`,
+            "Content-Length": pdfBuffer.length.toString(),
+            "Cache-Control": "public, max-age=3600",
+          },
+        });
+      }
+      if (document.fichierUrl) {
+        return NextResponse.redirect(document.fichierUrl);
+      }
+      return NextResponse.json(
+        { error: "Fichier de la facture externe introuvable" },
+        { status: 404 }
+      );
     }
 
     // Langue mémorisée sur le document ("fr" par défaut). Le cache pdfBase64

@@ -13,6 +13,7 @@ import {
 import { EmpLabel, EMP_COLORS } from "@/components/rh/employee/parts";
 import { useRhData } from "@/components/rh/RhDataContext";
 import { frenchHolidayLabel } from "@/lib/rh/holidays";
+import { TeamOfficialCalendar } from "@/components/rh/employee/TeamOfficialCalendar";
 
 type Place = "OFFICE" | "REMOTE" | "TRAVEL" | "SITE";
 
@@ -363,6 +364,12 @@ export function RemoteScreen() {
         {" "}
         (réduit si absences dans la semaine).
       </RhRuleBanner>
+
+      <TeamOfficialCalendar
+        kind="TT"
+        title="Calendrier officiel du télétravail"
+        subtitle="Visible par toute l’équipe — uniquement les jours de télétravail."
+      />
 
       {/* Palette sticky */}
       <div

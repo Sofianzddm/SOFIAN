@@ -4835,6 +4835,8 @@ model RhTimesheetDay {
   slots        Json        @default("[]") // [{from,to}]
   breakMinutes Int         @default(60)
   totalMinutes Int         @default(0)
+  /// Week-end / férié : case « exception » cochée pour autoriser la saisie
+  exception    Boolean     @default(false)
   note         String?
 
   @@unique([timesheetId, date])

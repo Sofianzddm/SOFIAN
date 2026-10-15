@@ -5,9 +5,23 @@ import { getRhSettings } from "@/lib/rh/settings";
 import { writeRhAudit } from "@/lib/rh/workflow";
 import {
   analyzePayslipPdf,
+  extractPdfText,
   matriculesMatch,
+  parseLeaveCountersFromText,
   type PayslipExtract,
 } from "@/lib/rh/payslip-analyse";
+
+function countersMissing(ex: PayslipExtract | null): boolean {
+  if (!ex) return true;
+  return (
+    ex.cpSolde == null &&
+    ex.cpAcquis == null &&
+    ex.cpPris == null &&
+    ex.rttSolde == null &&
+    ex.rttAcquis == null &&
+    ex.rttPris == null
+  );
+}
 
 const MONTHS_FR = [
   "Janvier",
@@ -335,10 +349,51 @@ export async function ingestPayslipFile(params: {
       };
     }
     // Si plusieurs pages OCR, on prend le 1er extrait (ou merge du matching matricule)
-    const ex =
+    let ex =
       extracts.find((e) => matriculesMatch(e.matricule, emp.matricule)) ||
       extracts[0] ||
       null;
+
+    // Fallback : bulletin sans en-tête machine / OCR vide → lire Acquis/Pris/Solde dans le texte
+    if (countersMissing(ex)) {
+      try {
+        const text = await extractPdfText(params.buffer);
+        const counters = parseLeaveCountersFromText(text);
+        if (
+          counters.cpSolde != null ||
+          counters.cpAcquis != null ||
+          counters.cpPris != null ||
+          counters.rttSolde != null ||
+          counters.rttAcquis != null ||
+          counters.rttPris != null
+        ) {
+          const yearHint = params.forceYear || ex?.periodYear || defaultYear;
+          const monthHint = params.forceMonth || ex?.periodMonth || defaultMonth;
+          ex = {
+            periodMonth: monthHint,
+            periodYear: yearHint,
+            matricule: emp.matricule,
+            nom: emp.user.nom || null,
+            prenom: emp.user.prenom || null,
+            siret: ex?.siret || null,
+            rawHeader: ex?.rawHeader || null,
+            cpAcquis: counters.cpAcquis,
+            cpPris: counters.cpPris,
+            cpSolde: counters.cpSolde,
+            rttAcquis: counters.rttAcquis,
+            rttPris: counters.rttPris,
+            rttSolde: counters.rttSolde,
+            grossSalary: ex?.grossSalary ?? null,
+            netPay: ex?.netPay ?? null,
+            source: "header+text",
+            analyseLe: new Date().toISOString(),
+          };
+        }
+      } catch (e) {
+        console.warn("fallback compteurs bulletin:", e);
+      }
+    }
+
     const year = params.forceYear || ex?.periodYear || defaultYear;
     const month = params.forceMonth || ex?.periodMonth || defaultMonth;
     try {

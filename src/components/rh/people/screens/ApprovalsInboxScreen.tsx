@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   RhAvatar,
   RhButton,
@@ -8,6 +8,7 @@ import {
   RhPageHero,
 } from "@/components/rh/ui/primitives";
 import { LIME, type InboxItem } from "@/components/rh/people/people-utils";
+import { ApprovalPlanningCompare } from "@/components/rh/people/screens/ApprovalPlanningCompare";
 
 const REQUEST_TYPE_LABEL: Record<string, string> = {
   LEAVE: "Congés",
@@ -40,6 +41,35 @@ export function ApprovalsInboxScreen({
 }: Props) {
   const [sel, setSel] = useState(0);
   const selected = inboxItems[sel] ?? inboxItems[0];
+
+  const leaveDaysForCompare = useMemo(() => {
+    if (!selected) return [];
+    if (
+      (selected.kind === "LEAVE" || selected.kind === "UNPAID_LEAVE") &&
+      Array.isArray(selected.detailRaw.leaveDays)
+    ) {
+      return (
+        selected.detailRaw.leaveDays as Array<{
+          date: string;
+          halfDay?: boolean;
+        }>
+      ).map((d) => ({ date: d.date, halfDay: Boolean(d.halfDay) }));
+    }
+    if (
+      (selected.kind === "REMOTE_PLAN" ||
+        selected.kind === "REMOTE_EXCEPTION") &&
+      Array.isArray(selected.detailRaw.dates)
+    ) {
+      return (selected.detailRaw.dates as string[]).map((date) => ({ date }));
+    }
+    if (
+      selected.kind === "REMOTE_EXCEPTION" &&
+      typeof selected.detailRaw.date === "string"
+    ) {
+      return [{ date: selected.detailRaw.date }];
+    }
+    return [];
+  }, [selected]);
 
   return (
     <div className="rh-screen">
@@ -364,6 +394,16 @@ export function ApprovalsInboxScreen({
           </RhCard>
         ) : null}
       </div>
+
+      {selected && leaveDaysForCompare.length > 0 ? (
+        <ApprovalPlanningCompare
+          key={`${selected.id}-${leaveDaysForCompare.map((d) => d.date).join(",")}`}
+          employeeId={selected.employeeId}
+          employeeName={selected.who}
+          requestedDays={leaveDaysForCompare}
+          onOpenFiche={onOpenFiche}
+        />
+      ) : null}
     </div>
   );
 }

@@ -12,6 +12,8 @@ import {
   assertRecupMinutes,
   assertLegalBreak,
   slotsGrossMinutes,
+  slotsBreakMinutes,
+  dayNetMinutes,
   minutesToLeaveDays,
   leaveDaysToMinutes,
   WORKDAY_MINUTES,
@@ -202,6 +204,29 @@ export function runRhCalculationTests(): string[] {
   }
   assert(broke, "pause < 20 rejetée dès 6 h");
   ok("assertLegalBreak");
+
+  // Pause auto = trou entre créneaux (pas forfait 60/120)
+  const weekday = [
+    { from: "09:30", to: "12:00" },
+    { from: "14:00", to: "18:30" },
+  ];
+  const friday = [
+    { from: "09:30", to: "12:00" },
+    { from: "13:00", to: "17:30" },
+  ];
+  const early = [
+    { from: "09:15", to: "12:00" },
+    { from: "14:00", to: "18:30" },
+  ];
+  assert(slotsBreakMinutes(weekday) === 120, "pause lun–jeu 120");
+  assert(slotsBreakMinutes(friday) === 60, "pause vendredi 60");
+  assert(slotsBreakMinutes(early) === 120, "pause inchangée si début 9:15");
+  assert(dayNetMinutes(weekday) === 420, "net 7h sans double décompte");
+  assert(dayNetMinutes(weekday, 120) === 420, "ne re-soustrait pas le trou");
+  assert(dayNetMinutes(early) === 435, "9:15 → +15 min (pas -15)");
+  assert(dayNetMinutes([{ from: "09:00", to: "18:00" }], 60) === 480, "1 créneau − pause");
+  assert(minutesToLabel(-15) === "-0 h 15", "label négatif propre");
+  ok("slotsBreakMinutes / dayNetMinutes");
 
   return logs;
 }

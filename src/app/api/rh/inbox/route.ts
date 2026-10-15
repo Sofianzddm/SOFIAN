@@ -136,6 +136,7 @@ export async function GET(request: NextRequest) {
             totalMinutes: d.totalMinutes,
             totalLabel: minutesToLabel(d.totalMinutes),
             slots: d.slots,
+            exception: d.exception,
             note: d.note,
           })),
         };

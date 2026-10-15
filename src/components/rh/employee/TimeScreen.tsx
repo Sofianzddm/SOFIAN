@@ -5,7 +5,13 @@ import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, FileText, Send } from "lucide-react";
 import { RhButton, RhCard, RhCardHead } from "@/components/rh/ui/primitives";
 import { EmpLabel, EMP_COLORS } from "@/components/rh/employee/parts";
-import { minutesToLabel, splitOvertime } from "@/lib/rh/calculations";
+import {
+  dayNetMinutes,
+  hhmmToMinutes,
+  minutesToLabel,
+  slotsBreakMinutes,
+  splitOvertime,
+} from "@/lib/rh/calculations";
 import { frenchHolidayLabel, isFrenchHoliday } from "@/lib/rh/holidays";
 import { useRhData } from "@/components/rh/RhDataContext";
 
@@ -16,6 +22,8 @@ type DayRow = {
   slots: Slot[];
   breakMinutes: number;
   totalMinutes: number;
+  /** Week-end / férié : obligatoire pour saisir des heures */
+  exception?: boolean;
 };
 
 const FALLBACK_WEEKDAY: Slot[] = [
@@ -28,16 +36,17 @@ const FALLBACK_FRIDAY: Slot[] = [
 ];
 
 function hm(value: string): number {
-  const [h, m] = value.split(":").map(Number);
-  return h * 60 + (m || 0);
+  return hhmmToMinutes(value) || 0;
+}
+
+/** Pause = trou entre créneaux ; sinon valeur manuelle / défaut. */
+function effectiveBreak(slots: Slot[], breakMinutes: number): number {
+  const gaps = slotsBreakMinutes(slots);
+  return gaps > 0 ? gaps : Math.max(0, breakMinutes);
 }
 
 function dayMinutes(slots: Slot[], breakMinutes: number): number {
-  let total = 0;
-  for (const s of slots) {
-    total += Math.max(0, hm(s.to) - hm(s.from));
-  }
-  return Math.max(0, total - breakMinutes);
+  return dayNetMinutes(slots, breakMinutes);
 }
 
 type ScheduleCfg = {
@@ -68,15 +77,43 @@ type Timesheet = {
   days: DayRow[];
 };
 
+/** Date calendaire YYYY-MM-DD (évite le décalage UTC de toISOString). */
+function ymd(value: string | Date): string {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    return value.slice(0, 10);
+  }
+  const d = typeof value === "string" ? new Date(value) : value;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function addDays(iso: string, n: number) {
   const d = new Date(iso + "T12:00:00");
   d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
+  return ymd(d);
+}
+
+/** Ordre ISO : lundi → dimanche. */
+function isoDow(date: string): number {
+  return (new Date(date + "T12:00:00").getDay() + 6) % 7;
+}
+
+function isSpecialDay(date: string): boolean {
+  const dow = new Date(date + "T12:00:00").getDay();
+  return dow === 0 || dow === 6 || isFrenchHoliday(date);
+}
+
+function pauseLabel(minutes: number): string {
+  if (minutes <= 0) return "—";
+  if (minutes % 60 === 0) return `${minutes / 60} h`;
+  return minutesToLabel(minutes).replace(" h ", " h ");
 }
 
 export function TimeScreen() {
   const { me, refresh } = useRhData();
-  const [refDate, setRefDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [refDate, setRefDate] = useState(() => ymd(new Date()));
   const [ts, setTs] = useState<Timesheet | null>(null);
   const [days, setDays] = useState<DayRow[]>([]);
   const [otNote, setOtNote] = useState("");
@@ -84,13 +121,10 @@ export function TimeScreen() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pauseReply, setPauseReply] = useState("");
-  const [amendDate, setAmendDate] = useState(() =>
-    new Date().toISOString().slice(0, 10)
-  );
+  const [amendDate, setAmendDate] = useState(() => ymd(new Date()));
   const [amendFrom, setAmendFrom] = useState("12:00");
   const [amendTo, setAmendTo] = useState("13:00");
   const [amendMotive, setAmendMotive] = useState("");
-  const [showWeekend, setShowWeekend] = useState(false);
   const [showAmend, setShowAmend] = useState(false);
   const [schedule, setSchedule] = useState<ScheduleCfg>({
     slotsWeekday: FALLBACK_WEEKDAY,
@@ -147,11 +181,14 @@ export function TimeScreen() {
       const sheet = data.timesheet as Timesheet;
       setTs(sheet);
       setDays(
-        (sheet.days || []).map((d) => ({
-          ...d,
-          date: typeof d.date === "string" ? d.date.slice(0, 10) : new Date(d.date).toISOString().slice(0, 10),
-          slots: (Array.isArray(d.slots) ? d.slots : []) as Slot[],
-        }))
+        (sheet.days || [])
+          .map((d) => ({
+            ...d,
+            date: ymd(d.date as string | Date),
+            slots: (Array.isArray(d.slots) ? d.slots : []) as Slot[],
+            exception: !!d.exception,
+          }))
+          .sort((a, b) => isoDow(a.date) - isoDow(b.date))
       );
       setOtNote(sheet.overtimeNote || "");
     } finally {
@@ -179,7 +216,9 @@ export function TimeScreen() {
           ? []
           : defaultSlotsForDate(d.date);
       if (!slots.length) continue;
-      const breakMin = d.slots.length ? d.breakMinutes ?? 0 : 0;
+      const breakMin = d.slots.length
+        ? effectiveBreak(slots, d.breakMinutes ?? 0)
+        : 0;
       const mins = dayMinutes(slots, breakMin);
       totalMinutes += mins;
       if (weekendOrHoliday || exceedsSchedule(d.date, slots, breakMin)) {
@@ -215,19 +254,27 @@ export function TimeScreen() {
             const special = holiday || weekend;
             // Week-end / férié : uniquement si l'utilisateur a saisi des créneaux
             if (special) {
-              const slots = (d.slots || []).filter((s) => s.from && s.to);
+              const exception = !!d.exception;
+              const slots = exception
+                ? (d.slots || []).filter((s) => s.from && s.to)
+                : [];
               return {
                 date: d.date,
                 slots,
-                breakMinutes: slots.length ? d.breakMinutes : 0,
+                breakMinutes: slots.length
+                  ? effectiveBreak(slots, d.breakMinutes)
+                  : 0,
+                exception,
               };
             }
+            const slots = d.slots.length
+              ? d.slots
+              : defaultSlotsForDate(d.date);
             return {
               date: d.date,
-              slots: d.slots.length
-                ? d.slots
-                : defaultSlotsForDate(d.date),
-              breakMinutes: d.breakMinutes,
+              slots,
+              breakMinutes: effectiveBreak(slots, d.breakMinutes),
+              exception: false,
             };
           }),
         }),
@@ -278,13 +325,21 @@ export function TimeScreen() {
       prev.map((d) => {
         const dow = new Date(d.date + "T12:00:00").getDay();
         if (dow === 0 || dow === 6 || isFrenchHoliday(d.date)) {
-          return { ...d, slots: [], breakMinutes: 0, totalMinutes: 0 };
+          return {
+            ...d,
+            slots: [],
+            breakMinutes: 0,
+            totalMinutes: 0,
+            exception: false,
+          };
         }
+        const slots = defaultSlotsForDate(d.date);
         return {
           ...d,
-          slots: defaultSlotsForDate(d.date),
-          breakMinutes: 0,
-          totalMinutes: schedule.workdayMinutes,
+          slots,
+          breakMinutes: effectiveBreak(slots, 0),
+          totalMinutes: dayMinutes(slots, 0),
+          exception: false,
         };
       })
     );
@@ -296,6 +351,225 @@ export function TimeScreen() {
     (ts && ts.status !== "DRAFT"
       ? `/api/rh/timesheets/${refDate}/pdf`
       : null);
+
+  function renderDayCard(d: DayRow, special: boolean) {
+    const holiday = frenchHolidayLabel(d.date);
+    const exceptionOn = special && !!d.exception;
+    const canEditSlots = editable && (!special || exceptionOn);
+    const label = new Date(d.date + "T12:00:00").toLocaleDateString("fr-FR", {
+      weekday: "short",
+      day: "numeric",
+    });
+    const slots = d.slots.length
+      ? d.slots
+      : special
+        ? exceptionOn
+          ? [{ from: "", to: "" }]
+          : []
+        : defaultSlotsForDate(d.date);
+    const filledSlots = slots.filter((s) => s.from && s.to);
+    const breakMin = filledSlots.length
+      ? effectiveBreak(filledSlots, d.breakMinutes ?? 0)
+      : 0;
+    const autoBreak = filledSlots.length ? slotsBreakMinutes(filledSlots) : 0;
+    const mins = filledSlots.length ? dayMinutes(filledSlots, breakMin) : 0;
+    const overDay =
+      special && filledSlots.length > 0
+        ? true
+        : filledSlots.length > 0 &&
+          exceedsSchedule(d.date, filledSlots, breakMin);
+
+    function patchSlots(next: Slot[]) {
+      const clean = next.filter((s) => s.from || s.to);
+      updateDay(d.date, {
+        slots: clean,
+        breakMinutes: effectiveBreak(
+          clean.filter((s) => s.from && s.to),
+          d.breakMinutes ?? 0
+        ),
+      });
+    }
+
+    function baseSlots(): Slot[] {
+      if (d.slots.length) return [...d.slots];
+      if (special) return [{ from: "", to: "" }];
+      return defaultSlotsForDate(d.date);
+    }
+
+    return (
+      <RhCard
+        key={d.date}
+        className="p-3.5"
+        style={
+          overDay
+            ? { borderColor: "rgba(240,194,78,.45)" }
+            : special && exceptionOn
+              ? { borderColor: "rgba(240,194,78,.35)" }
+              : undefined
+        }
+      >
+        <div className="mb-1 flex items-baseline justify-between gap-2">
+          <div
+            className="text-[13px] font-semibold capitalize"
+            style={{ color: EMP_COLORS.text }}
+          >
+            {label}
+          </div>
+          <div
+            className="rh-mono shrink-0 text-[11px]"
+            style={{
+              color: overDay ? EMP_COLORS.warning : EMP_COLORS.accent,
+            }}
+          >
+            {minutesToLabel(mins)}
+            {!special ? ` / ${minutesToLabel(schedule.workdayMinutes)}` : ""}
+          </div>
+        </div>
+
+        {holiday ? (
+          <div
+            className="rh-mono mb-2 text-[11px]"
+            style={{ color: "#C4B5FD" }}
+          >
+            Férié · {holiday}
+          </div>
+        ) : special ? (
+          <div
+            className="rh-mono mb-2 text-[11px]"
+            style={{ color: EMP_COLORS.warning }}
+          >
+            Week-end
+          </div>
+        ) : null}
+
+        {special ? (
+          <label
+            className="mb-3 flex cursor-pointer items-center gap-2 rounded-[10px] px-2.5 py-2 text-[12.5px] font-medium"
+            style={{
+              color: EMP_COLORS.body,
+              background: exceptionOn
+                ? "rgba(240,194,78,.1)"
+                : "rgba(255,255,255,.03)",
+              border: `1px solid ${
+                exceptionOn ? "rgba(240,194,78,.35)" : "#1B212A"
+              }`,
+            }}
+          >
+            <input
+              type="checkbox"
+              disabled={!editable}
+              checked={!!d.exception}
+              onChange={(e) => {
+                const on = e.target.checked;
+                updateDay(d.date, {
+                  exception: on,
+                  slots: on
+                    ? d.slots.length
+                      ? d.slots
+                      : [{ from: "", to: "" }]
+                    : [],
+                  breakMinutes: 0,
+                  totalMinutes: 0,
+                });
+              }}
+            />
+            Exception — je travaille ce jour
+          </label>
+        ) : null}
+
+        {special && !exceptionOn ? (
+          <p
+            className="m-0 text-[11.5px] leading-[1.4]"
+            style={{ color: EMP_COLORS.dim }}
+          >
+            Aucune heure tant que Exception n’est pas cochée.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {(slots.length ? slots : [{ from: "", to: "" }]).map((s, i) => (
+              <div key={i} className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">
+                <input
+                  type="time"
+                  className="rh-input rh-mono min-w-0 px-1.5 py-1.5 text-[12px]"
+                  disabled={!canEditSlots}
+                  value={s.from}
+                  onChange={(e) => {
+                    const base = baseSlots();
+                    base[i] = {
+                      ...(base[i] || { from: "", to: "" }),
+                      from: e.target.value,
+                    };
+                    patchSlots(base);
+                  }}
+                />
+                <span
+                  className="rh-mono text-[11px]"
+                  style={{ color: EMP_COLORS.dim }}
+                >
+                  →
+                </span>
+                <input
+                  type="time"
+                  className="rh-input rh-mono min-w-0 px-1.5 py-1.5 text-[12px]"
+                  disabled={!canEditSlots}
+                  value={s.to}
+                  onChange={(e) => {
+                    const base = baseSlots();
+                    base[i] = {
+                      ...(base[i] || { from: "", to: "" }),
+                      to: e.target.value,
+                    };
+                    patchSlots(base);
+                  }}
+                />
+              </div>
+            ))}
+
+            {filledSlots.length > 0 || !special ? (
+              autoBreak > 0 ? (
+                <div
+                  className="mt-1 flex items-center justify-between text-[11.5px]"
+                  style={{ color: EMP_COLORS.dim }}
+                >
+                  <span>Pause (auto)</span>
+                  <span className="rh-mono" style={{ color: EMP_COLORS.body }}>
+                    {pauseLabel(autoBreak)}
+                  </span>
+                </div>
+              ) : (
+                <label className="mt-1 flex flex-col gap-1">
+                  <EmpLabel>Pause (min)</EmpLabel>
+                  <input
+                    type="number"
+                    className="rh-input rh-mono"
+                    disabled={!canEditSlots}
+                    value={breakMin}
+                    onChange={(e) =>
+                      updateDay(d.date, {
+                        breakMinutes: Math.max(
+                          0,
+                          Number(e.target.value) || 0
+                        ),
+                      })
+                    }
+                  />
+                </label>
+              )
+            ) : null}
+
+            {overDay && !special ? (
+              <div
+                className="text-[11px]"
+                style={{ color: EMP_COLORS.warning }}
+              >
+                Dépassement horaire
+              </div>
+            ) : null}
+          </div>
+        )}
+      </RhCard>
+    );
+  }
 
   async function replyPause() {
     if (!ts || !pauseReply.trim()) {
@@ -551,130 +825,27 @@ export function TimeScreen() {
               type="button"
               className="border-0 bg-transparent cursor-pointer text-[12.5px] font-medium"
               style={{ color: EMP_COLORS.dim }}
-              onClick={() => setShowWeekend((v) => !v)}
-            >
-              {showWeekend ? "Masquer week-end / fériés" : "Week-end / férié ?"}
-            </button>
-            <button
-              type="button"
-              className="border-0 bg-transparent cursor-pointer text-[12.5px] font-medium"
-              style={{ color: EMP_COLORS.dim }}
               onClick={() => void save()}
               disabled={!editable || busy}
             >
               Enregistrer sans envoyer
             </button>
           </div>
-          <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))" }}>
-            {days.filter((d) => {
-              if (showWeekend) return true;
-              const dow = new Date(d.date + "T12:00:00").getDay();
-              return dow !== 0 && dow !== 6 && !isFrenchHoliday(d.date);
-            }).map((d) => {
-              const holiday = frenchHolidayLabel(d.date);
-              const dow = new Date(d.date + "T12:00:00").getDay();
-              const special = !!holiday || dow === 0 || dow === 6;
-              const label = new Date(d.date + "T12:00:00").toLocaleDateString("fr-FR", {
-                weekday: "short",
-                day: "numeric",
-              });
-              const slots = d.slots.length
-                ? d.slots
-                : special
-                  ? []
-                  : defaultSlotsForDate(d.date);
-              const breakMin = d.slots.length ? d.breakMinutes ?? 0 : 0;
-              const mins = slots.length ? dayMinutes(slots, breakMin) : 0;
-              const overDay =
-                special && slots.length > 0
-                  ? true
-                  : slots.length > 0 && exceedsSchedule(d.date, slots, breakMin);
-              return (
-                <RhCard
-                  key={d.date}
-                  className="p-3"
-                  style={
-                    overDay
-                      ? { borderColor: "rgba(240,194,78,.45)" }
-                      : special
-                        ? { opacity: 0.92 }
-                        : undefined
-                  }
-                >
-                  <div className="text-[12.5px] font-semibold mb-2" style={{ color: EMP_COLORS.text }}>
-                    {label}
-                  </div>
-                  {holiday ? (
-                    <div className="rh-mono text-[11px] mb-2" style={{ color: "#C4B5FD" }}>
-                      Férié · {holiday}
-                    </div>
-                  ) : special ? (
-                    <div className="rh-mono text-[11px] mb-2" style={{ color: EMP_COLORS.warning }}>
-                      Week-end — saisie = alerte RH
-                    </div>
-                  ) : null}
-                  <div
-                    className="rh-mono text-[11px] mb-2"
-                    style={{ color: overDay ? EMP_COLORS.warning : EMP_COLORS.accent }}
-                  >
-                    {minutesToLabel(mins)}
-                    {!special
-                      ? ` / ${minutesToLabel(schedule.workdayMinutes)}`
-                      : ""}
-                    {overDay ? " · dépassement" : ""}
-                  </div>
-                  {(slots.length ? slots : special ? [{ from: "", to: "" }] : slots).map((s, i) => (
-                    <div key={i} className="flex items-center gap-1 mb-1.5">
-                      <input
-                        type="time"
-                        className="rh-input rh-mono text-[11px] px-1 py-1"
-                        disabled={!editable}
-                        value={s.from}
-                        onChange={(e) => {
-                          const base = d.slots.length
-                            ? [...d.slots]
-                            : special
-                              ? [{ from: "", to: "" }]
-                              : defaultSlotsForDate(d.date);
-                          base[i] = { ...(base[i] || { from: "", to: "" }), from: e.target.value };
-                          updateDay(d.date, { slots: base });
-                        }}
-                      />
-                      <span className="rh-mono text-[10px]" style={{ color: EMP_COLORS.dim }}>→</span>
-                      <input
-                        type="time"
-                        className="rh-input rh-mono text-[11px] px-1 py-1"
-                        disabled={!editable}
-                        value={s.to}
-                        onChange={(e) => {
-                          const base = d.slots.length
-                            ? [...d.slots]
-                            : special
-                              ? [{ from: "", to: "" }]
-                              : defaultSlotsForDate(d.date);
-                          base[i] = { ...(base[i] || { from: "", to: "" }), to: e.target.value };
-                          updateDay(d.date, { slots: base });
-                        }}
-                      />
-                    </div>
-                  ))}
-                  {!special || d.slots.length > 0 ? (
-                    <label className="flex flex-col gap-1 mt-2">
-                      <EmpLabel>Pause (min)</EmpLabel>
-                      <input
-                        type="number"
-                        className="rh-input rh-mono"
-                        disabled={!editable}
-                        value={d.breakMinutes}
-                        onChange={(e) =>
-                          updateDay(d.date, { breakMinutes: Number(e.target.value) || 0 })
-                        }
-                      />
-                    </label>
-                  ) : null}
-                </RhCard>
-              );
-            })}
+
+          <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))" }}>
+            {days.filter((d) => !isSpecialDay(d.date)).map((d) => renderDayCard(d, false))}
+          </div>
+
+          <div className="mt-4">
+            <div
+              className="mb-2 text-[12.5px] font-medium"
+              style={{ color: EMP_COLORS.dim }}
+            >
+              Week-end / férié — coche Exception pour saisir
+            </div>
+            <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))" }}>
+              {days.filter((d) => isSpecialDay(d.date)).map((d) => renderDayCard(d, true))}
+            </div>
           </div>
 
           <RhCard className="mt-3 p-4">

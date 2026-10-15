@@ -91,6 +91,7 @@ export async function buildTimesheetPdfData(
       isWeekend: dow === 0 || dow === 6,
       isHoliday: isFrenchHoliday(iso),
       holidayLabel: holiday,
+      exception: !!d.exception,
     };
   });
 
