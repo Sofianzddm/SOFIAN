@@ -271,7 +271,7 @@ export async function submitTimesheet(params: {
     title: microOt
       ? `HS < 30 min · S${ts.isoWeek}`
       : `Feuille de temps S${ts.isoWeek}`,
-    comment: overtimeNote,
+    comment: overtimeNote ?? undefined,
     dateFrom: ts.weekStart,
     dateTo: ts.weekEnd,
     payload: {
