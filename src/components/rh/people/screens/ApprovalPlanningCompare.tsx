@@ -53,6 +53,26 @@ function buildRange(requestedDays: RequestedDay[]) {
   return { from: days[0]!, to: days[days.length - 1]!, days };
 }
 
+type TeamScope = "all" | "tm" | "bd";
+
+function matchesTeamScope(
+  department: string | null | undefined,
+  scope: TeamScope
+): boolean {
+  if (scope === "all") return true;
+  const d = String(department || "").toLowerCase();
+  if (scope === "tm") return d.includes("talent");
+  if (scope === "bd") {
+    return (
+      d.includes("business") ||
+      d.includes("casting") ||
+      d.includes("sales") ||
+      d.includes("partenariat")
+    );
+  }
+  return true;
+}
+
 export function ApprovalPlanningCompare({
   employeeId,
   employeeName,
@@ -62,6 +82,7 @@ export function ApprovalPlanningCompare({
   const [planning, setPlanning] = useState<PlanningData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [teamScope, setTeamScope] = useState<TeamScope>("all");
 
   const range = useMemo(() => {
     if (!requestedDays.length) return null;
@@ -109,12 +130,13 @@ export function ApprovalPlanningCompare({
     [planning, employeeId]
   );
 
-  const dept = requester?.department;
+  const scopeLabel =
+    teamScope === "tm" ? "TM" : teamScope === "bd" ? "BD" : "Toute l'équipe";
 
   const rows = useMemo(() => {
     if (!planning) return [] as PlanningEmp[];
-    const list = planning.employees.filter((e) =>
-      dept ? e.department === dept : true
+    const list = planning.employees.filter(
+      (e) => e.id === employeeId || matchesTeamScope(e.department, teamScope)
     );
     // Demandeur en tête pour comparer facilement
     return [...list].sort((a, b) => {
@@ -122,7 +144,7 @@ export function ApprovalPlanningCompare({
       if (b.id === employeeId) return 1;
       return a.name.localeCompare(b.name, "fr");
     });
-  }, [planning, dept, employeeId]);
+  }, [planning, teamScope, employeeId]);
 
   if (!requestedDays.length || !range) return null;
 
@@ -132,10 +154,29 @@ export function ApprovalPlanningCompare({
         title="Planning équipe"
         badge={
           <RhBadge bg="#1D2530" fg="#8B95A5">
-            {dept || "Tous"} · comparer
+            {scopeLabel} · comparer
           </RhBadge>
         }
       />
+      <div className="px-4 pb-2 flex flex-wrap items-center gap-1.5">
+        {(
+          [
+            ["all", "Toute l'équipe"],
+            ["tm", "TM"],
+            ["bd", "BD"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className="rh-gantt-chip"
+            data-active={teamScope === id ? "1" : "0"}
+            onClick={() => setTeamScope(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="px-4 pb-2 text-[12px]" style={{ color: "#8B95A5" }}>
         Croix{" "}
         <span className="rh-mono" style={{ color: LIME }}>

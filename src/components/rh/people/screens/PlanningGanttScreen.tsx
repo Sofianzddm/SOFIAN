@@ -28,9 +28,30 @@ type Props = {
   onOpenFiche: (employeeId: string) => void;
 };
 
+type TeamScope = "all" | "tm" | "bd";
+
+function matchesTeamScope(
+  department: string | null | undefined,
+  scope: TeamScope
+): boolean {
+  if (scope === "all") return true;
+  const d = String(department || "").toLowerCase();
+  if (scope === "tm") return d.includes("talent");
+  if (scope === "bd") {
+    return (
+      d.includes("business") ||
+      d.includes("casting") ||
+      d.includes("sales") ||
+      d.includes("partenariat")
+    );
+  }
+  return true;
+}
+
 export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
   const [ganttQuery, setGanttQuery] = useState("");
   const [ganttDept, setGanttDept] = useState<string>("all");
+  const [teamScope, setTeamScope] = useState<TeamScope>("all");
   const [ganttFocus, setGanttFocus] = useState<"all" | "absence" | "presence">(
     "all"
   );
@@ -61,6 +82,7 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
     const q = ganttQuery.trim().toLowerCase();
     const map = new Map<string, PlanningEmp[]>();
     for (const e of planning?.employees || []) {
+      if (!matchesTeamScope(e.department, teamScope)) continue;
       if (ganttDept !== "all" && e.department !== ganttDept) continue;
       if (
         q &&
@@ -86,7 +108,7 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
       map.set(e.department, list);
     }
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "fr"));
-  }, [planning, ganttDept, ganttQuery, ganttFocus]);
+  }, [planning, ganttDept, teamScope, ganttQuery, ganttFocus]);
 
   const ganttPeopleCount = useMemo(
     () => byDept.reduce((s, [, rows]) => s + rows.length, 0),
@@ -180,6 +202,27 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
           </div>
 
           <div className="flex flex-wrap gap-1.5">
+            {(
+              [
+                ["all", "Toute l'équipe"],
+                ["tm", "TM"],
+                ["bd", "BD"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className="rh-gantt-chip"
+                data-active={teamScope === id ? "1" : "0"}
+                onClick={() => {
+                  setTeamScope(id);
+                  setGanttDept("all");
+                }}
+              >
+                {label}
+              </button>
+            ))}
+            <span className="rh-gantt-chip-sep" />
             <button
               type="button"
               className="rh-gantt-chip"
@@ -188,7 +231,9 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
             >
               Tous les pôles
             </button>
-            {planningDepts.map((d) => (
+            {planningDepts
+              .filter((d) => matchesTeamScope(d, teamScope))
+              .map((d) => (
               <button
                 key={d}
                 type="button"
