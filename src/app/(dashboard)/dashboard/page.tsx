@@ -2054,11 +2054,12 @@ function FactureTalentAValiderList({ items }: { items: { id: string; reference: 
             </p>
           </div>
         </div>
-        {items.length > 0 && (
-          <Link href="/collaborations?statut=FACTURE_RECUE" className="text-sm font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1">
-            Voir tout <ChevronRight className="w-4 h-4" />
-          </Link>
-        )}
+        <Link
+          href="/factures/talents-a-valider"
+          className="text-sm font-medium text-violet-600 hover:text-violet-800 flex items-center gap-1"
+        >
+          Voir les factures à valider talents <ChevronRight className="w-4 h-4" />
+        </Link>
       </div>
       <div className="divide-y divide-slate-100">
         {items.length === 0 ? (
@@ -2069,7 +2070,7 @@ function FactureTalentAValiderList({ items }: { items: { id: string; reference: 
           items.slice(0, 5).map((item) => (
             <Link
               key={item.id}
-              href={`/collaborations/${item.id}`}
+              href="/factures/talents-a-valider"
               className="flex items-center justify-between gap-4 px-6 py-3 hover:bg-slate-50/80 transition-colors"
             >
               <div className="min-w-0 flex-1">
