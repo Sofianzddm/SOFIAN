@@ -12,3 +12,14 @@ export function downloadHref(url: string | null | undefined, filename?: string):
   if (filename) params.set("filename", filename);
   return `/api/download?${params.toString()}`;
 }
+
+/**
+ * Même proxy, mais en `inline` pour afficher le PDF dans un iframe / nouvel
+ * onglet sans forcer le téléchargement ni naviguer vers Cloudinary.
+ */
+export function previewHref(url: string | null | undefined, filename?: string): string {
+  if (!url) return "#";
+  const params = new URLSearchParams({ url, disposition: "inline" });
+  if (filename) params.set("filename", filename);
+  return `/api/download?${params.toString()}`;
+}

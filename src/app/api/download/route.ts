@@ -76,12 +76,18 @@ export async function GET(request: NextRequest) {
 
   const requested = request.nextUrl.searchParams.get("filename");
   const filename = (requested || filenameFromUrl(target)).replace(/["\r\n]/g, "");
-  const contentType =
+  const inline =
+    request.nextUrl.searchParams.get("disposition") === "inline";
+  let contentType =
     upstream.headers.get("content-type") || "application/octet-stream";
+  // Pour un aperçu iframe fiable, forcer PDF si l'extension le suggère
+  if (inline && /\.pdf($|\?)/i.test(target.pathname + filename)) {
+    contentType = "application/pdf";
+  }
 
   const headers = new Headers({
     "Content-Type": contentType,
-    "Content-Disposition": `attachment; filename="${filename}"`,
+    "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${filename}"`,
     "Cache-Control": "private, max-age=0, no-store",
   });
   const contentLength = upstream.headers.get("content-length");

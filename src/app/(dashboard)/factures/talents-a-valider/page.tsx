@@ -11,11 +11,12 @@ import {
   ExternalLink,
   FileText,
   Loader2,
+  Mail,
   Search,
   X,
   XCircle,
 } from "lucide-react";
-import { downloadHref } from "@/lib/download";
+import { downloadHref, previewHref } from "@/lib/download";
 
 type CycleFacture = {
   id: string;
@@ -40,6 +41,12 @@ type FactureAValider = {
   marque: { id: string; nom: string };
   tm: { id: string; prenom: string; nom: string } | null;
   cycles: CycleFacture[];
+};
+
+type PreviewState = {
+  item: FactureAValider;
+  url: string;
+  label: string;
 };
 
 function formatMoney(amount: number) {
@@ -87,8 +94,7 @@ export default function FacturesTalentsAValiderPage() {
   const [refusingId, setRefusingId] = useState<string | null>(null);
   const [refusTarget, setRefusTarget] = useState<FactureAValider | null>(null);
   const [raisonRefus, setRaisonRefus] = useState("");
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewLabel, setPreviewLabel] = useState<string>("");
+  const [preview, setPreview] = useState<PreviewState | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -121,7 +127,7 @@ export default function FacturesTalentsAValiderPage() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3000);
+    const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -140,7 +146,6 @@ export default function FacturesTalentsAValiderPage() {
           );
         });
 
-    // Plus anciennes d'abord = file d'attente utile
     return [...list].sort((a, b) => {
       const ta = a.factureTalentRecueAt
         ? new Date(a.factureTalentRecueAt).getTime()
@@ -157,10 +162,25 @@ export default function FacturesTalentsAValiderPage() {
     [filtered]
   );
 
-  const openPreview = (url: string | null, label: string) => {
+  const openPreview = (
+    item: FactureAValider,
+    url: string | null,
+    label?: string
+  ) => {
     if (!url) return;
-    setPreviewUrl(url);
-    setPreviewLabel(label);
+    setPreview({
+      item,
+      url,
+      label:
+        label ||
+        `${item.reference} — ${item.talent.prenom} ${item.talent.nom}`,
+    });
+  };
+
+  const removeItem = (id: string) => {
+    setItems((prev) => prev.filter((x) => x.id !== id));
+    setPreview((p) => (p?.item.id === id ? null : p));
+    setRefusTarget((t) => (t?.id === id ? null : t));
   };
 
   const valider = async (item: FactureAValider) => {
@@ -174,7 +194,7 @@ export default function FacturesTalentsAValiderPage() {
         alert(data.error || "Erreur lors de la validation");
         return;
       }
-      setItems((prev) => prev.filter((x) => x.id !== item.id));
+      removeItem(item.id);
       setToast(`${item.reference} validée`);
     } catch {
       alert("Erreur lors de la validation");
@@ -187,7 +207,7 @@ export default function FacturesTalentsAValiderPage() {
     if (!refusTarget) return;
     const commentaire = raisonRefus.trim();
     if (!commentaire) {
-      alert("Un commentaire est obligatoire pour refuser la facture.");
+      alert("Indique le motif du refus — il sera envoyé par mail au talent.");
       return;
     }
     setRefusingId(refusTarget.id);
@@ -205,10 +225,13 @@ export default function FacturesTalentsAValiderPage() {
         alert(data.error || "Erreur lors du refus");
         return;
       }
-      setItems((prev) => prev.filter((x) => x.id !== refusTarget.id));
-      setToast(`${refusTarget.reference} refusée`);
-      setRefusTarget(null);
+      removeItem(refusTarget.id);
       setRaisonRefus("");
+      setToast(
+        data.emailSent
+          ? `${refusTarget.reference} refusée — mail envoyé au talent`
+          : `${refusTarget.reference} refusée — mail non envoyé (vérifier Resend)`
+      );
     } catch {
       alert("Erreur lors du refus");
     } finally {
@@ -242,6 +265,10 @@ export default function FacturesTalentsAValiderPage() {
     );
   }
 
+  const previewSrc = preview
+    ? previewHref(preview.url, `facture-${preview.item.reference}.pdf`)
+    : null;
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
       <div className="mb-6">
@@ -259,7 +286,7 @@ export default function FacturesTalentsAValiderPage() {
               Factures talents à valider
             </h1>
             <p className="text-sm text-slate-500 mt-1">
-              Contrôle des factures reçues — les plus anciennes en premier
+              Aperçu rapide sans quitter la page — refus = motif + mail au talent
             </p>
           </div>
 
@@ -302,13 +329,9 @@ export default function FacturesTalentsAValiderPage() {
               ? "Aucune facture talent à valider"
               : "Aucun résultat pour cette recherche"}
           </p>
-          <p className="text-sm text-slate-500 mt-1">
-            Les factures apparaissent ici dès qu&apos;un talent les envoie.
-          </p>
         </div>
       ) : (
         <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-          {/* Desktop table */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -354,21 +377,20 @@ export default function FacturesTalentsAValiderPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <Link
-                            href={`/collaborations/${item.id}`}
-                            className="font-medium text-slate-900 hover:text-slate-700 truncate"
-                            title={item.reference}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openPreview(item, item.factureTalentUrl)
+                            }
+                            disabled={!item.factureTalentUrl}
+                            className="font-medium text-slate-900 hover:text-violet-700 truncate text-left disabled:opacity-40"
+                            title="Aperçu rapide"
                           >
                             {item.reference}
-                          </Link>
+                          </button>
                           {item.isLongTerme && (
                             <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
                               LT
-                            </span>
-                          )}
-                          {item.cycles.length > 1 && (
-                            <span className="shrink-0 text-[10px] font-medium text-slate-500">
-                              {item.cycles.length} PDF
                             </span>
                           )}
                         </div>
@@ -376,7 +398,10 @@ export default function FacturesTalentsAValiderPage() {
                       <td className="px-4 py-3 text-slate-800 whitespace-nowrap">
                         {item.talent.prenom} {item.talent.nom}
                       </td>
-                      <td className="px-4 py-3 text-slate-600 max-w-[10rem] truncate" title={item.marque.nom}>
+                      <td
+                        className="px-4 py-3 text-slate-600 max-w-[10rem] truncate"
+                        title={item.marque.nom}
+                      >
                         {item.marque.nom}
                       </td>
                       <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
@@ -388,45 +413,23 @@ export default function FacturesTalentsAValiderPage() {
                         {formatMoney(item.montantNet)}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            title="Voir la facture"
                             disabled={!item.factureTalentUrl}
                             onClick={() =>
-                              openPreview(
-                                item.factureTalentUrl,
-                                `${item.reference} — ${item.talent.prenom} ${item.talent.nom}`
-                              )
+                              openPreview(item, item.factureTalentUrl)
                             }
-                            className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-30"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-violet-700 bg-violet-50 border border-violet-100 rounded-lg hover:bg-violet-100 disabled:opacity-40"
                           >
-                            <Eye className="w-4 h-4" />
+                            <Eye className="w-3.5 h-3.5" />
+                            Aperçu rapide
                           </button>
-                          {item.factureTalentUrl && (
-                            <a
-                              href={downloadHref(
-                                item.factureTalentUrl,
-                                `facture-${item.reference}.pdf`
-                              )}
-                              title="Télécharger"
-                              className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                            >
-                              <Download className="w-4 h-4" />
-                            </a>
-                          )}
-                          <Link
-                            href={`/collaborations/${item.id}`}
-                            title="Ouvrir la collab"
-                            className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </Link>
                           <button
                             type="button"
                             onClick={() => valider(item)}
                             disabled={busy}
-                            className="ml-1 inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
                           >
                             {validatingId === item.id ? (
                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -457,13 +460,14 @@ export default function FacturesTalentsAValiderPage() {
                                 disabled={!cy.factureTalentUrl}
                                 onClick={() =>
                                   openPreview(
+                                    item,
                                     cy.factureTalentUrl,
                                     `${item.reference} · Cycle ${cy.numero}`
                                   )
                                 }
-                                className="text-[11px] text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline disabled:no-underline disabled:opacity-40"
+                                className="text-[11px] text-violet-600 hover:text-violet-800 underline-offset-2 hover:underline disabled:no-underline disabled:opacity-40"
                               >
-                                C{cy.numero}
+                                Aperçu C{cy.numero}
                               </button>
                             ))}
                           </div>
@@ -476,7 +480,6 @@ export default function FacturesTalentsAValiderPage() {
             </table>
           </div>
 
-          {/* Mobile list */}
           <div className="md:hidden divide-y divide-slate-100">
             {filtered.map((item) => {
               const busy =
@@ -488,12 +491,9 @@ export default function FacturesTalentsAValiderPage() {
                 <div key={item.id} className="px-4 py-4 space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <Link
-                        href={`/collaborations/${item.id}`}
-                        className="font-semibold text-slate-900"
-                      >
+                      <p className="font-semibold text-slate-900">
                         {item.reference}
-                      </Link>
+                      </p>
                       <p className="text-sm text-slate-700 mt-0.5">
                         {item.talent.prenom} {item.talent.nom}
                       </p>
@@ -522,16 +522,13 @@ export default function FacturesTalentsAValiderPage() {
                     <button
                       type="button"
                       onClick={() =>
-                        openPreview(
-                          item.factureTalentUrl,
-                          `${item.reference} — ${item.talent.prenom} ${item.talent.nom}`
-                        )
+                        openPreview(item, item.factureTalentUrl)
                       }
                       disabled={!item.factureTalentUrl}
-                      className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-lg disabled:opacity-40"
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 text-sm font-semibold text-violet-700 bg-violet-50 border border-violet-100 rounded-lg disabled:opacity-40"
                     >
                       <Eye className="w-4 h-4" />
-                      Voir
+                      Aperçu
                     </button>
                     <button
                       type="button"
@@ -565,8 +562,110 @@ export default function FacturesTalentsAValiderPage() {
         </div>
       )}
 
+      {/* Panneau aperçu rapide (reste sur la page) */}
+      {preview && previewSrc && (
+        <div className="fixed inset-0 z-50 flex">
+          <button
+            type="button"
+            aria-label="Fermer l'aperçu"
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setPreview(null)}
+          />
+          <div className="relative ml-auto flex h-full w-full max-w-4xl flex-col bg-white shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 shrink-0">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-900 truncate">
+                  {preview.label}
+                </p>
+                <p className="text-xs text-slate-500 truncate">
+                  {preview.item.marque.nom} ·{" "}
+                  {formatMoney(preview.item.montantNet)} net · reçue le{" "}
+                  {formatDate(preview.item.factureTalentRecueAt)}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={downloadHref(
+                    preview.url,
+                    `facture-${preview.item.reference}.pdf`
+                  )}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </a>
+                <Link
+                  href={`/collaborations/${preview.item.id}`}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Collab
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setPreview(null)}
+                  className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-lg"
+                  aria-label="Fermer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0 bg-slate-100">
+              <iframe
+                key={previewSrc}
+                src={previewSrc}
+                title="Aperçu facture talent"
+                className="w-full h-full border-0 bg-white"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-3 shrink-0">
+              <p className="text-xs text-slate-500">
+                Aperçu intégré — tu ne quittes pas la liste
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRaisonRefus("");
+                    setRefusTarget(preview.item);
+                  }}
+                  disabled={
+                    validatingId === preview.item.id ||
+                    refusingId === preview.item.id
+                  }
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                >
+                  <XCircle className="w-4 h-4" />
+                  Refuser
+                </button>
+                <button
+                  type="button"
+                  onClick={() => valider(preview.item)}
+                  disabled={
+                    validatingId === preview.item.id ||
+                    refusingId === preview.item.id
+                  }
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {validatingId === preview.item.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4" />
+                  )}
+                  Valider la facture
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal refus + mail */}
       {refusTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-slate-900">
@@ -583,16 +682,30 @@ export default function FacturesTalentsAValiderPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-sm text-slate-600 mb-3">
-              {refusTarget.reference} — {refusTarget.talent.prenom}{" "}
-              {refusTarget.talent.nom}. Le talent sera notifié et devra
-              renvoyer une facture corrigée.
+
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 mb-4 flex gap-2">
+              <Mail className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-900">
+                Un <strong>mail</strong> sera envoyé à{" "}
+                <strong>
+                  {refusTarget.talent.prenom} {refusTarget.talent.nom}
+                </strong>{" "}
+                avec ton motif. La facture sera retirée et le talent devra en
+                renvoyer une corrigée.
+              </p>
+            </div>
+
+            <p className="text-sm text-slate-600 mb-2">
+              {refusTarget.reference} · {refusTarget.marque.nom}
             </p>
+            <label className="block text-xs font-medium text-slate-500 mb-1.5">
+              Pourquoi cette facture est refusée ? (obligatoire)
+            </label>
             <textarea
               value={raisonRefus}
               onChange={(e) => setRaisonRefus(e.target.value)}
               rows={4}
-              placeholder="Motif du refus (obligatoire)…"
+              placeholder="Ex. : montant incorrect, TVA manquante, mauvais n° de référence…"
               className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-400 resize-none"
               autoFocus
             />
@@ -616,54 +729,17 @@ export default function FacturesTalentsAValiderPage() {
                 {refusingId === refusTarget.id ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
-                  <XCircle className="w-4 h-4" />
+                  <Mail className="w-4 h-4" />
                 )}
-                Confirmer le refus
+                Refuser et envoyer le mail
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {previewUrl && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-white">
-          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-200 bg-slate-50 shrink-0">
-            <span className="text-sm font-medium text-slate-700 truncate">
-              {previewLabel || "Aperçu facture talent"}
-            </span>
-            <div className="flex items-center gap-2 shrink-0">
-              <a
-                href={downloadHref(previewUrl, "facture-talent.pdf")}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
-              >
-                <Download className="w-4 h-4" />
-                Télécharger
-              </a>
-              <button
-                type="button"
-                onClick={() => {
-                  setPreviewUrl(null);
-                  setPreviewLabel("");
-                }}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
-              >
-                <X className="w-4 h-4" />
-                Fermer
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 min-h-0 w-full">
-            <iframe
-              src={previewUrl}
-              title="Aperçu facture talent"
-              className="w-full h-full border-0"
-            />
           </div>
         </div>
       )}
 
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-3 shadow-lg">
+        <div className="fixed bottom-6 right-6 z-[70] rounded-lg bg-slate-900 text-white text-sm font-medium px-4 py-3 shadow-lg max-w-sm">
           {toast}
         </div>
       )}
