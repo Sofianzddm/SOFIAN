@@ -47,6 +47,10 @@
     {
       "path": "/api/cron/rh-accrual",
       "schedule": "15 6 1 * *"
+    },
+    {
+      "path": "/api/cron/activity-logs-purge",
+      "schedule": "20 3 * * *"
     }
   ]
 }

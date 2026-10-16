@@ -5320,6 +5320,7 @@ model RhLoginChallenge {
 }
 
 /// Journal d'activité plateforme (lecture réservée Sofian — pas dans le menu).
+/// Conservation 12 mois (purge cron au-delà de ACTIVITY_LOG_RETENTION_DAYS).
 model UserActivityLog {
   id     String @id @default(cuid())
   userId String

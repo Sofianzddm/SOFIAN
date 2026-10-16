@@ -1,6 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import { isSofianAdminEmail } from "@/lib/account-access-lock";
 
+export {
+  ACTIVITY_LOG_RETENTION_DAYS,
+  PULSE_RANGE_DAYS,
+  isPulseRangeDays,
+  parisDayBounds,
+  todayParisYmd,
+  addParisDays,
+  type PulseRangeDays,
+} from "@/lib/user-activity-constants";
+
 export type LogUserActivityInput = {
   userId: string;
   action: string;
