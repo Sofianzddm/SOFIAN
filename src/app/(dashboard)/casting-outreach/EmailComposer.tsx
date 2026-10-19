@@ -120,6 +120,10 @@ export interface EmailComposerProps {
       tone?: "tu" | "vous" | null;
       notes?: string;
       alerts?: string[];
+      lastExchangeAt?: string | null;
+      clientSnippet?: string | null;
+      status?: "exchange" | "sent_no_reply";
+      messageCount?: number;
     }>;
   } | null;
   /** true une fois le check lancé (même si aucun échange). */
@@ -209,6 +213,15 @@ export default function EmailComposer({
   useEffect(() => {
     if (brandResearch) setResearchOpen(true);
   }, [brandResearch]);
+
+  // Historique Leyna en tutoiement → forcer le toggle (plus de vouvoiement fantôme).
+  useEffect(() => {
+    const hasTu =
+      leynaExchange?.tone === "tu" ||
+      (leynaExchange?.contacts || []).some((c) => c.tone === "tu");
+    if (hasTu) setTone("tu");
+    else if (leynaExchange?.tone === "vous") setTone("vous");
+  }, [leynaExchange?.tone, leynaExchange?.contacts]);
   const researchReady =
     Boolean(brandResearch) &&
     (!enableTalentResearch || (Array.isArray(talentResearch) && talentResearch.length > 0)) &&
@@ -563,7 +576,8 @@ export default function EmailComposer({
             style={{ color: OLD_ROSE }}
           >
             {leynaExchange?.hasExchange
-              ? leynaExchange.tone === "tu"
+              ? leynaExchange.tone === "tu" ||
+                (leynaExchange.contacts || []).some((c) => c.tone === "tu")
                 ? "Leyna OK · tutoiement"
                 : leynaExchange.tone === "vous"
                   ? "Leyna OK · vouvoiement"
@@ -626,7 +640,7 @@ export default function EmailComposer({
       {enableLeynaExchange &&
         (isResearchingLeynaExchange || (leynaExchangeChecked && leynaExchangeOpen)) && (
         <div
-          className="rounded-lg border px-3 py-2 space-y-1.5 text-xs shrink-0 max-h-52 overflow-y-auto"
+          className="rounded-lg border px-3 py-2 space-y-2 text-xs shrink-0 max-h-[28rem] overflow-y-auto"
           style={{
             borderColor:
               (leynaExchange?.alerts?.length || 0) > 0
@@ -668,11 +682,29 @@ export default function EmailComposer({
                   ))}
                 </div>
               ) : null}
-              {(leynaExchange.contacts || []).map((c) => (
-                <div key={c.email} className="space-y-0.5">
+              {(leynaExchange.contacts || []).map((c, idx) => {
+                const when = c.lastExchangeAt
+                  ? (() => {
+                      const d = new Date(c.lastExchangeAt!);
+                      return Number.isNaN(d.getTime())
+                        ? null
+                        : d.toLocaleDateString("fr-FR", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          });
+                    })()
+                  : null;
+                return (
+                <div key={`${c.email}-${c.subject || idx}`} className="space-y-0.5">
                   <p className="font-semibold">
+                    {c.status === "sent_no_reply" ? "📤 Envoi · " : "💬 Échange · "}
                     {c.email}
                     {c.tone ? ` · ${c.tone === "tu" ? "tutoiement" : "vouvoiement"}` : ""}
+                    {typeof c.messageCount === "number" && c.messageCount > 0
+                      ? ` · ${c.messageCount} msg`
+                      : ""}
+                    {when ? ` · ${when}` : ""}
                     {c.subject ? ` — « ${c.subject} »` : ""}
                   </p>
                   {(c.alerts || []).length > 0 &&
@@ -688,8 +720,16 @@ export default function EmailComposer({
                   {c.notes ? (
                     <p className="whitespace-pre-wrap opacity-90">{c.notes}</p>
                   ) : null}
+                  {c.clientSnippet &&
+                  !(c.notes || "").includes(c.clientSnippet.slice(0, 40)) ? (
+                    <p className="opacity-75 italic">
+                      Extrait : « {c.clientSnippet}
+                      {c.clientSnippet.length >= 200 ? "…" : ""} »
+                    </p>
+                  ) : null}
                 </div>
-              ))}
+                );
+              })}
             </>
           ) : (
             <p className="opacity-70">

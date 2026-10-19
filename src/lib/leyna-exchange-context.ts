@@ -18,10 +18,41 @@ const GMAIL_THREADS_BASE_URL =
 
 /** Historique long : ~5 ans (Gmail newer_than). */
 const LOOKBACK_DAYS = 1825;
-const MAX_CONTACTS = 12;
-const MAX_THREADS_PER_CONTACT = 5;
-const MAX_BRAND_THREADS = 12;
-const MAX_HITS = 5;
+const MAX_CONTACTS = 20;
+/** Messages envoyés inspectés par contact. */
+const MAX_SENT_SCAN_PER_CONTACT = 50;
+/** Fils gardés par contact (avec OU sans réponse). */
+const MAX_THREADS_PER_CONTACT = 30;
+/** Inbound domaine marque (from:@marque). */
+const MAX_INBOUND_BRAND = 50;
+/** Filet large sujet / to:domaine. */
+const MAX_BRAND_SCAN = 50;
+/** Tous les fils à noter (échanges + envois sans réponse). */
+const MAX_HITS = 40;
+/** Candidats max à ouvrir (activity + corps). */
+const MAX_CANDIDATES_TO_SCORE = 160;
+const ACTIVITY_CONCURRENCY = 8;
+const NOTES_CONCURRENCY = 4;
+
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, Math.max(1, items.length)) },
+    async () => {
+      while (next < items.length) {
+        const i = next++;
+        results[i] = await fn(items[i]!, i);
+      }
+    }
+  );
+  await Promise.all(workers);
+  return results;
+}
 
 export type LeynaExchangeTone = "tu" | "vous";
 
@@ -34,6 +65,10 @@ export type LeynaExchangeContactHit = {
   /** Alertes urgentes (redirection contact, stop, etc.) — affichage rouge UI. */
   alerts: string[];
   clientSnippet: string | null;
+  /** exchange = vraie réponse client ; sent_no_reply = pitch Leyna sans retour. */
+  status?: "exchange" | "sent_no_reply";
+  /** Nombre de messages dans le fil. */
+  messageCount?: number;
 };
 
 export type LeynaExchangeContext = {
@@ -56,13 +91,28 @@ type GmailPayloadPart = {
   headers?: { name?: string; value?: string }[];
 };
 
+type ThreadTurn = {
+  role: "leyna" | "client" | "agency";
+  from: string;
+  date: string | null;
+  text: string;
+};
+
 type ThreadSides = {
   subject: string | null;
   lastDate: string | null;
   leynaTexts: string[];
   clientTexts: string[];
   clientFroms: string[];
+  /** Fil chronologique complet (pour notes exhaustives). */
+  turns: ThreadTurn[];
 };
+
+function isAutoReplySubject(subject: string | null | undefined): boolean {
+  return /réponse\s+automatique|automatic\s+reply|out\s+of\s+office|absence\s+(du|de)\s+bureau|auto[- ]?reply|i\s+am\s+currently\s+out/i.test(
+    String(subject || "")
+  );
+}
 
 function decodeGmailBase64(data: string): string {
   try {
@@ -106,14 +156,43 @@ function collectBody(payload: GmailPayloadPart | undefined): string {
   return "";
 }
 
+/** Coupe le texte cité / historique collé (sinon le ton tu/vous est faussé). */
+function stripQuotedReply(text: string): string {
+  let t = String(text || "");
+  // Signatures / réactions Gmail
+  t = t.split(/\n--\s*\n/)[0] || t;
+  t = t.split(/\n🩵\s*/)[0] || t;
+  t = t.split(/\na réagi depuis Gmail/i)[0] || t;
+  t = t.split(/\nOn .+ wrote:\s*\n/i)[0] || t;
+  t = t.split(/\nLe .+ a écrit\s*:\s*\n/i)[0] || t;
+  t = t.split(/\n-----Original Message-----/i)[0] || t;
+  t = t.split(/\n________________________________/i)[0] || t;
+  // Outlook FR/EN collé dans le même paragraphe
+  t = t.split(/\bDe\s*:\s*[^\n]+(?:\n|Envoyé\s*:|Sent\s*:)/i)[0] || t;
+  t = t.split(/\bFrom\s*:\s*[^\n]+(?:\n|Sent\s*:)/i)[0] || t;
+  t = t.split(/\bEnvoyé\s*:\s*/i)[0] || t;
+  t = t.split(/\bSent\s*:\s*/i)[0] || t;
+  t = t.split(/\bObjet\s*:\s*Re\s*:/i)[0] || t;
+  // Images cid Outlook
+  t = t.replace(/\[cid:[^\]]+\]/gi, " ");
+  // Lignes de citation type « > … »
+  t = t
+    .split("\n")
+    .filter((line) => !/^\s*>/.test(line))
+    .join("\n");
+  return t.trim();
+}
+
 function detectToneFromText(text: string): LeynaExchangeTone | null {
-  const t = text.toLowerCase();
+  const t = stripQuotedReply(text)
+    .toLowerCase()
+    .replace(/[’‘‛‹›]/g, "'");
   const vousHits = (
-    t.match(/\b(vous|votre|vos|seriez-vous|pourriez-vous|allez bien)\b/g) || []
+    t.match(/\b(vous|votre|vos|seriez-vous|pourriez-vous)\b/g) || []
   ).length;
   const tuHits = (
     t.match(
-      /\b(tu |t'|te |ton |ta |tes |peux-tu|serais-tu|j'espère que tu|vas bien)\b/g
+      /\b(tu|t'|te|ton|ta|tes|peux-tu|serais-tu|as-tu|peux tu)\b/g
     ) || []
   ).length;
   if (tuHits >= 2 && tuHits > vousHits) return "tu";
@@ -121,6 +200,29 @@ function detectToneFromText(text: string): LeynaExchangeTone | null {
   if (tuHits > 0 && vousHits === 0) return "tu";
   if (vousHits > 0 && tuHits === 0) return "vous";
   return null;
+}
+
+/** Ton dominant : réponses client récentes, puis Leyna récente (après switch tu/vous). */
+function detectToneFromThread(sides: ThreadSides): LeynaExchangeTone | null {
+  const clientRecent = sides.turns
+    .filter((t) => t.role === "client")
+    .slice(-4)
+    .map((t) => stripQuotedReply(t.text))
+    .join("\n");
+  const clientTone = detectToneFromText(clientRecent);
+  if (clientTone) return clientTone;
+
+  const leynaRecent = sides.turns
+    .filter((t) => t.role === "leyna")
+    .slice(-4)
+    .map((t) => stripQuotedReply(t.text))
+    .join("\n");
+  const leynaTone = detectToneFromText(leynaRecent);
+  if (leynaTone) return leynaTone;
+
+  return detectToneFromText(
+    sides.turns.map((t) => stripQuotedReply(t.text)).join("\n")
+  );
 }
 
 function extractEmailFromFromHeader(from: string): string {
@@ -196,6 +298,7 @@ async function loadThreadSides(threadId: string): Promise<ThreadSides | null> {
   const leynaTexts: string[] = [];
   const clientTexts: string[] = [];
   const clientFroms: string[] = [];
+  const turns: ThreadTurn[] = [];
   let subject: string | null = null;
   let lastDate: string | null = null;
 
@@ -207,30 +310,48 @@ async function loadThreadSides(threadId: string): Promise<ThreadSides | null> {
     const from = fromRaw.toLowerCase();
     const subj = header("subject") || "";
     if (!subject && subj) subject = subj;
-    if (message.internalDate) {
-      lastDate = new Date(Number(message.internalDate)).toISOString();
-    }
+    const dateIso = message.internalDate
+      ? new Date(Number(message.internalDate)).toISOString()
+      : null;
+    if (dateIso) lastDate = dateIso;
     const body =
-      collectBody(message.payload).slice(0, 1600) ||
+      collectBody(message.payload).slice(0, 4000) ||
       String(message.snippet || "").trim();
     if (!body) continue;
-    if (from.includes(own) || isGlowUpEmail(from)) {
-      // Leyna + collègues Glow Up = côté agence, PAS une réponse marque.
-      if (from.includes(own)) leynaTexts.push(body);
-      continue;
-    }
     if (
       /mailer-daemon|postmaster|mail delivery/i.test(from) ||
       /undeliver|delivery failed|échec de la remise/i.test(subj)
     ) {
       continue;
     }
+    if (isAutoReplySubject(subj)) continue;
+
+    if (from.includes(own)) {
+      leynaTexts.push(body);
+      turns.push({ role: "leyna", from: fromRaw || own, date: dateIso, text: body });
+      continue;
+    }
+    if (isGlowUpEmail(from)) {
+      // Collègues Glow Up = contexte agence (utile pour notes), pas une réponse marque.
+      turns.push({ role: "agency", from: fromRaw, date: dateIso, text: body });
+      continue;
+    }
     clientTexts.push(body);
     const em = extractEmailFromFromHeader(fromRaw);
     if (em && !isGlowUpEmail(em)) clientFroms.push(em);
+    turns.push({
+      role: "client",
+      from: fromRaw || em || "client",
+      date: dateIso,
+      text: body,
+    });
   }
 
-  return { subject, lastDate, leynaTexts, clientTexts, clientFroms };
+  if (isAutoReplySubject(subject) && clientTexts.length > 0 && leynaTexts.length === 0) {
+    return null;
+  }
+
+  return { subject, lastDate, leynaTexts, clientTexts, clientFroms, turns };
 }
 
 /** Heuristique rapide si l’IA rate une alerte urgente. */
@@ -305,28 +426,78 @@ async function extractNotesAndAlerts(args: {
   clientTexts: string[];
   clientFroms: string[];
   brandDomains: string[];
+  turns: ThreadTurn[];
 }): Promise<{ notes: string; alerts: string[] }> {
   const heuristic = detectUrgentAlertsHeuristic(args.subject, args.clientTexts);
   const brandReplyFroms = args.clientFroms.filter((e) =>
     args.brandDomains.some((d) => e.endsWith(`@${d}`) || e.endsWith(`.${d}`))
   );
+
+  const chrono = (args.turns.length > 0 ? args.turns : [
+    ...args.leynaTexts.map((text) => ({
+      role: "leyna" as const,
+      from: "Leyna",
+      date: null as string | null,
+      text,
+    })),
+    ...args.clientTexts.map((text) => ({
+      role: "client" as const,
+      from: args.clientFroms[0] || "client",
+      date: null as string | null,
+      text,
+    })),
+  ])
+    .map((t, i) => {
+      const when = t.date
+        ? new Date(t.date).toLocaleDateString("fr-FR")
+        : `#${i + 1}`;
+      const who =
+        t.role === "leyna" ? "LEYNA" : t.role === "agency" ? "AGENCE" : "CLIENT";
+      return `[${when}] ${who} (${t.from}):\n${t.text.slice(0, 2200)}`;
+    })
+    .join("\n\n")
+    .slice(0, 14000);
+
   const excerpt = [
     args.subject ? `Objet: ${args.subject}` : "",
+    `Fil : ${args.turns.length || args.leynaTexts.length + args.clientTexts.length} messages · Leyna ${args.leynaTexts.length} · client ${args.clientTexts.length}`,
     brandReplyFroms.length
       ? `Réponses côté marque (${args.brandName}) de : ${brandReplyFroms.join(", ")}`
-      : `Expéditeurs externes : ${args.clientFroms.slice(0, 6).join(", ") || "—"}`,
-    "— Leyna —",
-    ...args.leynaTexts.slice(-3).map((t) => t.slice(0, 600)),
-    "— Contact(s) —",
-    ...args.clientTexts.slice(-3).map((t) => t.slice(0, 600)),
+      : `Expéditeurs externes : ${args.clientFroms.slice(0, 8).join(", ") || "—"}`,
+    "——— FIL CHRONOLOGIQUE COMPLET ———",
+    chrono,
   ]
     .filter(Boolean)
-    .join("\n")
-    .slice(0, 4500);
+    .join("\n");
 
-  const fallbackNotes = args.subject
-    ? `Échange existant (objet : ${args.subject}).`
-    : "Échange existant avec ce contact.";
+  const fallbackNotes = [
+    args.subject
+      ? `Échange existant (objet : ${args.subject}) — ${args.turns.length || args.leynaTexts.length + args.clientTexts.length} messages.`
+      : "Échange existant avec ce contact.",
+    args.clientFroms[0] ? `- Contacts marque : ${[...new Set(args.clientFroms)].join(", ")}` : "",
+    ...args.turns
+      .filter((t) => t.role === "client")
+      .slice(-4)
+      .map((t) => {
+        const when = t.date
+          ? new Date(t.date).toLocaleDateString("fr-FR")
+          : "";
+        const snip = t.text.replace(/\s+/g, " ").trim().slice(0, 320);
+        return `- [${when}] Client : « ${snip}${snip.length >= 320 ? "…" : ""} »`;
+      }),
+    ...args.turns
+      .filter((t) => t.role === "leyna")
+      .slice(-3)
+      .map((t) => {
+        const when = t.date
+          ? new Date(t.date).toLocaleDateString("fr-FR")
+          : "";
+        const snip = t.text.replace(/\s+/g, " ").trim().slice(0, 220);
+        return `- [${when}] Leyna : « ${snip}${snip.length >= 220 ? "…" : ""} »`;
+      }),
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   if (!process.env.XAI_API_KEY?.trim()) {
     return { notes: fallbackNotes, alerts: heuristic };
@@ -334,13 +505,13 @@ async function extractNotesAndAlerts(args: {
 
   try {
     const text = await xaiResponse(
-      `Tu analyses un fil Gmail entre Leyna (Glow Up Agence) et des contacts autour de la marque ${args.brandName}.
+      `Tu analyses UN fil Gmail COMPLET entre Leyna (Glow Up Agence) et des contacts autour de la marque ${args.brandName}.
 Talents du mail en cours : ${args.talentNames.join(", ") || "—"}
 Domaines marque prioritaires : ${args.brandDomains.join(", ") || "—"}
 
 Réponds UNIQUEMENT en JSON valide (pas de markdown) :
 {
-  "notes": "3-5 puces factuelles (- ) pour le prochain mail : statut deal, qui a répondu, collab en place ou non, comment pitcher une suite",
+  "notes": "8-14 puces factuelles (- ) EXHAUSTIVES chronologiques : chaque étape du fil (dates, qui a dit quoi), talents pitchés, produits/équipements, call fixé, négociations, statut actuel, prochaines actions, ton (tu/vous), comment pitcher une suite SANS répéter le même deal",
   "alerts": ["alertes URGENTES uniquement, sinon []"]
 }
 
@@ -353,16 +524,17 @@ ALERTES (tableau "alerts") — UNIQUEMENT si c’est vraiment urgent / bloquant 
 Chaque alerte = 1 phrase courte, concrète (cite le prénom/email de redirection si dit).
 Si rien d’urgent : "alerts": []
 
-Règles notes :
+Règles notes (OBLIGATOIRE — ne pas sous-résumer) :
+- NOTE TOUT le fil, message par message utile. INTERDIT de sortir juste « échange existant ».
+- Inclure : call / RDV, produits (ex. vélo, modèle), talents (Mia, Lola…), validations, relances en attente.
 - Priorise réponses domaine MARQUE. Distingue agence vs marque.
-- Si la marque a répondu (étude / shortlist), le dire clairement.
 - N'invente rien. Français.
 
 FIL :
 ${excerpt}`,
       {
         model: "grok-4.20-0309-non-reasoning",
-        timeoutMs: 35_000,
+        timeoutMs: 60_000,
       }
     );
     const raw = String(text || "").trim();
@@ -378,7 +550,7 @@ ${excerpt}`,
         alerts?: unknown;
       };
       if (typeof parsed.notes === "string" && parsed.notes.trim()) {
-        notes = parsed.notes.trim().slice(0, 1200);
+        notes = parsed.notes.trim().slice(0, 4500);
       }
       if (Array.isArray(parsed.alerts)) {
         alerts = parsed.alerts
@@ -387,8 +559,16 @@ ${excerpt}`,
           .slice(0, 5);
       }
     } catch {
-      notes = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").slice(0, 1200) ||
+      notes =
+        raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").slice(0, 4500) ||
         fallbackNotes;
+    }
+    // Si l’IA a trop condensé (« échange existant »), garder le fallback riche.
+    if (
+      notes.length < 120 ||
+      /^échange existant/i.test(notes.trim())
+    ) {
+      notes = fallbackNotes.length > notes.length ? fallbackNotes : notes;
     }
     // Fusion heuristique + IA (dédup)
     const merged = [...alerts];
@@ -419,6 +599,12 @@ function emptyContext(): LeynaExchangeContext {
   };
 }
 
+function brandInSubjectHint(subject: string | null, brand: string): boolean {
+  const s = (subject || "").toLowerCase();
+  const b = brand.toLowerCase();
+  return b.length >= 3 && s.includes(b);
+}
+
 function scoreThread(args: {
   sides: ThreadSides;
   brandDomains: string[];
@@ -443,7 +629,7 @@ function scoreThread(args: {
 
 /**
  * Soft-fail : jamais d'erreur fatale. `hasExchange` seulement si réponse client.
- * Remonte loin (~5 ans) + recherche par email ET domaine / nom de marque.
+ * Remonte loin (~5 ans) + analyse / note TOUS les vrais échanges (pas un seul fil récent).
  */
 export async function getLeynaExchangeContext(args: {
   recipientEmails: string[];
@@ -470,13 +656,16 @@ export async function getLeynaExchangeContext(args: {
     threadId: string;
     anchorEmail: string;
     internalDate: number | null;
+    /** true = déjà confirmé replied (inbound domaine ou filtre contact). */
+    knownReplied?: boolean;
   };
   const candidates: Candidate[] = [];
   const seenThreadIds = new Set<string>();
 
   const pushMsgs = (
     msgs: { id: string; threadId: string; internalDate: number | null }[],
-    anchorEmail: string
+    anchorEmail: string,
+    knownReplied = false
   ) => {
     for (const m of msgs) {
       if (!m.threadId || seenThreadIds.has(m.threadId)) continue;
@@ -485,34 +674,101 @@ export async function getLeynaExchangeContext(args: {
         threadId: m.threadId,
         anchorEmail,
         internalDate: m.internalDate,
+        knownReplied,
       });
     }
   };
 
+  /** Tous les fils envoyés à un contact (réponse ou non). */
+  const pushAllSentTo = async (email: string) => {
+    const sent = await findRecentSentToRecipient(
+      LEYNA_FROM_EMAIL,
+      email,
+      LOOKBACK_DAYS
+    );
+    const unique: { id: string; threadId: string; internalDate: number | null }[] =
+      [];
+    const seen = new Set<string>();
+    for (const m of sent.slice(0, MAX_SENT_SCAN_PER_CONTACT)) {
+      if (!m.threadId || seen.has(m.threadId)) continue;
+      seen.add(m.threadId);
+      unique.push(m);
+    }
+    const flags = await mapPool(unique, ACTIVITY_CONCURRENCY, async (m) => {
+      try {
+        const act = await checkThreadActivity(LEYNA_FROM_EMAIL, m.threadId);
+        return act.replied;
+      } catch {
+        return false;
+      }
+    });
+    // D’abord les replied, puis le reste — on garde TOUT
+    const ordered = [
+      ...unique.filter((_, i) => flags[i]),
+      ...unique.filter((_, i) => !flags[i]),
+    ].slice(0, MAX_THREADS_PER_CONTACT);
+    for (let i = 0; i < ordered.length; i++) {
+      const m = ordered[i]!;
+      const replied = flags[unique.indexOf(m)] === true;
+      pushMsgs([m], email, replied);
+    }
+  };
+
   try {
-    // 1) Par destinataire (historique long)
+    // 1) Par destinataire — TOUS les fils (pas seulement ceux avec réponse)
     for (const email of emails) {
       try {
-        const sent = await findRecentSentToRecipient(
-          LEYNA_FROM_EMAIL,
-          email,
-          LOOKBACK_DAYS
-        );
-        pushMsgs(sent.slice(0, MAX_THREADS_PER_CONTACT * 3), email);
+        await pushAllSentTo(email);
       } catch (e) {
         console.warn(
           `[leyna-exchange-context] search ${email}:`,
           e instanceof Error ? e.message : e
         );
       }
+      // Variantes local-part (eclavery@ → eclavery-ext@)
+      const local = email.split("@")[0]?.replace(/[^a-z0-9._+-]/gi, "") || "";
+      if (local.length >= 4) {
+        try {
+          const q = `newer_than:${LOOKBACK_DAYS}d (from:${local} OR to:${local} OR cc:${local})`;
+          const msgs = await findRecentMessagesByQuery(LEYNA_FROM_EMAIL, q, 50);
+          pushMsgs(msgs.slice(0, 50), `local:${local}`, false);
+        } catch (e) {
+          console.warn(
+            `[leyna-exchange-context] local ${local}:`,
+            e instanceof Error ? e.message : e
+          );
+        }
+      }
     }
 
-    // 2) Par domaine marque (ex. rituals.com) — rattrape Mathilde même hors liste cochée
+    // 2a) Inbound domaine marque (from:@) — réponses client = vrais échanges
     for (const domain of brandDomains.slice(0, 4)) {
       try {
-        const q = `newer_than:${LOOKBACK_DAYS}d (from:${domain} OR to:${domain} OR cc:${domain})`;
-        const msgs = await findRecentMessagesByQuery(LEYNA_FROM_EMAIL, q, 40);
-        pushMsgs(msgs.slice(0, MAX_BRAND_THREADS), `*@${domain}`);
+        const q = `newer_than:${LOOKBACK_DAYS}d from:${domain}`;
+        const msgs = await findRecentMessagesByQuery(
+          LEYNA_FROM_EMAIL,
+          q,
+          MAX_INBOUND_BRAND
+        );
+        pushMsgs(msgs.slice(0, MAX_INBOUND_BRAND), `*@${domain}`, true);
+      } catch (e) {
+        console.warn(
+          `[leyna-exchange-context] inbound ${domain}:`,
+          e instanceof Error ? e.message : e
+        );
+      }
+    }
+
+    // 2b) Filet large to/cc domaine (complète si peu d’inbound)
+    for (const domain of brandDomains.slice(0, 4)) {
+      try {
+        const q = `newer_than:${LOOKBACK_DAYS}d (to:${domain} OR cc:${domain})`;
+        const msgs = await findRecentMessagesByQuery(
+          LEYNA_FROM_EMAIL,
+          q,
+          MAX_BRAND_SCAN
+        );
+        pushMsgs(msgs.slice(0, MAX_BRAND_SCAN), `to@${domain}`, false);
       } catch (e) {
         console.warn(
           `[leyna-exchange-context] domain ${domain}:`,
@@ -521,13 +777,17 @@ export async function getLeynaExchangeContext(args: {
       }
     }
 
-    // 3) Par nom de marque dans l'objet / corps (filet large, historique long)
+    // 3) Par nom de marque dans l'objet / corps
     const brandToken = brandName.replace(/"/g, "").trim();
     if (brandToken.length >= 3) {
       try {
         const q = `newer_than:${LOOKBACK_DAYS}d ("${brandToken}" OR subject:${brandToken})`;
-        const msgs = await findRecentMessagesByQuery(LEYNA_FROM_EMAIL, q, 40);
-        pushMsgs(msgs.slice(0, MAX_BRAND_THREADS), `brand:${brandToken}`);
+        const msgs = await findRecentMessagesByQuery(
+          LEYNA_FROM_EMAIL,
+          q,
+          MAX_BRAND_SCAN
+        );
+        pushMsgs(msgs.slice(0, MAX_BRAND_SCAN), `brand:${brandToken}`, false);
       } catch (e) {
         console.warn(
           `[leyna-exchange-context] brand subject:`,
@@ -536,29 +796,67 @@ export async function getLeynaExchangeContext(args: {
       }
     }
 
-    // Plus récents d'abord
-    candidates.sort(
-      (a, b) => (b.internalDate || 0) - (a.internalDate || 0)
-    );
+    // Priorité : knownReplied d'abord, puis plus récents
+    candidates.sort((a, b) => {
+      const ra = a.knownReplied ? 1 : 0;
+      const rb = b.knownReplied ? 1 : 0;
+      if (rb !== ra) return rb - ra;
+      return (b.internalDate || 0) - (a.internalDate || 0);
+    });
 
-    const scored: Array<{
-      hit: LeynaExchangeContactHit;
-      score: number;
-    }> = [];
+    const toInspect = candidates.slice(0, MAX_CANDIDATES_TO_SCORE);
 
-    for (const c of candidates.slice(0, 30)) {
-      let activity: { replied: boolean };
+    // Activity en parallèle (knownReplied → true)
+    const activityFlags = await mapPool(toInspect, ACTIVITY_CONCURRENCY, async (c) => {
+      if (c.knownReplied) return true;
       try {
-        activity = await checkThreadActivity(LEYNA_FROM_EMAIL, c.threadId);
+        const act = await checkThreadActivity(LEYNA_FROM_EMAIL, c.threadId);
+        return act.replied;
       } catch {
-        continue;
+        return false;
       }
-      if (!activity.replied) continue;
+    });
 
+    type ScoredDraft = {
+      candidate: Candidate;
+      sides: ThreadSides;
+      score: number;
+      tone: LeynaExchangeTone | null;
+      replyEmail: string;
+      status: "exchange" | "sent_no_reply";
+    };
+    const drafts: ScoredDraft[] = [];
+
+    for (let i = 0; i < toInspect.length; i++) {
+      const c = toInspect[i]!;
+      const replied = Boolean(activityFlags[i]);
       const sides = await loadThreadSides(c.threadId);
-      // Uniquement une vraie réponse EXTERNE (pas Glow Up interne).
-      if (!sides || sides.clientTexts.length === 0 || sides.clientFroms.length === 0) {
-        continue;
+      if (!sides) continue;
+      if (isAutoReplySubject(sides.subject)) continue;
+      // Il faut au moins du contenu Leyna (sinon bruit)
+      if (sides.leynaTexts.length === 0 && sides.clientTexts.length === 0) continue;
+
+      const hasClientReply =
+        replied && sides.clientTexts.length > 0 && sides.clientFroms.length > 0;
+
+      // Sans réponse : garder si ancré marque / contact CRM
+      if (!hasClientReply) {
+        if (sides.leynaTexts.length === 0) continue;
+        const brandInSubject = brandInSubjectHint(sides.subject, brandName);
+        const anchorIsCrm = emails.some(
+          (e) =>
+            c.anchorEmail === e ||
+            (c.anchorEmail.startsWith("local:") &&
+              e.startsWith(c.anchorEmail.slice("local:".length)))
+        );
+        const sentToBrandDomain =
+          brandDomains.some(
+            (d) =>
+              c.anchorEmail.endsWith(`@${d}`) ||
+              c.anchorEmail === `*@${d}` ||
+              c.anchorEmail === `to@${d}`
+          ) || c.anchorEmail.startsWith("local:");
+        if (!brandInSubject && !anchorIsCrm && !sentToBrandDomain) continue;
       }
 
       const hasBrandDomainReply =
@@ -566,87 +864,163 @@ export async function getLeynaExchangeContext(args: {
         sides.clientFroms.some((e) =>
           brandDomains.some((d) => e.endsWith(`@${d}`) || e.includes(`.${d}`))
         );
-      // Si on connaît le domaine marque, ignore les fils sans réponse de ce domaine
-      // (évite agences / faux positifs sans contact Cultura etc.).
-      if (brandDomains.length > 0 && !hasBrandDomainReply) {
-        // Garde quand même un score bas si sujet marque + reply externe (agence)
-        // — mais on priorise fortement le domaine marque via scoreThread.
-      }
 
       let score = scoreThread({ sides, brandDomains, brandName });
-      if (hasBrandDomainReply) score += 40;
-      else score -= 25;
-      // Trop faible = bruit (fils internes mal filtrés, hors sujet)
-      if (score < 15) continue;
+      if (hasClientReply) {
+        if (hasBrandDomainReply) score += 40;
+        else score -= 15;
+        if (sides.turns.length >= 6) score += 20;
+        else if (sides.turns.length >= 4) score += 10;
+      } else {
+        // Envoi sans réponse : score plus bas mais on le GARDE pour tout noter
+        score = Math.max(score - 10, 16);
+        if (brandInSubjectHint(sides.subject, brandName)) score += 8;
+      }
+      if (score < 12) continue;
 
-      const leynaJoined = sides.leynaTexts.join("\n");
-      const tone = detectToneFromText(leynaJoined);
-      const { notes, alerts } = await extractNotesAndAlerts({
-        brandName,
-        talentNames,
-        subject: sides.subject,
-        leynaTexts: sides.leynaTexts,
-        clientTexts: sides.clientTexts,
-        clientFroms: sides.clientFroms,
-        brandDomains,
+      const replyEmail = hasClientReply
+        ? sides.clientFroms.find((e) =>
+            brandDomains.some((d) => e.endsWith(`@${d}`))
+          ) ||
+          sides.clientFroms[0] ||
+          c.anchorEmail
+        : c.anchorEmail.startsWith("*@") ||
+            c.anchorEmail.startsWith("to@") ||
+            c.anchorEmail.startsWith("brand:") ||
+            c.anchorEmail.startsWith("local:")
+          ? emails[0] || c.anchorEmail
+          : c.anchorEmail;
+
+      drafts.push({
+        candidate: c,
+        sides,
+        score,
+        tone: hasClientReply ? detectToneFromThread(sides) : null,
+        replyEmail,
+        status: hasClientReply ? "exchange" : "sent_no_reply",
       });
+    }
 
-      const replyEmail =
-        sides.clientFroms.find((e) =>
-          brandDomains.some((d) => e.endsWith(`@${d}`))
-        ) ||
-        sides.clientFroms[0] ||
-        c.anchorEmail;
+    // Échanges d’abord, puis envois ; on note TOUT jusqu’à MAX_HITS
+    drafts.sort((a, b) => {
+      const ea = a.status === "exchange" ? 1 : 0;
+      const eb = b.status === "exchange" ? 1 : 0;
+      if (eb !== ea) return eb - ea;
+      if (b.score !== a.score) return b.score - a.score;
+      return (
+        (b.sides.lastDate ? new Date(b.sides.lastDate).getTime() : 0) -
+        (a.sides.lastDate ? new Date(a.sides.lastDate).getTime() : 0)
+      );
+    });
+    const draftsToNote = drafts.slice(0, MAX_HITS);
 
-      scored.push({
-        score: score + (alerts.length > 0 ? 30 : 0),
+    const scored = await mapPool(draftsToNote, NOTES_CONCURRENCY, async (d) => {
+      const { notes, alerts } =
+        d.status === "exchange"
+          ? await extractNotesAndAlerts({
+              brandName,
+              talentNames,
+              subject: d.sides.subject,
+              leynaTexts: d.sides.leynaTexts,
+              clientTexts: d.sides.clientTexts,
+              clientFroms: d.sides.clientFroms,
+              brandDomains,
+              turns: d.sides.turns,
+            })
+          : {
+              notes: [
+                `ENVOI SANS RÉPONSE (objet : ${d.sides.subject || "—"}) — ${d.sides.turns.length} message(s) Leyna.`,
+                ...d.sides.leynaTexts.slice(0, 3).map((t) => {
+                  const snip = t
+                    .replace(/<br\s*\/?>/gi, "\n")
+                    .replace(/<[^>]+>/g, " ")
+                    .replace(/&nbsp;/g, " ")
+                    .replace(/\s+/g, " ")
+                    .trim()
+                    .slice(0, 280);
+                  return `- Pitch Leyna : « ${snip}${snip.length >= 280 ? "…" : ""} »`;
+                }),
+              ].join("\n"),
+              alerts: [] as string[],
+            };
+      return {
+        score: d.score + (alerts.length > 0 ? 30 : 0),
         hit: {
-          email: replyEmail,
-          subject: sides.subject,
-          lastExchangeAt: sides.lastDate,
-          tone,
+          email: d.replyEmail,
+          subject: d.sides.subject,
+          lastExchangeAt: d.sides.lastDate,
+          tone: d.tone,
           notes,
           alerts,
           clientSnippet:
-            sides.clientTexts[sides.clientTexts.length - 1]?.slice(0, 220) || null,
-        },
-      });
-
-      if (scored.length >= MAX_HITS * 2) break;
-    }
+            d.sides.clientTexts[d.sides.clientTexts.length - 1]?.slice(0, 320) ||
+            null,
+          status: d.status,
+          messageCount: d.sides.turns.length,
+        } satisfies LeynaExchangeContactHit,
+      };
+    });
 
     scored.sort((a, b) => b.score - a.score);
-    const hits = scored.slice(0, MAX_HITS).map((s) => s.hit);
+    const hits = scored
+      .map((s) => s.hit)
+      .sort((a, b) => {
+        const ea = a.status === "exchange" ? 1 : 0;
+        const eb = b.status === "exchange" ? 1 : 0;
+        if (eb !== ea) return eb - ea;
+        const ta = a.lastExchangeAt ? new Date(a.lastExchangeAt).getTime() : 0;
+        const tb = b.lastExchangeAt ? new Date(b.lastExchangeAt).getTime() : 0;
+        return tb - ta;
+      });
 
     if (hits.length === 0) return emptyContext();
 
-    const toneVotes = hits.map((h) => h.tone).filter(Boolean) as LeynaExchangeTone[];
-    const tuCount = toneVotes.filter((t) => t === "tu").length;
-    const vousCount = toneVotes.filter((t) => t === "vous").length;
-    const tone: LeynaExchangeTone | null =
-      tuCount > vousCount ? "tu" : vousCount > 0 ? "vous" : tuCount > 0 ? "tu" : null;
+    const exchangeHits = hits.filter((h) => h.status !== "sent_no_reply");
+    const hasExchange = exchangeHits.length > 0;
+
+    // Dès qu’un vrai échange tutoie, on garde le tutoiement (jamais rebasculer
+    // en vouvoiement à cause d’un vieux mail d’ouverture en « vous »).
+    const anyTu = exchangeHits.some((h) => h.tone === "tu");
+    const anyVous = exchangeHits.some((h) => h.tone === "vous");
+    const tone: LeynaExchangeTone | null = anyTu
+      ? "tu"
+      : anyVous
+        ? "vous"
+        : null;
+
+    // Aligne l’affichage des fils : si la relation tutoie, plus de badge « vouvoiement ».
+    if (tone === "tu") {
+      for (const h of hits) {
+        if (h.status !== "sent_no_reply") h.tone = "tu";
+      }
+    }
 
     const allAlerts = Array.from(
       new Set(hits.flatMap((h) => h.alerts || []).map((a) => a.trim()).filter(Boolean))
     );
 
-    const bannerLabel =
-      hits.length === 1
+    const nEx = exchangeHits.length;
+    const nSent = hits.length - nEx;
+    const bannerLabel = hasExchange
+      ? nEx === 1 && nSent === 0
         ? `Échange Leyna trouvé avec ${hits[0].email}${tone ? ` · ${tone === "tu" ? "tutoiement" : "vouvoiement"}` : ""}${allAlerts.length ? " · ⚠ alerte" : ""}`
-        : `Échanges Leyna trouvés (${hits.length})${tone ? ` · ${tone === "tu" ? "tutoiement" : "vouvoiement"}` : ""}${allAlerts.length ? " · ⚠ alerte" : ""}`;
+        : `Historique Leyna : ${nEx} échange(s) + ${nSent} envoi(s) notés (${hits.length} fils)${tone ? ` · ${tone === "tu" ? "tutoiement" : "vouvoiement"}` : ""}${allAlerts.length ? " · ⚠ alerte" : ""}`
+      : `Historique Leyna : ${nSent} envoi(s) sans réponse notés`;
 
     const detailsFr = hits
-      .map(
-        (h) =>
-          `- ${h.email}${h.subject ? ` « ${h.subject} »` : ""}${
-            h.lastExchangeAt
-              ? ` (${new Date(h.lastExchangeAt).toLocaleDateString("fr-FR")})`
-              : ""
-          }${h.tone ? ` [${h.tone}]` : ""}${
-            h.alerts?.length ? `\n  ALERTES : ${h.alerts.join(" | ")}` : ""
-          }\n  Notes : ${h.notes}`
-      )
-      .join("\n");
+      .map((h, idx) => {
+        const kind =
+          h.status === "sent_no_reply" ? "ENVOI SANS RÉPONSE" : "ÉCHANGE";
+        return `${idx + 1}. [${kind}] ${h.email}${h.subject ? ` « ${h.subject} »` : ""}${
+          h.lastExchangeAt
+            ? ` (${new Date(h.lastExchangeAt).toLocaleDateString("fr-FR")})`
+            : ""
+        }${h.messageCount ? ` · ${h.messageCount} msg` : ""}${
+          h.tone ? ` [${h.tone}]` : ""
+        }${h.alerts?.length ? `\n  ALERTES : ${h.alerts.join(" | ")}` : ""}
+  Notes : ${h.notes}`;
+      })
+      .join("\n\n");
 
     const alertsBlockFr =
       allAlerts.length > 0
@@ -658,58 +1032,58 @@ ${allAlerts.map((a) => `- ${a}`).join("\n")}
 `
         : "";
 
-    const promptBlockFr = `
-═══ CONTEXTE BOÎTE LEYNA (PRIORITAIRE — vrais échanges = réponses client ; historique ~5 ans) ═══
+    const promptBlockFr = hasExchange
+      ? `
+═══ CONTEXTE BOÎTE LEYNA (PRIORITAIRE — ${nEx} échanges + ${nSent} envois analysés & notés ; historique ~5 ans) ═══
 ${detailsFr}
 ${alertsBlockFr}
 ANCRAGE SANS NOMMER PERSONNE (obligatoire) :
-- Formule en 2e personne : « suite à notre échange », « comme vous me l'indiquiez », « vous étudiez en interne… ».
-- INTERDIT ABSOLU de citer un prénom, nom ou email de contact dans le mail (pas de « Mathilde », « Charlotte », « Pascale Venot », etc.) — même si les notes les mentionnent.
+- Formule en 2e personne : « suite à notre échange », « comme tu me l'indiquais » / « comme vous me l'indiquiez ».
+- INTERDIT ABSOLU de citer un prénom, nom ou email de contact dans le mail — même si les notes les mentionnent.
 - Les notes ci-dessous sont POUR TOI (contexte) ; le destinataire ne doit voir aucun nom de personne.
-- EXCEPTION alertes : si redirection, tu peux évoquer qu’on suit la consigne de circuit sans empiler des noms inutiles.
+- Tiens compte de TOUT l'historique (pas seulement le dernier fil) : collabs déjà en cours, pitches sans réponse, RDV, produits.
 
-Règles d'utilisation OBLIGATOIRES (prioritaires sur l'accroche « J'ai vu que… » / cold discovery) :
+Règles d'utilisation OBLIGATOIRES :
 - Ce n'est PAS un premier contact. Dès le 1er paragraphe après le salut, ancre l'échange passé SANS nommer personne.
-- INTERDIT : démarrer comme une découverte froide de la marque (« J'ai vu que vous accentuiez… ») SANS ancrer l'échange passé.
+- INTERDIT : démarrer comme une découverte froide SANS ancrer l'historique.
 - ${
-      tone === "tu"
-        ? "TUTOIEMENT obligatoire (tu / te / ton) — cohérent avec les échanges Leyna."
-        : tone === "vous"
-          ? "Vouvoiement obligatoire — cohérent avec les échanges Leyna."
-          : "Garde le vouvoiement sauf si les notes indiquent clairement du tutoiement."
-    }
-- Si refus / planning bouclé / « pas en recherche » : le dire en une phrase factuelle, puis pitcher la NOUVELLE offre comme une suite (autre moment, format plus ciblé) — pas comme si rien ne s'était passé.
-- Si en étude / shortlist / négociation : en parler explicitement.
-- Si collab talent×marque déjà en place : s'appuyer dessus ; nouveau format (ex. jeux concours) = suite naturelle, pas doublon du même deal.
-- Un élément marque (produit / saison) peut renforcer le pitch APRÈS l'ancrage relationnel, pas à la place.
+          tone === "tu"
+            ? "TUTOIEMENT obligatoire (tu / te / ton)."
+            : tone === "vous"
+              ? "Vouvoiement obligatoire."
+              : "Garde le vouvoiement sauf si les notes indiquent du tutoiement."
+        }
+- Si refus / planning bouclé : le dire, puis pitcher la NOUVELLE offre comme une suite.
+- Si collab talent×marque déjà en place : s'appuyer dessus ; nouveau format = suite naturelle.
 - N'invente aucun fait hors des notes ci-dessus.
+`.trim()
+      : `
+═══ HISTORIQUE BOÎTE LEYNA (${nSent} envois sans réponse analysés) ═══
+${detailsFr}
+- Pas encore de vraie réponse client : reste factuel, n’invente pas de relation.
+- Tu peux mentionner qu’on a déjà proposé des talents / formats (sans spammer le même pitch).
 `.trim();
 
-    const promptBlockEn = `
-═══ LEYNA MAILBOX CONTEXT (PRIORITY — real back-and-forth only; ~5y lookback) ═══
+    const promptBlockEn = hasExchange
+      ? `
+═══ LEYNA MAILBOX CONTEXT (PRIORITY — ${nEx} exchanges + ${nSent} sends analyzed; ~5y) ═══
 ${detailsFr}
 ${
   allAlerts.length > 0
     ? `\n⚠ URGENT ALERTS:\n${allAlerts.map((a) => `- ${a}`).join("\n")}\n`
     : ""
 }
-ANCHOR WITHOUT NAMING ANYONE (mandatory):
-- 2nd person only: "following up on our exchange", "as you mentioned", "you were reviewing internally…".
-- ABSOLUTELY FORBIDDEN to cite any contact first name, last name or email in the email (no "Mathilde", "Charlotte", etc.) — even if the notes mention them.
-- Notes below are FOR YOU (context); the recipient must not see any personal names.
-
-MANDATORY rules (override cold “I noticed you…” discovery hooks):
-- Not a first contact. Right after the greeting, anchor the prior exchange WITHOUT naming anyone.
-- FORBIDDEN: open as cold brand discovery without anchoring the past thread.
-- If refusal / planning full / “not looking”: state it factually, then pitch the NEW offer as a follow-up (different timing, more specific format).
-- If reviewing / shortlist / existing talent×brand collab: say so; new format = natural next step.
-- Respect urgent alerts (redirect / stop / left company).
-- A brand product/season detail may support the pitch AFTER the relationship anchor, not instead of it.
-- Do not invent facts beyond the notes above.
+ANCHOR WITHOUT NAMING ANYONE. Use the FULL history (not only the latest thread).
+- ${tone === "tu" ? "Use tu." : tone === "vous" ? "Use vous." : "Default to vous unless notes say tu."}
+`.trim()
+      : `
+═══ LEYNA HISTORY (${nSent} unreplied sends) ═══
+${detailsFr}
+- No real client reply yet — do not invent a relationship.
 `.trim();
 
     return {
-      hasExchange: true,
+      hasExchange,
       tone,
       contacts: hits,
       alerts: allAlerts,

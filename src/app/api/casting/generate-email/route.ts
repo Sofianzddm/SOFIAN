@@ -12,6 +12,7 @@ import {
   mergeReachHighlights,
 } from "@/lib/talent-perf-reach";
 import { getLeynaExchangeContext } from "@/lib/leyna-exchange-context";
+import { isTalentIndividualProspectingBrief } from "@/lib/project-research-brief";
 
 export const maxDuration = 180;
 
@@ -446,6 +447,7 @@ export async function POST(request: NextRequest) {
     const hasProjectBrief = Boolean(
       rawProject &&
         (String(rawProject.strategyReason || "").trim() ||
+          String(rawProject.recommendedAngle || "").trim() ||
           String(rawProject.objective || "").trim() ||
           String(rawProject.projectTitle || "").trim() ||
           String(rawProject.deliverables || "").trim() ||
@@ -458,6 +460,11 @@ export async function POST(request: NextRequest) {
       isCondensation && Boolean((body as GenerateEmailBody).sharedProject);
     /** Mail projets-outreach (solo ou condensation) : jamais talentbook / roster casting. */
     const isProjectMail = Boolean(projectBrief) || isCondensation;
+    /** Pipeline prospection individuelle : pitcher UN talent (angle strategy), pas un brief campagne. */
+    const isTalentProspecting =
+      Boolean(projectBrief) &&
+      !isCondensation &&
+      isTalentIndividualProspectingBrief(projectBrief);
     const sharedTitle =
       String(condensationBriefs[0]?.projectTitle || "").trim() || "ce projet";
     const projectCountLabelFr =
@@ -640,8 +647,47 @@ PROHIBITIONS:
 `
       : "";
 
+    const hasStrategyAngle = Boolean(
+      projectBrief &&
+        (String(projectBrief.recommendedAngle || "").trim() ||
+          String(projectBrief.strategyReason || "").trim())
+    );
     const projectBriefBlockFr = !isCondensation && projectBrief
-      ? `
+      ? isTalentProspecting
+        ? `
+PROSPECTION TALENT INDIVIDUELLE (OBLIGATOIRE — priorité absolue sur le pitch générique casting) :
+Ce mail n'est PAS un outreach casting multi-talents, ni un brief campagne (livrables / timeline). Tu pitches UN talent précis à la marque destinataire.
+${[
+  briefLine("Talent", projectBrief.creatorName),
+  briefLine("Marque ciblée", projectBrief.targetBrand),
+  briefLine("Raison strategy", projectBrief.strategyReason),
+  briefLine("Angle recommandé", projectBrief.recommendedAngle),
+  briefLine("Objectif", sanitizeObjectiveForPrompt(projectBrief.objective)),
+  briefLine("Do's", projectBrief.dos),
+  briefLine("Don'ts", projectBrief.donts),
+]
+  .filter(Boolean)
+  .join("\n")}
+
+Règles prospection talent :
+- Le mail doit vendre CE talent (fit / collab / opportunité) à « ${brandName} » UNIQUEMENT, pas un roster.
+- MARQUE UNIQUE : tu écris à ${brandName}. N'écris JAMAIS qu'on pitch ce talent à une autre marque / concurrent.
+- Si un Angle recommandé ou une Raison strategy est fourni : construis le pitch AUTOUR de cet angle (c'est le fil conducteur). S'il est absent, déduis un angle concret depuis la recherche créateur × recherche marque.
+- Respecte strictement les Don'ts ; mets en avant les Do's si utiles.
+- Si une RECHERCHE CRÉATEUR est fournie, le fit DOIT en venir (qui c'est / ce qu'il fait / whyRelevant) croisé avec l'angle / la marque.
+- Tu peux citer 1 élément concret issu de la recherche marque si ça renforce le fit talent × marque.
+- LONGUEUR : mail scannable, aéré. Accroche courte ; pitch talent avec preuves utiles ; CTA 1 phrase.
+- AUCUNE mention du talentbook / roster / catalogue / book de talents.
+
+INTERDITS PROSPECTION TALENT (absolus) :
+- Ne JAMAIS écrire « plusieurs créateurs / plusieurs talents à vous proposer / une sélection de profils ».
+- Parle au SINGULIER de cette créatrice / ce créateur et de SON fit avec ${brandName}.
+- INTERDIT : talentbook, book de talents, roster, catalogue talents, lien https://app.glowupagence.fr/talentbook.
+- INTERDIT : « paid », « collaboration paid », « collab paid », « payé », « rémunéré » — écris « collaboration » / « opportunité ».
+- INTERDIT : répéter le salut — une seule fois en tête.
+- INTERDIT : clôturer par « Belle journée, » — utiliser exactement la clôture indiquée plus bas (Cordialement, sans prénom).
+`
+        : `
 BRIEF PROJET (OBLIGATOIRE — priorité absolue sur le pitch générique casting) :
 Ce mail n'est PAS un outreach casting générique multi-talents. Tu pitches UN projet précis autour du/des talent(s) fourni(s).
 ${[
@@ -688,7 +734,41 @@ INTERDITS PROJET (absolus) :
 `
       : "";
     const projectBriefBlockEn = !isCondensation && projectBrief
-      ? `
+      ? isTalentProspecting
+        ? `
+INDIVIDUAL TALENT PROSPECTING (MANDATORY — overrides the generic casting pitch) :
+This email is NOT multi-talent casting outreach, nor a campaign brief (deliverables / timeline). You are pitching ONE specific talent to the recipient brand.
+${[
+  briefLine("Talent", projectBrief.creatorName),
+  briefLine("Target brand", projectBrief.targetBrand),
+  briefLine("Strategy reason", projectBrief.strategyReason),
+  briefLine("Recommended angle", projectBrief.recommendedAngle),
+  briefLine("Objective", sanitizeObjectiveForPrompt(projectBrief.objective)),
+  briefLine("Do's", projectBrief.dos),
+  briefLine("Don'ts", projectBrief.donts),
+]
+  .filter(Boolean)
+  .join("\n")}
+
+Talent prospecting rules:
+- Sell THIS talent (fit / collab / opportunity) to "${brandName}" ONLY — not a roster.
+- SINGLE BRAND: you are writing to ${brandName}. NEVER pitch this talent to another brand / competitor.
+- If a Recommended angle or Strategy reason is provided: build the pitch AROUND that angle (it is the through-line). If missing, infer a concrete angle from creator research × brand research.
+- Strictly respect Don'ts; use Do's when helpful.
+- When CREATOR RESEARCH is provided, the fit MUST come from it (who they are / what they do / whyRelevant) crossed with the angle / brand.
+- You may cite 1 concrete brand-research detail if it strengthens the talent × brand fit.
+- LENGTH: scannable and airy. Short hook; talent pitch with useful proof; CTA 1 sentence.
+- NEVER mention talentbook / roster / catalog / talent book.
+
+TALENT PROSPECTING PROHIBITIONS (absolute):
+- NEVER write "several creators / a selection of profiles".
+- Write in the SINGULAR about this creator and THEIR fit with ${brandName}.
+- FORBIDDEN: talentbook, talent book, roster, catalog, https://app.glowupagence.fr/talentbook.
+- FORBIDDEN: "paid" / "paid collaboration" — write "collaboration" / "opportunity".
+- FORBIDDEN: repeating the greeting — once at the top only.
+- FORBIDDEN: closing with "Have a nice day," — use the exact closing below (Best regards, no first name).
+`
+        : `
 PROJECT BRIEF (MANDATORY — overrides the generic casting pitch) :
 This email is NOT a generic multi-talent casting outreach. You are pitching ONE specific project around the provided talent(s).
 ${[
@@ -1100,7 +1180,11 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
     if (!leynaExchange?.hasExchange) {
       leynaExchange = null;
     }
-    const useTutoiement = language === "fr" && leynaExchange?.tone === "tu";
+    const useTutoiement =
+      language === "fr" &&
+      (leynaExchange?.tone === "tu" ||
+        (Array.isArray(leynaExchange?.contacts) &&
+          leynaExchange.contacts.some((c) => c?.tone === "tu")));
     const hopeLineFr = useTutoiement
       ? "J'espère que tu vas bien ?"
       : "J'espère que vous allez bien ?";
@@ -1117,14 +1201,34 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
       ? `\n${leynaExchange.promptBlockEn}\n`
       : "";
     const hasLeynaExchange = Boolean(leynaExchange?.hasExchange);
+    const angleAdaptFr = hasStrategyAngle
+      ? `
+- ANGLE STRATEGY (si fourni dans le brief) : NE LE PITCH PAS en cold discovery. REFRAME-le comme suite naturelle à l'échange Leyna :
+  · refus / planning bouclé / « pas en recherche » → présenter l'angle comme une offre plus ciblée / un autre moment ;
+  · en étude / shortlist / porte ouverte → s'appuyer dessus et avancer l'angle comme proposition concrète ;
+  · collab talent×marque déjà en place → l'angle = nouveau format / suite, pas un doublon du même deal.
+`
+      : `
+- Pas d'angle strategy fourni : déduis un angle de suite depuis les notes Leyna + fit talent × marque (toujours ancré sur l'échange passé).
+`;
+    const angleAdaptEn = hasStrategyAngle
+      ? `
+- STRATEGY ANGLE (if provided in the brief): do NOT pitch it as cold discovery. REFRAME it as a natural follow-up to the Leyna exchange:
+  · refusal / planning full / "not looking" → present the angle as a more specific offer / different timing;
+  · reviewing / shortlist / door left open → lean on that and advance the angle as a concrete proposal;
+  · existing talent×brand collab → angle = new format / next step, not a duplicate of the same deal.
+`
+      : `
+- No strategy angle provided: infer a follow-up angle from Leyna notes + talent × brand fit (always anchored on the prior exchange).
+`;
     const exchangeStructureOverrideFr = hasLeynaExchange
       ? `
 OVERRIDE ACCROCHE (PRIORITAIRE — historique Leyna présent) :
 - Après le salut + « ${hopeLineFr} », le 1er paragraphe DOIT ancrer l'échange passé en 2e personne (« suite à notre échange », « comme vous me l'indiquiez ») — statut refus / en étude / porte ouverte si dans les notes.
 - INTERDIT de nommer un contact (prénom/nom/email) dans le mail — pas de « Mathilde », « Charlotte », etc.
 - INTERDIT d'ouvrir uniquement en cold discovery « J'ai vu que ${brandNameToken}… » sans ce rappel.
-- Ensuite seulement : pitch du/des projet(s) + talent(s) comme suite / offre plus ciblée / autre moment.
-- LONGUEUR : pas de plafond ~300 mots. Avec plusieurs talents, développe chaque projet correctement (ne compress pas pour « rester court »).
+- Ensuite seulement : pitch ${isTalentProspecting ? "du talent (et de son angle)" : "du/des projet(s) + talent(s)"} comme suite / offre plus ciblée / autre moment.
+${angleAdaptFr}- LONGUEUR : pas de plafond ~300 mots. Avec plusieurs talents, développe chaque projet correctement (ne compress pas pour « rester court »).
 `
       : "";
     const exchangeStructureOverrideEn = hasLeynaExchange
@@ -1133,8 +1237,8 @@ OPENING OVERRIDE (PRIORITY — Leyna history present):
 - After greeting + "I hope you are doing well?", the first body paragraph MUST anchor the prior exchange in 2nd person ("following our exchange", "as you mentioned") — refusal / reviewing / door left open if in notes.
 - FORBIDDEN to name any contact (first/last name/email) in the email — no "Mathilde", "Charlotte", etc.
 - FORBIDDEN to open only as cold discovery "I noticed ${brandNameToken}…" without that recall.
-- Then pitch the project(s) + talent(s) as a follow-up / more specific offer / different timing.
-- LENGTH: no ~300-word ceiling. With several talents, develop each project properly (do not compress just to stay short).
+- Then pitch ${isTalentProspecting ? "the talent (and their angle)" : "the project(s) + talent(s)"} as a follow-up / more specific offer / different timing.
+${angleAdaptEn}- LENGTH: no ~300-word ceiling. With several talents, develop each project properly (do not compress just to stay short).
 `
       : "";
 

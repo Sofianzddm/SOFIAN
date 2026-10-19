@@ -265,14 +265,14 @@ type CachedLeynaExchange = {
 
 /** v2 : ignore anciens faux « aucun échange » (fils Glow Up internes comptés à tort). */
 function loadLeynaExchangeCache(campaignId: string) {
-  return loadJsonCache<CachedLeynaExchange>(`po-leyna-exchange:v2:${campaignId}`);
+  return loadJsonCache<CachedLeynaExchange>(`po-leyna-exchange:v5:${campaignId}`);
 }
 
 function saveLeynaExchangeCache(
   campaignId: string,
   cache: Record<string, CachedLeynaExchange>
 ) {
-  saveJsonCache(`po-leyna-exchange:v2:${campaignId}`, cache);
+  saveJsonCache(`po-leyna-exchange:v5:${campaignId}`, cache);
 }
 
 async function mapPool<T>(

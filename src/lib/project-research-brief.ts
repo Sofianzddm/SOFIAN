@@ -24,15 +24,36 @@ function line(label: string, value: unknown): string {
   return v ? `- ${label} : ${v}` : "";
 }
 
+/**
+ * Prospection individuelle talent (pipeline solo) vs brief campagne projets-outreach.
+ * Heuristique : pas de titre / livrables / timeline / budget campagne.
+ */
+export function isTalentIndividualProspectingBrief(
+  brief: ProjectResearchBrief | null | undefined
+): boolean {
+  if (!brief) return false;
+  return !(
+    String(brief.projectTitle || "").trim() ||
+    String(brief.deliverables || "").trim() ||
+    String(brief.timeline || "").trim() ||
+    String(brief.budgetRange || "").trim()
+  );
+}
+
 /** Bloc texte brief pour injection dans un prompt IA. */
 export function formatProjectBriefForPrompt(
   brief: ProjectResearchBrief,
   index?: number
 ): string {
+  const talentMode = isTalentIndividualProspectingBrief(brief);
   const header =
     typeof index === "number"
-      ? `PROJET ${index + 1}${brief.creatorName ? ` — ${String(brief.creatorName).trim()}` : ""}`
-      : "BRIEF PROJET";
+      ? `${talentMode ? "PROSPECTION" : "PROJET"} ${index + 1}${
+          brief.creatorName ? ` — ${String(brief.creatorName).trim()}` : ""
+        }`
+      : talentMode
+        ? "PROSPECTION TALENT (individuelle)"
+        : "BRIEF PROJET";
   return [
     header,
     line("Titre", brief.projectTitle),

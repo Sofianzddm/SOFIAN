@@ -6,6 +6,7 @@ import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { SignatureCompletedEmail } from "@/lib/emails/SignatureCompletedEmail";
 import { ContratGlowUpEmail } from "@/lib/emails/ContratGlowUpEmail";
+import { DocumentSigneEmail } from "@/lib/emails/DocumentSigneEmail";
 
 type DocuSealPayload = {
   event_type?: string;
@@ -82,6 +83,11 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
           });
           if (collabContrat) {
             const now = new Date();
+            const signedDocumentUrl =
+              body.data?.documents?.[0]?.url ??
+              body.document_url?.trim() ??
+              body.documents?.[0]?.url?.trim() ??
+              null;
             await prisma.collaboration.update({
               where: { id: collabContrat.id },
               data: {
@@ -96,8 +102,22 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
               "Collaboration contrat: submission.completed → SIGNE",
               collabContrat.id
             );
+            const titre =
+              collabContrat.contratTitre?.trim() ||
+              `Contrat collaboration ${collabContrat.reference}`;
+            await envoyerEmailsDocumentSigneComplet({
+              submissionId,
+              body,
+              titre,
+              signedDocumentUrl,
+              kind: "contrat",
+            }).catch((err) =>
+              console.error("Collaboration contrat: erreur email PDF signé", err)
+            );
           } else if (await handleTalentContratCompleted(submissionId, body)) {
             // Contrat talent (fiche talent) marqué SIGNE
+          } else if (await handleSignatureDocumentCompleted(submissionId, body)) {
+            // Document entreprise (hub /signatures) marqué SIGNE
           } else if (await handleRhTimesheetCompleted(submissionId, body)) {
             // Feuille de temps RH → SIGNED
           } else {
@@ -288,6 +308,8 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
         }
       } else if (await handleTalentContratFormCompleted(submissionId, body)) {
         // Contrat talent (fiche talent) : statut avancé
+      } else if (await handleSignatureDocumentFormCompleted(submissionId, body)) {
+        // Document entreprise (hub /signatures) : compteur signatures
       } else if (await handleRhTimesheetCompleted(submissionId, body)) {
         // Feuille de temps RH (1 signataire) → SIGNED
       } else {
@@ -415,6 +437,17 @@ async function handleTalentContratCompleted(
     },
   });
   console.log("TalentContrat: submission.completed → SIGNE", contrat.id);
+
+  await envoyerEmailsDocumentSigneComplet({
+    submissionId,
+    body,
+    titre: contrat.titre,
+    signedDocumentUrl,
+    kind: "contrat",
+  }).catch((err) =>
+    console.error("TalentContrat: erreur email PDF signé", err)
+  );
+
   return true;
 }
 
@@ -478,6 +511,88 @@ async function handleTalentContratFormCompleted(
   return true;
 }
 
+// ============================================
+// Documents entreprise (hub /signatures) — SignatureDocument
+// ============================================
+
+async function handleSignatureDocumentCompleted(
+  submissionId: string,
+  body: DocuSealPayload
+): Promise<boolean> {
+  const document = await prisma.signatureDocument.findFirst({
+    where: { submissionId },
+  });
+  if (!document) return false;
+
+  const signedDocumentUrl =
+    body.data?.documents?.[0]?.url ??
+    body.document_url?.trim() ??
+    body.documents?.[0]?.url?.trim();
+  const now = new Date();
+
+  await prisma.signatureDocument.update({
+    where: { id: document.id },
+    data: {
+      statut: "SIGNE",
+      signeAt: now,
+      signaturesCompleted: document.signaturesTotal,
+      ...(signedDocumentUrl ? { signedDocumentUrl } : {}),
+    },
+  });
+  console.log("SignatureDocument: submission.completed → SIGNE", document.id);
+
+  await envoyerEmailsDocumentSigneComplet({
+    submissionId,
+    body,
+    titre: document.titre,
+    signedDocumentUrl,
+    kind: "document",
+  }).catch((err) =>
+    console.error("SignatureDocument: erreur email PDF signé", err)
+  );
+
+  return true;
+}
+
+async function handleSignatureDocumentFormCompleted(
+  submissionId: string,
+  body: DocuSealPayload
+): Promise<boolean> {
+  const document = await prisma.signatureDocument.findFirst({
+    where: { submissionId },
+  });
+  if (!document) return false;
+
+  const submittersRaw = body.submitters ?? body.data?.submitters ?? [];
+  const submitters = submittersRaw as Array<{
+    completed_at?: string | null;
+    status?: string;
+  }>;
+  const completedCount = submitters.filter((s) => {
+    const hasCompletedAt = !!(s.completed_at && String(s.completed_at).trim());
+    return hasCompletedAt || s.status === "completed";
+  }).length;
+
+  const total = Math.max(document.signaturesTotal, 1);
+  const nextStatut = completedCount >= total ? "SIGNE" : "EN_ATTENTE";
+  const now = new Date();
+
+  await prisma.signatureDocument.update({
+    where: { id: document.id },
+    data: {
+      statut: nextStatut,
+      signaturesCompleted: Math.min(completedCount, total),
+      ...(nextStatut === "SIGNE" ? { signeAt: now } : {}),
+    },
+  });
+  console.log("SignatureDocument: form.completed", {
+    submissionId,
+    completedCount,
+    nextStatut,
+  });
+  return true;
+}
+
 /**
  * From Resend pour un destinataire donné.
  * Évite From = To (ex. contrat@ → contrat@) qui est souvent filtré / invisible dans Gmail Workspace.
@@ -492,6 +607,123 @@ function resendFromAddress(toEmail: string): string {
     return "Glow Up Agence <notifications@glowupagence.fr>";
   }
   return configured.includes("<") ? configured : `Glow Up Agence <${configured}>`;
+}
+
+/**
+ * Quand toutes les parties ont signé : envoie le PDF final
+ * UNIQUEMENT aux signataires de la submission DocuSeal (pas d'autres destinataires).
+ */
+async function envoyerEmailsDocumentSigneComplet(opts: {
+  submissionId: string;
+  body: DocuSealPayload;
+  titre: string;
+  signedDocumentUrl?: string | null;
+  kind?: "contrat" | "document";
+}) {
+  const resendKey = process.env.RESEND_API_KEY?.trim();
+  if (!resendKey) {
+    console.warn("Document signé: RESEND_API_KEY manquant, emails non envoyés");
+    return;
+  }
+
+  let signedUrl = opts.signedDocumentUrl?.trim() || "";
+  const submittersFromBody = (
+    opts.body.data?.submitters ?? opts.body.submitters ?? []
+  ) as Array<{ email?: string; name?: string }>;
+
+  let recipients: Array<{ email: string; name: string }> = submittersFromBody
+    .map((s) => ({
+      email: (s.email || "").trim(),
+      name: (s.name || "").trim() || (s.email || "").split("@")[0] || "Signataire",
+    }))
+    .filter((s) => s.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.email));
+
+  // Compléter via API DocuSeal si webhook incomplet / PDF manquant
+  // (toujours strictement les submitters de la submission — jamais d'emails hors liste)
+  if ((!signedUrl || recipients.length === 0) && process.env.DOCUSEAL_API_KEY) {
+    try {
+      const res = await fetch(
+        `https://api.docuseal.com/submissions/${opts.submissionId}`,
+        { headers: { "X-Auth-Token": process.env.DOCUSEAL_API_KEY } }
+      );
+      if (res.ok) {
+        const submission = (await res.json()) as {
+          documents?: Array<{ url?: string }>;
+          submitters?: Array<{ email?: string; name?: string }>;
+        };
+        if (!signedUrl) {
+          signedUrl = submission.documents?.[0]?.url?.trim() || "";
+        }
+        if (recipients.length === 0 && Array.isArray(submission.submitters)) {
+          recipients = submission.submitters
+            .map((s) => ({
+              email: (s.email || "").trim(),
+              name:
+                (s.name || "").trim() ||
+                (s.email || "").split("@")[0] ||
+                "Signataire",
+            }))
+            .filter((s) => s.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.email));
+        }
+      }
+    } catch (err) {
+      console.error("Document signé: GET submission DocuSeal échoué", err);
+    }
+  }
+
+  // Dédupliquer par email (casse ignorée)
+  const seen = new Set<string>();
+  recipients = recipients.filter((r) => {
+    const key = r.email.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  if (!signedUrl) {
+    console.warn(
+      "Document signé: pas d'URL PDF — emails non envoyés",
+      opts.submissionId
+    );
+    return;
+  }
+  if (recipients.length === 0) {
+    console.warn(
+      "Document signé: aucun signataire — emails non envoyés",
+      opts.submissionId
+    );
+    return;
+  }
+
+  const resend = new Resend(resendKey);
+  const kind = opts.kind ?? "contrat";
+  const subjectNoun = kind === "document" ? "Document" : "Contrat";
+
+  for (const recipient of recipients) {
+    const html = await render(
+      React.createElement(DocumentSigneEmail, {
+        signerName: recipient.name,
+        documentTitre: opts.titre,
+        signedDocumentUrl: signedUrl,
+        kind,
+      })
+    );
+    const sendResult = await resend.emails.send({
+      from: resendFromAddress(recipient.email),
+      to: recipient.email,
+      subject: `${subjectNoun} signé — ${opts.titre}`,
+      html,
+    });
+    if (sendResult.error) {
+      console.error(
+        "Document signé: erreur Resend",
+        recipient.email,
+        sendResult.error
+      );
+    } else {
+      console.log("Document signé: email envoyé à", recipient.email);
+    }
+  }
 }
 
 /** Récupère le lien de signature de l'agence sur la submission et lui envoie l'email. */

@@ -486,6 +486,9 @@ export const config = {
     "/documents/:path*",
     "/factures",
     "/factures/:path*",
+    // Signatures électroniques (DocuSeal — documents entreprise)
+    "/signatures",
+    "/signatures/:path*",
     // Finance & réconciliation
     "/finance",
     "/finance/:path*",

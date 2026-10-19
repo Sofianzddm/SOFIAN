@@ -331,16 +331,20 @@ export interface CastingComposerProps {
       sourcesUsed?: string;
     }>
   ) => void;
-  /** Historique Leyna préchargé (batch projet). */
+  /** Historique Leyna préchargé (batch projet / indiv). */
   initialLeynaExchange?: {
     hasExchange: boolean;
     tone?: "tu" | "vous" | null;
     bannerLabel?: string | null;
+    alerts?: string[];
     contacts?: Array<{
       email: string;
       subject?: string | null;
       tone?: "tu" | "vous" | null;
       notes?: string;
+      alerts?: string[];
+      lastExchangeAt?: string | null;
+      clientSnippet?: string | null;
     }>;
   } | null;
   onLeynaExchangeCached?: (
@@ -349,11 +353,15 @@ export interface CastingComposerProps {
       hasExchange: boolean;
       tone?: "tu" | "vous" | null;
       bannerLabel?: string | null;
+      alerts?: string[];
       contacts?: Array<{
         email: string;
         subject?: string | null;
         tone?: "tu" | "vous" | null;
         notes?: string;
+        alerts?: string[];
+        lastExchangeAt?: string | null;
+        clientSnippet?: string | null;
       }>;
     }
   ) => void;
@@ -565,11 +573,15 @@ export default function CastingComposer({
     hasExchange: boolean;
     tone?: "tu" | "vous" | null;
     bannerLabel?: string | null;
+    alerts?: string[];
     contacts?: Array<{
       email: string;
       subject?: string | null;
       tone?: "tu" | "vous" | null;
       notes?: string;
+      alerts?: string[];
+      lastExchangeAt?: string | null;
+      clientSnippet?: string | null;
     }>;
   } | null>(null);
   const [leynaExchangeChecked, setLeynaExchangeChecked] = useState(false);
@@ -1020,11 +1032,15 @@ export default function CastingComposer({
               hasExchange: boolean;
               tone?: "tu" | "vous" | null;
               bannerLabel?: string | null;
+              alerts?: string[];
               contacts?: Array<{
                 email: string;
                 subject?: string | null;
                 tone?: "tu" | "vous" | null;
                 notes?: string;
+                alerts?: string[];
+                lastExchangeAt?: string | null;
+                clientSnippet?: string | null;
               }>;
             })
           : { hasExchange: false };

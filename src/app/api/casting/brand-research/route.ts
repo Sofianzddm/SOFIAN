@@ -5,6 +5,7 @@ import { marqueSlug } from "@/lib/marque-resolver";
 import { xaiResponse } from "@/lib/xai";
 import {
   formatProjectBriefForPrompt,
+  isTalentIndividualProspectingBrief,
   parseProjectBrief,
   parseProjectBriefs,
   type ProjectResearchBrief,
@@ -281,28 +282,52 @@ Réponds UNIQUEMENT en JSON strict :
 }
 
 /**
- * Prompt projet : mêmes champs JSON, mais orienté pitch d'un brief concret
+ * Prompt projet / prospection talent : mêmes champs JSON, orienté pitch concret
  * (pas un casting roster ouvert).
  */
 function buildProjectBrandPrompt(
   brand: string,
   projectContext: string,
   crm: BrandCrmContext | null,
-  focus: AvailabilityFocus
+  focus: AvailabilityFocus,
+  opts?: { talentProspecting?: boolean }
 ): string {
   const { currentLabel, previousLabel, contextLabel } = getResearchMonthWindow();
   const r = REGION_COPY[focus];
+  const talent = Boolean(opts?.talentProspecting);
+  const frame = talent
+    ? `Tu analyses la marque "${brand}" dans le cadre d'une **PROSPECTION INDIVIDUELLE TALENT** (pitcher UN créateur précis à la marque — pas un casting roster, pas un brief campagne livrables/timeline).`
+    : `Tu analyses la marque "${brand}" dans le cadre d'un **PITCH PROJET** (pas un casting générique multi-talents).`;
+  const briefHeader = talent
+    ? "═══ CONTEXTE PROSPECTION TALENT À SERVIR ═══"
+    : "═══ BRIEF(S) PROJET À SERVIR ═══";
+  const searchGoal = talent
+    ? `Utilise les outils de recherche (web + X) pour trouver des accroches concrètes qui aident à pitcher CE talent à "${brand}" (la bonne entité, pas un homonyme), en t'appuyant sur la raison strategy / l'angle recommandé s'ils sont fournis.`
+    : `Utilise les outils de recherche (web + X) pour trouver des accroches concrètes qui aident à pitcher CE(S) projet(s) à "${brand}" (la bonne entité, pas un homonyme).`;
+  const fieldLead = talent
+    ? "Pour chaque champ JSON, rédige 2 à 4 phrases en français, concrètes et utiles pour rédiger le mail de prospection talent :"
+    : "Pour chaque champ JSON, rédige 2 à 4 phrases en français, concrètes et utiles pour rédiger le mail projet :";
+  const positioning = talent
+    ? "- brandPositioning : comment le positionnement actuel de la marque **résonne avec ce talent / cet angle** (raison strategy / angle recommandé si dispo)."
+    : "- brandPositioning : comment le positionnement actuel de la marque **résonne avec ce projet** (raison strategy / angle / livrables).";
+  const influence = talent
+    ? "- influenceStrategy : comment ils travaillent avec les créateurs — ce qui aide à vendre CE talent (pas un roster casting)."
+    : "- influenceStrategy : comment ils travaillent avec les créateurs / events / placements — ce qui aide à vendre CE type de projet (pas un roster casting).";
+  const orient = talent
+    ? "- Oriente TOUT vers le fit talent × marque (et l'angle strategy s'il est fourni) — pas une fiche marque générique."
+    : "- Oriente TOUT vers le fit avec le brief projet (pas une fiche marque générique).";
+
   return `Tu es un expert en marketing d'influence et en pitch de projets marques, spécialisé marché ${r.expertise}.
 
 ${formatBrandIdentityBlock(brand, crm)}
 
-Tu analyses la marque "${brand}" dans le cadre d'un **PITCH PROJET** (pas un casting générique multi-talents).
+${frame}
 Contexte actuel : ${currentLabel}. Fenêtre d'actus : ${contextLabel} uniquement (rien avant ${previousLabel}).
 
-═══ BRIEF(S) PROJET À SERVIR ═══
+${briefHeader}
 ${projectContext}
 
-Utilise les outils de recherche (web + X) pour trouver des accroches concrètes qui aident à pitcher CE(S) projet(s) à "${brand}" (la bonne entité, pas un homonyme).
+${searchGoal}
 Requêtes à privilégier : nom exact entre guillemets + secteur / vertical du brief.
 
 CRITIQUE — DISPONIBILITÉ RÉGIONALE (à vérifier systématiquement via recherche web) :
@@ -311,18 +336,18 @@ ${r.riskNote} Tu DOIS vérifier si le produit / la collection / le service est :
 2) sinon en **Europe** ;
 3) sinon clairement **US-only / hors Europe**.
 
-Pour chaque champ JSON, rédige 2 à 4 phrases en français, concrètes et utiles pour rédiger le mail projet :
+${fieldLead}
 
-- recentCampaigns : activations / campagnes de ${contextLabel}${r.campaignsFocus} utiles pour ancrer le pitch du projet (event, collab, placement, contenu).
+- recentCampaigns : activations / campagnes de ${contextLabel}${r.campaignsFocus} utiles pour ancrer le pitch ${talent ? "talent" : "du projet"} (event, collab, placement, contenu).
 - newProducts : nouveauté récente **pertinente pour ce brief** (ou dis clairement s'il n'y a rien de pertinent dans ${contextLabel}). Priorise ${r.code} puis EU.
 - availabilityFrEu : verdict clair ${r.code} / EU / US-only sur la nouveauté retenue.
-- brandPositioning : comment le positionnement actuel de la marque **résonne avec ce projet** (raison strategy / angle / livrables).
-- influenceStrategy : comment ils travaillent avec les créateurs / events / placements — ce qui aide à vendre CE type de projet (pas un roster casting).
+${positioning}
+${influence}
 
 Règles strictes :
 - Identité d'abord : rejette tout résultat sur une marque à orthographe / secteur différents.
 - Fenêtre temporelle MAXIMALE : ${previousLabel}–${currentLabel}.
-- Oriente TOUT vers le fit avec le brief projet (pas une fiche marque générique).
+${orient}
 - N'invente rien. Si une info manque, dis-le.
 - Ne présente JAMAIS un lancement US comme s'il était sorti en ${r.country}/Europe sans preuve.${r.extraRules}
 
@@ -347,14 +372,15 @@ async function researchOneBrand(
   brand: string,
   focus: AvailabilityFocus,
   projectContext?: string,
-  crm?: BrandCrmContext | null
+  crm?: BrandCrmContext | null,
+  opts?: { talentProspecting?: boolean }
 ): Promise<BrandResearchPayload> {
   const MAX_ATTEMPTS = 2;
   let lastError: unknown;
   const crmCtx = crm === undefined ? await loadBrandCrmContext(brand) : crm;
   const prompt =
     projectContext && projectContext.trim()
-      ? buildProjectBrandPrompt(brand, projectContext.trim(), crmCtx, focus)
+      ? buildProjectBrandPrompt(brand, projectContext.trim(), crmCtx, focus, opts)
       : buildBrandPrompt(brand, crmCtx, focus);
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
@@ -410,6 +436,8 @@ export async function POST(request: NextRequest) {
     const projectBrief =
       projectBriefs.length >= 2 ? null : parseProjectBrief(body?.projectBrief);
     const projectContext = formatProjectContextBlock(projectBrief, projectBriefs);
+    const talentProspecting =
+      projectBriefs.length < 2 && isTalentIndividualProspectingBrief(projectBrief);
     const focus = parseAvailabilityFocus(body?.availabilityFocus);
 
     // Plusieurs marques (marques filles) → on analyse CHAQUE marque dans un
@@ -426,7 +454,13 @@ export async function POST(request: NextRequest) {
     if (brands.length <= 1) {
       const only = brands[0] || brandName;
       try {
-        const parsed = await researchOneBrand(only, focus, projectContext || undefined);
+        const parsed = await researchOneBrand(
+          only,
+          focus,
+          projectContext || undefined,
+          undefined,
+          { talentProspecting }
+        );
         return NextResponse.json(parsed);
       } catch (e: unknown) {
         console.error("x.ai brand-research:", e);
@@ -436,7 +470,11 @@ export async function POST(request: NextRequest) {
     }
 
     const settled = await Promise.allSettled(
-      brands.map((b: string) => researchOneBrand(b, focus, projectContext || undefined))
+      brands.map((b: string) =>
+        researchOneBrand(b, focus, projectContext || undefined, undefined, {
+          talentProspecting,
+        })
+      )
     );
     const ok: { brand: string; data: BrandResearchPayload }[] = [];
     for (let i = 0; i < settled.length; i++) {

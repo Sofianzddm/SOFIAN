@@ -4,6 +4,7 @@ import { xaiResponse } from "@/lib/xai";
 import { normalizeInstagramHandle } from "@/lib/social-links";
 import {
   formatProjectBriefForPrompt,
+  isTalentIndividualProspectingBrief,
   parseProjectBrief,
   parseProjectBriefs,
   pickBriefForTalent,
@@ -162,12 +163,35 @@ function buildPrompt(args: {
   const isProject = Boolean(projectBrief);
 
   if (isProject && projectBrief) {
-    return `Tu es un expert casting / influence. Ta mission : ALLER CHERCHER qui est ce créateur, analyser son profil public, et expliquer concrètement CE QU'IL FAIT — puis le fit avec **CE PROJET** auprès de la marque (pas un casting roster ouvert).
+    const talentProspecting = isTalentIndividualProspectingBrief(projectBrief);
+    const mission = talentProspecting
+      ? "puis le fit de **CE TALENT** auprès de la marque (prospection individuelle — pas un casting roster, pas un brief campagne livrables/timeline)"
+      : "puis le fit avec **CE PROJET** auprès de la marque (pas un casting roster ouvert)";
+    const briefHeader = talentProspecting
+      ? "═══ PROSPECTION TALENT (source de vérité pour le pitch) ═══"
+      : "═══ BRIEF PROJET (source de vérité pour le pitch) ═══";
+    const searchGoal = talentProspecting
+      ? `Objectif : comprendre son univers et ce qui justifie de le pitcher à ${args.brandName} — en t'appuyant sur la raison strategy / l'angle recommandé s'ils sont fournis.`
+      : `Objectif : comprendre son univers et ce qui justifie de le pitcher sur CE brief projet à ${args.brandName}.`;
+    const whyRelevant = talentProspecting
+      ? `5) whyRelevant — Pourquoi CE créateur colle à ${args.brandName} maintenant (contenu × angle strategy × marque). Si un angle recommandé / raison strategy est fourni, ancre le fit dessus ; sinon déduis un angle concret.`
+      : `5) whyRelevant — Pourquoi CE créateur + CE projet collent à ${args.brandName} maintenant (contenu × brief × marque). Appuie-toi sur raison strategy / angle / livrables.`;
+    const sourceHint = talentProspecting
+      ? "7) sourcesUsed — Ex. « CRM ; Instagram scrapé ; web ; X ; angle strategy »."
+      : "7) sourcesUsed — Ex. « CRM ; Instagram scrapé ; web ; X ; brief projet ».";
+    const writeFor = talentProspecting
+      ? "- Écris en français, concret, utile pour rédiger un mail de PROSPECTION TALENT."
+      : "- Écris en français, concret, utile pour rédiger un mail de pitch PROJET.";
+    const prioritize = talentProspecting
+      ? "- Priorise les faits observables + l'angle strategy (si dispo) sur les niches CRM génériques."
+      : "- Priorise les faits observables + le brief projet sur les niches CRM génériques.";
+
+    return `Tu es un expert casting / influence. Ta mission : ALLER CHERCHER qui est ce créateur, analyser son profil public, et expliquer concrètement CE QU'IL FAIT — ${mission}.
 
 MARQUE CIBLE : ${args.brandName}
 (Respecte l'orthographe exacte de cette marque — ne la confonds pas avec un homonyme à sonorité proche.)
 
-═══ BRIEF PROJET (source de vérité pour le pitch) ═══
+${briefHeader}
 ${formatProjectBriefForPrompt(projectBrief)}
 
 ${crm}
@@ -178,24 +202,24 @@ Tu DOIS utiliser les outils de recherche pour investiguer le créateur. Cherche 
 2) "${name}" influenceur / créateur / Instagram
 ${handle ? `3) @${handle} contenu / collabs` : ""}
 ${tt ? `4) TikTok ${tt}` : ""}
-Objectif : comprendre son univers et ce qui justifie de le pitcher sur CE brief projet à ${args.brandName}.
+${searchGoal}
 
 ═══ CE QUE TU DOIS PRODUIRE ═══
 1) whoTheyAre — Qui c'est (identité, positionnement, vibe). Pas une bio marketing creuse.
 2) whatTheyDo — CE QU'IL FAIT concrètement : types de posts, sujets, formats, ton.
 3) profileAnalysis — Analyse du profil : esthétique, audience, forces, angle distinctif.
 4) contentThemes — Thèmes récurrents, listés clairement.
-5) whyRelevant — Pourquoi CE créateur + CE projet collent à ${args.brandName} maintenant (contenu × brief × marque). Appuie-toi sur raison strategy / angle / livrables.
+${whyRelevant}
 6) proofPoints — Preuves factuelles courtes (séparées par « ; »). Si « Stats CRM » contient une Portée marquée « forte vs abonnés », tu DOIS la reprendre avec les chiffres exacts. Les Notes TM et Notes internes fiche aussi (faits utiles, sans jargon interne).
-7) sourcesUsed — Ex. « CRM ; Instagram scrapé ; web ; X ; brief projet ».
+${sourceHint}
 
 Règles strictes :
 - N'invente RIEN. Si une info manque, dis-le.
-- Priorise les faits observables + le brief projet sur les niches CRM génériques.
+${prioritize}
 - Portée RELATIVE aux abonnés : 120k vues pour 30k abonnés = waouh ; 100k vues pour 500k abonnés = pas waouh. N'insiste sur les vues CRM que si elles sont marquées « forte/notable vs abonnés », ou si tu as des hits viraux clairement au-dessus du compte (ex. millions TT). Ne vends pas un Reel à 123k pour un compte IG 150k comme un exploit.
 - Perf contenu EN CE MOMENT : si TikToks / Reels / posts cartonnent (pics vues, Notes TM / Notes internes « pète les scores », hits viraux), dis-le clairement dans profileAnalysis et proofPoints (ex. « ses TikToks performent particulièrement bien en ce moment, jusqu'à Xm vues »). La croissance d'abonnés est secondaire.
 - Notes internes fiche profil : exploite-les comme contexte TM (momentum, angle, observations). Ne les cite pas mot pour mot si elles sont trop internes ; reformule en preuves utiles.
-- Écris en français, concret, utile pour rédiger un mail de pitch PROJET.
+${writeFor}
 - 3 à 5 phrases max par champ narratif (whoTheyAre / whatTheyDo / profileAnalysis / whyRelevant).
 
 Réponds UNIQUEMENT en JSON strict :

@@ -36,6 +36,7 @@ import {
   Gauge,
   Layers,
   Compass,
+  FileSignature,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { canAccessFashionWeek } from "@/lib/fw-access";
@@ -275,6 +276,12 @@ const menuItems = [
     label: "Photos d'événements",
     href: "/evenements-photos",
     icon: Camera,
+    roles: ["ADMIN"],
+  },
+  {
+    label: "Signatures",
+    href: "/signatures",
+    icon: FileSignature,
     roles: ["ADMIN"],
   },
   {

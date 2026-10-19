@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { getLeynaExchangeContext } from "@/lib/leyna-exchange-context";
 
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 const ALLOWED_ROLES = [
   "CASTING_MANAGER",

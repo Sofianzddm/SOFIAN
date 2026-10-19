@@ -410,6 +410,7 @@ model User {
   outreachWavesCompleted          OutreachWave[]              @relation("OutreachWaveCompletedBy")
   outreachWavesValidated          OutreachWave[]              @relation("OutreachWaveValidatedBy")
   talentContratsCreated           TalentContrat[]             @relation("TalentContratCreatedBy")
+  signatureDocumentsCreated       SignatureDocument[]         @relation("SignatureDocumentCreatedBy")
   inboundConverted                InboundOpportunity[]        @relation("InboundConvertedBy")
   inboundArchived                 InboundOpportunity[]        @relation("InboundArchivedBy")
   inboundMarkedReady              InboundOpportunity[]        @relation("InboundMarkedReadyBy")
@@ -644,6 +645,46 @@ model TalentContrat {
   @@index([talentId])
   @@index([submissionId])
   @@map("talent_contrats")
+}
+
+// ============================================
+// SIGNATURES DOCUMENTS ENTREPRISE (DocuSeal)
+// Outil type HelloSign / DocuSign : n'importe quel PDF
+// → builder DocuSeal → N signataires → email Resend
+// ============================================
+
+model SignatureDocument {
+  id String @id @default(cuid())
+
+  titre      String
+  fichierUrl String // PDF source (S3 glowup-signatures/ ou Cloudinary)
+
+  docusealTemplateId Int
+  submissionId       String?
+
+  // BROUILLON -> EN_ATTENTE -> SIGNE
+  statut String @default("BROUILLON")
+
+  // [{ name, email, role }] — rôles DocuSeal « Signataire 1..N »
+  signataires Json
+
+  signaturesCompleted Int @default(0)
+  signaturesTotal     Int @default(1)
+
+  signedDocumentUrl String?
+  envoyeAt          DateTime?
+  signeAt           DateTime?
+
+  createdById String?
+  createdBy   User?   @relation("SignatureDocumentCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([submissionId])
+  @@index([statut])
+  @@index([createdById])
+  @@map("signature_documents")
 }
 
 // ============================================

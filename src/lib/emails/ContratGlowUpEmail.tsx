@@ -43,6 +43,11 @@ export interface ContratGlowUpEmailProps {
   talentHasSigned?: boolean;
   /** true pour une relance */
   isRelance?: boolean;
+  /**
+   * "contrat" (défaut) ou "document" — adapte le wording pour l'outil
+   * signatures génériques (NDA, avenant, etc.).
+   */
+  kind?: "contrat" | "document";
 }
 
 export function ContratGlowUpEmail({
@@ -52,8 +57,11 @@ export function ContratGlowUpEmail({
   isAgence = false,
   talentHasSigned = true,
   isRelance = false,
+  kind = "contrat",
 }: ContratGlowUpEmailProps) {
   const firstName = signerName.trim().split(/\s+/)[0] || signerName;
+  const isDoc = kind === "document";
+  const noun = isDoc ? "document" : "contrat";
 
   const eyebrow = isRelance
     ? "Rappel — signature en attente"
@@ -64,22 +72,28 @@ export function ContratGlowUpEmail({
   const headline = isAgence
     ? talentHasSigned
       ? "Signature de l’agence requise"
-      : "Contrat en attente de signature"
+      : isDoc
+        ? "Document en attente de signature"
+        : "Contrat en attente de signature"
     : isRelance
       ? "Rappel — signature en attente"
-      : "Contrat à signer";
+      : isDoc
+        ? "Document à signer"
+        : "Contrat à signer";
 
   const intro = isAgence
     ? talentHasSigned
-      ? "Le talent a signé le contrat. Merci de procéder à la signature de l’agence pour finaliser le document."
-      : "Un contrat a été envoyé en signature électronique. Vous trouverez ci-dessous votre lien personnalisé."
+      ? `Le talent a signé le ${noun}. Merci de procéder à la signature de l’agence pour finaliser le document.`
+      : `Un ${noun} a été envoyé en signature électronique. Vous trouverez ci-dessous votre lien personnalisé.`
     : isRelance
-      ? "Nous vous rappelons qu’un contrat Glow Up est en attente de votre signature électronique."
-      : "Vous avez reçu un contrat à signer électroniquement. Consultez le document puis validez votre signature via le bouton ci-dessous.";
+      ? `Nous vous rappelons qu’un ${noun} Glow Up est en attente de votre signature électronique.`
+      : `Vous avez reçu un ${noun} à signer électroniquement. Consultez le document puis validez votre signature via le bouton ci-dessous.`;
 
   const preview = isRelance
     ? `Rappel : signer « ${contratTitre} »`
     : `À signer — ${contratTitre}`;
+
+  const ctaLabel = isDoc ? "Signer le document" : "Signer le contrat";
 
   return (
     <Html lang="fr">
@@ -109,7 +123,7 @@ export function ContratGlowUpEmail({
 
             <Section style={buttonSection}>
               <Button style={button} href={signingUrl}>
-                Signer le contrat
+                {ctaLabel}
               </Button>
             </Section>
 

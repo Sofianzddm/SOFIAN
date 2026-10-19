@@ -5,8 +5,18 @@ import Link from "next/link";
 import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2, Pencil, Check, X, Clock, Feather, Sparkles, Send, Inbox, MessageCircle, Handshake, Trophy, XCircle, ShieldAlert, Layers, UserPlus, Database, ScanSearch, ExternalLink, Trash2, Plus } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 import { AdminAddBrandsPanel } from "./AdminAddBrandsPanel";
+import { TalentIndivBatchAnalyzeBar } from "./TalentIndivBatchAnalyzeBar";
 import { businessDaysAfter, hasBusinessDaysElapsed } from "@/lib/business-days";
 import { brandsLookSame } from "@/lib/brand-match";
+import {
+  cacheIndivBrandResearch,
+  cacheIndivLeynaExchange,
+  cacheIndivTalentResearch,
+  loadIndivBrandResearchCache,
+  loadIndivLeynaExchangeCache,
+  loadIndivTalentResearchCache,
+  lookupIndivBrandCache,
+} from "@/lib/indiv-talent-batch-cache";
 
 type Role = "STRATEGY_PLANNER" | "CASTING_MANAGER" | "HEAD_OF_SALES" | "HEAD_OF" | "ADMIN";
 type Stage =
@@ -1897,6 +1907,25 @@ export function ProspectingPipelineClient() {
             </button>
           )}
         </div>
+        {selectedTalent && canUseReadyTab && (
+          <TalentIndivBatchAnalyzeBar
+            talent={selectedTalent}
+            missions={missions}
+            draftContactsByMissionId={Object.fromEntries(
+              Object.entries(contactFormByMission).map(([id, form]) => [
+                id,
+                Array.isArray(form?.contacts) ? form.contacts : [],
+              ])
+            )}
+            canRun={canUseReadyTab}
+            onChanged={async () => {
+              await loadMissions();
+              if (canUseReadyTab) await loadReadyToSend().catch(() => {});
+            }}
+            setError={setError}
+            setSuccess={setSuccess}
+          />
+        )}
         {isAdmin && addBrandsOpen && selectedTalent && (
           <AdminAddBrandsPanel
             talentId={selectedTalent.id}
@@ -3550,6 +3579,45 @@ export function ProspectingPipelineClient() {
         readyLabel="Prêt à envoyer"
         enableTalentResearch
         lockedTalentId={composerTalentId}
+        initialBrandResearch={
+          composerTalentId
+            ? lookupIndivBrandCache(
+                loadIndivBrandResearchCache(composerTalentId),
+                composerContact?.company,
+                composerContact?.missionBrief?.targetBrand
+              )
+            : null
+        }
+        initialTalentResearch={
+          composerTalentId
+            ? lookupIndivBrandCache(
+                loadIndivTalentResearchCache(composerTalentId),
+                composerContact?.company,
+                composerContact?.missionBrief?.targetBrand
+              )
+            : null
+        }
+        initialLeynaExchange={
+          composerTalentId
+            ? lookupIndivBrandCache(
+                loadIndivLeynaExchangeCache(composerTalentId),
+                composerContact?.company,
+                composerContact?.missionBrief?.targetBrand
+              )
+            : null
+        }
+        onBrandResearchCached={(brandName, research) => {
+          if (!composerTalentId) return;
+          cacheIndivBrandResearch(composerTalentId, brandName, research);
+        }}
+        onTalentResearchCached={(brandName, research) => {
+          if (!composerTalentId) return;
+          cacheIndivTalentResearch(composerTalentId, brandName, research);
+        }}
+        onLeynaExchangeCached={(brandName, research) => {
+          if (!composerTalentId) return;
+          cacheIndivLeynaExchange(composerTalentId, brandName, research);
+        }}
         onClose={() => {
           setComposerOpen(false);
           setComposerContact(null);
