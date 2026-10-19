@@ -69,13 +69,37 @@ const HARD_BLOCKED_CASTING_EMAILS = new Set<string>([
   "oceanepedrosa2@gmail.com",
 ]);
 
+/**
+ * Domaines corporate L’Oréal / Nyx — blocage absolu des envois casting
+ * (1er envoi + relances), y compris sous-domaines (ex. fr.loreal.com).
+ */
+const HARD_BLOCKED_CASTING_EMAIL_DOMAINS = [
+  /(?:^|\.)loreal\.com$/i,
+  /(?:^|\.)nyxcosmetics\.com$/i,
+  /(?:^|\.)nyxcosmetic\.com$/i,
+];
+
+/** Marques L’Oréal / Nyx — même si le contact est sur une boîte agence. */
+const HARD_BLOCKED_CASTING_BRAND_RE =
+  /l['’`´]?or[eé]al|\bloreal\b|\bnyx\b/i;
+
 export function isHardBlockedCastingEmail(
   value: string | undefined | null
 ): boolean {
   const email = String(value || "")
     .trim()
     .toLowerCase();
-  return HARD_BLOCKED_CASTING_EMAILS.has(email);
+  if (!email) return false;
+  if (HARD_BLOCKED_CASTING_EMAILS.has(email)) return true;
+  const domain = email.split("@")[1] || "";
+  if (!domain) return false;
+  return HARD_BLOCKED_CASTING_EMAIL_DOMAINS.some((re) => re.test(domain));
+}
+
+export function isHardBlockedCastingBrand(
+  value: string | undefined | null
+): boolean {
+  return HARD_BLOCKED_CASTING_BRAND_RE.test(String(value || ""));
 }
 
 function normalizePersonTokens(...parts: Array<string | null | undefined>): string[] {

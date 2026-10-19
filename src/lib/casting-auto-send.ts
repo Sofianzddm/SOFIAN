@@ -37,6 +37,7 @@ import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
 import { ensureBrandInSubject } from "@/lib/email-subject";
 import {
   isForbiddenCastingRecipient,
+  isHardBlockedCastingBrand,
   isInternalGlowUpEmail,
   loadCastingRecipientBlocklist,
 } from "@/lib/casting-recipient-guard";
@@ -238,6 +239,13 @@ export async function preflightCastingSend(
   if (!subject || !body) {
     return { ok: false, error: "Le brouillon est incomplet (sujet et corps requis)." };
   }
+  if (isHardBlockedCastingBrand(mission.targetBrand)) {
+    return {
+      ok: false,
+      error:
+        "Envoi bloqué : marque L’Oréal / Nyx — aucun mail casting ne peut partir vers ce groupe.",
+    };
+  }
   const contacts = await filterAllowedCastingContacts(
     parseCastingContacts(mission.clientContacts)
   );
@@ -245,7 +253,7 @@ export async function preflightCastingSend(
     return {
       ok: false,
       error:
-        "Aucun contact client valide (prenom + email obligatoires). Les adresses Glow Up / talents sont exclues.",
+        "Aucun contact client valide (prenom + email obligatoires). Les adresses Glow Up / talents / L’Oréal-Nyx sont exclues.",
     };
   }
   const alreadySent = extractAlreadySentEmails(mission.sentMessageIds);
@@ -659,6 +667,11 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
   const mission = await contactMissionModel.findUnique({ where: { id: missionId } });
   if (!mission) {
     throw new Error("Mission introuvable");
+  }
+  if (isHardBlockedCastingBrand(mission.targetBrand)) {
+    throw new Error(
+      "Envoi bloqué : marque L’Oréal / Nyx — aucun mail casting ne peut partir vers ce groupe."
+    );
   }
 
   const presentationAttachments = await loadCampaignPresentationAttachment(
@@ -1529,6 +1542,11 @@ export async function executeCastingRelance(
   }
   if (mission.relanceCancelledAt) {
     throw new Error("Relances annulées pour cette mission.");
+  }
+  if (isHardBlockedCastingBrand(mission.targetBrand)) {
+    throw new Error(
+      "Relance bloquée : marque L’Oréal / Nyx — aucun mail casting ne peut partir vers ce groupe."
+    );
   }
 
   const round: 1 | 2 = options.round === 2 ? 2 : 1;
