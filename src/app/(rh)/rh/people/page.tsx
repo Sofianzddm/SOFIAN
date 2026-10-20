@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { PeopleApp } from "@/components/rh/people/PeopleApp";
-import { isRhHr, requireRhSession } from "@/lib/rh/auth";
+import { canAccessRhPeople, requireRhSession } from "@/lib/rh/auth";
 import { hasRhSecureSession } from "@/lib/rh/secure-session";
 
 export default async function RhPeoplePage() {
@@ -8,8 +8,8 @@ export default async function RhPeoplePage() {
   if (!session) {
     redirect("/rh/login");
   }
-  // Console admin RH uniquement (Sofian / Maud) — pas les managers N+1
-  if (!isRhHr(session.employee.rhRole)) {
+  // HR + managers N+1 (inbox validations équipe)
+  if (!canAccessRhPeople(session.employee.rhRole)) {
     redirect("/rh/espace");
   }
   if (!(await hasRhSecureSession(session.app.user.id))) {

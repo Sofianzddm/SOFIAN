@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Resend } from "resend";
 import {
-  isRhHr,
+  canAccessRhPeople,
   requireRhSessionFromRequest,
 } from "@/lib/rh/auth";
 import {
@@ -15,11 +15,11 @@ function otpMailHtml(prenom: string, code: string) {
   <table width="100%" style="max-width:520px;background:#fff;border-radius:16px;overflow:hidden">
     <tr><td style="background:linear-gradient(180deg,#1A1110,#3D1515);padding:28px;text-align:center">
       <img src="https://app.glowupagence.fr/Logo.png" width="150" alt="Glow Up" style="display:inline-block"/>
-      <p style="margin:12px 0 0;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#C08B8B;font-weight:600">Connexion sécurisée RH</p>
+      <p style="margin:12px 0 0;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#C08B8B;font-weight:600">Connexion sécurisée · validations</p>
     </td></tr>
     <tr><td style="padding:28px">
       <p style="margin:0 0 12px">Bonjour ${prenom},</p>
-      <p style="margin:0 0 16px;line-height:1.5">Voici ton code pour accéder à la console RH. Il expire dans <strong>10 minutes</strong>.</p>
+      <p style="margin:0 0 16px;line-height:1.5">Voici ton code pour accéder à la console de validations (manager / RH). Il expire dans <strong>10 minutes</strong>.</p>
       <p style="margin:0;text-align:center;font-size:32px;letter-spacing:.35em;font-weight:700;background:#F5EDE0;padding:18px;border-radius:12px">${code}</p>
       <p style="margin:18px 0 0;font-size:12px;color:#8A7A74">Si tu n’as pas demandé ce code, ignore cet e-mail.</p>
     </td></tr>
@@ -27,14 +27,17 @@ function otpMailHtml(prenom: string, code: string) {
   </td></tr></table></body></html>`;
 }
 
-/** Envoie un OTP email pour admin RH uniquement. */
+/** Envoie un OTP email pour HR + managers (accès console People / validations). */
 export async function POST(request: NextRequest) {
   const session = await requireRhSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
-  if (!isRhHr(session.employee.rhRole)) {
-    return NextResponse.json({ error: "Non requis pour ton rôle" }, { status: 400 });
+  if (!canAccessRhPeople(session.employee.rhRole)) {
+    return NextResponse.json(
+      { error: "Non requis pour ton rôle" },
+      { status: 400 }
+    );
   }
 
   if (await hasRhSecureSession(session.app.user.id, request)) {
@@ -51,7 +54,7 @@ export async function POST(request: NextRequest) {
     await resend.emails.send({
       from: "Glow Up RH <contact@glowupagence.fr>",
       to: session.employee.email,
-      subject: `Code RH · ${code}`,
+      subject: `Code validations RH · ${code}`,
       html: otpMailHtml(session.employee.prenom || "bonjour", code),
     });
   } else if (process.env.NODE_ENV !== "production") {

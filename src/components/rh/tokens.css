@@ -48,6 +48,40 @@
   text-wrap: pretty;
 }
 
+/* Hub tâches dans le layout dashboard — thème clair */
+.rh-root.rh-hub-light {
+  --rh-bg: #f7f8fa;
+  --rh-bg-panel: #ffffff;
+  --rh-surface-inset: #f3f4f6;
+  --rh-surface: #ffffff;
+  --rh-surface-control: #f3f4f6;
+  --rh-surface-hover: #f9fafb;
+  --rh-surface-selected: #f0f4e8;
+  --rh-hatch-line: #e5e7eb;
+  --rh-divider-row: #eef0f3;
+  --rh-border-subtle: #eef0f3;
+  --rh-chip: #eef6d4;
+  --rh-border: #e5e7eb;
+  --rh-border-control: #e5e7eb;
+  --rh-border-strong: #d1d5db;
+  --rh-border-stronger: #9ca3af;
+
+  --rh-text: #111827;
+  --rh-text-body: #374151;
+  --rh-text-secondary: #4b5563;
+  --rh-text-muted: #6b7280;
+  --rh-text-dim: #9ca3af;
+  --rh-text-faint: #b0b7c3;
+
+  --rh-accent: #1f2937;
+  --rh-accent-hover: #111827;
+  --rh-accent-fg: #ffffff;
+
+  min-height: 0;
+  background: transparent;
+  color: var(--rh-text);
+}
+
 .rh-root *,
 .rh-root *::before,
 .rh-root *::after {
@@ -592,9 +626,9 @@
   border-color: #f0c24e;
 }
 .rh-gantt-cell[data-kind="RECUP"] {
-  color: #1a1408;
-  background: #f0c24e;
-  border-color: #f0c24e;
+  color: #1a0e08;
+  background: #f2874e;
+  border-color: #f2874e;
 }
 .rh-gantt-cell[data-kind="SS"] {
   color: #1a1408;
@@ -636,6 +670,14 @@
   color: #1a1408;
   background: #f0c24e;
   border-color: #f0c24e;
+}
+
+/* En attente d’approbation (PENDING / PAUSED) — orange pointillé */
+.rh-gantt-cell[data-status="PENDING"],
+.rh-gantt-cell[data-status="PAUSED"] {
+  color: #f2874e !important;
+  background: rgba(242, 135, 78, 0.18) !important;
+  border: 1.5px dashed #f2874e !important;
 }
 
 /* Demande en validation — croix sur les jours demandés */

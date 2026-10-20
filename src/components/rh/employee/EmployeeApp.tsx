@@ -11,6 +11,7 @@ import {
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import {
   CalendarDays,
+  CheckSquare,
   Clock3,
   FolderOpen,
   Home,
@@ -36,6 +37,7 @@ import { ExpensesScreen } from "@/components/rh/employee/ExpensesScreen";
 import { FolderScreen } from "@/components/rh/employee/FolderScreen";
 import { RequestsScreen } from "@/components/rh/employee/RequestsScreen";
 import { OnboardingWizard } from "@/components/rh/employee/OnboardingWizard";
+import { TaskHub } from "@/components/rh/tasks/TaskHub";
 import { RhDataProvider, useRhData } from "@/components/rh/RhDataContext";
 
 function tab(
@@ -56,6 +58,7 @@ const PALETTE: { title: string; items: PaletteItem[] }[] = [
       { key: "T", label: "Mon temps", code: "time" },
       { key: "F", label: "Mes frais", code: "expenses" },
       { key: "D", label: "Mes demandes", code: "requests" },
+      { key: "K", label: "Mes tâches", code: "tasks" },
       { key: "O", label: "Mon dossier", code: "folder" },
     ],
   },
@@ -69,6 +72,7 @@ const VALID_SCREENS: EmployeeScreenId[] = [
   "expenses",
   "folder",
   "requests",
+  "tasks",
 ];
 
 function EmployeeAppInner() {
@@ -77,6 +81,7 @@ function EmployeeAppInner() {
   const searchParams = useSearchParams();
   const { me, home, loading, error } = useRhData();
   const tabParam = searchParams.get("tab") as EmployeeScreenId | null;
+  const taskParam = searchParams.get("task");
   const [screen, setScreen] = useState<EmployeeScreenId>(
     tabParam && VALID_SCREENS.includes(tabParam) ? tabParam : "home"
   );
@@ -127,9 +132,16 @@ function EmployeeAppInner() {
   }, [go]);
 
   const pending = Number(home?.pendingCount ?? 0);
+  const openTasks = Number(home?.openTasksCount ?? 0);
   const tabs = useMemo(
     () => [
       tab("home", "Accueil", <Home size={14} />),
+      tab(
+        "tasks",
+        "Tâches",
+        <CheckSquare size={14} />,
+        openTasks > 0 ? openTasks : undefined
+      ),
       tab("leave", "Absences", <CalendarDays size={14} />),
       tab("remote", "Présence", <Laptop size={14} />),
       tab("time", "Temps", <Clock3 size={14} />),
@@ -142,7 +154,7 @@ function EmployeeAppInner() {
         pending > 0 ? pending : undefined
       ),
     ],
-    [pending]
+    [pending, openTasks]
   );
 
   if (loading && !me) {
@@ -229,6 +241,13 @@ function EmployeeAppInner() {
         {screen === "requests" ? (
           <RequestsScreen sel={sel} onSelect={setSel} />
         ) : null}
+        {screen === "tasks" && me ? (
+          <TaskHub
+            mode="mine"
+            meId={me.employee.id}
+            initialTaskId={taskParam}
+          />
+        ) : null}
       </main>
 
       <OnboardingWizard onGo={go} />
@@ -248,6 +267,7 @@ function EmployeeAppInner() {
               "expenses",
               "folder",
               "requests",
+              "tasks",
             ].includes(id)
           ) {
             go(id);

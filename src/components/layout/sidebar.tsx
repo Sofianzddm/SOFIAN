@@ -37,6 +37,7 @@ import {
   Layers,
   Compass,
   FileSignature,
+  ListTodo,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { canAccessFashionWeek } from "@/lib/fw-access";
@@ -319,6 +320,12 @@ const menuItems = [
     href: "/comptable",
     icon: Calculator,
     roles: ["ADMIN"], // Espace expert-comptable (ADMIN + COMPTABLE)
+  },
+  {
+    label: "Hub",
+    href: "/hub",
+    icon: ListTodo,
+    roles: ["ADMIN"],
   },
   // RH Glow Up : masqué du layout (aucune visibilité nav)
   {

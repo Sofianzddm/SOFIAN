@@ -30,8 +30,11 @@ export {
   assertLegalBreak,
   slotsGrossMinutes,
   slotsBreakMinutes,
+  slotsBreakWindow,
+  breakRangeMinutes,
   dayNetMinutes,
   hhmmToMinutes,
+  minutesToHhmm,
 } from "@/components/rh/lib/calculations";
 
 export {

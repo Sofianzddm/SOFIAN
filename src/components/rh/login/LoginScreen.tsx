@@ -313,24 +313,16 @@ export function LoginScreen() {
                 </h2>
               </div>
 
-              <button
-                type="button"
-                disabled
-                title="SSO Google — bientôt"
-                className="rh-btn-secondary w-full flex items-center justify-center gap-2.5 py-3 text-[13px] opacity-50 cursor-not-allowed"
+              <div
+                className="rounded-[10px] px-3.5 py-2.5 text-[12px] leading-[1.45]"
+                style={{
+                  background: "#12161C",
+                  border: "1px solid #1B212A",
+                  color: "#8B95A5",
+                }}
               >
-                Continuer avec Google Workspace
-              </button>
-
-              <div className="flex items-center gap-3">
-                <span className="flex-1 h-px" style={{ background: "#1B212A" }} />
-                <span
-                  className="rh-mono text-[9.5px] tracking-[0.1em]"
-                  style={{ color: "#5F6978" }}
-                >
-                  OU
-                </span>
-                <span className="flex-1 h-px" style={{ background: "#1B212A" }} />
+                Connexion Google Workspace — bientôt disponible. Utilise ton
+                e-mail Glow Up pour l’instant.
               </div>
 
               <label className="flex flex-col gap-1.5">
@@ -503,7 +495,7 @@ export function LoginScreen() {
                 disabled={loading || otp.length < 6}
                 onClick={() => void verifyMfa()}
               >
-                {loading ? "Vérification…" : "Valider l’accès RH"}
+                {loading ? "Vérification…" : "Valider l’accès"}
               </RhButton>
               <button
                 type="button"

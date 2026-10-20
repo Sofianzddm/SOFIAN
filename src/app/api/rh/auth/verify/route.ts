@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  isRhHr,
+  canAccessRhPeople,
   requireRhSessionFromRequest,
 } from "@/lib/rh/auth";
 import {
@@ -9,12 +9,13 @@ import {
 } from "@/lib/rh/secure-session";
 import { writeRhAudit } from "@/lib/rh/workflow";
 
+/** Vérifie l’OTP et pose le cookie sécurisé — HR + managers. */
 export async function POST(request: NextRequest) {
   const session = await requireRhSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
-  if (!isRhHr(session.employee.rhRole)) {
+  if (!canAccessRhPeople(session.employee.rhRole)) {
     return NextResponse.json({ error: "Non requis" }, { status: 400 });
   }
 

@@ -136,6 +136,7 @@ export function TeamOfficialCalendar({
           ["Mal", "Maladie", SICK],
           ["Éco", "École", "#B48CF0"],
           ["Aut", "Autorisée", "#8ED98A"],
+          ["…", "En attente", "#F2874E"],
           ["Fér", "Férié", "#A78BFA"],
         ] as const);
 
@@ -353,8 +354,12 @@ export function TeamOfficialCalendar({
                       const weekend =
                         new Date(d + "T12:00:00").getDay() % 6 === 0;
                       const ferie = isFrenchHoliday(d);
+                      const pending =
+                        ev?.status === "PENDING" || ev?.status === "PAUSED";
                       const code = ev
-                        ? KIND_SHORT[ev.kind] || ev.kind.slice(0, 3)
+                        ? pending
+                          ? "…"
+                          : KIND_SHORT[ev.kind] || ev.kind.slice(0, 3)
                         : ferie && kind === "ABSENCE"
                           ? "Fér"
                           : "";
@@ -370,10 +375,15 @@ export function TeamOfficialCalendar({
                                 ? "WE"
                                 : "")
                           }
+                          data-status={
+                            pending ? ev?.status || "PENDING" : undefined
+                          }
                           data-empty={!code ? "1" : "0"}
                           title={
                             ev
-                              ? `${r.name} · ${KIND_LABEL[ev.kind] || ev.kind} · ${d}`
+                              ? `${r.name} · ${KIND_LABEL[ev.kind] || ev.kind}${
+                                  pending ? " · en attente" : ""
+                                } · ${d}`
                               : ferie
                                 ? `Férié · ${d}`
                                 : d

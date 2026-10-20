@@ -18,6 +18,8 @@ export type RhEmployeeSession = {
   avatarUrl: string | null;
   remoteAgreement: number;
   rhRole: RhRole;
+  /** Rôle plateforme (ADMIN, TM…) — pour le Hub tâches */
+  appRole: string;
   actif: boolean;
   prenom: string;
   nom: string;
@@ -50,6 +52,7 @@ const employeeSelect = {
       nom: true,
       email: true,
       telephone: true,
+      role: true,
     },
   },
 } as const;
@@ -74,6 +77,7 @@ function mapEmployee(
       nom: string;
       email: string;
       telephone: string | null;
+      role: string;
     };
   }
 ): RhEmployeeSession {
@@ -90,6 +94,7 @@ function mapEmployee(
     avatarUrl: row.avatarUrl ?? null,
     remoteAgreement: row.remoteAgreement,
     rhRole: row.rhRole,
+    appRole: row.user.role,
     actif: row.actif,
     prenom: row.user.prenom,
     nom: row.user.nom,
@@ -177,14 +182,14 @@ export function initials(e: { prenom: string; nom: string }): string {
 }
 
 export function homePathForRole(role: RhRole): string {
-  // Console People / validations = admin RH uniquement (pas les managers N+1)
-  if (role === "HR") return "/rh/people";
+  // HR + managers N+1 → console People (inbox validations)
+  if (role === "HR" || role === "MANAGER") return "/rh/people";
   return "/rh/espace";
 }
 
-/** Accès UI + APIs console People (inbox, planning équipe, paie…). */
+/** Accès UI console People (inbox validations pour manager ; full pour HR). */
 export function canAccessRhPeople(role: RhRole): boolean {
-  return role === "HR";
+  return role === "HR" || role === "MANAGER";
 }
 
 /** Lecture d’un autre profil RH : soi-même, HR, ou N+1 (reports). */

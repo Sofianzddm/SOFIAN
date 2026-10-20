@@ -48,6 +48,10 @@ export function buildMonth(
       bg = RTT;
       fg = "#0A0C0F";
       fw = "700";
+    } else if (m === "recup") {
+      bg = "#F2874E";
+      fg = "#0A0C0F";
+      fw = "700";
     } else if (m === "tt") {
       bg = "rgba(124,140,248,.18)";
       fg = "#A5B0FA";
@@ -65,10 +69,11 @@ export function buildMonth(
       fg = CP;
       fw = "500";
     } else if (m === "pending") {
-      bg = "rgba(240,194,78,.22)";
-      fg = "#F0C24E";
+      // En attente d’approbation — orange distinct des RTT / récup validés
+      bg = "rgba(242,135,78,.22)";
+      fg = "#F2874E";
       fw = "700";
-      ring = "inset 0 0 0 1.4px rgba(240,194,78,.55)";
+      ring = "inset 0 0 0 1.5px #F2874E";
     } else if (m === "blocked") {
       bg = "#0E1116";
       fg = "#3A4553";

@@ -109,6 +109,54 @@ export function hhmmToMinutes(value: string): number {
   return h * 60 + m;
 }
 
+/** Minutes depuis minuit → "HH:MM". */
+export function minutesToHhmm(total: number): string {
+  if (!Number.isFinite(total) || total < 0) return "";
+  const h = Math.floor(total / 60) % 24;
+  const m = Math.floor(total % 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** Durée d’une pause saisie en horaires (0 si invalide / inversée). */
+export function breakRangeMinutes(from: string, to: string): number {
+  const a = hhmmToMinutes(from);
+  const b = hhmmToMinutes(to);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return 0;
+  return b - a;
+}
+
+/**
+ * Première fenêtre de pause déduite des trous entre créneaux.
+ * Ex. 09:30→12:00 + 14:00→18:30 → { from: "12:00", to: "14:00" }.
+ */
+export function slotsBreakWindow(
+  slots: Array<{ from: string; to: string }>
+): { from: string; to: string } | null {
+  const sorted = slots
+    .map((s) => ({
+      from: hhmmToMinutes(s.from),
+      to: hhmmToMinutes(s.to),
+    }))
+    .filter(
+      (s) =>
+        Number.isFinite(s.from) &&
+        Number.isFinite(s.to) &&
+        s.to > s.from
+    )
+    .sort((a, b) => a.from - b.from || a.to - b.to);
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const gap = sorted[i + 1].from - sorted[i].to;
+    if (gap > 0) {
+      return {
+        from: minutesToHhmm(sorted[i].to),
+        to: minutesToHhmm(sorted[i + 1].from),
+      };
+    }
+  }
+  return null;
+}
+
 /** Minutes brutes des créneaux (somme des plages travail, hors trous). */
 export function slotsGrossMinutes(
   slots: Array<{ from: string; to: string }>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   CalendarDays,
+  CheckSquare,
   Clock3,
   FileText,
   Home,
@@ -26,7 +27,8 @@ export type EmployeeScreenId =
   | "time"
   | "expenses"
   | "folder"
-  | "requests";
+  | "requests"
+  | "tasks";
 
 type RemoteWeek = {
   isoWeek: number;
@@ -65,6 +67,12 @@ const QUICK: Array<{
     title: "Mes frais",
     desc: "Notes de frais et justificatifs",
     icon: Receipt,
+  },
+  {
+    id: "tasks",
+    title: "Mes tâches",
+    desc: "Ce que le management t’a confié",
+    icon: CheckSquare,
   },
 ];
 
@@ -212,6 +220,7 @@ export function HomeScreen({ onGo }: { onGo: (s: EmployeeScreenId) => void }) {
                     "expenses",
                     "folder",
                     "requests",
+                    "tasks",
                   ].includes(String(todos[0].target))
                     ? todos[0].target
                     : "requests") as EmployeeScreenId
@@ -288,9 +297,16 @@ export function HomeScreen({ onGo }: { onGo: (s: EmployeeScreenId) => void }) {
                     variant={i === 0 ? undefined : "secondary"}
                     onClick={() =>
                       onGo(
-                        (["home", "leave", "remote", "time", "expenses", "folder", "requests"].includes(
-                          String(t.target)
-                        )
+                        ([
+                          "home",
+                          "leave",
+                          "remote",
+                          "time",
+                          "expenses",
+                          "folder",
+                          "requests",
+                          "tasks",
+                        ].includes(String(t.target))
                           ? t.target
                           : "requests") as EmployeeScreenId
                       )

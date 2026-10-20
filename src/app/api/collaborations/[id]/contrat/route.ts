@@ -7,6 +7,7 @@ import { Prisma } from "@prisma/client";
 import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
 import { ContratTalentEmail } from "@/lib/emails/ContratTalent";
+import { getAgenceSignatureEmail } from "@/lib/agence-signature";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
@@ -91,13 +92,7 @@ export async function POST(
       );
     }
 
-    const agenceSignatureEmail = process.env.AGENCE_SIGNATURE_EMAIL?.trim();
-    if (!agenceSignatureEmail) {
-      return NextResponse.json(
-        { error: "Configuration manquante : AGENCE_SIGNATURE_EMAIL" },
-        { status: 503 }
-      );
-    }
+    const agenceSignatureEmail = getAgenceSignatureEmail();
 
     const docusealKey = process.env.DOCUSEAL_API_KEY;
     if (!docusealKey) {

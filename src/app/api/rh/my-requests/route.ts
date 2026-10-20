@@ -16,19 +16,23 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({
-    items: requests.map((r) => ({
-      id: r.id,
-      reference: r.reference,
-      type: r.type,
-      status: r.status,
-      title: r.title,
-      comment: r.comment,
-      reviewNote: r.reviewNote,
-      days: r.days,
-      dateFrom: r.dateFrom?.toISOString() ?? null,
-      dateTo: r.dateTo?.toISOString() ?? null,
-      createdAt: r.createdAt.toISOString(),
-      reviewedAt: r.reviewedAt?.toISOString() ?? null,
-    })),
+    items: requests.map((r) => {
+      const payload = (r.payload || {}) as { minutes?: number | null };
+      return {
+        id: r.id,
+        reference: r.reference,
+        type: r.type,
+        status: r.status,
+        title: r.title,
+        comment: r.comment,
+        reviewNote: r.reviewNote,
+        days: r.days,
+        minutes: payload.minutes ?? null,
+        dateFrom: r.dateFrom?.toISOString() ?? null,
+        dateTo: r.dateTo?.toISOString() ?? null,
+        createdAt: r.createdAt.toISOString(),
+        reviewedAt: r.reviewedAt?.toISOString() ?? null,
+      };
+    }),
   });
 }

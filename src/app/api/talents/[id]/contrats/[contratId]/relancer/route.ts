@@ -9,6 +9,11 @@ import { render } from "@react-email/render";
 import { ContratGlowUpEmail } from "@/lib/emails/ContratGlowUpEmail";
 import { CONTRAT_TALENT_ROLES } from "@/lib/talent-contrats";
 import { notifierEquipeContratTalent } from "@/lib/talent-contrats-notify";
+import {
+  getAgenceSignatureEmail,
+  getAgenceSignatureName,
+  isAgenceSubmitter,
+} from "@/lib/agence-signature";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
@@ -114,10 +119,14 @@ export async function POST(
       );
     }
 
-    const isAgence = pending.role === "Agence";
-    // Email override uniquement pour le talent (pas pour l'agence)
-    const relanceEmail =
-      !isAgence && bodyEmail ? bodyEmail : pending.email.trim();
+    const isAgence = isAgenceSubmitter({
+      role: pending.role,
+      email: pending.email,
+    });
+    // Agence : toujours le canonique. Talent : override body autorisé.
+    const relanceEmail = isAgence
+      ? getAgenceSignatureEmail()
+      : (bodyEmail || pending.email.trim());
 
     if (
       !isAgence &&
@@ -131,7 +140,7 @@ export async function POST(
     }
 
     const signerName = isAgence
-      ? process.env.NEXT_PUBLIC_AGENCE_NOM?.trim() || "Glow Up Agence"
+      ? getAgenceSignatureName()
       : contrat.talent.prenom || `${contrat.talent.prenom} ${contrat.talent.nom}`.trim();
 
     const resend = new Resend(resendKey);

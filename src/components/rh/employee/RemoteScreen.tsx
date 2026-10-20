@@ -7,7 +7,6 @@ import {
   RhButton,
   RhCard,
   RhCardHead,
-  RhRuleBanner,
   RhSwitch,
 } from "@/components/rh/ui/primitives";
 import { EmpLabel, EMP_COLORS } from "@/components/rh/employee/parts";
@@ -117,6 +116,7 @@ export function RemoteScreen() {
   const [brush, setBrush] = useState<Place>("REMOTE");
   const [showMorePlaces, setShowMorePlaces] = useState(false);
   const [showException, setShowException] = useState(false);
+  const [showTeamCal, setShowTeamCal] = useState(false);
   /** Déplacement : SELF = déj perso (TR) · COMPANY/REIMBURSED = pas de TR */
   const [travelMeal, setTravelMeal] = useState<"SELF" | "COMPANY" | "REIMBURSED">(
     "SELF"
@@ -348,152 +348,165 @@ export function RemoteScreen() {
 
   return (
     <div className="rh-screen">
-      <div>
-        <h1
-          className="m-0 text-[26px] font-semibold tracking-[-0.03em]"
-          style={{ color: EMP_COLORS.text }}
-        >
-          Ma présence
-        </h1>
-        <p
-          className="m-0 mt-2 text-[14px] leading-[1.5] max-w-[560px]"
-          style={{ color: EMP_COLORS.muted }}
-        >
-          Choisis Bureau ou TT, puis clique les jours. Le TT part toujours en
-          validation manager.
-        </p>
-      </div>
-
-      <RhRuleBanner tag="TT" tagBg="#7C8CF8" tint="rgba(124,140,248,.06)">
-        Droit :{" "}
-        <strong style={{ color: EMP_COLORS.text }}>
-          {agreement} j / semaine
-        </strong>
-        {" "}
-        (réduit si absences dans la semaine).
-      </RhRuleBanner>
-
-      <TeamOfficialCalendar
-        kind="TT"
-        title="Calendrier officiel du télétravail"
-        subtitle="Visible par toute l’équipe — uniquement les jours de télétravail."
-      />
-
-      {/* Palette sticky */}
-      <div
-        data-tour="remote-brush"
-        className="sticky top-[122px] z-10 flex flex-wrap items-center gap-2 rounded-[14px] px-3 py-2.5"
-        style={{
-          background: "rgba(16,20,26,.94)",
-          border: "1px solid #232932",
-          backdropFilter: "blur(10px)",
-        }}
-      >
-        <span
-          className="text-[12.5px] font-medium mr-1"
-          style={{ color: EMP_COLORS.muted }}
-        >
-          Lieu :
-        </span>
-        {visiblePlaces.map((id) => {
-          const on = brush === id;
-          const s = PLACE[id];
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => {
-                setBrush(id);
-                if (id === "TRAVEL" || id === "SITE") setShowMorePlaces(true);
-              }}
-              className="border-0 cursor-pointer rounded-full px-3.5 py-2 text-[13px] font-semibold"
-              style={{
-                background: on ? s.bg : "transparent",
-                color: on ? s.fg : EMP_COLORS.muted,
-                outline: on ? `2px solid ${s.border}` : "1px solid #232932",
-              }}
-            >
-              {s.label}
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          onClick={() => setShowMorePlaces((v) => !v)}
-          className="border-0 cursor-pointer rounded-full px-3 py-1.5 text-[12px] font-medium"
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1
+            className="m-0 text-[26px] font-semibold tracking-[-0.03em]"
+            style={{ color: EMP_COLORS.text }}
+          >
+            Ma présence
+          </h1>
+          <p
+            className="m-0 mt-2 text-[14px] leading-[1.5] max-w-[520px]"
+            style={{ color: EMP_COLORS.muted }}
+          >
+            1 · Choisis le lieu · 2 · Clique les jours · 3 · Le TT part en
+            validation manager.
+          </p>
+        </div>
+        <div
+          className="rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold"
           style={{
-            background: "transparent",
-            color: EMP_COLORS.dim,
-            outline: "1px dashed #232932",
+            background: "rgba(124,140,248,.14)",
+            color: "#A5B0FA",
+            border: "1px solid rgba(124,140,248,.35)",
           }}
         >
-          {showMorePlaces ? "Moins" : "Dépl. / Site…"}
-        </button>
-        {brush === "TRAVEL" ? (
-          <>
-            <span className="text-[12px] ml-1" style={{ color: EMP_COLORS.dim }}>
-              Repas :
-            </span>
-            {(
-              [
-                ["SELF", "Déj. perso (TR)"],
-                ["COMPANY", "Pris en charge"],
-                ["REIMBURSED", "Remboursé"],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setTravelMeal(id)}
-                className="border-0 cursor-pointer rounded-full px-2.5 py-1.5 text-[12px] font-medium"
-                style={{
-                  background:
-                    travelMeal === id ? "rgba(242,135,78,.2)" : "transparent",
-                  color:
-                    travelMeal === id ? "#F2874E" : EMP_COLORS.muted,
-                  outline:
-                    travelMeal === id
-                      ? "1.5px solid #F2874E"
-                      : "1px solid #232932",
-                }}
-              >
-                {label}
-              </button>
-            ))}
-            <span className="text-[12px] ml-1" style={{ color: EMP_COLORS.dim }}>
-              Durée :
-            </span>
-            {(
-              [
-                ["FULL", "Journée"],
-                ["AM", "Matin"],
-                ["PM", "Aprem"],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setTravelPortion(id)}
-                className="border-0 cursor-pointer rounded-full px-2.5 py-1.5 text-[12px] font-medium"
-                style={{
-                  background:
-                    travelPortion === id ? "rgba(242,135,78,.2)" : "transparent",
-                  color:
-                    travelPortion === id ? "#F2874E" : EMP_COLORS.muted,
-                  outline:
-                    travelPortion === id
-                      ? "1.5px solid #F2874E"
-                      : "1px solid #232932",
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </>
-        ) : null}
+          Droit {agreement} j TT / semaine
+        </div>
       </div>
 
-      <div className="rh-layout-inspect">
+      {/* 1 — Déclarer */}
+      <section className="flex flex-col gap-3">
+        <div
+          className="text-[12.5px] font-semibold uppercase tracking-[0.04em]"
+          style={{ color: EMP_COLORS.dim }}
+        >
+          1 · Déclarer ma semaine
+        </div>
+
+        <div
+          data-tour="remote-brush"
+          className="sticky top-[122px] z-10 flex flex-wrap items-center gap-2 rounded-[14px] px-3 py-2.5"
+          style={{
+            background: "rgba(16,20,26,.94)",
+            border: "1px solid #232932",
+            backdropFilter: "blur(10px)",
+          }}
+        >
+          <span
+            className="text-[12.5px] font-medium mr-1"
+            style={{ color: EMP_COLORS.muted }}
+          >
+            Lieu :
+          </span>
+          {visiblePlaces.map((id) => {
+            const on = brush === id;
+            const s = PLACE[id];
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => {
+                  setBrush(id);
+                  if (id === "TRAVEL" || id === "SITE") setShowMorePlaces(true);
+                }}
+                className="border-0 cursor-pointer rounded-full px-3.5 py-2 text-[13px] font-semibold"
+                style={{
+                  background: on ? s.bg : "transparent",
+                  color: on ? s.fg : EMP_COLORS.muted,
+                  outline: on ? `2px solid ${s.border}` : "1px solid #232932",
+                }}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => setShowMorePlaces((v) => !v)}
+            className="border-0 cursor-pointer rounded-full px-3 py-1.5 text-[12px] font-medium"
+            style={{
+              background: "transparent",
+              color: EMP_COLORS.dim,
+              outline: "1px dashed #232932",
+            }}
+          >
+            {showMorePlaces ? "Moins" : "Dépl. / Site…"}
+          </button>
+          {brush === "TRAVEL" ? (
+            <>
+              <span
+                className="text-[12px] ml-1"
+                style={{ color: EMP_COLORS.dim }}
+              >
+                Repas :
+              </span>
+              {(
+                [
+                  ["SELF", "Déj. perso (TR)"],
+                  ["COMPANY", "Pris en charge"],
+                  ["REIMBURSED", "Remboursé"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTravelMeal(id)}
+                  className="border-0 cursor-pointer rounded-full px-2.5 py-1.5 text-[12px] font-medium"
+                  style={{
+                    background:
+                      travelMeal === id
+                        ? "rgba(242,135,78,.2)"
+                        : "transparent",
+                    color: travelMeal === id ? "#F2874E" : EMP_COLORS.muted,
+                    outline:
+                      travelMeal === id
+                        ? "1.5px solid #F2874E"
+                        : "1px solid #232932",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+              <span
+                className="text-[12px] ml-1"
+                style={{ color: EMP_COLORS.dim }}
+              >
+                Durée :
+              </span>
+              {(
+                [
+                  ["FULL", "Journée"],
+                  ["AM", "Matin"],
+                  ["PM", "Aprem"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTravelPortion(id)}
+                  className="border-0 cursor-pointer rounded-full px-2.5 py-1.5 text-[12px] font-medium"
+                  style={{
+                    background:
+                      travelPortion === id
+                        ? "rgba(242,135,78,.2)"
+                        : "transparent",
+                    color:
+                      travelPortion === id ? "#F2874E" : EMP_COLORS.muted,
+                    outline:
+                      travelPortion === id
+                        ? "1.5px solid #F2874E"
+                        : "1px solid #232932",
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </>
+          ) : null}
+        </div>
+
         <div className="flex flex-col gap-3">
           {loading ? (
             <div className="text-[13px]" style={{ color: EMP_COLORS.muted }}>
@@ -538,43 +551,9 @@ export function RemoteScreen() {
                   />
 
                   <div
-                    data-tour="remote-actions"
-                    className="flex flex-wrap gap-2 px-4 pt-3"
+                    data-tour="remote-days"
+                    className="grid grid-cols-5 gap-2 px-4 pt-3"
                   >
-                    {w.entitlement > 0 ? (
-                      <RhButton
-                        data-tour="remote-fill-tt"
-                        variant="secondary"
-                        style={{ fontSize: 12, padding: "7px 12px" }}
-                        disabled={busy}
-                        onClick={() => fillRemoteQuota(w)}
-                      >
-                        Remplir mon TT ({w.entitlement} j)
-                      </RhButton>
-                    ) : null}
-                    {w.declared > 0 ? (
-                      <RhButton
-                        data-tour="remote-clear-tt"
-                        variant="secondary"
-                        style={{ fontSize: 12, padding: "7px 12px" }}
-                        disabled={busy}
-                        onClick={() => clearRemote(w)}
-                      >
-                        Enlever le TT
-                      </RhButton>
-                    ) : null}
-                    <RhButton
-                      data-tour="remote-all-office"
-                      variant="secondary"
-                      style={{ fontSize: 12, padding: "7px 12px" }}
-                      disabled={busy}
-                      onClick={() => fillWeek(w, "OFFICE")}
-                    >
-                      Tout bureau
-                    </RhButton>
-                  </div>
-
-                  <div data-tour="remote-days" className="grid grid-cols-5 gap-2 p-4">
                     {days.map((date) => {
                       const holiday = frenchHolidayLabel(date);
                       const place = (w.places?.[date] || "OFFICE") as Place;
@@ -641,13 +620,59 @@ export function RemoteScreen() {
                       );
                     })}
                   </div>
+
+                  <div
+                    data-tour="remote-actions"
+                    className="flex flex-wrap gap-2 px-4 py-3"
+                  >
+                    {w.entitlement > 0 ? (
+                      <RhButton
+                        data-tour="remote-fill-tt"
+                        variant="secondary"
+                        style={{ fontSize: 12, padding: "7px 12px" }}
+                        disabled={busy}
+                        onClick={() => fillRemoteQuota(w)}
+                      >
+                        Remplir mon TT ({w.entitlement} j)
+                      </RhButton>
+                    ) : null}
+                    {w.declared > 0 || (w.pendingRemote?.length || 0) > 0 ? (
+                      <RhButton
+                        data-tour="remote-clear-tt"
+                        variant="secondary"
+                        style={{ fontSize: 12, padding: "7px 12px" }}
+                        disabled={busy}
+                        onClick={() => clearRemote(w)}
+                      >
+                        Enlever le TT
+                      </RhButton>
+                    ) : null}
+                    <RhButton
+                      data-tour="remote-all-office"
+                      variant="secondary"
+                      style={{ fontSize: 12, padding: "7px 12px" }}
+                      disabled={busy}
+                      onClick={() => fillWeek(w, "OFFICE")}
+                    >
+                      Tout bureau
+                    </RhButton>
+                  </div>
                 </RhCard>
               );
             })
           )}
         </div>
+      </section>
 
-        <aside className="rh-inspector flex flex-col gap-3">
+      {/* 2 — Options */}
+      <section className="flex flex-col gap-3">
+        <div
+          className="text-[12.5px] font-semibold uppercase tracking-[0.04em]"
+          style={{ color: EMP_COLORS.dim }}
+        >
+          2 · Options
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
           <RhCard strong>
             <RhCardHead title="Besoin d’un TT en plus ?" />
             <div className="flex flex-col gap-3 p-4">
@@ -670,52 +695,52 @@ export function RemoteScreen() {
                 </>
               ) : (
                 <>
-              <label className="flex flex-col gap-1.5">
-                <EmpLabel>Date</EmpLabel>
-                <input
-                  type="date"
-                  className="rh-input"
-                  value={excDate}
-                  onChange={(e) => setExcDate(e.target.value)}
-                />
-              </label>
-              <label className="flex flex-col gap-1.5">
-                <EmpLabel>Motif</EmpLabel>
-                <textarea
-                  className="rh-input min-h-[80px]"
-                  placeholder="Pourquoi ce jour TT exceptionnel ?"
-                  value={motive}
-                  onChange={(e) => setMotive(e.target.value)}
-                />
-              </label>
-              <div className="flex items-center gap-2">
-                <div
-                  className="flex-1 text-[13px]"
-                  style={{ color: EMP_COLORS.body }}
-                >
-                  Compenser la semaine suivante
-                </div>
-                <RhSwitch
-                  on={compensate}
-                  onToggle={() => setCompensate((v) => !v)}
-                />
-              </div>
-              <RhButton
-                className="w-full"
-                disabled={busy}
-                onClick={() => void sendException()}
-              >
-                <Send size={13} />
-                Envoyer à {me?.employee.manager?.name || "manager"}
-              </RhButton>
-              <button
-                type="button"
-                className="border-0 bg-transparent cursor-pointer text-[12px]"
-                style={{ color: EMP_COLORS.dim }}
-                onClick={() => setShowException(false)}
-              >
-                Annuler
-              </button>
+                  <label className="flex flex-col gap-1.5">
+                    <EmpLabel>Date</EmpLabel>
+                    <input
+                      type="date"
+                      className="rh-input"
+                      value={excDate}
+                      onChange={(e) => setExcDate(e.target.value)}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <EmpLabel>Motif</EmpLabel>
+                    <textarea
+                      className="rh-input min-h-[80px]"
+                      placeholder="Pourquoi ce jour TT exceptionnel ?"
+                      value={motive}
+                      onChange={(e) => setMotive(e.target.value)}
+                    />
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="flex-1 text-[13px]"
+                      style={{ color: EMP_COLORS.body }}
+                    >
+                      Compenser la semaine suivante
+                    </div>
+                    <RhSwitch
+                      on={compensate}
+                      onToggle={() => setCompensate((v) => !v)}
+                    />
+                  </div>
+                  <RhButton
+                    className="w-full"
+                    disabled={busy}
+                    onClick={() => void sendException()}
+                  >
+                    <Send size={13} />
+                    Envoyer à {me?.employee.manager?.name || "manager"}
+                  </RhButton>
+                  <button
+                    type="button"
+                    className="border-0 bg-transparent cursor-pointer text-[12px]"
+                    style={{ color: EMP_COLORS.dim }}
+                    onClick={() => setShowException(false)}
+                  >
+                    Annuler
+                  </button>
                 </>
               )}
             </div>
@@ -764,7 +789,10 @@ export function RemoteScreen() {
                     placeholder="Adresse"
                     value={addrForm.addressLine1}
                     onChange={(e) =>
-                      setAddrForm({ ...addrForm, addressLine1: e.target.value })
+                      setAddrForm({
+                        ...addrForm,
+                        addressLine1: e.target.value,
+                      })
                     }
                   />
                   <div className="grid grid-cols-2 gap-2">
@@ -808,8 +836,35 @@ export function RemoteScreen() {
               )}
             </div>
           </RhCard>
-        </aside>
-      </div>
+        </div>
+      </section>
+
+      {/* 3 — Calendrier équipe (secondaire) */}
+      <section className="flex flex-col gap-3">
+        <button
+          type="button"
+          onClick={() => setShowTeamCal((v) => !v)}
+          className="self-start border-0 bg-transparent cursor-pointer p-0 text-[12.5px] font-semibold uppercase tracking-[0.04em]"
+          style={{ color: EMP_COLORS.dim }}
+        >
+          3 · Calendrier équipe TT{" "}
+          {showTeamCal ? "· masquer" : "· afficher"}
+        </button>
+        {showTeamCal ? (
+          <TeamOfficialCalendar
+            kind="TT"
+            title="Calendrier officiel du télétravail"
+            subtitle="Visible par toute l’équipe — uniquement les jours de télétravail."
+          />
+        ) : (
+          <p
+            className="m-0 text-[12.5px] leading-[1.45]"
+            style={{ color: EMP_COLORS.muted }}
+          >
+            Voir qui est en TT dans les autres pôles (lecture seule).
+          </p>
+        )}
+      </section>
     </div>
   );
 }

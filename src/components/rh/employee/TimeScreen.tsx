@@ -6,10 +6,13 @@ import { ChevronLeft, ChevronRight, FileText, Send } from "lucide-react";
 import { RhButton, RhCard, RhCardHead } from "@/components/rh/ui/primitives";
 import { EmpLabel, EMP_COLORS } from "@/components/rh/employee/parts";
 import {
+  breakRangeMinutes,
   dayNetMinutes,
   hhmmToMinutes,
+  minutesToHhmm,
   minutesToLabel,
   slotsBreakMinutes,
+  slotsBreakWindow,
   splitOvertime,
 } from "@/lib/rh/calculations";
 import { frenchHolidayLabel, isFrenchHoliday } from "@/lib/rh/holidays";
@@ -26,12 +29,22 @@ type DayRow = {
   date: string;
   slots: Slot[];
   breakMinutes: number;
+  /** Horaires de pause (créneau unique sans trou auto) */
+  breakFrom?: string | null;
+  breakTo?: string | null;
   totalMinutes: number;
   /** Week-end / férié : obligatoire pour saisir des heures */
   exception?: boolean;
   /** Justification HS / exception pour ce jour */
   note?: string | null;
 };
+
+/** Défaut UI si durée connue mais pas d’horaires (ex. anciennes feuilles). */
+function defaultBreakWindow(breakMinutes: number): { from: string; to: string } {
+  const mins = Math.max(0, breakMinutes || 60);
+  const from = 12 * 60;
+  return { from: minutesToHhmm(from), to: minutesToHhmm(from + mins) };
+}
 
 const FALLBACK_WEEKDAY: Slot[] = [
   { from: "09:30", to: "12:00" },
@@ -127,6 +140,7 @@ export function TimeScreen() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [pauseReply, setPauseReply] = useState("");
+  const [weekOtNote, setWeekOtNote] = useState("");
   const [amendDate, setAmendDate] = useState(() => ymd(new Date()));
   const [amendFrom, setAmendFrom] = useState("12:00");
   const [amendTo, setAmendTo] = useState("13:00");
@@ -186,12 +200,15 @@ export function TimeScreen() {
       const data = await res.json();
       const sheet = data.timesheet as Timesheet;
       setTs(sheet);
+      setWeekOtNote(sheet.overtimeNote || "");
       setDays(
         (sheet.days || [])
           .map((d) => ({
             ...d,
             date: ymd(d.date as string | Date),
             slots: (Array.isArray(d.slots) ? d.slots : []) as Slot[],
+            breakFrom: d.breakFrom || null,
+            breakTo: d.breakTo || null,
             exception: !!d.exception,
             note: d.note || "",
           }))
@@ -230,8 +247,12 @@ export function TimeScreen() {
           ? []
           : defaultSlotsForDate(d.date);
       if (!slots.length) continue;
+      const rangeMin =
+        d.breakFrom && d.breakTo
+          ? breakRangeMinutes(d.breakFrom, d.breakTo)
+          : 0;
       const breakMin = d.slots.length
-        ? effectiveBreak(slots, d.breakMinutes ?? 0)
+        ? effectiveBreak(slots, rangeMin > 0 ? rangeMin : d.breakMinutes ?? 0)
         : 0;
       const mins = dayMinutes(slots, breakMin);
       totalMinutes += mins;
@@ -245,8 +266,21 @@ export function TimeScreen() {
       const row = days.find((d) => d.date === date);
       return !row?.note?.trim();
     });
-    return { totalMinutes, at25, at50, hasOt, overDates, missingOtNotes };
-  }, [days, weeklyHours, schedule.workdayMinutes]);
+    // HS purement hebdo (pas de jour « hors plage ») → motif semaine requis
+    const needsWeekOtNote =
+      at25 + at50 > 0 &&
+      overDates.size === 0 &&
+      !weekOtNote.trim();
+    return {
+      totalMinutes,
+      at25,
+      at50,
+      hasOt,
+      overDates,
+      missingOtNotes,
+      needsWeekOtNote,
+    };
+  }, [days, weeklyHours, schedule.workdayMinutes, weekOtNote]);
 
   function updateDay(date: string, patch: Partial<DayRow>) {
     setDays((prev) =>
@@ -276,12 +310,24 @@ export function TimeScreen() {
               const slots = exception
                 ? (d.slots || []).filter((s) => s.from && s.to)
                 : [];
+              const auto = slotsBreakWindow(slots);
+              const rangeMin =
+                d.breakFrom && d.breakTo
+                  ? breakRangeMinutes(d.breakFrom, d.breakTo)
+                  : 0;
               return {
                 date: d.date,
                 slots,
                 breakMinutes: slots.length
-                  ? effectiveBreak(slots, d.breakMinutes)
+                  ? effectiveBreak(
+                      slots,
+                      rangeMin > 0 ? rangeMin : d.breakMinutes
+                    )
                   : 0,
+                breakFrom: slots.length
+                  ? auto?.from || d.breakFrom || null
+                  : null,
+                breakTo: slots.length ? auto?.to || d.breakTo || null : null,
                 exception,
                 note: d.note || null,
               };
@@ -289,10 +335,20 @@ export function TimeScreen() {
             const slots = d.slots.length
               ? d.slots
               : defaultSlotsForDate(d.date);
+            const auto = slotsBreakWindow(slots);
+            const rangeMin =
+              d.breakFrom && d.breakTo
+                ? breakRangeMinutes(d.breakFrom, d.breakTo)
+                : 0;
             return {
               date: d.date,
               slots,
-              breakMinutes: effectiveBreak(slots, d.breakMinutes),
+              breakMinutes: effectiveBreak(
+                slots,
+                rangeMin > 0 ? rangeMin : d.breakMinutes
+              ),
+              breakFrom: auto?.from || d.breakFrom || null,
+              breakTo: auto?.to || d.breakTo || null,
               exception: false,
               note: d.note || null,
             };
@@ -323,12 +379,15 @@ export function TimeScreen() {
       const res = await fetch(`/api/rh/timesheets/${refDate}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "submit" }),
+        body: JSON.stringify({
+          action: "submit",
+          overtimeNote: weekOtNote.trim() || undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
-      setMsg("Semaine soumise au manager");
-      toast.success("Semaine envoyée à ton manager");
+      setMsg("Semaine soumise pour validation");
+      toast.success("Semaine envoyée pour validation");
       await load();
       await refresh();
     } catch (e) {
@@ -349,15 +408,20 @@ export function TimeScreen() {
             ...d,
             slots: [],
             breakMinutes: 0,
+            breakFrom: null,
+            breakTo: null,
             totalMinutes: 0,
             exception: false,
           };
         }
         const slots = defaultSlotsForDate(d.date);
+        const auto = slotsBreakWindow(slots);
         return {
           ...d,
           slots,
           breakMinutes: effectiveBreak(slots, 0),
+          breakFrom: auto?.from || null,
+          breakTo: auto?.to || null,
           totalMinutes: dayMinutes(slots, 0),
           exception: false,
         };
@@ -388,10 +452,21 @@ export function TimeScreen() {
           : []
         : defaultSlotsForDate(d.date);
     const filledSlots = slots.filter((s) => s.from && s.to);
-    const breakMin = filledSlots.length
-      ? effectiveBreak(filledSlots, d.breakMinutes ?? 0)
-      : 0;
+    const autoWindow = filledSlots.length
+      ? slotsBreakWindow(filledSlots)
+      : null;
     const autoBreak = filledSlots.length ? slotsBreakMinutes(filledSlots) : 0;
+    const manualWindow =
+      d.breakFrom && d.breakTo
+        ? { from: d.breakFrom, to: d.breakTo }
+        : defaultBreakWindow(d.breakMinutes || 60);
+    const manualBreak = breakRangeMinutes(manualWindow.from, manualWindow.to);
+    const breakMin = filledSlots.length
+      ? effectiveBreak(
+          filledSlots,
+          autoBreak > 0 ? autoBreak : manualBreak || d.breakMinutes || 0
+        )
+      : 0;
     const mins = filledSlots.length ? dayMinutes(filledSlots, breakMin) : 0;
     const overDay =
       special && filledSlots.length > 0
@@ -401,12 +476,29 @@ export function TimeScreen() {
 
     function patchSlots(next: Slot[]) {
       const clean = next.filter((s) => s.from || s.to);
+      const filled = clean.filter((s) => s.from && s.to);
+      const gap = slotsBreakWindow(filled);
+      const rangeMin =
+        d.breakFrom && d.breakTo
+          ? breakRangeMinutes(d.breakFrom, d.breakTo)
+          : 0;
       updateDay(d.date, {
         slots: clean,
         breakMinutes: effectiveBreak(
-          clean.filter((s) => s.from && s.to),
-          d.breakMinutes ?? 0
+          filled,
+          gap ? slotsBreakMinutes(filled) : rangeMin || d.breakMinutes || 0
         ),
+        breakFrom: gap?.from || d.breakFrom || null,
+        breakTo: gap?.to || d.breakTo || null,
+      });
+    }
+
+    function patchBreak(from: string, to: string) {
+      const range = breakRangeMinutes(from, to);
+      updateDay(d.date, {
+        breakFrom: from || null,
+        breakTo: to || null,
+        breakMinutes: range,
       });
     }
 
@@ -481,6 +573,7 @@ export function TimeScreen() {
               checked={!!d.exception}
               onChange={(e) => {
                 const on = e.target.checked;
+                const defBreak = defaultBreakWindow(60);
                 updateDay(d.date, {
                   exception: on,
                   slots: on
@@ -488,7 +581,9 @@ export function TimeScreen() {
                       ? d.slots
                       : [{ from: "", to: "" }]
                     : [],
-                  breakMinutes: 0,
+                  breakMinutes: on ? 60 : 0,
+                  breakFrom: on ? defBreak.from : null,
+                  breakTo: on ? defBreak.to : null,
                   totalMinutes: 0,
                 });
               }}
@@ -505,77 +600,143 @@ export function TimeScreen() {
             Aucune heure tant que Exception n’est pas cochée.
           </p>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2.5">
             {(slots.length ? slots : [{ from: "", to: "" }]).map((s, i) => (
-              <div key={i} className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">
-                <input
-                  type="time"
-                  className="rh-input rh-mono min-w-0 px-1.5 py-1.5 text-[12px]"
-                  disabled={!canEditSlots}
-                  value={s.from}
-                  onChange={(e) => {
-                    const base = baseSlots();
-                    base[i] = {
-                      ...(base[i] || { from: "", to: "" }),
-                      from: e.target.value,
-                    };
-                    patchSlots(base);
-                  }}
-                />
-                <span
-                  className="rh-mono text-[11px]"
-                  style={{ color: EMP_COLORS.dim }}
-                >
-                  →
-                </span>
-                <input
-                  type="time"
-                  className="rh-input rh-mono min-w-0 px-1.5 py-1.5 text-[12px]"
-                  disabled={!canEditSlots}
-                  value={s.to}
-                  onChange={(e) => {
-                    const base = baseSlots();
-                    base[i] = {
-                      ...(base[i] || { from: "", to: "" }),
-                      to: e.target.value,
-                    };
-                    patchSlots(base);
-                  }}
-                />
+              <div key={i} className="flex flex-col gap-1.5">
+                {(slots.length > 1 || i > 0) && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className="rh-mono text-[10px] uppercase tracking-[0.04em]"
+                      style={{ color: EMP_COLORS.dim }}
+                    >
+                      Créneau {i + 1}
+                    </span>
+                    {canEditSlots && slots.length > 1 ? (
+                      <button
+                        type="button"
+                        className="border-0 bg-transparent cursor-pointer p-0 text-[11px]"
+                        style={{ color: EMP_COLORS.dim }}
+                        onClick={() => {
+                          const base = baseSlots();
+                          base.splice(i, 1);
+                          patchSlots(base.length ? base : [{ from: "", to: "" }]);
+                        }}
+                      >
+                        Retirer
+                      </button>
+                    ) : null}
+                  </div>
+                )}
+                <label className="flex flex-col gap-1">
+                  <EmpLabel>Début</EmpLabel>
+                  <input
+                    type="time"
+                    className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
+                    disabled={!canEditSlots}
+                    value={s.from}
+                    onChange={(e) => {
+                      const base = baseSlots();
+                      base[i] = {
+                        ...(base[i] || { from: "", to: "" }),
+                        from: e.target.value,
+                      };
+                      patchSlots(base);
+                    }}
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <EmpLabel>Fin</EmpLabel>
+                  <input
+                    type="time"
+                    className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
+                    disabled={!canEditSlots}
+                    value={s.to}
+                    onChange={(e) => {
+                      const base = baseSlots();
+                      base[i] = {
+                        ...(base[i] || { from: "", to: "" }),
+                        to: e.target.value,
+                      };
+                      patchSlots(base);
+                    }}
+                  />
+                </label>
               </div>
             ))}
 
-            {filledSlots.length > 0 || !special ? (
-              autoBreak > 0 ? (
-                <div
-                  className="mt-1 flex items-center justify-between text-[11.5px]"
-                  style={{ color: EMP_COLORS.dim }}
+            {canEditSlots && (slots.length ? slots : []).length < 3 ? (
+              <button
+                type="button"
+                className="self-start border-0 bg-transparent cursor-pointer p-0 text-[12px] font-medium"
+                style={{ color: EMP_COLORS.secondary }}
+                onClick={() => {
+                  const base = baseSlots();
+                  patchSlots([...base, { from: "", to: "" }]);
+                }}
+              >
+                + Ajouter un créneau
+              </button>
+            ) : null}
+
+            {autoBreak > 0 && autoWindow ? (
+              <div
+                className="mt-0.5 flex flex-col gap-0.5 rounded-[10px] px-2.5 py-2"
+                style={{
+                  color: EMP_COLORS.dim,
+                  background: "rgba(255,255,255,.03)",
+                  border: "1px solid #1B212A",
+                }}
+              >
+                <span className="text-[11px]">Pause (auto)</span>
+                <span
+                  className="rh-mono text-[13px] leading-tight"
+                  style={{ color: EMP_COLORS.body }}
                 >
-                  <span>Pause (auto)</span>
-                  <span className="rh-mono" style={{ color: EMP_COLORS.body }}>
-                    {pauseLabel(autoBreak)}
-                  </span>
+                  {autoWindow.from} → {autoWindow.to}
+                </span>
+                <span className="rh-mono text-[11px]">
+                  {pauseLabel(autoBreak)}
+                </span>
+              </div>
+            ) : (
+              <div className="mt-0.5 flex flex-col gap-1.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <EmpLabel>Pause</EmpLabel>
+                  {manualBreak > 0 ? (
+                    <span
+                      className="rh-mono text-[11px]"
+                      style={{ color: EMP_COLORS.dim }}
+                    >
+                      {pauseLabel(manualBreak)}
+                    </span>
+                  ) : null}
                 </div>
-              ) : (
-                <label className="mt-1 flex flex-col gap-1">
-                  <EmpLabel>Pause (min)</EmpLabel>
+                <label className="flex flex-col gap-1">
+                  <EmpLabel>Début</EmpLabel>
                   <input
-                    type="number"
-                    className="rh-input rh-mono"
+                    type="time"
+                    className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
                     disabled={!canEditSlots}
-                    value={breakMin}
+                    value={manualWindow.from}
                     onChange={(e) =>
-                      updateDay(d.date, {
-                        breakMinutes: Math.max(
-                          0,
-                          Number(e.target.value) || 0
-                        ),
-                      })
+                      patchBreak(e.target.value, manualWindow.to)
                     }
                   />
                 </label>
-              )
-            ) : null}
+                <label className="flex flex-col gap-1">
+                  <EmpLabel>Fin</EmpLabel>
+                  <input
+                    type="time"
+                    className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
+                    disabled={!canEditSlots}
+                    value={manualWindow.to}
+                    onChange={(e) =>
+                      patchBreak(manualWindow.from, e.target.value)
+                    }
+                  />
+                </label>
+              </div>
+            )}
 
             {overDay ? (
               <label className="mt-2 flex flex-col gap-1">
@@ -732,7 +893,8 @@ export function TimeScreen() {
           disabled={
             !editable ||
             busy ||
-            (live.hasOt && live.missingOtNotes.length > 0)
+            (live.hasOt && live.missingOtNotes.length > 0) ||
+            live.needsWeekOtNote
           }
           onClick={() => void submit()}
         >
@@ -853,7 +1015,7 @@ export function TimeScreen() {
                   className="rh-input"
                   value={pauseReply}
                   onChange={(e) => setPauseReply(e.target.value)}
-                  placeholder="Précisions pour le manager…"
+                  placeholder="Précisions pour la validation…"
                 />
               </label>
               <RhButton disabled={busy} onClick={() => void replyPause()}>
@@ -883,8 +1045,21 @@ export function TimeScreen() {
             </button>
           </div>
 
-          <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))" }}>
-            {days.filter((d) => !isSpecialDay(d.date)).map((d) => renderDayCard(d, false))}
+          <div
+            className="-mx-1 overflow-x-auto px-1 pb-1"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
+            <div
+              className="grid gap-2.5"
+              style={{
+                gridTemplateColumns: "repeat(5, minmax(160px, 1fr))",
+                minWidth: 860,
+              }}
+            >
+              {days
+                .filter((d) => isoDow(d.date) < 5)
+                .map((d) => renderDayCard(d, isSpecialDay(d.date)))}
+            </div>
           </div>
 
           <div className="mt-4">
@@ -892,10 +1067,15 @@ export function TimeScreen() {
               className="mb-2 text-[12.5px] font-medium"
               style={{ color: EMP_COLORS.dim }}
             >
-              Week-end / férié — coche Exception pour saisir
+              Week-end — coche Exception pour saisir
             </div>
-            <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))" }}>
-              {days.filter((d) => isSpecialDay(d.date)).map((d) => renderDayCard(d, true))}
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))" }}
+            >
+              {days
+                .filter((d) => isoDow(d.date) >= 5)
+                .map((d) => renderDayCard(d, true))}
             </div>
           </div>
 
@@ -928,6 +1108,25 @@ export function TimeScreen() {
                 justification sur la carte du jour.
               </p>
             </div>
+            {editable && live.at25 + live.at50 > 0 ? (
+              <label className="flex flex-col gap-1 px-4 pb-4">
+                <EmpLabel>
+                  Motif HS semaine
+                  {live.overDates.size === 0 ? " (obligatoire)" : " (optionnel)"}
+                </EmpLabel>
+                <input
+                  className="rh-input text-[12.5px]"
+                  value={weekOtNote}
+                  onChange={(e) => setWeekOtNote(e.target.value)}
+                  placeholder="Ex. rush client, event, deadline…"
+                  style={
+                    live.needsWeekOtNote
+                      ? { borderColor: "rgba(240,194,78,.55)" }
+                      : undefined
+                  }
+                />
+              </label>
+            ) : null}
           </RhCard>
 
           <button
@@ -981,7 +1180,7 @@ export function TimeScreen() {
                   />
                 </label>
                 <RhButton disabled={busy} onClick={() => void sendAmend()}>
-                  Envoyer au manager
+                  Envoyer pour validation
                 </RhButton>
               </div>
             </RhCard>

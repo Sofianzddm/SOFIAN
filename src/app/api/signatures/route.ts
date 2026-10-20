@@ -9,6 +9,7 @@ import {
   SIGNATURE_DOCUMENT_ROLES,
   validateSignatairesInput,
 } from "@/lib/signature-documents";
+import { getAgenceSignatureEmail } from "@/lib/agence-signature";
 
 const DOCUSEAL_TEMPLATES_PDF = "https://api.docuseal.com/templates/pdf";
 
@@ -185,10 +186,7 @@ export async function GET() {
             ? [
                 {
                   name: "Glow Up Agence",
-                  email:
-                    process.env.AGENCE_SIGNATURE_EMAIL?.trim() ||
-                    process.env.NEXT_PUBLIC_AGENCE_EMAIL?.trim() ||
-                    "contrat@glowupagence.fr",
+                  email: getAgenceSignatureEmail(),
                 },
               ]
             : []),

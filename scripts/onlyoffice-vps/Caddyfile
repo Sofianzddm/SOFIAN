@@ -1,0 +1,11 @@
+# Remplace office.glowupagence.fr par ton sous-domaine réel
+office.glowupagence.fr {
+	encode gzip
+	reverse_proxy onlyoffice:80
+
+	header {
+		# OnlyOffice iframe depuis l’app
+		Content-Security-Policy "frame-ancestors https://app.glowupagence.fr http://localhost:3000"
+		-Server
+	}
+}

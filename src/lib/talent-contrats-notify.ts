@@ -8,11 +8,9 @@ import { prisma } from "@/lib/prisma";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { ContratEnvoyeInterneEmail } from "@/lib/emails/ContratEnvoyeInterneEmail";
+import { getAgenceSignatureEmail } from "@/lib/agence-signature";
 
-const CONTRAT_MAILBOX =
-  process.env.AGENCE_SIGNATURE_EMAIL?.trim() ||
-  process.env.NEXT_PUBLIC_AGENCE_EMAIL?.trim() ||
-  "contrat@glowupagence.fr";
+const CONTRAT_MAILBOX = getAgenceSignatureEmail();
 
 /** Évite From = To (sinon Gmail Workspace filtre souvent le mail). */
 function resendFromFor(toEmail: string): string {

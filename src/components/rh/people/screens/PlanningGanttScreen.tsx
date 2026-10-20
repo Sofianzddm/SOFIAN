@@ -375,8 +375,12 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
                       const weekend =
                         new Date(d + "T12:00:00").getDay() % 6 === 0;
                       const ferie = isFrenchHoliday(d);
+                      const pending =
+                        ev?.status === "PENDING" || ev?.status === "PAUSED";
                       const code = ev
-                        ? KIND_SHORT[ev.kind] || ev.kind.slice(0, 3)
+                        ? pending
+                          ? "…"
+                          : KIND_SHORT[ev.kind] || ev.kind.slice(0, 3)
                         : ferie
                           ? "Fér"
                           : "";
@@ -387,16 +391,21 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
                           data-kind={
                             ev?.kind || (ferie ? "HOLIDAY" : weekend ? "WE" : "")
                           }
+                          data-status={
+                            pending ? ev?.status || "PENDING" : undefined
+                          }
                           data-empty={!code ? "1" : "0"}
                           title={
                             ev
-                              ? `${r.name} · ${KIND_LABEL[ev.kind] || ev.kind} · ${d}`
+                              ? `${r.name} · ${KIND_LABEL[ev.kind] || ev.kind}${
+                                  pending ? " · en attente" : ""
+                                } · ${d}`
                               : ferie
                                 ? `Férié · ${d}`
                                 : d
                           }
                           style={{
-                            opacity: ev?.halfDay ? 0.65 : 1,
+                            opacity: ev?.halfDay && !pending ? 0.65 : 1,
                           }}
                         >
                           {code}

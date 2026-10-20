@@ -87,6 +87,8 @@ export async function buildTimesheetPdfData(
       weekday: weekdayLabel(iso),
       slotsLabel: slots.map((s) => `${s.from}–${s.to}`).join(" · "),
       breakMinutes: d.breakMinutes,
+      breakFrom: d.breakFrom || null,
+      breakTo: d.breakTo || null,
       totalMinutes: d.totalMinutes,
       isWeekend: dow === 0 || dow === 6,
       isHoliday: isFrenchHoliday(iso),

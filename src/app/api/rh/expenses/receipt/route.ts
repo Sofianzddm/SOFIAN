@@ -21,11 +21,21 @@ export async function POST(request: NextRequest) {
   const allowed = new Set([
     "application/pdf",
     "image/jpeg",
+    "image/jpg",
     "image/png",
     "image/webp",
     "image/heic",
+    "image/heif",
   ]);
-  if (file.type && !allowed.has(file.type)) {
+  const extOk = /\.(pdf|jpe?g|png|webp|heic|heif)$/i.test(file.name || "");
+  // iOS envoie parfois un type vide / octet-stream : on accepte via extension
+  if (file.type && !allowed.has(file.type) && file.type !== "application/octet-stream") {
+    return NextResponse.json(
+      { error: "Format non accepté (PDF ou image)" },
+      { status: 400 }
+    );
+  }
+  if (!file.type && !extOk) {
     return NextResponse.json(
       { error: "Format non accepté (PDF ou image)" },
       { status: 400 }

@@ -1,0 +1,42 @@
+# OnlyOffice Document Server — Hub patron Glow Up
+# Usage sur le VPS (après install Docker) :
+#   cd /opt/onlyoffice && docker compose up -d
+#
+# Prérequis : DNS office.TON_DOMAINE → IP du VPS
+#             JWT_SECRET identique à ONLYOFFICE_JWT_SECRET sur Vercel
+
+services:
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: onlyoffice
+    restart: unless-stopped
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_HEADER=Authorization
+    volumes:
+      - oo_data:/var/www/onlyoffice/Data
+      - oo_logs:/var/log/onlyoffice
+    # Derrière Caddy — pas exposé directement
+    expose:
+      - "80"
+
+  caddy:
+    image: caddy:2
+    container_name: onlyoffice-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - onlyoffice
+
+volumes:
+  oo_data:
+  oo_logs:
+  caddy_data:
+  caddy_config:

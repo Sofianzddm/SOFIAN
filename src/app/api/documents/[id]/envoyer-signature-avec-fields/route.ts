@@ -8,6 +8,11 @@ import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { SignatureRequestEmail } from "@/lib/emails/SignatureRequestEmail";
 import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
+import {
+  ensureDocuSealSubmitterEmail,
+  isAgenceSubmitter,
+  resolveAgenceSignatureEmail,
+} from "@/lib/agence-signature";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
@@ -53,9 +58,10 @@ export async function POST(
     const clientName = ((body.signerName ?? body.clientName ?? body.name) as string)?.trim() || "Client";
     const signerEmail = clientEmail?.trim();
     const signerName = clientName || "Client";
-    // Agence : uniquement depuis le body (pas env vide)
-    const agenceEmailRaw = (body.agenceEmail as string) ?? "";
-    const agenceEmail = agenceEmailRaw.trim() || (process.env.NEXT_PUBLIC_AGENCE_EMAIL ?? "contrat@glowupagence.fr").trim();
+    // Agence : body normalisé (typos domaine) ou canonique
+    const agenceEmail = resolveAgenceSignatureEmail(
+      (body.agenceEmail as string) ?? ""
+    );
     const agenceName = ((body.agenceName as string) ?? "").trim() || "Agence";
 
     if (!Number.isInteger(templateId) || templateId <= 0 || !signerEmail) {
@@ -200,14 +206,32 @@ export async function POST(
           : `Devis ${document.reference} à signer — ${talentPrenom} × ${marqueNom}`;
 
       for (const submitter of submissionList as Array<{
+        id?: number;
         email?: string;
         name?: string;
+        role?: string;
         slug?: string;
         embed_src?: string;
         url?: string;
         submission_url?: string;
       }>) {
-        const email = submitter.email?.trim();
+        const isAgence = isAgenceSubmitter({
+          role: submitter.role,
+          email: submitter.email,
+          agenceEmail,
+        });
+        if (isAgence && submitter.id != null) {
+          await ensureDocuSealSubmitterEmail({
+            apiKey: docusealKey,
+            submitterId: submitter.id,
+            expectedEmail: agenceEmail,
+            expectedName: agenceName,
+            currentEmail: submitter.email,
+          });
+        }
+        const email = isAgence
+          ? agenceEmail
+          : submitter.email?.trim();
         if (!email) continue;
         const signingUrl = getSubmitterSigningUrl(submitter);
         if (!signingUrl) {

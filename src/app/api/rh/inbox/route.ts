@@ -5,6 +5,7 @@ import {
   displayName,
   initials,
   isRhHr,
+  isRhManager,
   requireRhSessionFromRequest,
 } from "@/lib/rh/auth";
 import { minutesToLabel } from "@/lib/rh/calculations";
@@ -15,14 +16,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
 
-  // Inbox validations = admin RH uniquement
-  if (!isRhHr(session.employee.rhRole)) {
+  // HR : toutes les demandes · Manager : uniquement son équipe
+  if (!isRhManager(session.employee.rhRole)) {
     return NextResponse.json({ items: [] });
   }
 
   const where: Prisma.RhRequestWhereInput = {
     status: { in: ["PENDING", "PAUSED"] },
     employeeId: { not: session.employee.id },
+    ...(isRhHr(session.employee.rhRole)
+      ? {}
+      : { employee: { managerId: session.employee.id } }),
   };
 
   const requests = await prisma.rhRequest.findMany({
@@ -62,7 +66,10 @@ export async function GET(request: NextRequest) {
             date: d.date.toISOString().slice(0, 10),
             halfDay: d.halfDay,
             days: d.days,
+            minutes: d.minutes,
+            accountCode: d.accountCode,
           })),
+          minutes: payload.minutes ?? null,
           coverage: payload.coverage,
         };
       }
@@ -99,7 +106,9 @@ export async function GET(request: NextRequest) {
             category: l.category,
             label: l.label,
             amount: Number(l.amount),
+            vatRate: Number(l.vatRate),
             receiptUrl: l.receiptUrl,
+            receiptName: l.receiptName,
             missingReceipt: l.missingReceipt,
             isMileage: l.isMileage,
             km: l.km,
@@ -136,6 +145,9 @@ export async function GET(request: NextRequest) {
             totalMinutes: d.totalMinutes,
             totalLabel: minutesToLabel(d.totalMinutes),
             slots: d.slots,
+            breakMinutes: d.breakMinutes,
+            breakFrom: d.breakFrom,
+            breakTo: d.breakTo,
             exception: d.exception,
             note: d.note,
           })),

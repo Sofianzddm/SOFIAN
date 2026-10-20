@@ -5,6 +5,10 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import jwt from "jsonwebtoken";
 import { CONTRAT_TALENT_ROLES } from "@/lib/talent-contrats";
+import {
+  getAgenceSignatureEmail,
+  getAgenceSignatureName,
+} from "@/lib/agence-signature";
 
 export async function GET(
   request: NextRequest,
@@ -73,12 +77,6 @@ export async function GET(
     };
     const builderToken = jwt.sign(jwtPayload, docusealKey, { algorithm: "HS256" });
 
-    const agenceEmail =
-      process.env.AGENCE_SIGNATURE_EMAIL?.trim() ||
-      process.env.NEXT_PUBLIC_AGENCE_EMAIL?.trim() ||
-      "contrat@glowupagence.fr";
-    const agenceName = process.env.NEXT_PUBLIC_AGENCE_NOM?.trim() || "Glow Up Agence";
-
     return NextResponse.json({
       builderToken,
       titre: contrat.titre,
@@ -87,7 +85,10 @@ export async function GET(
         email: talentEmail,
         name: `${contrat.talent.prenom} ${contrat.talent.nom}`.trim(),
       },
-      agence: { email: agenceEmail, name: agenceName },
+      agence: {
+        email: getAgenceSignatureEmail(),
+        name: getAgenceSignatureName(),
+      },
     });
   } catch (error) {
     console.error("Erreur builder contrat talent:", error);

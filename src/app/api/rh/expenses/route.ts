@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { requireRhSessionFromRequest } from "@/lib/rh/auth";
+import { isRhHr, requireRhSessionFromRequest } from "@/lib/rh/auth";
 import {
   addExpenseLine,
   createExpenseReport,
   deleteExpenseLine,
   deleteExpenseReport,
+  markExpensePaid,
   submitExpenseReport,
   updateExpenseLine,
   upsertVehicle,
@@ -71,6 +72,38 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(request.url);
+  if (searchParams.get("toPay") === "1") {
+    if (!isRhHr(session.employee.rhRole)) {
+      return NextResponse.json({ error: "Réservé à l’admin RH" }, { status: 403 });
+    }
+    const reports = await prisma.rhExpenseReport.findMany({
+      where: { status: "APPROVED" },
+      include: {
+        employee: {
+          include: { user: { select: { prenom: true, nom: true } } },
+        },
+        lines: { select: { id: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 100,
+    });
+    return NextResponse.json({
+      items: reports.map((r) => ({
+        id: r.id,
+        number: r.number,
+        label:
+          r.label ||
+          `${MONTHS_FR[r.periodMonth - 1] || r.periodMonth} ${r.periodYear}`,
+        totalAmount: Number(r.totalAmount),
+        employeeName: `${r.employee.user.prenom} ${r.employee.user.nom}`,
+        employeeId: r.employeeId,
+        linesCount: r.lines.length,
+        updatedAt: r.updatedAt.toISOString(),
+      })),
+    });
+  }
+
   const employee = await prisma.rhEmployee.findUnique({
     where: { id: session.employee.id },
     include: {
@@ -115,7 +148,6 @@ export async function GET(request: NextRequest) {
         periodYear: r.periodYear,
         totalAmount: Number(r.totalAmount),
         createdAt: r.createdAt,
-        paidBy: "Collaborateur",
         nextApprover: r.status === "SUBMITTED" ? managerName : null,
         summary,
         lines: r.lines.map((l, i) => ({
@@ -249,21 +281,46 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
     if (body.action === "upsertVehicle") {
+      // Collab : maj assurance / carte grise uniquement.
+      // CV + permis = admin RH (PATCH /api/rh/employees/[id]).
+      const existing = await prisma.rhVehicle.findUnique({
+        where: { employeeId: session.employee.id },
+      });
+      if (!existing) {
+        return NextResponse.json(
+          {
+            error:
+              "Véhicule non déclaré — demande à RH d’enregistrer les CV et la validité du permis",
+          },
+          { status: 400 }
+        );
+      }
       const vehicle = await upsertVehicle({
         employeeId: session.employee.id,
-        label: String(body.label || "Véhicule"),
-        fiscalHorsepower: Number(body.fiscalHorsepower || 5),
+        label: existing.label || String(body.label || "Véhicule"),
+        fiscalHorsepower: existing.fiscalHorsepower,
         carteGriseExpiresOn: body.carteGriseExpiresOn
           ? new Date(body.carteGriseExpiresOn)
-          : null,
+          : existing.carteGriseExpiresOn,
         insuranceExpiresOn: body.insuranceExpiresOn
           ? new Date(body.insuranceExpiresOn)
-          : null,
-        licenseExpiresOn: body.licenseExpiresOn
-          ? new Date(body.licenseExpiresOn)
-          : null,
+          : existing.insuranceExpiresOn,
+        licenseExpiresOn: existing.licenseExpiresOn,
       });
       return NextResponse.json({ vehicle });
+    }
+    if (body.action === "markPaid") {
+      if (!isRhHr(session.employee.rhRole)) {
+        return NextResponse.json(
+          { error: "Réservé à l’admin RH" },
+          { status: 403 }
+        );
+      }
+      const report = await markExpensePaid({
+        reportId: body.reportId,
+        actorId: session.employee.id,
+      });
+      return NextResponse.json({ report });
     }
     return NextResponse.json({ error: "Action inconnue" }, { status: 400 });
   } catch (e) {

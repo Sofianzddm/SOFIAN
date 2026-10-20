@@ -69,8 +69,14 @@ function PeopleAppInner() {
 
   useEffect(() => {
     if (error === "NO_RH_PROFILE") router.replace("/rh/login");
-    // Console People réservée aux HR — managers / collabs → espace salarié
-    if (me && me.employee.rhRole !== "HR") router.replace("/rh/espace");
+    // Collabs → espace salarié ; HR + managers → console People
+    if (
+      me &&
+      me.employee.rhRole !== "HR" &&
+      me.employee.rhRole !== "MANAGER"
+    ) {
+      router.replace("/rh/espace");
+    }
   }, [error, me, router]);
 
   const loadPlanning = useCallback(async () => {
@@ -800,31 +806,22 @@ function PeopleAppInner() {
       )}
 
       {screen === "expenses" && (
-        <div className="rh-screen">
-          <RhPageHero
-            eyebrow="FRAIS"
-            title="Notes de frais"
-            subtitle="Notes de frais en attente de validation manager ou RH."
+        <div className="flex flex-col gap-4">
+          <ApprovalsInboxScreen
+            inboxItems={inboxItems.filter((i) => i.kind === "EXPENSE")}
+            busy={busy}
+            onApprove={handleApprove}
+            onRefuse={handleRefuse}
+            onApproveAll={handleApproveAll}
+            onOpenFiche={openFiche}
           />
-          <RhCard>
-            {inboxItems.filter((i) => i.kind === "EXPENSE").length === 0 ? (
-              <div className="p-4 text-[12px]" style={{ color: "#8B95A5" }}>Aucune note en attente</div>
-            ) : (
-              inboxItems
-                .filter((i) => i.kind === "EXPENSE")
-                .map((i) => (
-                  <div key={i.id} className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: "1px solid #15191F" }}>
-                    <RhAvatar initials={i.initials} color={i.color} size={26} />
-                    <div className="flex-1">
-                      <div className="text-[12.5px] font-medium">{i.who}</div>
-                      <div className="rh-mono text-[10px]" style={{ color: "#7E8998" }}>{i.title}</div>
-                    </div>
-                    <RhButton variant="danger" disabled={busy} onClick={() => void handleRefuse(i.id, i.who)}>Refuser</RhButton>
-                    <RhButton disabled={busy} onClick={() => void handleApprove(i.id, i.who)}>Approuver</RhButton>
-                  </div>
-                ))
-            )}
-          </RhCard>
+          {rhRole === "HR" ? (
+            <ExpensesToPayPanel
+              busy={busy}
+              onFlash={flash}
+              onOpenFiche={openFiche}
+            />
+          ) : null}
         </div>
       )}
 
@@ -836,36 +833,44 @@ function PeopleAppInner() {
             subtitle="Annuaire de votre périmètre avec le total de jours encore posables."
           />
           <RhCard>
-            {employees.map((e) => (
+            {employees.map((e) => {
+              const mgr = e.managerId
+                ? employees.find((x) => String(x.id) === String(e.managerId))
+                : null;
+              return (
               <button
                 key={String(e.id)}
                 type="button"
                 onClick={() => openFiche(String(e.id))}
                 className="w-full grid items-center px-4 py-[11px] border-0 cursor-pointer text-left"
                 style={{
-                  gridTemplateColumns: "1.5fr 1.2fr 110px 90px",
+                  gridTemplateColumns: "1.5fr 1.1fr 1fr 90px 70px",
                   background: "transparent",
                   borderBottom: "1px solid #15191F",
                   color: "inherit",
                 }}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   <RhAvatar
                     initials={String(e.initials)}
                     color={String(e.avatarColor || LIME)}
                     size={26}
                     src={e.avatarUrl as string | null | undefined}
                   />
-                  <div>
-                    <div className="text-[12.5px] font-medium">{String(e.name)}</div>
+                  <div className="min-w-0">
+                    <div className="text-[12.5px] font-medium truncate">{String(e.name)}</div>
                     <div className="rh-mono text-[9px]" style={{ color: "#5F6978" }}>{String(e.matricule)}</div>
                   </div>
                 </div>
                 <span className="text-[12px] truncate" style={{ color: "#B9C2CE" }}>{String(e.jobTitle)}</span>
+                <span className="text-[12px] truncate" style={{ color: "#8B95A5" }}>
+                  {mgr ? String(mgr.name) : "—"}
+                </span>
                 <span className="rh-mono text-[10px]">{String(e.department).slice(0, 14)}</span>
                 <span className="rh-mono text-right text-[12px]">{Number(e.bookableSum || 0).toFixed(1)} j</span>
               </button>
-            ))}
+              );
+            })}
           </RhCard>
         </div>
       )}
@@ -952,6 +957,12 @@ function PeopleAppInner() {
                     </div>
                     <div className="rh-mono text-[10px]" style={{ color: "#5F6978" }}>
                       {fiche.employee.department} · {fiche.employee.matricule}
+                    </div>
+                    <div className="text-[12px] mt-1" style={{ color: "#8B95A5" }}>
+                      Manager :{" "}
+                      <span style={{ color: "#E7ECF2" }}>
+                        {fiche.employee.managerName || "non assigné"}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1094,11 +1105,53 @@ function PeopleAppInner() {
                         className="rh-input"
                         defaultValue={fiche.employee.rhRole || "COLLAB"}
                         id="fiche-rhRole"
+                        key={`role-${fiche.employee.id}-${fiche.employee.rhRole || "COLLAB"}`}
                       >
                         <option value="COLLAB">Collaborateur</option>
                         <option value="MANAGER">Manager</option>
                         <option value="HR">RH</option>
                       </select>
+                    </label>
+                    <label className="flex flex-col gap-1 sm:col-span-2">
+                      <span className="text-[11px]" style={{ color: "#7E8998" }}>
+                        Manager N+1
+                      </span>
+                      <select
+                        className="rh-input"
+                        defaultValue={fiche.employee.managerId || ""}
+                        id="fiche-managerId"
+                        key={`mgr-${fiche.employee.id}-${fiche.employee.managerId || "none"}`}
+                      >
+                        <option value="">— Aucun —</option>
+                        {employees
+                          .filter((e) => {
+                            const id = String(e.id);
+                            if (id === selectedEmployeeId) return false;
+                            const role = String(e.rhRole || "");
+                            return (
+                              role === "MANAGER" ||
+                              role === "HR" ||
+                              id === fiche.employee.managerId
+                            );
+                          })
+                          .map((e) => (
+                            <option key={String(e.id)} value={String(e.id)}>
+                              {String(e.name)}
+                              {e.rhRole === "HR"
+                                ? " (RH)"
+                                : e.rhRole === "MANAGER"
+                                  ? " (Manager)"
+                                  : ""}
+                            </option>
+                          ))}
+                      </select>
+                      <span
+                        className="text-[11px] leading-[1.4]"
+                        style={{ color: "#7E8998" }}
+                      >
+                        Reçoit les validations (congés, temps, NDF, TT) de cette
+                        personne. Passe d’abord le N+1 en rôle Manager si besoin.
+                      </span>
                     </label>
                     <RhButton
                       disabled={busy}
@@ -1117,6 +1170,9 @@ function PeopleAppInner() {
                         const role = (
                           document.getElementById("fiche-rhRole") as HTMLSelectElement
                         )?.value;
+                        const managerId = (
+                          document.getElementById("fiche-managerId") as HTMLSelectElement
+                        )?.value;
                         void (async () => {
                           setBusy(true);
                           try {
@@ -1130,6 +1186,7 @@ function PeopleAppInner() {
                                   remoteAgreement: agreement,
                                   healthCover: health,
                                   rhRole: role,
+                                  managerId: managerId || null,
                                 }),
                               }
                             );
@@ -1142,6 +1199,7 @@ function PeopleAppInner() {
                             if (reload.ok) {
                               setFiche((await reload.json()) as EmployeeFiche);
                             }
+                            void refresh();
                           } catch (err) {
                             flash(
                               err instanceof Error ? err.message : "Erreur",
@@ -1155,6 +1213,202 @@ function PeopleAppInner() {
                     >
                       Enregistrer le contrat
                     </RhButton>
+                  </div>
+                ) : null}
+
+                {rhRole === "HR" && selectedEmployeeId ? (
+                  <div
+                    className="rounded-md p-3 space-y-3"
+                    style={{ background: "#12161C", border: "1px solid #1B212A" }}
+                  >
+                    <div
+                      className="text-[12px] font-semibold"
+                      style={{ color: "#8B95A5" }}
+                    >
+                      Véhicule IK (admin)
+                    </div>
+                    <p
+                      className="m-0 text-[11.5px] leading-[1.4]"
+                      style={{ color: "#7E8998" }}
+                    >
+                      CV fiscaux + validité permis (renouvellement annuel).
+                      Requis pour débloquer les indemnités kilométriques.
+                    </p>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-[11px]" style={{ color: "#7E8998" }}>
+                        Libellé
+                      </span>
+                      <input
+                        className="rh-input"
+                        id="fiche-vehicle-label"
+                        defaultValue={fiche.vehicle?.label || "Véhicule perso"}
+                        key={`v-label-${fiche.vehicle?.id || "new"}`}
+                      />
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[11px]" style={{ color: "#7E8998" }}>
+                          CV fiscaux
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          className="rh-input rh-mono"
+                          id="fiche-vehicle-hp"
+                          defaultValue={fiche.vehicle?.fiscalHorsepower ?? 5}
+                          key={`v-hp-${fiche.vehicle?.id || "new"}`}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[11px]" style={{ color: "#7E8998" }}>
+                          Permis valide jusqu’au
+                        </span>
+                        <input
+                          type="date"
+                          className="rh-input"
+                          id="fiche-vehicle-license"
+                          defaultValue={fiche.vehicle?.licenseExpiresOn || ""}
+                          key={`v-lic-${fiche.vehicle?.id || "new"}-${fiche.vehicle?.licenseExpiresOn || ""}`}
+                        />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[11px]" style={{ color: "#7E8998" }}>
+                          Assurance jusqu’au
+                        </span>
+                        <input
+                          type="date"
+                          className="rh-input"
+                          id="fiche-vehicle-insurance"
+                          defaultValue={fiche.vehicle?.insuranceExpiresOn || ""}
+                          key={`v-ins-${fiche.vehicle?.id || "new"}`}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="text-[11px]" style={{ color: "#7E8998" }}>
+                          Carte grise jusqu’au
+                        </span>
+                        <input
+                          type="date"
+                          className="rh-input"
+                          id="fiche-vehicle-carte"
+                          defaultValue={fiche.vehicle?.carteGriseExpiresOn || ""}
+                          key={`v-cg-${fiche.vehicle?.id || "new"}`}
+                        />
+                      </label>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <RhButton
+                        variant="secondary"
+                        disabled={busy}
+                        onClick={() => {
+                          const input = document.getElementById(
+                            "fiche-vehicle-license"
+                          ) as HTMLInputElement | null;
+                          if (!input) return;
+                          const base = input.value
+                            ? new Date(input.value + "T12:00:00")
+                            : new Date();
+                          base.setFullYear(base.getFullYear() + 1);
+                          const y = base.getFullYear();
+                          const m = String(base.getMonth() + 1).padStart(2, "0");
+                          const d = String(base.getDate()).padStart(2, "0");
+                          input.value = `${y}-${m}-${d}`;
+                        }}
+                      >
+                        +1 an permis
+                      </RhButton>
+                      <RhButton
+                        disabled={busy}
+                        onClick={() => {
+                          const label = (
+                            document.getElementById(
+                              "fiche-vehicle-label"
+                            ) as HTMLInputElement
+                          )?.value;
+                          const hp = Number(
+                            (
+                              document.getElementById(
+                                "fiche-vehicle-hp"
+                              ) as HTMLInputElement
+                            )?.value
+                          );
+                          const licenseExpiresOn = (
+                            document.getElementById(
+                              "fiche-vehicle-license"
+                            ) as HTMLInputElement
+                          )?.value;
+                          const insuranceExpiresOn = (
+                            document.getElementById(
+                              "fiche-vehicle-insurance"
+                            ) as HTMLInputElement
+                          )?.value;
+                          const carteGriseExpiresOn = (
+                            document.getElementById(
+                              "fiche-vehicle-carte"
+                            ) as HTMLInputElement
+                          )?.value;
+                          void (async () => {
+                            setBusy(true);
+                            try {
+                              const res = await fetch(
+                                `/api/rh/employees/${selectedEmployeeId}`,
+                                {
+                                  method: "PATCH",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                  },
+                                  body: JSON.stringify({
+                                    vehicle: {
+                                      label,
+                                      fiscalHorsepower: hp,
+                                      licenseExpiresOn:
+                                        licenseExpiresOn || null,
+                                      insuranceExpiresOn:
+                                        insuranceExpiresOn || null,
+                                      carteGriseExpiresOn:
+                                        carteGriseExpiresOn || null,
+                                    },
+                                  }),
+                                }
+                              );
+                              const data = await res.json();
+                              if (!res.ok) {
+                                throw new Error(data.error || "Erreur");
+                              }
+                              flash("Véhicule enregistré");
+                              const reload = await fetch(
+                                `/api/rh/employees/${selectedEmployeeId}`
+                              );
+                              if (reload.ok) {
+                                setFiche(
+                                  (await reload.json()) as EmployeeFiche
+                                );
+                              }
+                            } catch (err) {
+                              flash(
+                                err instanceof Error ? err.message : "Erreur",
+                                "err"
+                              );
+                            } finally {
+                              setBusy(false);
+                            }
+                          })();
+                        }}
+                      >
+                        Enregistrer véhicule
+                      </RhButton>
+                    </div>
+                    {fiche.vehicle?.yearKm != null ? (
+                      <div
+                        className="rh-mono text-[11px]"
+                        style={{ color: "#7E8998" }}
+                      >
+                        Km année en cours : {fiche.vehicle.yearKm}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -1273,6 +1527,137 @@ function PeopleAppInner() {
           </aside>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ExpensesToPayPanel({
+  busy,
+  onFlash,
+  onOpenFiche,
+}: {
+  busy: boolean;
+  onFlash: (text: string, tone?: "ok" | "err") => void;
+  onOpenFiche: (employeeId: string) => void;
+}) {
+  const [items, setItems] = useState<
+    Array<{
+      id: string;
+      number: number;
+      label: string;
+      totalAmount: number;
+      employeeName: string;
+      employeeId: string;
+      linesCount: number;
+    }>
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [marking, setMarking] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/rh/expenses?toPay=1", { cache: "no-store" });
+      if (!res.ok) throw new Error("Impossible de charger les NDF à rembourser");
+      const data = await res.json();
+      setItems(data.items || []);
+    } catch (e) {
+      onFlash(e instanceof Error ? e.message : "Erreur", "err");
+    } finally {
+      setLoading(false);
+    }
+    // onFlash volontairement omis : flashParent n’est pas mémoïsé
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function markPaid(reportId: string) {
+    if (!window.confirm("Marquer cette note comme remboursée (Payée) ?")) return;
+    setMarking(reportId);
+    try {
+      const res = await fetch("/api/rh/expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "markPaid", reportId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Échec"
+        );
+      }
+      onFlash("Note marquée payée");
+      await load();
+    } catch (e) {
+      onFlash(e instanceof Error ? e.message : "Erreur", "err");
+    } finally {
+      setMarking(null);
+    }
+  }
+
+  return (
+    <div className="rh-screen" style={{ paddingTop: 0 }}>
+      <RhCard>
+        <div
+          className="px-4 pt-4 pb-2 flex flex-col gap-0.5"
+          style={{ borderBottom: "1px solid #15191F" }}
+        >
+          <div className="text-[13.5px] font-semibold">À rembourser</div>
+          <div className="text-[12px]" style={{ color: "#8B95A5" }}>
+            Notes approuvées — marque-les payées après virement.
+          </div>
+        </div>
+        {loading ? (
+          <div className="p-4 text-[12.5px]" style={{ color: "#8B95A5" }}>
+            Chargement…
+          </div>
+        ) : items.length === 0 ? (
+          <div className="p-4 text-[12.5px]" style={{ color: "#8B95A5" }}>
+            Aucune note approuvée en attente de paiement.
+          </div>
+        ) : (
+          items.map((r) => (
+            <div
+              key={r.id}
+              className="flex items-center gap-3 px-4 py-3"
+              style={{ borderTop: "1px solid #15191F" }}
+            >
+              <div className="flex-1 min-w-0">
+                <button
+                  type="button"
+                  className="border-0 bg-transparent cursor-pointer p-0 text-left text-[12.5px] font-medium"
+                  style={{ color: "#E7ECF2" }}
+                  onClick={() => onOpenFiche(r.employeeId)}
+                >
+                  {r.employeeName}
+                </button>
+                <div
+                  className="rh-mono text-[10px]"
+                  style={{ color: "#7E8998" }}
+                >
+                  N° {r.number} · {r.label} · {r.linesCount} ligne
+                  {r.linesCount > 1 ? "s" : ""}
+                </div>
+              </div>
+              <span
+                className="rh-mono text-[12px] font-semibold shrink-0"
+                style={{ color: LIME }}
+              >
+                {r.totalAmount.toFixed(2)} €
+              </span>
+              <RhButton
+                disabled={busy || marking === r.id}
+                onClick={() => void markPaid(r.id)}
+              >
+                {marking === r.id ? "…" : "Marquer payée"}
+              </RhButton>
+            </div>
+          ))
+        )}
+      </RhCard>
     </div>
   );
 }

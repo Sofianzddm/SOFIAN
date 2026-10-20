@@ -397,3 +397,237 @@ export async function notifyRhDecision(params: {
     console.error("[rh.notify] decision", e);
   }
 }
+
+const PRIORITY_LABEL: Record<string, string> = {
+  LOW: "Basse",
+  NORMAL: "Normale",
+  HIGH: "Haute",
+  URGENT: "Urgente",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  TODO: "À faire",
+  IN_PROGRESS: "En cours",
+  BLOCKED: "Bloquée",
+  DONE: "Terminée",
+  CANCELLED: "Annulée",
+};
+
+/** Nouvelle tâche / réassignation → assigné. */
+export async function notifyRhTaskAssigned(params: {
+  taskId: string;
+  title: string;
+  assigneeId: string;
+  creatorId: string;
+  dueAt: Date | null;
+  priority: string;
+  reassigned?: boolean;
+}) {
+  try {
+    const assignee = await prisma.rhEmployee.findUnique({
+      where: { id: params.assigneeId },
+      include: { user: { select: { id: true, email: true, prenom: true, nom: true } } },
+    });
+    const creator = await prisma.rhEmployee.findUnique({
+      where: { id: params.creatorId },
+      include: { user: { select: { prenom: true, nom: true } } },
+    });
+    if (!assignee) return;
+    const from = creator ? displayName(creator.user) : "ton manager";
+    const lien = `${baseUrl()}/rh/espace?tab=tasks&task=${params.taskId}`;
+    const due = params.dueAt
+      ? params.dueAt.toLocaleDateString("fr-FR", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        })
+      : "Sans échéance";
+    const verb = params.reassigned ? "réassignée" : "assignée";
+    await notifyUsers([assignee.user], {
+      titre: params.reassigned ? "Tâche réassignée" : "Nouvelle tâche",
+      message: `${params.title} · ${from}`,
+      lien,
+      subject: `[RH] Tâche ${verb} — ${params.title}`,
+      html: mailShell(
+        `Tâche ${verb}`,
+        `<p style="margin:0 0 12px">Bonjour ${escapeHtml(assignee.user.prenom || "")},</p>
+         <p style="margin:0 0 12px"><strong>${escapeHtml(from)}</strong> t'a ${verb} une tâche.</p>
+         <div style="background:#F5EDE0;border-left:4px solid #C8F285;border-radius:0 12px 12px 0;padding:12px 16px;font-size:14px;">
+           <strong>${escapeHtml(params.title)}</strong><br/>
+           Priorité : ${escapeHtml(PRIORITY_LABEL[params.priority] || params.priority)} · Échéance : ${escapeHtml(due)}
+         </div>`,
+        lien,
+        "Voir la tâche",
+        { eyebrow: "Hub tâches" }
+      ),
+    });
+  } catch (e) {
+    console.error("[rh.notify] task assigned", e);
+  }
+}
+
+/** Changement de statut → créateur (si ≠ acteur) + assignés (si ≠ acteur). */
+export async function notifyRhTaskStatusChanged(params: {
+  taskId: string;
+  title: string;
+  assigneeId: string;
+  assigneeIds?: string[];
+  creatorId: string;
+  actorId: string;
+  from: string;
+  to: string;
+}) {
+  try {
+    const ids = [
+      ...new Set([
+        params.assigneeId,
+        ...(params.assigneeIds || []),
+        params.creatorId,
+      ]),
+    ].filter((id) => id !== params.actorId);
+    if (!ids.length) return;
+    const people = await prisma.rhEmployee.findMany({
+      where: { id: { in: ids } },
+      include: { user: { select: { id: true, email: true, prenom: true, nom: true } } },
+    });
+    const actor = await prisma.rhEmployee.findUnique({
+      where: { id: params.actorId },
+      include: { user: { select: { prenom: true, nom: true } } },
+    });
+    const actorName = actor ? displayName(actor.user) : "Quelqu'un";
+    const lienHub = `${baseUrl()}/hub?task=${params.taskId}`;
+    const lienEspace = `${baseUrl()}/rh/espace?tab=tasks&task=${params.taskId}`;
+    const assigneeSet = new Set([
+      params.assigneeId,
+      ...(params.assigneeIds || []),
+    ]);
+    for (const p of people) {
+      const isAssignee = assigneeSet.has(p.id);
+      const lien = isAssignee ? lienEspace : lienHub;
+      await notifyUsers([p.user], {
+        titre: `Tâche · ${STATUS_LABEL[params.to] || params.to}`,
+        message: `${params.title} · ${actorName}`,
+        lien,
+        subject: `[RH] ${params.title} → ${STATUS_LABEL[params.to] || params.to}`,
+        html: mailShell(
+          "Statut mis à jour",
+          `<p style="margin:0 0 12px"><strong>${escapeHtml(actorName)}</strong> a changé le statut.</p>
+           <div style="background:#F5EDE0;border-left:4px solid #7C8CF8;border-radius:0 12px 12px 0;padding:12px 16px;font-size:14px;">
+             <strong>${escapeHtml(params.title)}</strong><br/>
+             ${escapeHtml(STATUS_LABEL[params.from] || params.from)} → <strong>${escapeHtml(STATUS_LABEL[params.to] || params.to)}</strong>
+           </div>`,
+          lien,
+          "Ouvrir",
+          { eyebrow: "Hub tâches" }
+        ),
+      });
+    }
+  } catch (e) {
+    console.error("[rh.notify] task status", e);
+  }
+}
+
+/** Nouveau commentaire → assignés + créateur (sauf auteur). */
+export async function notifyRhTaskComment(params: {
+  taskId: string;
+  title: string;
+  assigneeId: string;
+  assigneeIds?: string[];
+  creatorId: string;
+  authorId: string;
+  preview: string;
+}) {
+  try {
+    const ids = [
+      ...new Set([
+        params.assigneeId,
+        ...(params.assigneeIds || []),
+        params.creatorId,
+      ]),
+    ].filter((id) => id !== params.authorId);
+    if (!ids.length) return;
+    const people = await prisma.rhEmployee.findMany({
+      where: { id: { in: ids } },
+      include: { user: { select: { id: true, email: true, prenom: true, nom: true } } },
+    });
+    const author = await prisma.rhEmployee.findUnique({
+      where: { id: params.authorId },
+      include: { user: { select: { prenom: true, nom: true } } },
+    });
+    const authorName = author ? displayName(author.user) : "Quelqu'un";
+    const assigneeSet = new Set([
+      params.assigneeId,
+      ...(params.assigneeIds || []),
+    ]);
+    for (const p of people) {
+      const isAssignee = assigneeSet.has(p.id);
+      const lien = isAssignee
+        ? `${baseUrl()}/rh/espace?tab=tasks&task=${params.taskId}`
+        : `${baseUrl()}/hub?task=${params.taskId}`;
+      await notifyUsers([p.user], {
+        titre: "Commentaire sur une tâche",
+        message: `${authorName} · ${params.title}`,
+        lien,
+        subject: `[RH] Commentaire — ${params.title}`,
+        html: mailShell(
+          "Nouveau commentaire",
+          `<p style="margin:0 0 12px"><strong>${escapeHtml(authorName)}</strong> a commenté.</p>
+           <div style="background:#F5EDE0;border-left:4px solid #C08B8B;border-radius:0 12px 12px 0;padding:12px 16px;font-size:14px;">
+             <strong>${escapeHtml(params.title)}</strong><br/>
+             « ${escapeHtml(params.preview)} »
+           </div>`,
+          lien,
+          "Voir",
+          { eyebrow: "Hub tâches" }
+        ),
+      });
+    }
+  } catch (e) {
+    console.error("[rh.notify] task comment", e);
+  }
+}
+
+/** Mention @ dans un commentaire → personnes taguées. */
+export async function notifyRhTaskMention(params: {
+  taskId: string;
+  title: string;
+  authorId: string;
+  mentionedIds: string[];
+  preview: string;
+}) {
+  try {
+    const ids = params.mentionedIds.filter((id) => id !== params.authorId);
+    if (!ids.length) return;
+    const people = await prisma.rhEmployee.findMany({
+      where: { id: { in: ids } },
+      include: { user: { select: { id: true, email: true, prenom: true, nom: true } } },
+    });
+    const author = await prisma.rhEmployee.findUnique({
+      where: { id: params.authorId },
+      include: { user: { select: { prenom: true, nom: true } } },
+    });
+    const authorName = author ? displayName(author.user) : "Quelqu'un";
+    for (const p of people) {
+      const lien = `${baseUrl()}/rh/espace?tab=tasks&task=${params.taskId}`;
+      await notifyUsers([p.user], {
+        titre: "Tu as été mentionné",
+        message: `${authorName} · ${params.title}`,
+        lien,
+        subject: `[RH] @mention — ${params.title}`,
+        html: mailShell(
+          "Mention dans une tâche",
+          `<p style="margin:0 0 12px"><strong>${escapeHtml(authorName)}</strong> t’a mentionné.</p>
+           <div style="background:#F5EDE0;border-left:4px solid #7C8CF8;border-radius:0 12px 12px 0;padding:12px 16px;font-size:14px;">
+             <strong>${escapeHtml(params.title)}</strong><br/>
+             « ${escapeHtml(params.preview)} »
+           </div>`,
+          lien,
+          "Voir",
+          { eyebrow: "Hub tâches" }
+        ),
+      });
+    }
+  } catch (e) {
+    console.error("[rh.notify] task mention", e);
+  }
+}

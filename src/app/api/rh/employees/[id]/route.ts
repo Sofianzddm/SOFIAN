@@ -34,7 +34,11 @@ export async function GET(request: NextRequest, ctx: Ctx) {
           telephone: true,
         },
       },
+      manager: {
+        include: { user: { select: { prenom: true, nom: true } } },
+      },
       documents: { orderBy: { createdAt: "desc" } },
+      vehicle: true,
     },
   });
   if (!emp || !emp.actif) {
@@ -89,6 +93,8 @@ export async function GET(request: NextRequest, ctx: Ctx) {
       avatarColor: emp.avatarColor,
       avatarUrl: emp.avatarUrl,
       rhRole: emp.rhRole,
+      managerId: emp.managerId,
+      managerName: emp.manager ? displayName(emp.manager.user) : null,
       hireDate: emp.hireDate.toISOString(),
       weeklyHours: emp.weeklyHours,
       remoteAgreement: emp.remoteAgreement,
@@ -143,10 +149,24 @@ export async function GET(request: NextRequest, ctx: Ctx) {
       expiresOn: d.expiresOn?.toISOString() ?? null,
       url: d.url,
     })),
+    vehicle: emp.vehicle
+      ? {
+          id: emp.vehicle.id,
+          label: emp.vehicle.label,
+          fiscalHorsepower: emp.vehicle.fiscalHorsepower,
+          yearKm: emp.vehicle.yearKm,
+          carteGriseExpiresOn:
+            emp.vehicle.carteGriseExpiresOn?.toISOString().slice(0, 10) ?? null,
+          insuranceExpiresOn:
+            emp.vehicle.insuranceExpiresOn?.toISOString().slice(0, 10) ?? null,
+          licenseExpiresOn:
+            emp.vehicle.licenseExpiresOn?.toISOString().slice(0, 10) ?? null,
+        }
+      : null,
   });
 }
 
-/** HR : modifier contrat collab (horaires, avenant TT, rôle…). */
+/** HR : modifier contrat collab (horaires, avenant TT, rôle…) + véhicule IK. */
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   const session = await requireRhSessionFromRequest(request);
   if (!session || !isRhHr(session.employee.rhRole)) {
@@ -157,6 +177,59 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   if (!body || typeof body !== "object") {
     return NextResponse.json({ error: "Données invalides" }, { status: 400 });
   }
+
+  // Véhicule : CV fiscaux + validité permis (renouvellement annuel)
+  if (body.vehicle && typeof body.vehicle === "object") {
+    const v = body.vehicle as Record<string, unknown>;
+    const hp = Math.max(1, Math.min(20, Number(v.fiscalHorsepower) || 5));
+    const toDate = (raw: unknown) => {
+      if (raw == null || raw === "") return null;
+      const d = new Date(String(raw));
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+    try {
+      const { upsertVehicle } = await import("@/lib/rh/expenses");
+      const vehicle = await upsertVehicle({
+        employeeId: id,
+        label: String(v.label || "Véhicule perso"),
+        fiscalHorsepower: hp,
+        carteGriseExpiresOn: toDate(v.carteGriseExpiresOn),
+        insuranceExpiresOn: toDate(v.insuranceExpiresOn),
+        licenseExpiresOn: toDate(v.licenseExpiresOn),
+      });
+      const { writeRhAudit } = await import("@/lib/rh/workflow");
+      await writeRhAudit({
+        actorId: session.employee.id,
+        targetId: id,
+        action: "employee.vehicle.update",
+        detail: {
+          fiscalHorsepower: hp,
+          licenseExpiresOn: vehicle.licenseExpiresOn,
+        },
+      });
+      return NextResponse.json({
+        ok: true,
+        vehicle: {
+          id: vehicle.id,
+          label: vehicle.label,
+          fiscalHorsepower: vehicle.fiscalHorsepower,
+          yearKm: vehicle.yearKm,
+          carteGriseExpiresOn:
+            vehicle.carteGriseExpiresOn?.toISOString().slice(0, 10) ?? null,
+          insuranceExpiresOn:
+            vehicle.insuranceExpiresOn?.toISOString().slice(0, 10) ?? null,
+          licenseExpiresOn:
+            vehicle.licenseExpiresOn?.toISOString().slice(0, 10) ?? null,
+        },
+      });
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "Erreur" },
+        { status: 400 }
+      );
+    }
+  }
+
   const data: Record<string, unknown> = {};
   if (body.weeklyHours != null) data.weeklyHours = Number(body.weeklyHours);
   if (body.remoteAgreement != null) {
@@ -175,6 +248,40 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   if (body.rhRole === "COLLAB" || body.rhRole === "MANAGER" || body.rhRole === "HR") {
     data.rhRole = body.rhRole;
   }
+  if ("managerId" in body) {
+    const raw = body.managerId;
+    if (raw == null || raw === "") {
+      data.managerId = null;
+    } else {
+      const managerId = String(raw);
+      if (managerId === id) {
+        return NextResponse.json(
+          { error: "Un collaborateur ne peut pas être son propre manager" },
+          { status: 400 }
+        );
+      }
+      const mgr = await prisma.rhEmployee.findFirst({
+        where: { id: managerId, actif: true },
+        select: { id: true, rhRole: true },
+      });
+      if (!mgr) {
+        return NextResponse.json(
+          { error: "Manager introuvable" },
+          { status: 400 }
+        );
+      }
+      if (mgr.rhRole !== "MANAGER" && mgr.rhRole !== "HR") {
+        return NextResponse.json(
+          {
+            error:
+              "La personne choisie doit avoir le rôle Manager ou RH (passe-la en Manager d’abord)",
+          },
+          { status: 400 }
+        );
+      }
+      data.managerId = managerId;
+    }
+  }
   if (body.jobTitle != null) data.jobTitle = String(body.jobTitle);
   if (body.department != null) data.department = String(body.department);
   if (body.grossSalary != null) data.grossSalary = Number(body.grossSalary);
@@ -188,6 +295,11 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     const emp = await prisma.rhEmployee.update({
       where: { id },
       data,
+      include: {
+        manager: {
+          include: { user: { select: { prenom: true, nom: true } } },
+        },
+      },
     });
     const { writeRhAudit } = await import("@/lib/rh/workflow");
     await writeRhAudit({
@@ -203,6 +315,8 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
         remoteAgreement: emp.remoteAgreement,
         healthCover: emp.healthCover,
         rhRole: emp.rhRole,
+        managerId: emp.managerId,
+        managerName: emp.manager ? displayName(emp.manager.user) : null,
       },
     });
   } catch (e) {

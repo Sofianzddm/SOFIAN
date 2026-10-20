@@ -4,17 +4,18 @@ import {
   displayName,
   initials,
   isRhHr,
+  isRhManager,
   requireRhSessionFromRequest,
 } from "@/lib/rh/auth";
 
-/** Planning équipe : leave days + TT pour gantt / absents — admin RH. */
+/** Planning équipe : leave days + TT — HR (tous) / manager (son équipe). */
 export async function GET(request: NextRequest) {
   const session = await requireRhSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
-  if (!isRhHr(session.employee.rhRole)) {
-    return NextResponse.json({ error: "Accès RH requis" }, { status: 403 });
+  if (!isRhManager(session.employee.rhRole)) {
+    return NextResponse.json({ error: "Accès manager / RH requis" }, { status: 403 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -26,7 +27,9 @@ export async function GET(request: NextRequest) {
   );
   to.setHours(23, 59, 59, 999);
 
-  const whereEmp = { actif: true as const };
+  const whereEmp = isRhHr(session.employee.rhRole)
+    ? { actif: true as const }
+    : { actif: true as const, managerId: session.employee.id };
 
   const employees = await prisma.rhEmployee.findMany({
     where: whereEmp,
@@ -41,9 +44,14 @@ export async function GET(request: NextRequest) {
       date: { gte: from, lte: to },
       OR: [
         { requestId: null },
-        { request: { status: { in: ["PENDING", "APPROVED", "SIGNED"] } } },
+        {
+          request: {
+            status: { in: ["PENDING", "APPROVED", "SIGNED", "PAUSED"] },
+          },
+        },
       ],
     },
+    include: { request: { select: { status: true } } },
   });
 
   const remotes = await prisma.rhRemoteDeclaration.findMany({
@@ -62,7 +70,7 @@ export async function GET(request: NextRequest) {
 
   const byEmp: Record<
     string,
-    Array<{ date: string; kind: string; halfDay: boolean }>
+    Array<{ date: string; kind: string; halfDay: boolean; status?: string }>
   > = {};
   for (const id of ids) byEmp[id] = [];
 
@@ -71,6 +79,7 @@ export async function GET(request: NextRequest) {
       date: d.date.toISOString().slice(0, 10),
       kind: d.accountCode,
       halfDay: d.halfDay,
+      status: d.request?.status || "APPROVED",
     });
   }
   for (const r of remotes) {
@@ -79,11 +88,53 @@ export async function GET(request: NextRequest) {
       if (key >= from.toISOString().slice(0, 10) && key <= to.toISOString().slice(0, 10)) {
         const already = byEmp[r.employeeId]?.some((x) => x.date === key && x.kind === "TT");
         if (!already) {
-          byEmp[r.employeeId]?.push({ date: key, kind: "TT", halfDay: false });
+          byEmp[r.employeeId]?.push({
+            date: key,
+            kind: "TT",
+            halfDay: false,
+            status: "APPROVED",
+          });
         }
       }
     }
   }
+
+  // TT en attente de validation (plan / exception)
+  const fromKey = from.toISOString().slice(0, 10);
+  const toKey = to.toISOString().slice(0, 10);
+  const pendingTt = await prisma.rhRequest.findMany({
+    where: {
+      employeeId: { in: ids },
+      type: { in: ["REMOTE_PLAN", "REMOTE_EXCEPTION"] },
+      status: { in: ["PENDING", "PAUSED"] },
+    },
+    select: { employeeId: true, payload: true },
+  });
+  for (const req of pendingTt) {
+    const payload = (req.payload || {}) as {
+      dates?: string[];
+      date?: string;
+    };
+    const dates = Array.isArray(payload.dates)
+      ? payload.dates.map((d) => String(d).slice(0, 10))
+      : payload.date
+        ? [String(payload.date).slice(0, 10)]
+        : [];
+    for (const date of dates) {
+      if (date < fromKey || date > toKey) continue;
+      const already = byEmp[req.employeeId]?.some(
+        (x) => x.date === date && x.kind === "TT"
+      );
+      if (already) continue;
+      byEmp[req.employeeId]?.push({
+        date,
+        kind: "TT",
+        halfDay: false,
+        status: "PENDING",
+      });
+    }
+  }
+
   for (const w of workDays) {
     const key = w.date.toISOString().slice(0, 10);
     const kind =

@@ -16,7 +16,7 @@ import {
 } from "@/components/rh/employee/parts";
 
 const STATUS_TONE: Record<RequestStatus, string> = {
-  pending: EMP_COLORS.warning,
+  pending: EMP_COLORS.orange, // en attente d’approbation
   approved: EMP_COLORS.success,
   refused: EMP_COLORS.danger,
 };
@@ -44,6 +44,34 @@ function mapStatus(raw: string): RequestStatus {
   if (s === "approved" || s === "signed") return "approved";
   if (s === "refused" || s === "cancelled") return "refused";
   return "pending";
+}
+
+function formatDuration(days: unknown, minutes: unknown): string {
+  const mins =
+    typeof minutes === "number" && Number.isFinite(minutes)
+      ? minutes
+      : null;
+  if (mins != null && mins > 0) {
+    if (mins < 60) return `${mins} min`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m ? `${h} h ${m}` : `${h} h`;
+  }
+  if (days != null && Number.isFinite(Number(days))) {
+    const d = Number(days);
+    if (d > 0 && d < 1) {
+      // Fractions de jour (récup horaire sans minutes en payload)
+      const inferred = Math.round(d * 420);
+      if (inferred > 0 && inferred < 420) {
+        if (inferred < 60) return `${inferred} min`;
+        const h = Math.floor(inferred / 60);
+        const m = inferred % 60;
+        return m ? `${h} h ${m}` : `${h} h`;
+      }
+    }
+    return `${String(d).replace(".", ",")} j`;
+  }
+  return "—";
 }
 
 export function RequestsScreen({
@@ -104,7 +132,7 @@ export function RequestsScreen({
                 .filter(Boolean)
                 .join(" → ")
             : "—",
-          duration: item.days != null ? `${item.days} j` : "—",
+          duration: formatDuration(item.days, item.minutes),
           submittedAt: item.createdAt
             ? new Date(String(item.createdAt)).toLocaleString("fr-FR")
             : "—",

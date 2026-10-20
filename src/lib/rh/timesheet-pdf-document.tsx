@@ -221,6 +221,8 @@ export type TimesheetPdfDay = {
   weekday: string;
   slotsLabel: string;
   breakMinutes: number;
+  breakFrom?: string | null;
+  breakTo?: string | null;
   totalMinutes: number;
   isWeekend: boolean;
   isHoliday: boolean;
@@ -352,7 +354,11 @@ export function TimesheetPdfDocument({ data }: { data: TimesheetPdfData }) {
               {d.slotsLabel || "—"}
             </Text>
             <Text style={[styles.cell, { width: "14%", textAlign: "right" }]}>
-              {d.breakMinutes ? `${d.breakMinutes} min` : "—"}
+              {d.breakFrom && d.breakTo
+                ? `${d.breakFrom}–${d.breakTo}`
+                : d.breakMinutes
+                  ? `${d.breakMinutes} min`
+                  : "—"}
             </Text>
             <Text
               style={[

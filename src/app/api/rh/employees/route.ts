@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
         avatarColor: e.avatarColor,
         avatarUrl: e.avatarUrl,
         rhRole: e.rhRole,
+        managerId: e.managerId,
         hireDate: e.hireDate.toISOString(),
         remoteAgreement: e.remoteAgreement,
         healthCover: e.healthCover,

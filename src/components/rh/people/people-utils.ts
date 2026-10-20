@@ -87,7 +87,13 @@ export type PlanningEmp = {
   color: string;
   department: string;
   matricule: string;
-  events: Array<{ date: string; kind: string; halfDay: boolean }>;
+  events: Array<{
+    date: string;
+    kind: string;
+    halfDay: boolean;
+    /** PENDING / PAUSED = en attente d’approbation */
+    status?: string;
+  }>;
 };
 
 export type TeamAbsence = {
@@ -118,6 +124,8 @@ export type EmployeeFiche = {
     remoteAgreement?: number;
     healthCover?: string;
     rhRole?: string;
+    managerId?: string | null;
+    managerName?: string | null;
   };
   balances: Array<{
     id: string;
@@ -134,6 +142,15 @@ export type EmployeeFiche = {
     days: number | null;
     createdAt: string;
   }>;
+  vehicle?: {
+    id: string;
+    label: string | null;
+    fiscalHorsepower: number;
+    yearKm: number;
+    carteGriseExpiresOn: string | null;
+    insuranceExpiresOn: string | null;
+    licenseExpiresOn: string | null;
+  } | null;
 };
 
 export type PlanningData = {

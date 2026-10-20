@@ -10,6 +10,12 @@ import { render } from "@react-email/render";
 import { ContratGlowUpEmail } from "@/lib/emails/ContratGlowUpEmail";
 import { CONTRAT_TALENT_ROLES } from "@/lib/talent-contrats";
 import { notifierEquipeContratTalent } from "@/lib/talent-contrats-notify";
+import {
+  ensureDocuSealSubmitterEmail,
+  getAgenceSignatureEmail,
+  getAgenceSignatureName,
+  isAgenceSubmitter,
+} from "@/lib/agence-signature";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
@@ -127,11 +133,8 @@ export async function POST(
     const talentName =
       `${contrat.talent.prenom} ${contrat.talent.nom}`.trim() || "Talent";
 
-    const agenceEmail =
-      process.env.AGENCE_SIGNATURE_EMAIL?.trim() ||
-      process.env.NEXT_PUBLIC_AGENCE_EMAIL?.trim() ||
-      "contrat@glowupagence.fr";
-    const agenceName = process.env.NEXT_PUBLIC_AGENCE_NOM?.trim() || "Glow Up Agence";
+    const agenceEmail = getAgenceSignatureEmail();
+    const agenceName = getAgenceSignatureName();
 
     // Signataires : Talent (ordre 1), puis Agence (ordre 2) si demandé — sans doublon d'email
     const submitters: { email: string; name: string; role: string; order: number }[] = [
@@ -223,17 +226,28 @@ export async function POST(
       // Double signature : envoyer le lien à contrat@ dès l'envoi (comme les devis).
       // Un 2e mail « Le talent a signé » partira via le webhook DocuSeal.
       if (contrat.avecSignatureAgence) {
-        const agenceSubmitter = submissionList.find((s) => {
-          const role = (s.role || "").trim().toLowerCase();
-          const email = (s.email || "").trim().toLowerCase();
-          return (
-            role === "agence" || email === agenceEmail.toLowerCase()
-          );
-        });
+        const agenceSubmitter = submissionList.find((s) =>
+          isAgenceSubmitter({
+            role: s.role,
+            email: s.email,
+            agenceEmail,
+          })
+        );
+        // DocuSeal peut renvoyer un email typé (ex. gloupagence) → on force le canonique
+        if (agenceSubmitter?.id != null) {
+          await ensureDocuSealSubmitterEmail({
+            apiKey: docusealKey,
+            submitterId: agenceSubmitter.id,
+            expectedEmail: agenceEmail,
+            expectedName: agenceName,
+            currentEmail: agenceSubmitter.email,
+          });
+          agenceSubmitter.email = agenceEmail;
+        }
         const agenceSigningUrl = agenceSubmitter
           ? getSubmitterSigningUrl(agenceSubmitter)
           : null;
-        if (agenceSubmitter?.email && agenceSigningUrl) {
+        if (agenceSigningUrl) {
           const htmlAgence = await render(
             React.createElement(ContratGlowUpEmail, {
               signerName: agenceName,
@@ -244,8 +258,8 @@ export async function POST(
             })
           );
           const sendAgence = await resend.emails.send({
-            from: resendFromAddress(agenceSubmitter.email),
-            to: agenceSubmitter.email,
+            from: resendFromAddress(agenceEmail),
+            to: agenceEmail,
             subject: `À signer — Contrat talent — ${contrat.titre}`,
             html: htmlAgence,
           });

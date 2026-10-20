@@ -2,9 +2,11 @@ import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import {
   assertLegalBreak,
+  breakRangeMinutes,
   dayNetMinutes,
   LEGAL_BREAK_MIN_MINUTES,
   slotsBreakMinutes,
+  slotsBreakWindow,
   slotsGrossMinutes,
   splitOvertime,
 } from "@/lib/rh/calculations";
@@ -109,6 +111,9 @@ export async function updateTimesheetDays(params: {
     date: string;
     slots: Slot[];
     breakMinutes: number;
+    /** Horaires de pause (créneau unique sans trou auto) */
+    breakFrom?: string | null;
+    breakTo?: string | null;
     exception?: boolean;
     /** Justification HS / exception pour ce jour */
     note?: string | null;
@@ -139,7 +144,27 @@ export async function updateTimesheetDays(params: {
       );
     }
 
-    const breakMinutes = effectiveBreakMinutes(slots, day.breakMinutes);
+    const autoWindow = slotsBreakWindow(slots);
+    const fromRange =
+      typeof day.breakFrom === "string" && /^\d{2}:\d{2}$/.test(day.breakFrom)
+        ? day.breakFrom
+        : null;
+    const toRange =
+      typeof day.breakTo === "string" && /^\d{2}:\d{2}$/.test(day.breakTo)
+        ? day.breakTo
+        : null;
+    const rangeMinutes =
+      fromRange && toRange ? breakRangeMinutes(fromRange, toRange) : 0;
+    const inputtedBreak =
+      rangeMinutes > 0 ? rangeMinutes : Math.max(0, day.breakMinutes || 0);
+    const breakMinutes = effectiveBreakMinutes(slots, inputtedBreak);
+    const breakFrom = slots.length
+      ? autoWindow?.from || (rangeMinutes > 0 ? fromRange : null)
+      : null;
+    const breakTo = slots.length
+      ? autoWindow?.to || (rangeMinutes > 0 ? toRange : null)
+      : null;
+
     if (slots.length > 0) {
       // L3121-16 : ≥ 20 min dès 6 h brutes (plancher légal, indépendant du défaut UI)
       assertLegalBreak(slotsGrossMinutes(slots), breakMinutes, {
@@ -159,6 +184,8 @@ export async function updateTimesheetDays(params: {
         date,
         slots,
         breakMinutes: slots.length ? breakMinutes : 0,
+        breakFrom,
+        breakTo,
         totalMinutes,
         exception,
         note: note ?? null,
@@ -166,6 +193,8 @@ export async function updateTimesheetDays(params: {
       update: {
         slots,
         breakMinutes: slots.length ? breakMinutes : 0,
+        breakFrom,
+        breakTo,
         totalMinutes,
         exception,
         ...(note !== undefined ? { note } : {}),
@@ -257,10 +286,17 @@ export async function submitTimesheet(params: {
   const otTotal = ts.ot25Minutes + ts.ot50Minutes;
   const needsJustification = overDays.length > 0 || otTotal > 0;
   const dayNotesSummary = overDays
+    .filter((d) => d.note?.trim())
     .map((d) => `${d.iso} : ${d.note!.trim()}`)
     .join("\n");
   const overtimeNote =
     dayNotesSummary || params.overtimeNote?.trim() || null;
+  // HS hebdo (ex. 5×7,5 h) sans jour « dépassé » → motif semaine obligatoire
+  if (otTotal > 0 && !overtimeNote) {
+    throw new Error(
+      "Justification obligatoire pour les heures supplémentaires (motif semaine ou par jour)"
+    );
+  }
   const microOt =
     otTotal > 0 && otTotal < settings.microOtMaxMinutes;
 
@@ -347,7 +383,11 @@ export async function decideTimesheet(params: {
   const wasSubmitted = ts.status === "SUBMITTED" || ts.status === "PAUSED";
   await prisma.rhTimesheet.update({
     where: { id: ts.id },
-    data: { status: approved ? "APPROVED" : "DRAFT" },
+    data: {
+      status: approved ? "APPROVED" : "DRAFT",
+      // Refus → détache la demande pour pouvoir resoumettre proprement
+      ...(approved ? {} : { requestId: null }),
+    },
   });
   if (ts.requestId) {
     await prisma.rhRequest.update({

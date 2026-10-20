@@ -4,9 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
-  FileSpreadsheet,
-  FileText,
-  History,
   Loader2,
   MessageSquare,
   Paperclip,
@@ -64,14 +61,20 @@ type OcrAnalyse = {
   analyseLe: string;
 };
 
+/** Taux TVA proposés (resto = souvent 10 %, pas 20 %). */
+const TAUX_TVA_OPTIONS = ["0", "5.5", "10", "20"] as const;
+
 const emptyForm = () => ({
   date: new Date().toISOString().slice(0, 10),
   category: "Admin",
   label: "",
   amount: "",
-  vatRate: "20",
+  /** Chaîne vide = à choisir (plus de 20 % forcé). */
+  vatRate: "",
+  vatAmount: "" as string,
   justification: "",
   isMileage: false,
+  isCompanyMeal: false,
   km: "",
   receiptUrl: "",
   receiptName: "",
@@ -79,6 +82,18 @@ const emptyForm = () => ({
   analyseIA: null as OcrAnalyse | null,
   talentIds: [] as string[],
 });
+
+function normalizeVatOption(raw: number | string | null | undefined): string {
+  if (raw == null || raw === "") return "";
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return "";
+  const match = TAUX_TVA_OPTIONS.find((t) => Number(t) === n);
+  return match ?? "";
+}
+
+function defaultVatForCategory(category: string): string {
+  return category === "Repas" ? "10" : "";
+}
 
 type Summary = {
   horsKm: number;
@@ -100,7 +115,6 @@ type Report = {
   periodYear: number;
   totalAmount: number;
   createdAt: string;
-  paidBy: string;
   nextApprover: string | null;
   summary: Summary;
   lines: Line[];
@@ -146,9 +160,12 @@ export function ExpensesScreen() {
     payrollDeduction: number;
   } | null>(null);
   const [vehicle, setVehicle] = useState<{
+    label?: string | null;
     fiscalHorsepower?: number;
     yearKm?: number;
     insuranceExpiresOn?: string | null;
+    carteGriseExpiresOn?: string | null;
+    licenseExpiresOn?: string | null;
   } | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -282,23 +299,31 @@ export function ExpensesScreen() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload impossible");
       const analyse = (data.analyse || null) as OcrAnalyse | null;
-      setForm((f) => ({
-        ...f,
-        receiptUrl: data.url,
-        receiptName: data.name,
-        ocrVerified: false,
-        analyseIA: analyse,
-        date: analyse?.date || f.date,
-        amount:
-          analyse?.montantTTC != null ? String(analyse.montantTTC) : f.amount,
-        vatRate:
-          analyse?.tauxTVA != null ? String(analyse.tauxTVA) : f.vatRate,
-        category: analyse?.natureRh || f.category,
-        label:
-          analyse?.fournisseur
-            ? `Ticket ${analyse.fournisseur}`
-            : f.label || data.name?.replace(/\.[^.]+$/, "") || f.label,
-      }));
+      setForm((f) => {
+        const category = analyse?.natureRh || f.category;
+        const fromOcr = normalizeVatOption(analyse?.tauxTVA);
+        return {
+          ...f,
+          receiptUrl: data.url,
+          receiptName: data.name,
+          ocrVerified: false,
+          analyseIA: analyse,
+          date: analyse?.date || f.date,
+          amount:
+            analyse?.montantTTC != null ? String(analyse.montantTTC) : f.amount,
+          vatRate:
+            fromOcr || f.vatRate || defaultVatForCategory(category),
+          vatAmount:
+            analyse?.montantTVA != null
+              ? String(analyse.montantTVA)
+              : f.vatAmount,
+          category,
+          label:
+            analyse?.fournisseur
+              ? `Ticket ${analyse.fournisseur}`
+              : f.label || data.name?.replace(/\.[^.]+$/, "") || f.label,
+        };
+      });
       if (analyse) {
         toast.success("Ticket scanné — vérifie les montants");
       } else {
@@ -345,6 +370,10 @@ export function ExpensesScreen() {
       toast.error("Scanne d’abord ton ticket");
       return;
     }
+    if (!form.isMileage && !form.vatRate) {
+      toast.error("Choisis un taux de TVA dans la liste");
+      return;
+    }
     if (!form.isMileage && !form.ocrVerified) {
       toast.error("Coche « J’ai vérifié le scan » avant d’enregistrer");
       return;
@@ -363,11 +392,19 @@ export function ExpensesScreen() {
           label: form.label || form.category,
           amount: Number(form.amount) || 0,
           vatRate: form.isMileage ? 0 : Number(form.vatRate) || 0,
+          vatAmount:
+            !form.isMileage && form.vatAmount !== ""
+              ? Number(form.vatAmount)
+              : undefined,
           justification: form.justification.trim(),
           talentIds: form.talentIds,
           analyseIA: form.analyseIA,
           ocrVerified: form.isMileage || form.ocrVerified,
           isMileage: form.isMileage,
+          isCompanyMeal:
+            !form.isMileage &&
+            form.category === "Repas" &&
+            form.isCompanyMeal,
           km: form.isMileage ? Number(form.km) || 0 : undefined,
           fiscalHp: vehicle?.fiscalHorsepower,
           receiptUrl: form.receiptUrl || undefined,
@@ -459,13 +496,22 @@ export function ExpensesScreen() {
     }
   }
 
-  async function saveVehicle() {
-    const label = prompt("Libellé véhicule", "Véhicule perso") || "Véhicule perso";
-    const hp = Number(prompt("CV fiscaux", String(vehicle?.fiscalHorsepower || 5)) || 5);
+  async function saveVehicleDocs() {
+    if (!vehicle?.fiscalHorsepower) {
+      toast.error(
+        "Demande à RH de déclarer ton véhicule (CV fiscaux + validité permis)"
+      );
+      return;
+    }
     const insurance = prompt(
       "Expiration assurance (YYYY-MM-DD)",
       vehicle?.insuranceExpiresOn?.slice(0, 10) || ""
     );
+    const carteGrise = prompt(
+      "Expiration carte grise / contrôle (YYYY-MM-DD)",
+      vehicle?.carteGriseExpiresOn?.slice(0, 10) || insurance || ""
+    );
+    if (!insurance && !carteGrise) return;
     setBusy(true);
     try {
       const res = await fetch("/api/rh/expenses", {
@@ -473,16 +519,17 @@ export function ExpensesScreen() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "upsertVehicle",
-          label,
-          fiscalHorsepower: hp,
-          insuranceExpiresOn: insurance || null,
-          carteGriseExpiresOn: insurance || null,
-          licenseExpiresOn: insurance || null,
+          label: vehicle.label || "Véhicule perso",
+          fiscalHorsepower: vehicle.fiscalHorsepower,
+          insuranceExpiresOn: insurance || vehicle.insuranceExpiresOn || null,
+          carteGriseExpiresOn:
+            carteGrise || vehicle.carteGriseExpiresOn || null,
+          licenseExpiresOn: vehicle.licenseExpiresOn || null,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
-      toast.success("Véhicule enregistré");
+      toast.success("Documents véhicule mis à jour");
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
@@ -612,40 +659,9 @@ export function ExpensesScreen() {
                   >
                     <span style={{ color: EMP_COLORS.dim }}>Déclarant :</span>
                     <span style={{ color: EMP_COLORS.text }}>{declarant}</span>
-                    <span style={{ color: EMP_COLORS.dim }}>Réglée par :</span>
-                    <span style={{ color: EMP_COLORS.text }}>{active.paidBy}</span>
                     <span style={{ color: EMP_COLORS.dim }}>Statut :</span>
                     <span style={{ color: EMP_COLORS.text }}>{statusText}</span>
                   </div>
-                </div>
-                <div
-                  className="flex items-center gap-2"
-                  style={{ color: EMP_COLORS.dim }}
-                >
-                  <button
-                    type="button"
-                    className="rh-btn-secondary p-2"
-                    title="Historique"
-                    disabled
-                  >
-                    <History size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    className="rh-btn-secondary p-2"
-                    title="PDF"
-                    disabled
-                  >
-                    <FileText size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    className="rh-btn-secondary p-2"
-                    title="Excel"
-                    disabled
-                  >
-                    <FileSpreadsheet size={15} />
-                  </button>
                 </div>
               </div>
 
@@ -962,7 +978,7 @@ export function ExpensesScreen() {
                     category: e.target.checked
                       ? "Frais kilométriques"
                       : "Admin",
-                    vatRate: e.target.checked ? "0" : "20",
+                    vatRate: e.target.checked ? "0" : "",
                     ocrVerified: e.target.checked ? true : false,
                   })
                 }
@@ -1115,7 +1131,6 @@ export function ExpensesScreen() {
                             setForm({
                               ...form,
                               date: e.target.value,
-                              ocrVerified: false,
                             })
                           }
                         />
@@ -1125,13 +1140,16 @@ export function ExpensesScreen() {
                         <select
                           className="rh-input"
                           value={form.category}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const category = e.target.value;
                             setForm({
                               ...form,
-                              category: e.target.value,
-                              ocrVerified: false,
-                            })
-                          }
+                              category,
+                              vatRate:
+                                form.vatRate ||
+                                defaultVatForCategory(category),
+                            });
+                          }}
                         >
                           {NATURES.filter(
                             (n) => n !== "Frais kilométriques"
@@ -1149,7 +1167,6 @@ export function ExpensesScreen() {
                             setForm({
                               ...form,
                               label: e.target.value,
-                              ocrVerified: false,
                             })
                           }
                           placeholder="Ex. Déjeuner client / Uber shooting"
@@ -1164,24 +1181,29 @@ export function ExpensesScreen() {
                             setForm({
                               ...form,
                               amount: e.target.value,
-                              ocrVerified: false,
                             })
                           }
                         />
                       </label>
                       <label className="flex flex-col gap-1">
-                        <EmpLabel>Taux TVA %</EmpLabel>
-                        <input
+                        <EmpLabel>Taux TVA</EmpLabel>
+                        <select
                           className="rh-input rh-mono"
                           value={form.vatRate}
                           onChange={(e) =>
                             setForm({
                               ...form,
                               vatRate: e.target.value,
-                              ocrVerified: false,
                             })
                           }
-                        />
+                        >
+                          <option value="">Choisir…</option>
+                          {TAUX_TVA_OPTIONS.map((t) => (
+                            <option key={t} value={t}>
+                              {t === "0" ? "0 % (sans TVA)" : `${t} %`}
+                            </option>
+                          ))}
+                        </select>
                       </label>
                     </div>
                     <label
@@ -1201,6 +1223,28 @@ export function ExpensesScreen() {
                         correspondent bien au justificatif.
                       </span>
                     </label>
+                    {form.category === "Repas" ? (
+                      <label
+                        className="flex items-start gap-2 text-[12.5px] leading-[1.4] cursor-pointer"
+                        style={{ color: EMP_COLORS.body }}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={form.isCompanyMeal}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              isCompanyMeal: e.target.checked,
+                            })
+                          }
+                        />
+                        <span>
+                          Repas pris en charge par la société (pas de
+                          titre-restaurant ce jour-là)
+                        </span>
+                      </label>
+                    ) : null}
                   </div>
                 ) : (
                   <>
@@ -1362,37 +1406,55 @@ export function ExpensesScreen() {
                 </div>
 
                 {form.isMileage ? (
-                  vehicle ? (
+                  vehicle?.fiscalHorsepower ? (
                     <div
-                      className="rh-mono text-[10px] flex items-center gap-2"
-                      style={{ color: EMP_COLORS.dim }}
+                      className="rounded-[10px] px-3 py-2.5 flex flex-col gap-1.5"
+                      style={{
+                        background: EMP_COLORS.inset,
+                        border: `1px solid ${EMP_COLORS.borderControl}`,
+                      }}
                     >
-                      Véhicule {vehicle.fiscalHorsepower} CV · {vehicle.yearKm}{" "}
-                      km YTD
+                      <div
+                        className="rh-mono text-[11px]"
+                        style={{ color: EMP_COLORS.body }}
+                      >
+                        Véhicule {vehicle.fiscalHorsepower} CV ·{" "}
+                        {vehicle.yearKm ?? 0} km YTD
+                        {vehicle.licenseExpiresOn
+                          ? ` · permis → ${vehicle.licenseExpiresOn.slice(0, 10)}`
+                          : " · permis non renseigné (RH)"}
+                      </div>
                       <button
                         type="button"
-                        className="border-0 bg-transparent cursor-pointer text-[11px]"
+                        className="self-start border-0 bg-transparent cursor-pointer p-0 text-[12px] font-medium"
                         style={{ color: EMP_COLORS.accent }}
-                        onClick={() => void saveVehicle()}
+                        onClick={() => void saveVehicleDocs()}
                       >
-                        Modifier
+                        Maj assurance / carte grise
                       </button>
                     </div>
                   ) : (
                     <div
-                      className="text-[11px]"
-                      style={{ color: EMP_COLORS.warning }}
+                      className="rounded-[10px] px-3 py-2.5 flex flex-col gap-1.5"
+                      style={{
+                        background: "rgba(242,194,78,.08)",
+                        border: `1px solid rgba(242,194,78,.25)`,
+                      }}
                     >
-                      Pas de véhicule déclaré —{" "}
-                      <button
-                        type="button"
-                        className="border-0 bg-transparent cursor-pointer underline"
-                        style={{ color: EMP_COLORS.accent }}
-                        onClick={() => void saveVehicle()}
+                      <div
+                        className="text-[12px] leading-[1.45]"
+                        style={{ color: EMP_COLORS.warning }}
                       >
-                        déclarer
-                      </button>{" "}
-                      (requis pour les IK).
+                        Aucun véhicule en fiche. L’admin RH doit enregistrer
+                        les CV fiscaux et la validité du permis avant les IK.
+                      </div>
+                      <a
+                        href="mailto:rh@glow-up.fr?subject=Déclaration%20véhicule%20IK"
+                        className="self-start text-[12px] font-medium"
+                        style={{ color: EMP_COLORS.accent }}
+                      >
+                        Demander à RH →
+                      </a>
                     </div>
                   )
                 ) : null}
@@ -1402,7 +1464,8 @@ export function ExpensesScreen() {
                   disabled={
                     busy ||
                     scanning ||
-                    (!form.isMileage && !form.ocrVerified) ||
+                    (!form.isMileage &&
+                      (!form.ocrVerified || !form.vatRate)) ||
                     form.justification.trim().length < 20
                   }
                   onClick={() => void addLine()}

@@ -17,6 +17,18 @@ import {
 import { useRhData } from "@/components/rh/RhDataContext";
 import { buildThreeMonths, LEAVE_LEGEND } from "@/lib/rh/calendar-ui";
 import { TeamOfficialCalendar } from "@/components/rh/employee/TeamOfficialCalendar";
+import { leaveDaysToMinutes } from "@/lib/rh/calculations";
+
+/** Affiche un solde récup en jours + heures (ex. « 0,1 j · 42 min »). */
+function formatRecupBalance(days: number): string {
+  const mins = leaveDaysToMinutes(days);
+  const j = days.toFixed(1).replace(".", ",");
+  if (mins <= 0) return `${j} j · 0 min`;
+  if (mins < 60) return `${j} j · ${mins} min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m ? `${j} j · ${h} h ${m}` : `${j} j · ${h} h`;
+}
 
 type Balance = {
   accountCode: string;
@@ -57,11 +69,13 @@ export function LeaveScreen() {
   const [halfDay, setHalfDay] = useState(false);
   const [half, setHalf] = useState<"AM" | "PM">("AM");
   const [minutes, setMinutes] = useState<number | "">(60);
+  /** Récup : par défaut en heures (15 min → 7 h). */
   const [durationMode, setDurationMode] = useState<"days" | "half" | "hours">(
-    "days"
+    "hours"
   );
   const [showMoreTypes, setShowMoreTypes] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [showTeamCal, setShowTeamCal] = useState(false);
   const [comment, setComment] = useState("");
   const canHours =
     accountCode === "RECUP" || accountCode === "AUTHORIZED";
@@ -166,7 +180,7 @@ export function LeaveScreen() {
   const rtt = balances.find((b) => b.accountCode === "RTT");
   const typeHelp: Record<string, string> = {
     RECUP:
-      "Pose en jours ou en minutes (15 min → 7 h). À utiliser avant expiration.",
+      "Pose de 15 min à 7 h, puis envoi pour validation manager. À utiliser avant expiration.",
     RTT: "Jours RTT de ton compteur (si ton contrat en prévoit).",
     CP: "Congés payés — posables après 1 an d’ancienneté.",
     SS: "Arrêt maladie — calendrier (week-ends inclus si besoin).",
@@ -177,20 +191,32 @@ export function LeaveScreen() {
 
   return (
     <div className="rh-screen">
-      <div>
-        <h1
-          className="m-0 text-[26px] font-semibold tracking-[-0.03em]"
-          style={{ color: EMP_COLORS.text }}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1
+            className="m-0 text-[26px] font-semibold tracking-[-0.03em]"
+            style={{ color: EMP_COLORS.text }}
+          >
+            Absences
+          </h1>
+          <p
+            className="m-0 mt-2 text-[14px] leading-[1.5] max-w-[520px]"
+            style={{ color: EMP_COLORS.muted }}
+          >
+            1 · Type · 2 · Dates · 3 · Envoi à{" "}
+            {me?.employee.manager?.name || "ton manager"}.
+          </p>
+        </div>
+        <div
+          className="rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold"
+          style={{
+            background: "rgba(70,214,192,.12)",
+            color: EMP_COLORS.success,
+            border: "1px solid rgba(70,214,192,.35)",
+          }}
         >
-          Poser une absence
-        </h1>
-        <p
-          className="m-0 mt-2 text-[14px] leading-[1.5] max-w-[560px]"
-          style={{ color: EMP_COLORS.muted }}
-        >
-          3 étapes : type → dates → envoi à{" "}
-          {me?.employee.manager?.name || "ton manager"}.
-        </p>
+          {bookableTotal.toFixed(1).replace(".", ",")} j posables
+        </div>
       </div>
 
       {cpBlocked ? (
@@ -210,278 +236,20 @@ export function LeaveScreen() {
         <EmpAlert tone="warning" title="Récupération à utiliser">
           À poser avant le{" "}
           {new Date(recup.expiresOn).toLocaleDateString("fr-FR")} — il te reste{" "}
-          {recup.bookable.toFixed(1).replace(".", ",")} j.
+          {formatRecupBalance(recup.bookable)}.
         </EmpAlert>
       ) : null}
 
-      <RhCard strong>
-        <RhCardHead title="Nouvelle demande" />
-        <div className="flex flex-col gap-5 p-5">
-          {/* Étape 1 — type */}
-          <div>
-            <EmpLabel>1 · Qu’est-ce que tu poses ?</EmpLabel>
-            <div data-tour="leave-types" className="mt-2 flex flex-wrap gap-2">
-              {(
-                [
-                  ["RECUP", "Récup"],
-                  ["CP", "Congés payés"],
-                  ["RTT", "RTT"],
-                ] as const
-              ).map(([id, label]) => {
-                const disabled =
-                  (id === "CP" && !!cpBlocked) ||
-                  (id === "RTT" && (!rtt || rtt.bookable <= 0));
-                const on = accountCode === id;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => {
-                      setAccountCode(id);
-                      if (id !== "RECUP" && durationMode === "hours") {
-                        setMode("days");
-                      }
-                    }}
-                    className="border-0 cursor-pointer rounded-full px-3.5 py-2 text-[13px] font-semibold disabled:opacity-40 disabled:cursor-default"
-                    style={{
-                      background: on
-                        ? "rgba(229,242,181,.16)"
-                        : EMP_COLORS.inset,
-                      color: on ? EMP_COLORS.accent : EMP_COLORS.muted,
-                      outline: on
-                        ? `2px solid ${EMP_COLORS.accent}`
-                        : `1px solid ${EMP_COLORS.borderControl}`,
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => setShowMoreTypes((v) => !v)}
-                className="border-0 cursor-pointer rounded-full px-3.5 py-2 text-[13px] font-medium"
-                style={{
-                  background: "transparent",
-                  color: EMP_COLORS.dim,
-                  outline: `1px dashed ${EMP_COLORS.borderControl}`,
-                }}
-              >
-                {showMoreTypes ? "Moins" : "Autre…"}
-              </button>
-            </div>
-            {showMoreTypes ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {(
-                  [
-                    ["SS", "Maladie"],
-                    ["SCHOOL", "École"],
-                    ["AUTHORIZED", "Autorisée"],
-                    ["UNPAID", "Sans solde"],
-                  ] as const
-                ).map(([id, label]) => {
-                  const on = accountCode === id;
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => {
-                        setAccountCode(id);
-                        if (id !== "AUTHORIZED" && durationMode === "hours") {
-                          setMode("days");
-                        }
-                      }}
-                      className="border-0 cursor-pointer rounded-full px-3 py-1.5 text-[12.5px] font-medium"
-                      style={{
-                        background: on
-                          ? "rgba(229,242,181,.12)"
-                          : EMP_COLORS.inset,
-                        color: on ? EMP_COLORS.accent : EMP_COLORS.muted,
-                        outline: on
-                          ? `1.5px solid ${EMP_COLORS.accent}`
-                          : `1px solid ${EMP_COLORS.borderControl}`,
-                      }}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-            <p
-              className="m-0 mt-2 text-[12.5px]"
-              style={{ color: EMP_COLORS.dim }}
-            >
-              {typeHelp[accountCode]}
-            </p>
-          </div>
-
-          {/* Étape 2 — durée */}
-          <div>
-            <EmpLabel>2 · Quelle durée ?</EmpLabel>
-            <div data-tour="leave-duration" className="mt-2 flex flex-wrap gap-2">
-              {(
-                [
-                  ["days", "Une ou plusieurs journées"],
-                  ["half", "Une demi-journée"],
-                  ...(canHours
-                    ? ([["hours", "Quelques heures"]] as const)
-                    : []),
-                ] as const
-              ).map(([id, label]) => {
-                const on = durationMode === id;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setMode(id)}
-                    className="border-0 cursor-pointer rounded-full px-3.5 py-2 text-[13px] font-semibold"
-                    style={{
-                      background: on
-                        ? "rgba(124,140,248,.18)"
-                        : EMP_COLORS.inset,
-                      color: on ? "#A5B0FA" : EMP_COLORS.muted,
-                      outline: on
-                        ? "2px solid #7C8CF8"
-                        : `1px solid ${EMP_COLORS.borderControl}`,
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Étape 3 — dates */}
-          <div data-tour="leave-dates">
-            <EmpLabel>3 · Quand ?</EmpLabel>
-            <div className="mt-2 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
-              <label className="flex flex-col gap-1.5">
-                <EmpLabel>
-                  {hourlyMode || durationMode === "half" ? "Le" : "Du"}
-                </EmpLabel>
-                <input
-                  type="date"
-                  className="rh-input"
-                  value={from}
-                  onChange={(e) => {
-                    setFrom(e.target.value);
-                    if (hourlyMode || durationMode === "half") {
-                      setTo(e.target.value);
-                    }
-                  }}
-                />
-              </label>
-              {durationMode === "days" ? (
-                <label className="flex flex-col gap-1.5">
-                  <EmpLabel>Au</EmpLabel>
-                  <input
-                    type="date"
-                    className="rh-input"
-                    value={to}
-                    onChange={(e) => setTo(e.target.value)}
-                  />
-                </label>
-              ) : null}
-              {durationMode === "half" ? (
-                <label className="flex flex-col gap-1.5">
-                  <EmpLabel>Matin ou après-midi</EmpLabel>
-                  <select
-                    className="rh-input"
-                    value={half}
-                    onChange={(e) => setHalf(e.target.value as "AM" | "PM")}
-                  >
-                    <option value="AM">Matin</option>
-                    <option value="PM">Après-midi</option>
-                  </select>
-                </label>
-              ) : null}
-              {hourlyMode ? (
-                <label className="flex flex-col gap-1.5">
-                  <EmpLabel>Combien de temps</EmpLabel>
-                  <select
-                    className="rh-input"
-                    value={String(minutes || 60)}
-                    onChange={(e) => setMinutes(Number(e.target.value))}
-                  >
-                    {[15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420].map(
-                      (m) => (
-                        <option key={m} value={m}>
-                          {m < 60
-                            ? `${m} min`
-                            : `${Math.floor(m / 60)} h${
-                                m % 60 ? ` ${m % 60}` : ""
-                              }`}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </label>
-              ) : null}
-            </div>
-          </div>
-
-          <details>
-            <summary
-              className="cursor-pointer text-[12.5px] font-medium"
-              style={{ color: EMP_COLORS.dim }}
-            >
-              Commentaire (optionnel)
-            </summary>
-            <textarea
-              className="rh-input min-h-[72px] mt-2 w-full"
-              placeholder="Ex. vacances familiales…"
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-            />
-          </details>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <RhButton
-              data-tour="leave-send"
-              disabled={submitting}
-              onClick={() => void submitLeave()}
-            >
-              <CalendarPlus size={16} />
-              {submitting
-                ? "Envoi…"
-                : `Envoyer à ${me?.employee.manager?.name || "mon manager"}`}
-            </RhButton>
-            {coverage ? (
-              <span
-                className="flex items-center gap-2 text-[13px]"
-                style={{
-                  color: coverage.belowThreshold
-                    ? EMP_COLORS.danger
-                    : EMP_COLORS.muted,
-                }}
-              >
-                <Users size={14} />
-                Équipe : {coverage.presentAfter}/{coverage.teamSize} présents
-                {coverage.belowThreshold ? " (sous 60 %)" : ""}
-              </span>
-            ) : null}
-            {message ? (
-              <span className="text-[13px]" style={{ color: EMP_COLORS.accent }}>
-                {message}
-              </span>
-            ) : null}
-          </div>
+      {/* 1 — Poser */}
+      <section className="flex flex-col gap-3">
+        <div
+          className="text-[12.5px] font-semibold uppercase tracking-[0.04em]"
+          style={{ color: EMP_COLORS.dim }}
+        >
+          1 · Poser une absence
         </div>
-      </RhCard>
 
-      <RhCard>
-        <RhCardHead
-          title="Tes soldes"
-          right={
-            <span className="text-[12.5px]" style={{ color: EMP_COLORS.accent }}>
-              {bookableTotal.toFixed(1).replace(".", ",")} j posables
-            </span>
-          }
-        />
-        <div className="flex flex-wrap gap-2 px-4 pb-4">
+        <div className="flex flex-wrap gap-2">
           {loading ? (
             <span className="text-[12px]" style={{ color: EMP_COLORS.muted }}>
               …
@@ -505,33 +273,378 @@ export function LeaveScreen() {
                   {b.label}
                 </span>
                 {" · "}
-                {b.bookable.toFixed(1).replace(".", ",")} j
+                {b.accountCode === "RECUP"
+                  ? formatRecupBalance(b.bookable)
+                  : `${b.bookable.toFixed(1).replace(".", ",")} j`}
               </span>
             ))
           )}
         </div>
-      </RhCard>
 
-      <TeamOfficialCalendar
-        kind="ABSENCE"
-        title="Calendrier officiel des absences"
-        subtitle="Visible par toute l’équipe — absences posées et en validation."
-      />
+        <RhCard strong>
+          <RhCardHead title="Nouvelle demande" />
+          <div className="flex flex-col gap-5 p-5">
+            <div>
+              <EmpLabel>Type</EmpLabel>
+              <div
+                data-tour="leave-types"
+                className="mt-2 flex flex-wrap gap-2"
+              >
+                {(
+                  [
+                    ["RECUP", "Récup"],
+                    ["CP", "Congés payés"],
+                    ["RTT", "RTT"],
+                  ] as const
+                ).map(([id, label]) => {
+                  const disabled =
+                    (id === "CP" && !!cpBlocked) ||
+                    (id === "RTT" && (!rtt || rtt.bookable <= 0));
+                  const on = accountCode === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => {
+                        setAccountCode(id);
+                        if (id === "RECUP") setMode("hours");
+                        else if (durationMode === "hours") setMode("days");
+                      }}
+                      className="border-0 cursor-pointer rounded-full px-3.5 py-2 text-[13px] font-semibold disabled:opacity-40 disabled:cursor-default"
+                      style={{
+                        background: on
+                          ? "rgba(229,242,181,.16)"
+                          : EMP_COLORS.inset,
+                        color: on ? EMP_COLORS.accent : EMP_COLORS.muted,
+                        outline: on
+                          ? `2px solid ${EMP_COLORS.accent}`
+                          : `1px solid ${EMP_COLORS.borderControl}`,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => setShowMoreTypes((v) => !v)}
+                  className="border-0 cursor-pointer rounded-full px-3.5 py-2 text-[13px] font-medium"
+                  style={{
+                    background: "transparent",
+                    color: EMP_COLORS.dim,
+                    outline: `1px dashed ${EMP_COLORS.borderControl}`,
+                  }}
+                >
+                  {showMoreTypes ? "Moins" : "Autre…"}
+                </button>
+              </div>
+              {showMoreTypes ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(
+                    [
+                      ["SS", "Maladie"],
+                      ["SCHOOL", "École"],
+                      ["AUTHORIZED", "Autorisée"],
+                      ["UNPAID", "Sans solde"],
+                    ] as const
+                  ).map(([id, label]) => {
+                    const on = accountCode === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => {
+                          setAccountCode(id);
+                          if (id === "AUTHORIZED") setMode("hours");
+                          else if (durationMode === "hours") setMode("days");
+                        }}
+                        className="border-0 cursor-pointer rounded-full px-3 py-1.5 text-[12.5px] font-medium"
+                        style={{
+                          background: on
+                            ? "rgba(229,242,181,.12)"
+                            : EMP_COLORS.inset,
+                          color: on ? EMP_COLORS.accent : EMP_COLORS.muted,
+                          outline: on
+                            ? `1.5px solid ${EMP_COLORS.accent}`
+                            : `1px solid ${EMP_COLORS.borderControl}`,
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+              <p
+                className="m-0 mt-2 text-[12.5px]"
+                style={{ color: EMP_COLORS.dim }}
+              >
+                {typeHelp[accountCode]}
+              </p>
+            </div>
 
-      <button
-        type="button"
-        onClick={() => setShowCalendar((v) => !v)}
-        className="border-0 bg-transparent cursor-pointer self-start text-[13px] font-medium px-0"
-        style={{ color: EMP_COLORS.dim }}
-      >
-        {showCalendar ? "Masquer mon calendrier" : "Voir mon calendrier perso"}
-      </button>
+            <div>
+              <EmpLabel>
+                {accountCode === "RECUP"
+                  ? "Durée (15 min → 7 h)"
+                  : "Durée"}
+              </EmpLabel>
+              {accountCode === "RECUP" || accountCode === "AUTHORIZED" ? (
+                <div
+                  data-tour="leave-duration"
+                  className="mt-2 flex flex-wrap gap-2"
+                >
+                  {(
+                    [
+                      ["hours", "En heures (15 min → 7 h)"],
+                      ["half", "Demi-journée"],
+                      ["days", "Journée(s)"],
+                    ] as const
+                  ).map(([id, label]) => {
+                    const on = durationMode === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setMode(id)}
+                        className="border-0 cursor-pointer rounded-full px-3.5 py-2 text-[13px] font-semibold"
+                        style={{
+                          background: on
+                            ? "rgba(242,135,78,.18)"
+                            : EMP_COLORS.inset,
+                          color: on ? EMP_COLORS.orange : EMP_COLORS.muted,
+                          outline: on
+                            ? `2px solid ${EMP_COLORS.orange}`
+                            : `1px solid ${EMP_COLORS.borderControl}`,
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div
+                  data-tour="leave-duration"
+                  className="mt-2 flex flex-wrap gap-2"
+                >
+                  {(
+                    [
+                      ["days", "Une ou plusieurs journées"],
+                      ["half", "Une demi-journée"],
+                    ] as const
+                  ).map(([id, label]) => {
+                    const on = durationMode === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setMode(id)}
+                        className="border-0 cursor-pointer rounded-full px-3.5 py-2 text-[13px] font-semibold"
+                        style={{
+                          background: on
+                            ? "rgba(124,140,248,.18)"
+                            : EMP_COLORS.inset,
+                          color: on ? "#A5B0FA" : EMP_COLORS.muted,
+                          outline: on
+                            ? "2px solid #7C8CF8"
+                            : `1px solid ${EMP_COLORS.borderControl}`,
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
-      {showCalendar ? (
-        <div className="rh-layout-inspect">
+            <div data-tour="leave-dates">
+              <EmpLabel>
+                {hourlyMode ? "Quand + combien de temps" : "Dates"}
+              </EmpLabel>
+              <div className="mt-2 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(160px,1fr))]">
+                <label className="flex flex-col gap-1.5">
+                  <EmpLabel>
+                    {hourlyMode || durationMode === "half" ? "Le" : "Du"}
+                  </EmpLabel>
+                  <input
+                    type="date"
+                    className="rh-input"
+                    value={from}
+                    onChange={(e) => {
+                      setFrom(e.target.value);
+                      if (hourlyMode || durationMode === "half") {
+                        setTo(e.target.value);
+                      }
+                    }}
+                  />
+                </label>
+                {durationMode === "days" ? (
+                  <label className="flex flex-col gap-1.5">
+                    <EmpLabel>Au</EmpLabel>
+                    <input
+                      type="date"
+                      className="rh-input"
+                      value={to}
+                      onChange={(e) => setTo(e.target.value)}
+                    />
+                  </label>
+                ) : null}
+                {durationMode === "half" ? (
+                  <label className="flex flex-col gap-1.5">
+                    <EmpLabel>Matin ou après-midi</EmpLabel>
+                    <select
+                      className="rh-input"
+                      value={half}
+                      onChange={(e) => setHalf(e.target.value as "AM" | "PM")}
+                    >
+                      <option value="AM">Matin</option>
+                      <option value="PM">Après-midi</option>
+                    </select>
+                  </label>
+                ) : null}
+              </div>
+              {hourlyMode ? (
+                <div className="mt-3 flex flex-col gap-2">
+                  <EmpLabel>Durée à poser</EmpLabel>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[15, 30, 45, 60, 90, 120, 180, 240, 300, 360, 420].map(
+                      (m) => {
+                        const on = Number(minutes) === m;
+                        const label =
+                          m < 60
+                            ? `${m} min`
+                            : m % 60 === 0
+                              ? `${m / 60} h`
+                              : `${Math.floor(m / 60)} h ${m % 60}`;
+                        return (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => setMinutes(m)}
+                            className="border-0 cursor-pointer rounded-full px-2.5 py-1.5 text-[12px] font-semibold rh-mono"
+                            style={{
+                              background: on
+                                ? "rgba(242,135,78,.22)"
+                                : EMP_COLORS.inset,
+                              color: on
+                                ? EMP_COLORS.orange
+                                : EMP_COLORS.muted,
+                              outline: on
+                                ? `2px solid ${EMP_COLORS.orange}`
+                                : `1px solid ${EMP_COLORS.borderControl}`,
+                            }}
+                          >
+                            {label}
+                          </button>
+                        );
+                      }
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {accountCode === "SS" ? (
+              <div className="flex flex-col gap-2">
+                <EmpLabel>Motif / dépôt justificatif (obligatoire)</EmpLabel>
+                <textarea
+                  className="rh-input min-h-[72px] w-full"
+                  placeholder="Ex. arrêt du médecin du 12/03 — justificatif envoyé à RH / déposé au bureau…"
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                />
+                <p
+                  className="m-0 text-[12px] leading-[1.45]"
+                  style={{ color: EMP_COLORS.warning }}
+                >
+                  L’admin RH doit recevoir l’arrêt (scan ou original). Sans
+                  justificatif, la validation pourra être refusée.
+                </p>
+              </div>
+            ) : (
+              <details>
+                <summary
+                  className="cursor-pointer text-[12.5px] font-medium"
+                  style={{ color: EMP_COLORS.dim }}
+                >
+                  Commentaire (optionnel)
+                </summary>
+                <textarea
+                  className="rh-input min-h-[72px] mt-2 w-full"
+                  placeholder="Ex. vacances familiales…"
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                />
+              </details>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <RhButton
+                data-tour="leave-send"
+                disabled={submitting}
+                onClick={() => void submitLeave()}
+              >
+                <CalendarPlus size={16} />
+                {submitting
+                  ? "Envoi…"
+                  : accountCode === "RECUP" || hourlyMode
+                    ? `Envoyer pour validation${
+                        hourlyMode && minutes
+                          ? ` · ${
+                              Number(minutes) < 60
+                                ? `${minutes} min`
+                                : Number(minutes) % 60 === 0
+                                  ? `${Number(minutes) / 60} h`
+                                  : `${Math.floor(Number(minutes) / 60)} h ${Number(minutes) % 60}`
+                            }`
+                          : ""
+                      }`
+                    : `Envoyer à ${me?.employee.manager?.name || "mon manager"}`}
+              </RhButton>
+              {coverage ? (
+                <span
+                  className="flex items-center gap-2 text-[13px]"
+                  style={{
+                    color: coverage.belowThreshold
+                      ? EMP_COLORS.danger
+                      : EMP_COLORS.muted,
+                  }}
+                >
+                  <Users size={14} />
+                  Équipe : {coverage.presentAfter}/{coverage.teamSize} présents
+                  {coverage.belowThreshold ? " (sous 60 %)" : ""}
+                </span>
+              ) : null}
+              {message ? (
+                <span
+                  className="text-[13px]"
+                  style={{ color: EMP_COLORS.accent }}
+                >
+                  {message}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </RhCard>
+      </section>
+
+      {/* 2 — Mon calendrier */}
+      <section className="flex flex-col gap-3">
+        <button
+          type="button"
+          onClick={() => setShowCalendar((v) => !v)}
+          className="self-start border-0 bg-transparent cursor-pointer p-0 text-[12.5px] font-semibold uppercase tracking-[0.04em]"
+          style={{ color: EMP_COLORS.dim }}
+        >
+          2 · Mon calendrier {showCalendar ? "· masquer" : "· afficher"}
+        </button>
+        {showCalendar ? (
           <RhCard>
             <RhCardHead
-              title="Ton calendrier"
+              title="Tes absences / TT"
               right={
                 <div className="flex flex-wrap items-center gap-2.5">
                   {LEAVE_LEGEND.map((l) => (
@@ -600,8 +713,42 @@ export function LeaveScreen() {
               </div>
             )}
           </RhCard>
-        </div>
-      ) : null}
+        ) : (
+          <p
+            className="m-0 text-[12.5px] leading-[1.45]"
+            style={{ color: EMP_COLORS.muted }}
+          >
+            Voir tes absences et TT posés sur les 3 prochains mois.
+          </p>
+        )}
+      </section>
+
+      {/* 3 — Calendrier équipe */}
+      <section className="flex flex-col gap-3">
+        <button
+          type="button"
+          onClick={() => setShowTeamCal((v) => !v)}
+          className="self-start border-0 bg-transparent cursor-pointer p-0 text-[12.5px] font-semibold uppercase tracking-[0.04em]"
+          style={{ color: EMP_COLORS.dim }}
+        >
+          3 · Calendrier équipe{" "}
+          {showTeamCal ? "· masquer" : "· afficher"}
+        </button>
+        {showTeamCal ? (
+          <TeamOfficialCalendar
+            kind="ABSENCE"
+            title="Calendrier officiel des absences"
+            subtitle="Visible par toute l’équipe — absences posées et en validation."
+          />
+        ) : (
+          <p
+            className="m-0 text-[12.5px] leading-[1.45]"
+            style={{ color: EMP_COLORS.muted }}
+          >
+            Voir qui est absent dans les autres pôles (lecture seule).
+          </p>
+        )}
+      </section>
     </div>
   );
 }

@@ -9,6 +9,12 @@ import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { ContratGlowUpEmail } from "@/lib/emails/ContratGlowUpEmail";
 import { SIGNATURE_DOCUMENT_ROLES } from "@/lib/signature-documents";
+import {
+  getAgenceSignatureEmail,
+  getAgenceSignatureName,
+  isAgenceSubmitter,
+  normalizeGlowupEmail,
+} from "@/lib/agence-signature";
 
 const DOCUSEAL_SUBMISSIONS = "https://api.docuseal.com/submissions";
 const DOCUSEAL_SIGNING_BASE = "https://docuseal.com/s";
@@ -158,26 +164,23 @@ export async function POST(
       );
     }
 
-    const relanceEmail = bodyEmail || pending.email.trim();
+    const isAgence = isAgenceSubmitter({
+      role: pending.role,
+      email: bodyEmail || pending.email,
+    });
+    // Agence : toujours le canonique (jamais un email DocuSeal typé)
+    const relanceEmail = isAgence
+      ? getAgenceSignatureEmail()
+      : normalizeGlowupEmail(bodyEmail || pending.email.trim());
     const signerName =
       pending.name?.trim() ||
       relanceEmail.split("@")[0] ||
       "Signataire";
-    const isAgence =
-      (pending.role || "").trim().toLowerCase() === "agence" ||
-      relanceEmail.toLowerCase() ===
-        (
-          process.env.AGENCE_SIGNATURE_EMAIL?.trim() ||
-          process.env.NEXT_PUBLIC_AGENCE_EMAIL?.trim() ||
-          "contrat@glowupagence.fr"
-        ).toLowerCase();
 
     const resend = new Resend(resendKey);
     const html = await render(
       React.createElement(ContratGlowUpEmail, {
-        signerName: isAgence
-          ? process.env.NEXT_PUBLIC_AGENCE_NOM?.trim() || "Glow Up Agence"
-          : signerName,
+        signerName: isAgence ? getAgenceSignatureName() : signerName,
         contratTitre: titre,
         signingUrl,
         isRelance: true,

@@ -12,7 +12,9 @@ import {
   assertRecupMinutes,
   assertLegalBreak,
   slotsGrossMinutes,
+  breakRangeMinutes,
   slotsBreakMinutes,
+  slotsBreakWindow,
   dayNetMinutes,
   minutesToLeaveDays,
   leaveDaysToMinutes,
@@ -227,6 +229,17 @@ export function runRhCalculationTests(): string[] {
   assert(dayNetMinutes([{ from: "09:00", to: "18:00" }], 60) === 480, "1 créneau − pause");
   assert(minutesToLabel(-15) === "-0 h 15", "label négatif propre");
   ok("slotsBreakMinutes / dayNetMinutes");
+
+  const win = slotsBreakWindow(weekday);
+  assert(!!win && win.from === "12:00" && win.to === "14:00", "fenêtre pause lun–jeu");
+  assert(breakRangeMinutes("12:00", "13:00") === 60, "pause 12→13 = 60");
+  assert(breakRangeMinutes("13:00", "12:00") === 0, "pause inversée = 0");
+  assert(
+    dayNetMinutes([{ from: "09:00", to: "18:00" }], breakRangeMinutes("12:00", "13:00")) ===
+      480,
+    "1 créneau − horaires pause"
+  );
+  ok("slotsBreakWindow / breakRangeMinutes");
 
   return logs;
 }

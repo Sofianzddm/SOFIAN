@@ -40,6 +40,10 @@ export function ApprovalsInboxScreen({
   onOpenFiche,
 }: Props) {
   const [sel, setSel] = useState(0);
+  const [pjPreview, setPjPreview] = useState<{
+    url: string;
+    label: string;
+  } | null>(null);
   const selected = inboxItems[sel] ?? inboxItems[0];
 
   const leaveDaysForCompare = useMemo(() => {
@@ -69,6 +73,14 @@ export function ApprovalsInboxScreen({
       return [{ date: selected.detailRaw.date }];
     }
     return [];
+  }, [selected]);
+
+  const expenseMissingPj = useMemo(() => {
+    if (!selected || selected.kind !== "EXPENSE") return false;
+    if (!Array.isArray(selected.detailRaw.lines)) return false;
+    return (
+      selected.detailRaw.lines as Array<Record<string, unknown>>
+    ).some((l) => !l.isMileage && (!l.receiptUrl || l.missingReceipt));
   }, [selected]);
 
   return (
@@ -161,12 +173,30 @@ export function ApprovalsInboxScreen({
                 Refuser
               </RhButton>
               <RhButton
-                disabled={busy}
+                disabled={busy || expenseMissingPj}
+                title={
+                  expenseMissingPj
+                    ? "Justificatif manquant sur au moins une ligne"
+                    : undefined
+                }
                 onClick={() => void onApprove(selected.id, selected.who)}
               >
                 Approuver
               </RhButton>
             </div>
+            {expenseMissingPj ? (
+              <div
+                className="px-4 py-2 text-[12px]"
+                style={{
+                  color: "#F2604E",
+                  background: "rgba(242,96,78,.08)",
+                  borderBottom: "1px solid #1B212A",
+                }}
+              >
+                Approbation bloquée : au moins une ligne sans pièce
+                justificative.
+              </div>
+            ) : null}
             <div
               className="p-4 flex flex-col gap-3 text-[13px]"
               style={{ color: "#B9C2CE" }}
@@ -215,6 +245,9 @@ export function ApprovalsInboxScreen({
                         </span>
                         <span className="flex-1 min-w-0">
                           {String(l.label || l.category || "")}
+                          {!l.isMileage && l.vatRate != null
+                            ? ` · TVA ${Number(l.vatRate)} %`
+                            : ""}
                           {l.missingReceipt ? " · justificatif manquant" : ""}
                           {!l.isMileage && !l.ocrVerified
                             ? " · scan non vérifié"
@@ -227,15 +260,30 @@ export function ApprovalsInboxScreen({
                           {Number(l.amount || 0).toFixed(2)} €
                         </span>
                         {l.receiptUrl ? (
-                          <a
-                            href={String(l.receiptUrl)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="shrink-0"
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-[8px] border-0 cursor-pointer px-2.5 py-1 text-[11.5px] font-semibold"
+                            style={{
+                              background: "rgba(229,242,181,.14)",
+                              color: LIME,
+                            }}
+                            onClick={() =>
+                              setPjPreview({
+                                url: String(l.receiptUrl),
+                                label: String(l.label || l.category || "PJ"),
+                              })
+                            }
                           >
-                            Voir
-                          </a>
-                        ) : null}
+                            Voir PJ
+                          </button>
+                        ) : (
+                          <span
+                            className="shrink-0 text-[11px]"
+                            style={{ color: "#F2604E" }}
+                          >
+                            Pas de PJ
+                          </span>
+                        )}
                       </div>
                       {l.justification ? (
                         <p
@@ -286,6 +334,21 @@ export function ApprovalsInboxScreen({
                     HS 25 % {String(selected.detailRaw.ot25Label || "0 h")} · HS
                     50 % {String(selected.detailRaw.ot50Label || "0 h")}
                   </div>
+                  {Array.isArray(selected.detailRaw.days) &&
+                  (
+                    selected.detailRaw.days as Array<Record<string, unknown>>
+                  ).some((d) => d.exception) ? (
+                    <div
+                      className="mt-2 rounded-[8px] px-2.5 py-1.5 text-[12px]"
+                      style={{
+                        color: "#F2874E",
+                        background: "rgba(242,135,78,.1)",
+                      }}
+                    >
+                      Contient du week-end / férié → crédit récup à la
+                      validation (pas de paiement HS séparé).
+                    </div>
+                  ) : null}
                   {Array.isArray(selected.detailRaw.days) ? (
                     <div className="mt-3 flex flex-col gap-2">
                       {(
@@ -328,6 +391,25 @@ export function ApprovalsInboxScreen({
                                   {slotsLabel}
                                 </div>
                               ) : null}
+                              {d.breakFrom && d.breakTo ? (
+                                <div
+                                  className="rh-mono mt-1 text-[11px]"
+                                  style={{ color: "#F2874E" }}
+                                >
+                                  Pause {String(d.breakFrom)} →{" "}
+                                  {String(d.breakTo)}
+                                  {d.breakMinutes
+                                    ? ` · ${Number(d.breakMinutes)} min`
+                                    : ""}
+                                </div>
+                              ) : d.breakMinutes ? (
+                                <div
+                                  className="rh-mono mt-1 text-[11px]"
+                                  style={{ color: "#F2874E" }}
+                                >
+                                  Pause {Number(d.breakMinutes)} min
+                                </div>
+                              ) : null}
                               {d.note ? (
                                 <p
                                   className="m-0 mt-2 text-[12.5px] leading-[1.4]"
@@ -347,9 +429,44 @@ export function ApprovalsInboxScreen({
 
               {(selected.kind === "LEAVE" ||
                 selected.kind === "UNPAID_LEAVE") &&
+              Array.isArray(selected.detailRaw.leaveDays) &&
+              (
+                selected.detailRaw.leaveDays as Array<{
+                  accountCode?: string;
+                }>
+              ).some((d) => d.accountCode === "SS") ? (
+                <div
+                  className="rounded-[10px] px-3 py-2 text-[12px]"
+                  style={{
+                    color: "#F0C24E",
+                    background: "rgba(242,194,78,.08)",
+                    border: "1px solid rgba(242,194,78,.25)",
+                  }}
+                >
+                  Arrêt maladie — vérifier le justificatif (scan / original)
+                  avant validation.
+                </div>
+              ) : null}
+
+              {(selected.kind === "LEAVE" ||
+                selected.kind === "UNPAID_LEAVE") &&
               Array.isArray(selected.detailRaw.leaveDays) ? (
                 <div className="text-[12.5px]">
-                  <span style={{ color: "#8B95A5" }}>Jours : </span>
+                  <span style={{ color: "#8B95A5" }}>
+                    {selected.detailRaw.minutes
+                      ? "Durée : "
+                      : "Jours : "}
+                  </span>
+                  {selected.detailRaw.minutes ? (
+                    <span style={{ color: "#E7ECF2" }}>
+                      {Number(selected.detailRaw.minutes) < 60
+                        ? `${selected.detailRaw.minutes} min`
+                        : Number(selected.detailRaw.minutes) % 60 === 0
+                          ? `${Number(selected.detailRaw.minutes) / 60} h`
+                          : `${Math.floor(Number(selected.detailRaw.minutes) / 60)} h ${Number(selected.detailRaw.minutes) % 60}`}
+                      {" · "}
+                    </span>
+                  ) : null}
                   {(
                     selected.detailRaw.leaveDays as Array<{
                       date: string;
@@ -435,6 +552,69 @@ export function ApprovalsInboxScreen({
           requestedDays={leaveDaysForCompare}
           onOpenFiche={onOpenFiche}
         />
+      ) : null}
+
+      {pjPreview ? (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,.72)" }}
+          onClick={() => setPjPreview(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setPjPreview(null);
+          }}
+          role="presentation"
+        >
+          <div
+            className="relative w-full max-w-[920px] max-h-[90vh] overflow-auto rounded-[14px] p-4"
+            style={{ background: "#0E1116", border: "1px solid #1B212A" }}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Justificatif"
+          >
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div
+                className="text-[13px] font-semibold truncate"
+                style={{ color: "#E7ECF2" }}
+              >
+                Justificatif · {pjPreview.label}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={pjPreview.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[12px] font-medium"
+                  style={{ color: LIME }}
+                >
+                  Ouvrir
+                </a>
+                <RhButton
+                  variant="secondary"
+                  onClick={() => setPjPreview(null)}
+                >
+                  Fermer
+                </RhButton>
+              </div>
+            </div>
+            {/\.pdf($|\?)/i.test(pjPreview.url) ? (
+              <iframe
+                title="Justificatif"
+                src={pjPreview.url}
+                className="w-full rounded-[8px] border-0"
+                style={{ height: "72vh", background: "#fff" }}
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={pjPreview.url}
+                alt="Justificatif"
+                className="max-w-full mx-auto rounded-[8px]"
+                style={{ maxHeight: "72vh" }}
+              />
+            )}
+          </div>
+        </div>
       ) : null}
     </div>
   );

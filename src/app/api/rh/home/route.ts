@@ -129,9 +129,69 @@ export async function GET(request: NextRequest) {
     title: string;
     meta: string;
     cta: string;
-    target: "leave" | "time" | "expenses" | "requests" | "remote" | "folder";
+    target:
+      | "leave"
+      | "time"
+      | "expenses"
+      | "requests"
+      | "remote"
+      | "folder"
+      | "tasks";
     urgent?: boolean;
   }> = [];
+
+  const openTasks = await prisma.rhTask.findMany({
+    where: {
+      archivedAt: null,
+      status: { in: ["TODO", "IN_PROGRESS", "BLOCKED"] },
+      OR: [
+        { assigneeId: emp.id },
+        { assignees: { some: { employeeId: emp.id } } },
+      ],
+    },
+    orderBy: [{ priority: "desc" }, { dueAt: "asc" }],
+    take: 8,
+  });
+  const openTasksCount = openTasks.length;
+  const overdueTasks = openTasks.filter(
+    (t) => t.dueAt && t.dueAt.getTime() < today.getTime()
+  );
+  if (overdueTasks.length > 0) {
+    reminders.push({
+      id: "tasks-overdue",
+      bar: "#F2604E",
+      tag: "Tâches",
+      tagBg: "#F2604E",
+      title:
+        overdueTasks.length === 1
+          ? `Tâche en retard : ${overdueTasks[0].title}`
+          : `${overdueTasks.length} tâches en retard`,
+      meta: overdueTasks
+        .slice(0, 2)
+        .map((t) => t.title)
+        .join(" · "),
+      cta: "Voir",
+      target: "tasks",
+      urgent: true,
+    });
+  } else if (openTasksCount > 0) {
+    reminders.push({
+      id: "tasks-open",
+      bar: "#7C8CF8",
+      tag: "Tâches",
+      tagBg: "#7C8CF8",
+      title:
+        openTasksCount === 1
+          ? `1 tâche à traiter : ${openTasks[0].title}`
+          : `${openTasksCount} tâches à traiter`,
+      meta: openTasks
+        .slice(0, 2)
+        .map((t) => t.title)
+        .join(" · "),
+      cta: "Ouvrir",
+      target: "tasks",
+    });
+  }
 
   // Présence / TT de la semaine
   const weekPlaces = await prisma.rhWorkDay.findMany({
@@ -375,6 +435,7 @@ export async function GET(request: NextRequest) {
       },
     ],
     todos,
+    openTasksCount,
     awayToday: [
       ...awayToday.map((a) => ({
         name: displayName(a.employee.user),

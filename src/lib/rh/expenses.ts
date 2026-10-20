@@ -444,6 +444,18 @@ export async function updateExpenseLine(params: {
   return updated;
 }
 
+async function rollbackMileageKm(employeeId: string, km: number) {
+  if (!km || km <= 0) return;
+  const vehicle = await prisma.rhVehicle.findUnique({
+    where: { employeeId },
+  });
+  if (!vehicle) return;
+  await prisma.rhVehicle.update({
+    where: { id: vehicle.id },
+    data: { yearKm: Math.max(0, vehicle.yearKm - km) },
+  });
+}
+
 export async function deleteExpenseLine(params: {
   lineId: string;
   employeeId: string;
@@ -454,6 +466,9 @@ export async function deleteExpenseLine(params: {
   });
   if (!line || line.report.status !== "DRAFT") {
     throw new Error("Ligne non supprimable");
+  }
+  if (line.isMileage && line.km) {
+    await rollbackMileageKm(params.employeeId, line.km);
   }
   await prisma.rhExpenseLine.delete({ where: { id: line.id } });
   const agg = await prisma.rhExpenseLine.aggregate({
@@ -472,9 +487,15 @@ export async function deleteExpenseReport(params: {
 }) {
   const report = await prisma.rhExpenseReport.findFirst({
     where: { id: params.reportId, employeeId: params.employeeId },
+    include: { lines: true },
   });
   if (!report || report.status !== "DRAFT") {
     throw new Error("Note non supprimable (brouillon uniquement)");
+  }
+  for (const line of report.lines) {
+    if (line.isMileage && line.km) {
+      await rollbackMileageKm(params.employeeId, line.km);
+    }
   }
   await prisma.rhExpenseLine.deleteMany({ where: { reportId: report.id } });
   await prisma.rhExpenseReport.delete({ where: { id: report.id } });
@@ -516,8 +537,25 @@ export async function decideExpense(params: {
 }) {
   const report = await prisma.rhExpenseReport.findUnique({
     where: { id: params.reportId },
+    include: { lines: true },
   });
   if (!report) throw new Error("Note introuvable");
+  if (params.approve) {
+    const missingPj = report.lines.some(
+      (l) => !l.isMileage && (!l.receiptUrl || l.missingReceipt)
+    );
+    if (missingPj) {
+      throw new Error(
+        "Impossible d’approuver : au moins une ligne sans justificatif"
+      );
+    }
+  } else {
+    for (const line of report.lines) {
+      if (line.isMileage && line.km) {
+        await rollbackMileageKm(report.employeeId, line.km);
+      }
+    }
+  }
   await prisma.rhExpenseReport.update({
     where: { id: report.id },
     data: { status: params.approve ? "APPROVED" : "REFUSED" },
@@ -553,4 +591,32 @@ export async function decideExpense(params: {
       });
     }
   }
+}
+
+/** HR : marque une note approuvée comme remboursée (PAID). */
+export async function markExpensePaid(params: {
+  reportId: string;
+  actorId: string;
+}) {
+  const report = await prisma.rhExpenseReport.findUnique({
+    where: { id: params.reportId },
+  });
+  if (!report) throw new Error("Note introuvable");
+  if (report.status !== "APPROVED") {
+    throw new Error("Seules les notes approuvées peuvent être marquées payées");
+  }
+  await prisma.rhExpenseReport.update({
+    where: { id: report.id },
+    data: { status: "PAID" },
+  });
+  await writeRhAudit({
+    actorId: params.actorId,
+    targetId: report.employeeId,
+    action: "expense.paid",
+    detail: { reportId: report.id },
+  });
+  return prisma.rhExpenseReport.findUnique({
+    where: { id: report.id },
+    include: { lines: true },
+  });
 }

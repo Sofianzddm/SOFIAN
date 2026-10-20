@@ -1,10 +1,10 @@
-import { buildMonth, type MonthGrid, CP, RTT, TT, SICK } from "@/components/rh/mock/shared";
+import { buildMonth, type MonthGrid, CP, TT, SICK } from "@/components/rh/mock/shared";
 import { frenchHolidaysInMonth } from "@/lib/rh/holidays";
 
 const ACCOUNT_MARK: Record<string, string> = {
   CP: "soft",
   RTT: "rtt",
-  RECUP: "sel",
+  RECUP: "recup",
   SS: "hol",
   UNPAID: "blocked",
   SCHOOL: "rtt",
@@ -72,10 +72,10 @@ export function buildThreeMonths(
 
 export const LEAVE_LEGEND = [
   { label: "CP", color: CP },
-  { label: "Récup", color: RTT },
+  { label: "Récup", color: "#F2874E" },
   { label: "Télétravail", color: TT },
   { label: "Maladie", color: SICK },
-  { label: "En attente", color: "#F0C24E" },
+  { label: "En attente", color: "#F2874E" },
   { label: "École", color: "#B48CF0" },
   { label: "Autorisée", color: "#8ED98A" },
   { label: "Férié", color: "#C4B5FD" },

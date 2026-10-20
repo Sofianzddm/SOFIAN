@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import {
   canDecideRhRequest,
-  requireRhHr,
+  requireRhManager,
 } from "@/lib/rh/auth";
 import { decideLeaveRequest } from "@/lib/rh/leave";
 import { decideTimesheet } from "@/lib/rh/timesheet";
@@ -18,11 +18,11 @@ async function decide(
   ctx: Ctx,
   approve: boolean
 ) {
-  const session = await requireRhHr(request);
+  const session = await requireRhManager(request);
   if (!session) {
     return NextResponse.json(
       {
-        error: "Réservé à l’admin RH (connexion sécurisée)",
+        error: "Réservé au manager / RH (connexion sécurisée)",
         code: "RH_MFA_REQUIRED",
       },
       { status: 403 }

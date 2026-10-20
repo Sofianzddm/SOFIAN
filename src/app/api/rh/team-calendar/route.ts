@@ -179,6 +179,46 @@ export async function GET(request: NextRequest) {
         });
       }
     }
+
+    // TT en attente de validation manager
+    const pendingTt = await prisma.rhRequest.findMany({
+      where: {
+        employeeId: { in: ids },
+        type: { in: ["REMOTE_PLAN", "REMOTE_EXCEPTION"] },
+        status: { in: ["PENDING", "PAUSED"] },
+      },
+      select: { employeeId: true, payload: true },
+    });
+    for (const req of pendingTt) {
+      const meta = empMeta[req.employeeId];
+      if (!meta) continue;
+      const payload = (req.payload || {}) as {
+        dates?: string[];
+        date?: string;
+      };
+      const dates = Array.isArray(payload.dates)
+        ? payload.dates.map((d) => String(d).slice(0, 10))
+        : payload.date
+          ? [String(payload.date).slice(0, 10)]
+          : [];
+      for (const date of dates) {
+        if (date < fromKey || date > toKey) continue;
+        const key = `${req.employeeId}:${date}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        entries.push({
+          date,
+          employeeId: req.employeeId,
+          name: meta.name,
+          initials: meta.initials,
+          color: meta.color,
+          department: meta.department,
+          kind: "TT",
+          halfDay: false,
+          status: "PENDING",
+        });
+      }
+    }
   }
 
   entries.sort((a, b) =>
