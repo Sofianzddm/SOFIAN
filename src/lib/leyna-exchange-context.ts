@@ -599,10 +599,177 @@ function emptyContext(): LeynaExchangeContext {
   };
 }
 
+/** Local-parts trop génériques → ne jamais chercher seuls (sinon Yepoda via « collaborations@ », Yazio via « partnerships@ », etc.). */
+const GENERIC_LOCAL_PARTS = new Set([
+  "collaborations",
+  "collaboration",
+  "partnerships",
+  "partnership",
+  "affiliates",
+  "affiliate",
+  "contact",
+  "contacts",
+  "hello",
+  "hi",
+  "info",
+  "infos",
+  "marketing",
+  "press",
+  "presse",
+  "pr",
+  "com",
+  "comm",
+  "communication",
+  "team",
+  "agence",
+  "agency",
+  "sales",
+  "influence",
+  "influencer",
+  "creators",
+  "creator",
+  "booking",
+  "bookings",
+  "admin",
+  "support",
+  "bonjour",
+  "mail",
+  "email",
+  "office",
+  "france",
+  "europe",
+  "global",
+  "intl",
+  "international",
+  "newsletter",
+  "noreply",
+  "no-reply",
+  "media",
+  "digital",
+  "social",
+  "brand",
+  "brands",
+  "boutique",
+  "shop",
+  "store",
+  "service",
+  "clients",
+  "client",
+  "commercial",
+  "business",
+  "pros",
+  "pro",
+]);
+
+function isGenericLocalPart(local: string): boolean {
+  const l = local.trim().toLowerCase();
+  if (!l || l.length < 5) return true;
+  if (GENERIC_LOCAL_PARTS.has(l)) return true;
+  // « contact-fr », « partnerships-eu », etc.
+  for (const g of GENERIC_LOCAL_PARTS) {
+    if (l === g || l.startsWith(`${g}-`) || l.startsWith(`${g}.`) || l.startsWith(`${g}_`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function brandTokens(brand: string): string[] {
+  const raw = String(brand || "").trim().toLowerCase();
+  if (!raw) return [];
+  const compact = raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "");
+  const parts = raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((p) => p.length >= 4);
+  return Array.from(new Set([raw, compact, ...parts].filter((t) => t.length >= 3)));
+}
+
 function brandInSubjectHint(subject: string | null, brand: string): boolean {
   const s = (subject || "").toLowerCase();
-  const b = brand.toLowerCase();
-  return b.length >= 3 && s.includes(b);
+  if (!s) return false;
+  const tokens = brandTokens(brand);
+  // Tokens longs d’abord (« drherma », « cultura ») — évite un « herma » trop large.
+  const strong = tokens.filter((t) => t.replace(/\s+/g, "").length >= 5);
+  const pool = strong.length > 0 ? strong : tokens;
+  return pool.some((t) => s.includes(t));
+}
+
+function emailMatchesBrandDomain(email: string, brandDomains: string[]): boolean {
+  const e = email.toLowerCase();
+  return brandDomains.some((d) => e.endsWith(`@${d}`) || e.endsWith(`.${d}`));
+}
+
+/** Le fil concerne bien CETTE marque (sinon on affiche Airalo/Yepoda sur Dr. Herma). */
+function threadIsRelevantToBrand(args: {
+  sides: ThreadSides;
+  candidate: { anchorEmail: string };
+  emails: string[];
+  brandDomains: string[];
+  brandName: string;
+}): boolean {
+  const { sides, candidate, emails, brandDomains, brandName } = args;
+  const anchor = candidate.anchorEmail.toLowerCase();
+
+  // Destinataire CRM exact
+  if (emails.some((e) => e === anchor)) return true;
+
+  // Ancre domaine marque (from:@ / to:@)
+  if (
+    brandDomains.some(
+      (d) =>
+        anchor === `*@${d}` ||
+        anchor === `to@${d}` ||
+        anchor.endsWith(`@${d}`)
+    )
+  ) {
+    return true;
+  }
+
+  // Réponse client depuis un domaine marque
+  if (sides.clientFroms.some((e) => emailMatchesBrandDomain(e, brandDomains))) {
+    return true;
+  }
+
+  // Marque dans l'objet
+  if (brandInSubjectHint(sides.subject, brandName)) return true;
+
+  // Variante local-part : seulement si ce local correspond à un email CRM précis
+  // (jamais pour collaborations@ / partnerships@ génériques — déjà exclus en amont).
+  if (anchor.startsWith("local:")) {
+    const local = anchor.slice("local:".length);
+    if (!isGenericLocalPart(local)) {
+      const crmMatch = emails.find((e) => {
+        const lp = e.split("@")[0] || "";
+        return (
+          lp === local ||
+          lp.startsWith(`${local}-`) ||
+          lp.startsWith(`${local}.`) ||
+          lp.startsWith(`${local}_`)
+        );
+      });
+      if (crmMatch) {
+        // Le fil doit aussi toucher le domaine de ce CRM (évite un homonyme ailleurs).
+        const crmDomain = domainFromEmail(crmMatch);
+        if (
+          crmDomain &&
+          (sides.clientFroms.some(
+            (e) => e.endsWith(`@${crmDomain}`) || e === crmMatch
+          ) ||
+            brandDomains.includes(crmDomain))
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 function scoreThread(args: {
@@ -615,9 +782,7 @@ function scoreThread(args: {
   for (const d of args.brandDomains) {
     if (froms.includes(`@${d}`)) score += 50;
   }
-  const subj = (args.sides.subject || "").toLowerCase();
-  const brand = args.brandName.toLowerCase();
-  if (brand.length >= 3 && subj.includes(brand)) score += 20;
+  if (brandInSubjectHint(args.sides.subject, args.brandName)) score += 20;
   if (args.sides.lastDate) {
     const ageDays =
       (Date.now() - new Date(args.sides.lastDate).getTime()) / (1000 * 60 * 60 * 24);
@@ -725,9 +890,11 @@ export async function getLeynaExchangeContext(args: {
           e instanceof Error ? e.message : e
         );
       }
-      // Variantes local-part (eclavery@ → eclavery-ext@)
+      // Variantes local-part (eclavery@ → eclavery-ext@) — JAMAIS pour les
+      // locaux génériques (collaborations, partnerships, contact…) sinon on
+      // ramène Yepoda / Yazio / Airalo sur une autre marque.
       const local = email.split("@")[0]?.replace(/[^a-z0-9._+-]/gi, "") || "";
-      if (local.length >= 4) {
+      if (local.length >= 5 && !isGenericLocalPart(local)) {
         try {
           const q = `newer_than:${LOOKBACK_DAYS}d (from:${local} OR to:${local} OR cc:${local})`;
           const msgs = await findRecentMessagesByQuery(LEYNA_FROM_EMAIL, q, 50);
@@ -777,11 +944,25 @@ export async function getLeynaExchangeContext(args: {
       }
     }
 
-    // 3) Par nom de marque dans l'objet / corps
+    // 3) Par nom de marque dans l'objet / corps (nom complet + slug compact uniquement —
+    // pas les particules courtes type « herma » seules, trop bruyantes).
     const brandToken = brandName.replace(/"/g, "").trim();
+    const brandCompact = brandToken
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, "");
+    const brandQueries: string[] = [];
     if (brandToken.length >= 3) {
+      brandQueries.push(`"${brandToken}"`);
+      brandQueries.push(`subject:"${brandToken}"`);
+    }
+    if (brandCompact.length >= 5 && brandCompact.toLowerCase() !== brandToken.toLowerCase()) {
+      brandQueries.push(`"${brandCompact}"`);
+      brandQueries.push(`subject:${brandCompact}`);
+    }
+    if (brandQueries.length > 0) {
       try {
-        const q = `newer_than:${LOOKBACK_DAYS}d ("${brandToken}" OR subject:${brandToken})`;
+        const q = `newer_than:${LOOKBACK_DAYS}d (${brandQueries.join(" OR ")})`;
         const msgs = await findRecentMessagesByQuery(
           LEYNA_FROM_EMAIL,
           q,
@@ -839,57 +1020,48 @@ export async function getLeynaExchangeContext(args: {
       const hasClientReply =
         replied && sides.clientTexts.length > 0 && sides.clientFroms.length > 0;
 
-      // Sans réponse : garder si ancré marque / contact CRM
-      if (!hasClientReply) {
-        if (sides.leynaTexts.length === 0) continue;
-        const brandInSubject = brandInSubjectHint(sides.subject, brandName);
-        const anchorIsCrm = emails.some(
-          (e) =>
-            c.anchorEmail === e ||
-            (c.anchorEmail.startsWith("local:") &&
-              e.startsWith(c.anchorEmail.slice("local:".length)))
-        );
-        const sentToBrandDomain =
-          brandDomains.some(
-            (d) =>
-              c.anchorEmail.endsWith(`@${d}`) ||
-              c.anchorEmail === `*@${d}` ||
-              c.anchorEmail === `to@${d}`
-          ) || c.anchorEmail.startsWith("local:");
-        if (!brandInSubject && !anchorIsCrm && !sentToBrandDomain) continue;
+      if (!hasClientReply && sides.leynaTexts.length === 0) continue;
+
+      // Filtre dur : le fil doit concerner CETTE marque (CRM / domaine / objet).
+      // Sans ça, collaborations@ / partnerships@ ramènent Yepoda, Yazio, Airalo…
+      if (
+        !threadIsRelevantToBrand({
+          sides,
+          candidate: c,
+          emails,
+          brandDomains,
+          brandName,
+        })
+      ) {
+        continue;
       }
 
-      const hasBrandDomainReply =
-        brandDomains.length === 0 ||
-        sides.clientFroms.some((e) =>
-          brandDomains.some((d) => e.endsWith(`@${d}`) || e.includes(`.${d}`))
-        );
+      const hasBrandDomainReply = sides.clientFroms.some((e) =>
+        emailMatchesBrandDomain(e, brandDomains)
+      );
 
       let score = scoreThread({ sides, brandDomains, brandName });
       if (hasClientReply) {
         if (hasBrandDomainReply) score += 40;
-        else score -= 15;
+        else score += 10; // déjà filtré marque (sujet / CRM)
         if (sides.turns.length >= 6) score += 20;
         else if (sides.turns.length >= 4) score += 10;
       } else {
-        // Envoi sans réponse : score plus bas mais on le GARDE pour tout noter
         score = Math.max(score - 10, 16);
         if (brandInSubjectHint(sides.subject, brandName)) score += 8;
       }
       if (score < 12) continue;
 
       const replyEmail = hasClientReply
-        ? sides.clientFroms.find((e) =>
-            brandDomains.some((d) => e.endsWith(`@${d}`))
-          ) ||
+        ? sides.clientFroms.find((e) => emailMatchesBrandDomain(e, brandDomains)) ||
+          sides.clientFroms.find((e) => emails.includes(e.toLowerCase())) ||
           sides.clientFroms[0] ||
           c.anchorEmail
-        : c.anchorEmail.startsWith("*@") ||
-            c.anchorEmail.startsWith("to@") ||
-            c.anchorEmail.startsWith("brand:") ||
-            c.anchorEmail.startsWith("local:")
-          ? emails[0] || c.anchorEmail
-          : c.anchorEmail;
+        : emails.includes(c.anchorEmail.toLowerCase())
+          ? c.anchorEmail
+          : emails.find((e) => emailMatchesBrandDomain(e, brandDomains)) ||
+            emails[0] ||
+            c.anchorEmail;
 
       drafts.push({
         candidate: c,

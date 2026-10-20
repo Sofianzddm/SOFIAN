@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
             subject: true,
             sentAt: true,
             relanceSentAt: true,
+            relance2SentAt: true,
             relanceCancelledAt: true,
             repliedAt: true,
             openCount: true,

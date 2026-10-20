@@ -46,6 +46,16 @@ import { businessDaysAfter } from "@/lib/business-days";
 import InboundExchangeBadge, {
   type LastInboundExchange,
 } from "@/components/outreach/InboundExchangeBadge";
+import OutreachClientsBatchAnalyzeBar from "@/components/outreach/OutreachClientsBatchAnalyzeBar";
+import {
+  cacheOutreachBrandResearch,
+  cacheOutreachLeynaExchange,
+  cacheOutreachTalentResearch,
+  loadOutreachBrandResearchCache,
+  loadOutreachLeynaExchangeCache,
+  loadOutreachTalentResearchCache,
+  lookupOutreachBrandCache,
+} from "@/lib/outreach-clients-batch-cache";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -55,6 +65,14 @@ const OLD_LACE = "#F5EBE0";
 const ALLOWED = ["ADMIN", "CASTING_MANAGER"];
 // Doit rester aligné avec OUTREACH_RELANCE_BUSINESS_DAYS (lib/outreach-send.ts).
 const RELANCE_BUSINESS_DAYS = 3;
+/** Aligné avec OUTREACH_RELANCE2_BUSINESS_DAYS (casting / projets). */
+const RELANCE2_BUSINESS_DAYS = 10;
+/** Aligné avec OUTREACH_RELANCE2_CATCHUP_SINCE_ISO — pas de R2 si R1 avant. */
+const RELANCE2_CATCHUP_SINCE = new Date("2026-09-25T00:00:00+02:00");
+function relance2Eligible(relance1SentAt: string | null | undefined): boolean {
+  if (!relance1SentAt) return false;
+  return new Date(relance1SentAt).getTime() >= RELANCE2_CATCHUP_SINCE.getTime();
+}
 
 type Market = "FR" | "BENELUX";
 /** Vue file : uniques FR / uniques BE / présents dans les deux pipelines. */
@@ -93,6 +111,7 @@ type TouchSummary = {
   subject: string;
   sentAt: string | null;
   relanceSentAt: string | null;
+  relance2SentAt?: string | null;
   relanceCancelledAt: string | null;
   repliedAt: string | null;
   openCount: number;
@@ -819,6 +838,46 @@ export default function OutreachPage() {
     return groups;
   }, [visibleTargets, pendingContacts, activeTab, searchTerm, sortBy, marketView]);
 
+  /** Marques À contacter avec emails — cibles de la barre « Analyser toutes les marques ». */
+  const batchBrandGroups = useMemo(() => {
+    if (activeTab !== "TO_CONTACT") return [];
+    return visibleGroups
+      .filter((g) => g.targets.length > 0)
+      .map((g) => {
+        const covered = Array.from(
+          new Set(
+            g.targets.flatMap((t) => t.coveredBrands || []).map((b) => b.trim()).filter(Boolean)
+          )
+        );
+        const t0 = g.targets[0];
+        return {
+          groupKey: g.groupKey,
+          company: g.company,
+          coveredBrands: covered,
+          pipeline: (t0?.pipeline === "BENELUX" ? "BENELUX" : "FR") as Market,
+          alsoInSiblingMarket: Boolean(t0?.alsoInSiblingMarket),
+        };
+      });
+  }, [visibleGroups, activeTab]);
+
+  /** Clé de recherche IA = sous-marques si présentes, sinon maison mère (comme CastingComposer). */
+  const composerResearchBrandName = useMemo(() => {
+    if (!composerGroup) return "";
+    const covered = Array.from(
+      new Set(
+        composerGroup.targets
+          .flatMap((t) => t.coveredBrands || [])
+          .map((b) => b.trim())
+          .filter(Boolean)
+      )
+    );
+    if (covered.length > 0) return covered.join(", ");
+    return composerGroup.company;
+  }, [composerGroup]);
+
+  const composerCacheMarket: Market =
+    composerGroup?.targets[0]?.pipeline === "BENELUX" ? "BENELUX" : market;
+
   const toggleExpand = useCallback(
     async (target: Target) => {
       if (expandedId === target.id) {
@@ -1422,10 +1481,14 @@ export default function OutreachPage() {
   }, [flash, loadTargets]);
 
   const handleRelanceNow = useCallback(
-    async (target: Target) => {
+    async (target: Target, round: 1 | 2 = 1) => {
+      const label =
+        round === 1
+          ? "relance 1 (J+3)"
+          : "relance 2 (J+10 après la 1ʳᵉ)";
       if (
         !window.confirm(
-          `Envoyer la relance maintenant dans le thread du dernier mail à ${target.email} ?\n\nLa relance automatique J+3 ne partira pas (une seule relance par mail).`
+          `Envoyer la ${label} maintenant dans le thread du dernier mail à ${target.email} ?\n\nCorps généré par IA (comme projets outreach). La relance auto correspondante ne repartira pas.`
         )
       )
         return;
@@ -1436,12 +1499,12 @@ export default function OutreachPage() {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
+            body: JSON.stringify({ round }),
           }
         );
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Erreur");
-        flash("success", "Relance envoyée.");
+        flash("success", `Relance ${round} envoyée.`);
         await loadTargets();
       } catch (e) {
         flash("error", e instanceof Error ? e.message : "Erreur");
@@ -1467,7 +1530,12 @@ export default function OutreachPage() {
         );
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Erreur");
-        flash("success", pause ? "Relance auto mise en pause." : "Relance auto réactivée.");
+        flash(
+          "success",
+          pause
+            ? "Relances auto (R1/R2) mises en pause."
+            : "Relances auto (R1/R2) réactivées."
+        );
         await loadTargets();
       } catch (e) {
         flash("error", e instanceof Error ? e.message : "Erreur");
@@ -1784,6 +1852,14 @@ export default function OutreachPage() {
         </div>
       </div>
 
+      {activeTab === "TO_CONTACT" && !loading && batchBrandGroups.length > 0 && (
+        <OutreachClientsBatchAnalyzeBar
+          market={market}
+          brands={batchBrandGroups}
+          onFlash={(kind, message) => flash(kind, message)}
+        />
+      )}
+
       {/* Liste */}
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -1954,14 +2030,18 @@ export default function OutreachPage() {
                   const days = daysUntil(target.nextRecontactAt);
                   const expanded = expandedId === target.id;
                   const busy = actionBusy === target.id;
-                  // Relance auto J+3 ouvrés : prévue tant qu'elle n'est pas
-                  // partie, pas en pause et que le client n'a pas répondu.
+                  // Relances auto : R1 J+3, R2 J+10 après R1 (R2 seulement si R1 ≥ 25/09).
+                  const r2OnThisCycle = relance2Eligible(latest?.relanceSentAt);
+                  const awaitingR2 =
+                    Boolean(latest?.relanceSentAt) &&
+                    !latest?.relance2SentAt &&
+                    r2OnThisCycle;
                   const relancePaused =
                     target.status === "WAITING" &&
                     Boolean(latest?.sentAt) &&
-                    !latest?.relanceSentAt &&
                     !latest?.repliedAt &&
-                    Boolean(latest?.relanceCancelledAt);
+                    Boolean(latest?.relanceCancelledAt) &&
+                    (!latest?.relanceSentAt || awaitingR2);
                   const relancePlannedAt =
                     target.status === "WAITING" &&
                     latest?.sentAt &&
@@ -1970,15 +2050,33 @@ export default function OutreachPage() {
                     !latest.relanceCancelledAt
                       ? businessDaysAfter(new Date(latest.sentAt), RELANCE_BUSINESS_DAYS)
                       : null;
+                  const relance2PlannedAt =
+                    target.status === "WAITING" &&
+                    awaitingR2 &&
+                    !latest?.repliedAt &&
+                    !latest?.relanceCancelledAt &&
+                    latest?.relanceSentAt
+                      ? businessDaysAfter(
+                          new Date(latest.relanceSentAt),
+                          RELANCE2_BUSINESS_DAYS
+                        )
+                      : null;
                   const relanceDays = relancePlannedAt
                     ? daysUntil(relancePlannedAt.toISOString())
                     : null;
-                  // Relance auto encore activable (pour les boutons pause/reprise)
+                  const relance2Days = relance2PlannedAt
+                    ? daysUntil(relance2PlannedAt.toISOString())
+                    : null;
+                  // Boutons force / pause tant qu’il reste une relance auto possible
                   const relanceActionable =
                     target.status === "WAITING" &&
                     Boolean(latest?.sentAt) &&
-                    !latest?.relanceSentAt &&
-                    !latest?.repliedAt;
+                    !latest?.repliedAt &&
+                    (!latest?.relanceSentAt || awaitingR2);
+                  const canForceR1 =
+                    relanceActionable && !latest?.relanceSentAt && !relancePaused;
+                  const canForceR2 =
+                    relanceActionable && awaitingR2 && !relancePaused;
                   return (
                     <div key={target.id} className="border-b last:border-b-0" style={{ borderColor: "#F5F1EB" }}>
                       <div className="px-4 py-2.5 flex flex-wrap items-center gap-3">
@@ -2090,37 +2188,64 @@ export default function OutreachPage() {
                             <span
                               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium"
                               style={{ backgroundColor: "#FDF1F1", color: "#A85B5B" }}
-                              title={`Relance automatique J+3 ouvrés prévue le ${formatDate(
+                              title={`Relance 1 auto (J+3 ouvrés) prévue le ${formatDate(
                                 relancePlannedAt.toISOString()
-                              )}`}
+                              )} — corps IA`}
                             >
                               <Repeat className="w-3 h-3" />
                               {relanceDays !== null && relanceDays <= 0
-                                ? "Relance auto imminente"
-                                : `Relance auto le ${formatDate(relancePlannedAt.toISOString())}`}
+                                ? "R1 auto imminente"
+                                : `R1 auto le ${formatDate(relancePlannedAt.toISOString())}`}
+                            </span>
+                          )}
+                          {relance2PlannedAt && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium"
+                              style={{ backgroundColor: "#FDF1F1", color: "#A85B5B" }}
+                              title={`Relance 2 auto (J+10 ouvrés après R1) prévue le ${formatDate(
+                                relance2PlannedAt.toISOString()
+                              )} — corps IA`}
+                            >
+                              <Repeat className="w-3 h-3" />
+                              {relance2Days !== null && relance2Days <= 0
+                                ? "R2 auto imminente"
+                                : `R2 auto le ${formatDate(relance2PlannedAt.toISOString())}`}
                             </span>
                           )}
                           {relancePaused && (
                             <span
                               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium"
                               style={{ backgroundColor: "#FFF7E8", color: "#8A6D1A" }}
-                              title={`Relance auto J+3 en pause${
+                              title={`Relances auto en pause${
                                 latest?.relanceCancelledAt
                                   ? ` depuis le ${formatDate(latest.relanceCancelledAt)}`
                                   : ""
-                              } — elle ne partira pas tant qu'elle n'est pas réactivée.`}
+                              } — R1/R2 ne partiront pas tant qu'elles ne sont pas réactivées.`}
                             >
                               <PauseCircle className="w-3 h-3" />
-                              Relance en pause
+                              Relances en pause
                             </span>
                           )}
-                          {latest?.relanceSentAt && (
+                          {latest?.relanceSentAt && !latest?.relance2SentAt && (
                             <span
                               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium"
-                              title={`Relance envoyée le ${formatDate(latest.relanceSentAt)} — pas d'autre relance sur ce mail`}
+                              title={`Relance 1 envoyée le ${formatDate(latest.relanceSentAt)}${
+                                relance2PlannedAt
+                                  ? ` — R2 prévue le ${formatDate(relance2PlannedAt.toISOString())}`
+                                  : ""
+                              }`}
                             >
                               <Repeat className="w-3 h-3" />
-                              Relancé le {formatDate(latest.relanceSentAt)}
+                              R1 le {formatDate(latest.relanceSentAt)}
+                            </span>
+                          )}
+                          {latest?.relance2SentAt && (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium"
+                              title={`Relance 2 envoyée le ${formatDate(latest.relance2SentAt)} — cycle complet sur ce mail`}
+                            >
+                              <Repeat className="w-3 h-3" />
+                              R2 le {formatDate(latest.relance2SentAt)}
                             </span>
                           )}
                           {latest && latest.openCount > 0 && (
@@ -2180,16 +2305,28 @@ export default function OutreachPage() {
 
                         {/* Actions contact */}
                         <div className="flex items-center gap-1.5 ml-auto">
-                          {relanceActionable && !relancePaused && (
+                          {canForceR1 && (
                             <button
-                              onClick={() => handleRelanceNow(target)}
+                              onClick={() => handleRelanceNow(target, 1)}
                               disabled={busy}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition hover:bg-gray-50 disabled:opacity-50"
                               style={{ borderColor: "#E5E0DA", color: LICORICE }}
-                              title="Forcer la relance maintenant. La relance automatique J+3 est alors annulée (une seule relance par mail)."
+                              title="Forcer la relance 1 maintenant (corps IA). La R1 auto J+3 est alors annulée."
                             >
                               <Mail className="w-3.5 h-3.5" />
-                              Relancer
+                              Relancer R1
+                            </button>
+                          )}
+                          {canForceR2 && (
+                            <button
+                              onClick={() => handleRelanceNow(target, 2)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition hover:bg-gray-50 disabled:opacity-50"
+                              style={{ borderColor: "#E5E0DA", color: LICORICE }}
+                              title="Forcer la relance 2 maintenant (corps IA). La R2 auto J+10 est alors annulée."
+                            >
+                              <Mail className="w-3.5 h-3.5" />
+                              Relancer R2
                             </button>
                           )}
                           {relanceActionable && (
@@ -2200,8 +2337,8 @@ export default function OutreachPage() {
                               style={relancePaused ? { color: "#8A6D1A" } : undefined}
                               title={
                                 relancePaused
-                                  ? "Réactiver la relance automatique J+3"
-                                  : "Mettre la relance automatique J+3 en pause (le compteur 45 jours continue)"
+                                  ? "Réactiver les relances auto R1/R2"
+                                  : "Mettre les relances auto R1/R2 en pause (le compteur 45 jours continue)"
                               }
                             >
                               {relancePaused ? (
@@ -2549,6 +2686,52 @@ export default function OutreachPage() {
             ? "en"
             : "fr"
         }
+        initialBrandResearch={
+          composerGroup
+            ? lookupOutreachBrandCache(
+                loadOutreachBrandResearchCache(composerCacheMarket),
+                composerResearchBrandName,
+                composerGroup.company
+              )
+            : null
+        }
+        initialTalentResearch={
+          composerGroup
+            ? lookupOutreachBrandCache(
+                loadOutreachTalentResearchCache(composerCacheMarket),
+                composerResearchBrandName,
+                composerGroup.company
+              )
+            : null
+        }
+        initialLeynaExchange={
+          composerGroup
+            ? lookupOutreachBrandCache(
+                loadOutreachLeynaExchangeCache(composerCacheMarket),
+                composerResearchBrandName,
+                composerGroup.company
+              )
+            : null
+        }
+        onBrandResearchCached={(brandName, research) => {
+          cacheOutreachBrandResearch(composerCacheMarket, brandName, research);
+          if (
+            composerGroup?.company &&
+            composerGroup.company.trim() !== brandName.trim()
+          ) {
+            cacheOutreachBrandResearch(
+              composerCacheMarket,
+              composerGroup.company,
+              research
+            );
+          }
+        }}
+        onTalentResearchCached={(brandName, research) => {
+          cacheOutreachTalentResearch(composerCacheMarket, brandName, research);
+        }}
+        onLeynaExchangeCached={(brandName, research) => {
+          cacheOutreachLeynaExchange(composerCacheMarket, brandName, research);
+        }}
         onClose={() => setComposerGroup(null)}
         onSaved={handleComposerSaved}
         onError={(m) => flash("error", m)}

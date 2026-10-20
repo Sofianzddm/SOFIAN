@@ -5,15 +5,19 @@ import { applyCastingTemplateVars, buildOutreachRelanceTemplate } from "@/lib/ca
 import { executeOutreachRelance } from "@/lib/outreach-send";
 
 /**
- * Relance manuelle J+3 sur le dernier mail de cycle envoyé.
- * GET  → prévisualisation (sujet + corps) sans envoi
- * POST → envoi immédiat ({ subject?, body? } pour personnaliser)
+ * Relance manuelle sur le dernier mail de cycle envoyé.
+ * GET  → prévisualisation (?round=1|2)
+ * POST → envoi immédiat ({ subject?, body?, round? })
  */
 
 const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
 
 function checkRole(role: string | undefined | null): boolean {
   return ALLOWED_ROLES.includes((role || "") as (typeof ALLOWED_ROLES)[number]);
+}
+
+function parseRound(raw: unknown): 1 | 2 {
+  return raw === 2 || raw === "2" ? 2 : 1;
 }
 
 async function loadLatestSentTouch(targetId: string) {
@@ -38,6 +42,7 @@ export async function GET(
     }
 
     const { id } = await params;
+    const round = parseRound(request.nextUrl.searchParams.get("round"));
     const touch = await loadLatestSentTouch(id);
     if (!touch) {
       return NextResponse.json(
@@ -45,32 +50,82 @@ export async function GET(
         { status: 409 }
       );
     }
-    if (touch.relanceSentAt) {
+    if (round === 1 && touch.relanceSentAt) {
       return NextResponse.json(
-        { error: "Une relance a déjà été envoyée pour ce mail." },
+        { error: "La relance 1 a déjà été envoyée pour ce mail." },
         { status: 409 }
       );
+    }
+    if (round === 2) {
+      if (!touch.relanceSentAt) {
+        return NextResponse.json(
+          { error: "La relance 1 doit partir avant la relance 2." },
+          { status: 409 }
+        );
+      }
+      if (touch.relance2SentAt) {
+        return NextResponse.json(
+          { error: "La relance 2 a déjà été envoyée pour ce mail." },
+          { status: 409 }
+        );
+      }
     }
 
     const subjectSrc = touch.subject.trim();
     const subject = subjectSrc.toLowerCase().startsWith("re:")
       ? subjectSrc
       : `Re: ${subjectSrc}`;
-    const body = applyCastingTemplateVars(
-      buildOutreachRelanceTemplate(
-        touch.target.company,
-        touch.target.language === "en" ? "en" : "fr",
-        touch.sentAt
-      ),
-      {
-        firstname: touch.target.firstname || "",
-        lastname: touch.target.lastname || "",
-        company: touch.target.company || "",
+    const lang: "fr" | "en" =
+      touch.target.language === "en" ? "en" : "fr";
+
+    let bodyHtml = "";
+    let aiGenerated = false;
+    try {
+      const { generateOutreachRelanceBody } = await import(
+        "@/lib/outreach-relance-ai"
+      );
+      const ai = await generateOutreachRelanceBody({
+        touchId: touch.id,
+        round,
+        language: lang,
+        company: touch.target.company,
+        previousSubject: touch.subject,
+        previousBodyHtml: touch.bodyHtml || "",
+        firstSentAt: touch.sentAt,
+      });
+      if (ai?.bodyHtml?.trim()) {
+        bodyHtml = ai.bodyHtml.trim();
+        aiGenerated = true;
       }
-    );
+    } catch (e) {
+      console.warn(
+        "[outreach/relance-now] IA soft-fail:",
+        e instanceof Error ? e.message : e
+      );
+    }
+    if (!bodyHtml) {
+      bodyHtml = buildOutreachRelanceTemplate(
+        touch.target.company,
+        lang,
+        touch.sentAt
+      );
+    }
+
+    const body = applyCastingTemplateVars(bodyHtml, {
+      firstname: touch.target.firstname || "",
+      lastname: touch.target.lastname || "",
+      company: touch.target.company || "",
+    });
 
     return NextResponse.json({
-      draft: { subject, body, touchId: touch.id, cycleNumber: touch.cycleNumber },
+      draft: {
+        subject,
+        body,
+        touchId: touch.id,
+        cycleNumber: touch.cycleNumber,
+        round,
+        aiGenerated,
+      },
     });
   } catch (error) {
     console.error("GET /api/outreach/targets/[id]/relance-now:", error);
@@ -103,18 +158,24 @@ export async function POST(
     const body = (await request.json().catch(() => ({}))) as {
       subject?: string;
       body?: string;
+      round?: 1 | 2 | "1" | "2";
     };
 
     const result = await executeOutreachRelance(touch.id, {
       subjectOverride: body.subject,
       bodyOverride: body.body,
+      round: parseRound(body.round),
     });
 
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 422 });
     }
 
-    return NextResponse.json({ ok: true, messageId: result.messageId });
+    return NextResponse.json({
+      ok: true,
+      messageId: result.messageId,
+      round: parseRound(body.round),
+    });
   } catch (error) {
     console.error("POST /api/outreach/targets/[id]/relance-now:", error);
     return NextResponse.json(

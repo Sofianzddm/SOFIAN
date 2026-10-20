@@ -4043,11 +4043,15 @@ model OutreachTouch {
   messageId String?
   sendError String?   @db.Text
 
-  // Relance rapprochée J+3 ouvrés dans le même thread (1 max par touch)
+  // Relances auto dans le même thread : R1 J+3 ouvrés, R2 J+10 ouvrés après R1
+  // (même cadence que projets-outreach / casting).
   relanceSentAt        DateTime?
   relanceMessageId     String?
   relanceError         String?   @db.Text
-  // Pause manuelle de la relance auto sur ce mail (le compteur 45j continue).
+  relance2SentAt       DateTime?
+  relance2MessageId    String?
+  relance2Error        String?   @db.Text
+  // Pause manuelle des relances auto sur ce mail (le compteur 45j continue).
   relanceCancelledAt   DateTime?
   relanceCancelledById String?
   repliedAt            DateTime?
@@ -4067,6 +4071,7 @@ model OutreachTouch {
 
   @@index([targetId, cycleNumber])
   @@index([sentAt, repliedAt, relanceSentAt])
+  @@index([relanceSentAt, relance2SentAt])
   @@map("outreach_touches")
 }
 
@@ -4432,9 +4437,13 @@ model BeneluxOutreachTouch {
   messageId String?
   sendError String?   @db.Text
 
+  // Relances auto : R1 J+3 ouvrés, R2 J+10 ouvrés après R1 (comme FR / casting).
   relanceSentAt        DateTime?
   relanceMessageId     String?
   relanceError         String?   @db.Text
+  relance2SentAt       DateTime?
+  relance2MessageId    String?
+  relance2Error        String?   @db.Text
   relanceCancelledAt   DateTime?
   relanceCancelledById String?
   repliedAt            DateTime?
@@ -4454,6 +4463,7 @@ model BeneluxOutreachTouch {
 
   @@index([targetId, cycleNumber])
   @@index([sentAt, repliedAt, relanceSentAt])
+  @@index([relanceSentAt, relance2SentAt])
   @@map("benelux_outreach_touches")
 }
 

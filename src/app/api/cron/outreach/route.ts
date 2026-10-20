@@ -7,7 +7,9 @@ import {
   outreachFromEmail,
   processOutreachScheduledSends,
   OUTREACH_RELANCE_BUSINESS_DAYS,
+  OUTREACH_RELANCE2_BUSINESS_DAYS,
 } from "@/lib/outreach-send";
+import { outreachRelance2Eligible } from "@/lib/outreach-constants";
 import {
   executeProjetRelance,
   parseProjetEmailThreads,
@@ -23,7 +25,7 @@ import { LEYNA_FROM_EMAIL } from "@/lib/casting-auto-send";
  *     (info seulement : le client RESTE dans le cycle 45 jours). Les bounces
  *     (adresse invalide, mail revenu en erreur) suppriment automatiquement
  *     le contact du cycle avec une notification au créateur.
- *  2. Envoie la relance auto J+3 ouvrés dans le thread si pas de réponse.
+ *  2. Relances auto : R1 J+3 ouvrés, puis R2 J+10 ouvrés après R1 (IA), si pas de réponse.
  *  3. Bascule en « À recontacter » les clients dont les 45 jours sont écoulés.
  *  4. Même chose pour la prospection des projets strategy (Ski Trip…) :
  *     détection de réponse + relance auto J+3 ouvrés sur les OpportuniteMarque.
@@ -79,6 +81,7 @@ export async function GET(request: NextRequest) {
 
   let replies = 0;
   let relances = 0;
+  let relances2 = 0;
   let recontacts = 0;
   let bounces = 0;
   let truncated = false;
@@ -164,7 +167,7 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // 2. Relance auto J+3 ouvrés (sautée si réponse ou pause manuelle sur ce touch)
+      // 2a. Relance 1 auto J+3 ouvrés
       if (
         withinRelanceHours &&
         !hasReplied &&
@@ -172,9 +175,29 @@ export async function GET(request: NextRequest) {
         !touch.relanceCancelledAt &&
         relanceDue(touch.sentAt, OUTREACH_RELANCE_BUSINESS_DAYS, touch.id, now)
       ) {
-        const result = await executeOutreachRelance(touch.id);
+        const result = await executeOutreachRelance(touch.id, { round: 1 });
         if (result.ok) relances += 1;
-        else console.warn(`[cron/outreach] relance ${target.email}: ${result.error}`);
+        else console.warn(`[cron/outreach] relance R1 ${target.email}: ${result.error}`);
+      }
+
+      // 2b. Relance 2 auto J+10 après R1 — rattrapage seulement si R1 ≥ 25/09/2026
+      if (
+        withinRelanceHours &&
+        !hasReplied &&
+        touch.relanceSentAt &&
+        !touch.relance2SentAt &&
+        !touch.relanceCancelledAt &&
+        outreachRelance2Eligible(touch.relanceSentAt) &&
+        relanceDue(
+          touch.relanceSentAt,
+          OUTREACH_RELANCE2_BUSINESS_DAYS,
+          `${touch.id}:r2`,
+          now
+        )
+      ) {
+        const result = await executeOutreachRelance(touch.id, { round: 2 });
+        if (result.ok) relances2 += 1;
+        else console.warn(`[cron/outreach] relance R2 ${target.email}: ${result.error}`);
       }
     }
 
@@ -337,6 +360,7 @@ export async function GET(request: NextRequest) {
     scheduled,
     replies,
     relances,
+    relances2,
     recontacts,
     bounces,
     projetProcessed,

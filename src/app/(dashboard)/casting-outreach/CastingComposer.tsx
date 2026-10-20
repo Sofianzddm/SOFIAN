@@ -20,7 +20,11 @@ import {
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import EmailComposer from "./EmailComposer";
-import { talentToTiptapNode, upgradeTalentLinksInHtml } from "@/lib/talent-email-links";
+import {
+  talentToTiptapNode,
+  upgradeTalentLinksInHtml,
+  ensureTalentExtralinksInHtml,
+} from "@/lib/talent-email-links";
 import {
   normalizeEditorHtmlForEmail,
   plainTextToEmailHtml,
@@ -1318,6 +1322,14 @@ export default function CastingComposer({
       onError("Analyse ensuite les créateurs sélectionnés, puis rédige.");
       return;
     }
+    // Outreach Clients / projets / indiv : historique Leyna obligatoire avant rédaction.
+    if (
+      (Boolean(contact.missionBrief) || effectiveTalentResearch) &&
+      !leynaExchangeChecked
+    ) {
+      onError("Analyse ensuite l’historique Leyna, puis rédige.");
+      return;
+    }
     setIsGenerating(true);
     try {
       const talentsPayload = selectedTalents.map((t) => {
@@ -1421,9 +1433,16 @@ export default function CastingComposer({
       const asHtml = bodyNext.trim().startsWith("<")
         ? bodyNext
         : plainTextToEmailHtml(bodyNext) || "<p></p>";
-      // Nom du talent toujours en lien Instagram cliquable.
-      const linkedHtml = upgradeTalentLinksInHtml(
-        asHtml,
+      // Nom du talent toujours en extralink Instagram cliquable.
+      const linkedHtml = ensureTalentExtralinksInHtml(
+        upgradeTalentLinksInHtml(
+          asHtml,
+          selectedTalents.map((t) => ({
+            prenom: t.prenom,
+            nom: t.nom,
+            instagram: t.instagram,
+          }))
+        ),
         selectedTalents.map((t) => ({
           prenom: t.prenom,
           nom: t.nom,
@@ -1453,6 +1472,7 @@ export default function CastingComposer({
     brandResearch,
     talentResearch,
     effectiveTalentResearch,
+    leynaExchangeChecked,
     selectedTalents,
     selectedRecipientIds,
     emailLanguage,

@@ -117,9 +117,65 @@ export function trimEmailHtmlEdges(html: string): string {
 }
 
 /**
+ * Extrait les talents déjà liés (Instagram) depuis un HTML de mail :
+ * `<a href="…instagram.com/handle"><strong>Prénom Nom</strong></a>`.
+ * Sert à réappliquer les mêmes extralinks dans les relances.
+ */
+export function extractTalentLinksFromHtml(html: string): TalentLinkInput[] {
+  if (!html) return [];
+  const out: TalentLinkInput[] = [];
+  const seen = new Set<string>();
+  const re =
+    /<a\b[^>]*href\s*=\s*["']([^"']*instagram\.com\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const href = m[1] || "";
+    const text = (m[2] || "")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    const handleRaw = href.match(/instagram\.com\/([^/?#]+)/i)?.[1] || "";
+    const handle = decodeURIComponent(handleRaw).replace(/^@/, "").trim();
+    if (!handle || /^(p|reel|stories|explore)$/i.test(handle)) continue;
+    seen.add(key);
+    const parts = text.split(/\s+/);
+    out.push({
+      prenom: parts[0] || text,
+      nom: parts.length > 1 ? parts.slice(1).join(" ") : null,
+      instagram: handle,
+    });
+  }
+  return out;
+}
+
+/**
+ * Remplace les occurrences en texte brut du nom complet (hors balises HTML)
+ * par le lien Instagram gras — pour les relances IA qui citent le nom sans lien.
+ */
+function linkifyPlainTalentNames(html: string, talents: TalentLinkInput[]): string {
+  if (!html || talents.length === 0) return html;
+  return html.replace(/(<[^>]+>)|([^<]+)/g, (full, tag: string | undefined, text: string | undefined) => {
+    if (tag || text == null) return full;
+    let chunk = text;
+    for (const t of talents) {
+      const label = talentDisplayName(t);
+      if (!label || label === "Talent" || !talentInstagramUrl(t)) continue;
+      if (label.length < 3) continue;
+      const re = new RegExp(`(^|[^\\wÀ-ÿ])(${escapeRegex(label)})(?=[^\\wÀ-ÿ]|$)`, "gi");
+      chunk = chunk.replace(re, (_m, before: string) => `${before}${talentToHtmlLink(t)}`);
+    }
+    return chunk;
+  });
+}
+
+/**
  * Met à niveau le HTML d'un brouillon avant envoi :
  * - jetons {{talent_N}}
  * - liens vers le nom du talent sans gras → format inbound (gras + Instagram)
+ * - noms en clair → extralink Instagram
  * - filet : tout lien Instagram sans gras dans le corps
  * - normalisation des espaces parasites autour des liens
  */
@@ -146,7 +202,28 @@ export function upgradeTalentLinksInHtml(html: string, talents: TalentLinkInput[
     out = out.replace(strongOnly, () => talentToHtmlLink(t));
   }
 
+  out = linkifyPlainTalentNames(out, talents);
   out = upgradeInstagramLinksToBold(out);
   out = normalizeWhitespaceAroundLinks(out);
   return trimEmailHtmlEdges(out);
+}
+
+/** Filet unique : extrait les IG du HTML source (ou liste fournie) et upgrade. */
+export function ensureTalentExtralinksInHtml(
+  html: string,
+  talents?: TalentLinkInput[] | null,
+  sourceHtmlForTalents?: string | null
+): string {
+  if (!html) return html;
+  const fromList = talents?.length ? talents : [];
+  const fromSource = extractTalentLinksFromHtml(sourceHtmlForTalents || html);
+  const byKey = new Map<string, TalentLinkInput>();
+  for (const t of [...fromList, ...fromSource]) {
+    const key = talentDisplayName(t).toLowerCase();
+    if (!key || key === "talent") continue;
+    if (!byKey.has(key)) byKey.set(key, t);
+  }
+  const merged = Array.from(byKey.values());
+  if (merged.length === 0) return html;
+  return upgradeTalentLinksInHtml(html, merged);
 }

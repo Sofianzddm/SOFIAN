@@ -157,7 +157,7 @@ export function saveIndivTalentResearchCache(
 
 export function loadIndivLeynaExchangeCache(talentId: string) {
   return loadJsonCache<IndivCachedLeynaExchange>(
-    `po-leyna-exchange:v5:${indivCacheScope(talentId)}`
+    `po-leyna-exchange:v6:${indivCacheScope(talentId)}`
   );
 }
 
@@ -165,7 +165,7 @@ export function saveIndivLeynaExchangeCache(
   talentId: string,
   cache: Record<string, IndivCachedLeynaExchange>
 ) {
-  saveJsonCache(`po-leyna-exchange:v5:${indivCacheScope(talentId)}`, cache);
+  saveJsonCache(`po-leyna-exchange:v6:${indivCacheScope(talentId)}`, cache);
 }
 
 export function cacheIndivBrandResearch(

@@ -7,7 +7,9 @@ import {
   beneluxOutreachFromEmail,
   processBeneluxScheduledSends,
   BENELUX_OUTREACH_RELANCE_BUSINESS_DAYS,
+  BENELUX_OUTREACH_RELANCE2_BUSINESS_DAYS,
 } from "@/lib/benelux-outreach-send";
+import { outreachRelance2Eligible } from "@/lib/outreach-constants";
 
 /**
  * Cron du module Prospection BENELUX (jours ouvrés) :
@@ -16,7 +18,7 @@ import {
  *  1. Détecte les réponses sur le dernier mail de chaque prospect en attente
  *     (info seulement : il RESTE dans le cycle 45 jours). Les bounces (adresse
  *     invalide) retirent automatiquement le prospect du cycle.
- *  2. Envoie la relance auto J+3 ouvrés dans le thread si pas de réponse.
+ *  2. Relances auto : R1 J+3 ouvrés, puis R2 J+10 ouvrés après R1 (IA).
  *  3. Bascule en « À recontacter » les prospects dont les 45 jours sont écoulés.
  */
 
@@ -55,6 +57,7 @@ export async function GET(request: NextRequest) {
 
   let replies = 0;
   let relances = 0;
+  let relances2 = 0;
   let recontacts = 0;
   let bounces = 0;
   const recontactByCreator = new Map<string, number>();
@@ -133,9 +136,34 @@ export async function GET(request: NextRequest) {
         !touch.relanceCancelledAt &&
         relanceDue(touch.sentAt, BENELUX_OUTREACH_RELANCE_BUSINESS_DAYS, touch.id, now)
       ) {
-        const result = await executeBeneluxOutreachRelance(touch.id);
+        const result = await executeBeneluxOutreachRelance(touch.id, { round: 1 });
         if (result.ok) relances += 1;
-        else console.warn(`[cron/benelux-outreach] relance ${target.email}: ${result.error}`);
+        else
+          console.warn(
+            `[cron/benelux-outreach] relance R1 ${target.email}: ${result.error}`
+          );
+      }
+
+      if (
+        withinRelanceHours &&
+        !hasReplied &&
+        touch.relanceSentAt &&
+        !touch.relance2SentAt &&
+        !touch.relanceCancelledAt &&
+        outreachRelance2Eligible(touch.relanceSentAt) &&
+        relanceDue(
+          touch.relanceSentAt,
+          BENELUX_OUTREACH_RELANCE2_BUSINESS_DAYS,
+          `${touch.id}:r2`,
+          now
+        )
+      ) {
+        const result = await executeBeneluxOutreachRelance(touch.id, { round: 2 });
+        if (result.ok) relances2 += 1;
+        else
+          console.warn(
+            `[cron/benelux-outreach] relance R2 ${target.email}: ${result.error}`
+          );
       }
     }
 
@@ -174,6 +202,7 @@ export async function GET(request: NextRequest) {
     scheduled,
     replies,
     relances,
+    relances2,
     recontacts,
     bounces,
   });

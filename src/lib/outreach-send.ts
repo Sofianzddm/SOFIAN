@@ -43,6 +43,7 @@ import {
 
 export {
   OUTREACH_RELANCE_BUSINESS_DAYS,
+  OUTREACH_RELANCE2_BUSINESS_DAYS,
   OUTREACH_RECONTACT_DAYS,
 } from "@/lib/outreach-constants";
 import {
@@ -327,7 +328,12 @@ export async function executeOutreachSend(
     marques: await coveredBrandsLabel(target.marqueContactId, target.company || ""),
   };
   const personalizedSubject = applyCastingTemplateVars(subjectTpl, vars);
-  const bodyTpl = normalizeEditorHtmlForEmail(bodyRaw);
+  const { ensureTalentExtralinksInHtml } = await import(
+    "@/lib/talent-email-links"
+  );
+  const bodyTpl = normalizeEditorHtmlForEmail(
+    ensureTalentExtralinksInHtml(bodyRaw)
+  );
   const personalizedBody = applyCastingTemplateVars(bodyTpl, vars);
 
   const cycleNumber = target.cycleCount + 1;
@@ -668,14 +674,20 @@ export type OutreachRelanceResult =
   | { ok: false; error: string };
 
 /**
- * Relance rapprochée J+3 : répond dans le thread Gmail du touch avec un
- * template générique. Une seule relance par touch ; sautée si le client a
- * répondu sur ce touch (la relance MANUELLE reste possible via l'API).
+ * Relance dans le thread Gmail du touch.
+ * - round 1 : J+3 ouvrés après le mail initial
+ * - round 2 : J+10 ouvrés après la relance 1 (comme casting / projets)
+ * Corps = IA (même genre que projets-outreach) avec fallback template.
  */
 export async function executeOutreachRelance(
   touchId: string,
-  options: { subjectOverride?: string; bodyOverride?: string } = {}
+  options: {
+    subjectOverride?: string;
+    bodyOverride?: string;
+    round?: 1 | 2;
+  } = {}
 ): Promise<OutreachRelanceResult> {
+  const round: 1 | 2 = options.round === 2 ? 2 : 1;
   const touch = await prisma.outreachTouch.findUnique({
     where: { id: touchId },
     include: { target: true },
@@ -684,8 +696,28 @@ export async function executeOutreachRelance(
   if (!touch.sentAt || !touch.threadId) {
     return { ok: false, error: "Le mail initial n'a pas été envoyé." };
   }
-  if (touch.relanceSentAt) {
-    return { ok: false, error: "Une relance a déjà été envoyée pour ce mail." };
+  if (touch.relanceCancelledAt) {
+    return { ok: false, error: "Les relances sont en pause sur ce mail." };
+  }
+  if (round === 1) {
+    if (touch.relanceSentAt) {
+      return { ok: false, error: "La relance 1 a déjà été envoyée pour ce mail." };
+    }
+  } else {
+    if (!touch.relanceSentAt) {
+      return { ok: false, error: "La relance 1 doit partir avant la relance 2." };
+    }
+    if (touch.relance2SentAt) {
+      return { ok: false, error: "La relance 2 a déjà été envoyée pour ce mail." };
+    }
+    const { outreachRelance2Eligible } = await import("@/lib/outreach-constants");
+    if (!outreachRelance2Eligible(touch.relanceSentAt)) {
+      return {
+        ok: false,
+        error:
+          "Pas de R2 sur ce cycle : la R1 est antérieure au 25/09/2026 (rattrapage limité).",
+      };
+    }
   }
 
   const target = touch.target;
@@ -694,13 +726,46 @@ export async function executeOutreachRelance(
     options.subjectOverride?.trim() ||
     (subjectSrc.toLowerCase().startsWith("re:") ? subjectSrc : `Re: ${subjectSrc}`);
 
-  const bodyTemplate =
-    options.bodyOverride?.trim() ||
-    buildOutreachRelanceTemplate(
+  const lang: "fr" | "en" = target.language === "en" ? "en" : "fr";
+  let bodyTemplate = options.bodyOverride?.trim() || "";
+  if (!bodyTemplate) {
+    try {
+      const { generateOutreachRelanceBody } = await import(
+        "@/lib/outreach-relance-ai"
+      );
+      const ai = await generateOutreachRelanceBody({
+        touchId: touch.id,
+        round,
+        language: lang,
+        company: target.company,
+        previousSubject: touch.subject,
+        previousBodyHtml: touch.bodyHtml || "",
+        firstSentAt: touch.sentAt,
+      });
+      if (ai?.bodyHtml?.trim()) bodyTemplate = ai.bodyHtml.trim();
+    } catch (e) {
+      console.warn(
+        `[outreach] relance R${round} IA soft-fail:`,
+        e instanceof Error ? e.message : e
+      );
+    }
+  }
+  if (!bodyTemplate) {
+    bodyTemplate = buildOutreachRelanceTemplate(
       target.company,
-      target.language === "en" ? "en" : "fr",
+      lang,
       touch.sentAt
     );
+  }
+
+  const { ensureTalentExtralinksInHtml } = await import(
+    "@/lib/talent-email-links"
+  );
+  bodyTemplate = ensureTalentExtralinksInHtml(
+    bodyTemplate,
+    null,
+    touch.bodyHtml || ""
+  );
 
   const vars = {
     firstname: target.firstname || "",
@@ -712,13 +777,8 @@ export async function executeOutreachRelance(
   const body = normalizeEditorHtmlForEmail(bodyWithVars);
   const trackedBody = injectOutreachTracking(body, touch.id);
 
-  // Le thread Gmail appartient à la boîte qui a envoyé le mail initial :
-  // la relance part de cette même boîte, même si le target a changé depuis.
   const fromEmail = outreachFromEmail({ fromEmail: touch.fromEmail });
 
-  // Citation du mail d'origine + In-Reply-To : la relance devient une vraie
-  // réponse, rangée dans le même fil côté destinataire (et le contenu initial
-  // reste visible même si l'original est tombé dans ses spams).
   const fromName = await getGmailFromName(fromEmail);
   const originalPersonalized = applyCastingTemplateVars(touch.bodyHtml || "", vars);
   const quotedOriginal = buildQuotedOriginal(originalPersonalized, {
@@ -727,9 +787,14 @@ export async function executeOutreachRelance(
   });
   const finalHtml = `${trackedBody}${quotedOriginal}`;
 
+  // In-Reply-To : préférer le message de la dernière relance (R2) sinon le mail initial.
+  const replyToGmailId =
+    round === 2 && touch.relanceMessageId
+      ? touch.relanceMessageId
+      : touch.messageId;
   let inReplyTo: string | undefined;
-  if (touch.messageId) {
-    inReplyTo = (await getMessageRfcId(fromEmail, touch.messageId)) || undefined;
+  if (replyToGmailId) {
+    inReplyTo = (await getMessageRfcId(fromEmail, replyToGmailId)) || undefined;
   }
 
   try {
@@ -742,18 +807,36 @@ export async function executeOutreachRelance(
       inReplyTo,
     });
 
-    await prisma.outreachTouch.update({
-      where: { id: touch.id },
-      data: { relanceSentAt: new Date(), relanceMessageId: messageId, relanceError: null },
-    });
-
-    console.info(`[outreach] relance J+3 → ${target.email} (touch=${touch.id})`);
+    if (round === 1) {
+      await prisma.outreachTouch.update({
+        where: { id: touch.id },
+        data: {
+          relanceSentAt: new Date(),
+          relanceMessageId: messageId,
+          relanceError: null,
+        },
+      });
+      console.info(`[outreach] relance R1 J+3 → ${target.email} (touch=${touch.id})`);
+    } else {
+      await prisma.outreachTouch.update({
+        where: { id: touch.id },
+        data: {
+          relance2SentAt: new Date(),
+          relance2MessageId: messageId,
+          relance2Error: null,
+        },
+      });
+      console.info(`[outreach] relance R2 J+10 → ${target.email} (touch=${touch.id})`);
+    }
     return { ok: true, messageId };
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Erreur Gmail inconnue";
     await prisma.outreachTouch.update({
       where: { id: touch.id },
-      data: { relanceError: msg },
+      data:
+        round === 1
+          ? { relanceError: msg }
+          : { relance2Error: msg },
     });
     return { ok: false, error: `Échec Gmail : ${msg}` };
   }

@@ -40,6 +40,8 @@ import {
 } from "@/lib/casting-auto-send";
 
 export const BENELUX_OUTREACH_RELANCE_BUSINESS_DAYS = 3;
+/** Relance 2 : jours ouvrés après R1 (aligné casting / Outreach FR). */
+export const BENELUX_OUTREACH_RELANCE2_BUSINESS_DAYS = 10;
 /** Jours calendaires avant le retour du prospect en file « À recontacter ». */
 export const BENELUX_OUTREACH_RECONTACT_DAYS = 45;
 
@@ -197,7 +199,12 @@ export async function executeBeneluxOutreachSend(
     company: target.companyName || "",
   };
   const personalizedSubject = applyCastingTemplateVars(subjectTpl, vars);
-  const bodyTpl = normalizeEditorHtmlForEmail(bodyRaw);
+  const { ensureTalentExtralinksInHtml } = await import(
+    "@/lib/talent-email-links"
+  );
+  const bodyTpl = normalizeEditorHtmlForEmail(
+    ensureTalentExtralinksInHtml(bodyRaw)
+  );
   const personalizedBody = applyCastingTemplateVars(bodyTpl, vars);
 
   const cycleNumber = target.cycleCount + 1;
@@ -506,13 +513,18 @@ export type BeneluxOutreachRelanceResult =
   | { ok: false; error: string };
 
 /**
- * Relance rapprochée J+3 : répond dans le thread Gmail du touch. Une seule
- * relance par touch ; sautée par le cron si réponse (relance manuelle possible).
+ * Relance thread Gmail — round 1 (J+3) ou round 2 (J+10 après R1).
+ * Corps = IA avec fallback template.
  */
 export async function executeBeneluxOutreachRelance(
   touchId: string,
-  options: { subjectOverride?: string; bodyOverride?: string } = {}
+  options: {
+    subjectOverride?: string;
+    bodyOverride?: string;
+    round?: 1 | 2;
+  } = {}
 ): Promise<BeneluxOutreachRelanceResult> {
+  const round: 1 | 2 = options.round === 2 ? 2 : 1;
   const touch = await prisma.beneluxOutreachTouch.findUnique({
     where: { id: touchId },
     include: { target: true },
@@ -521,8 +533,28 @@ export async function executeBeneluxOutreachRelance(
   if (!touch.sentAt || !touch.threadId) {
     return { ok: false, error: "Le mail initial n'a pas été envoyé." };
   }
-  if (touch.relanceSentAt) {
-    return { ok: false, error: "Une relance a déjà été envoyée pour ce mail." };
+  if (touch.relanceCancelledAt) {
+    return { ok: false, error: "Les relances sont en pause sur ce mail." };
+  }
+  if (round === 1) {
+    if (touch.relanceSentAt) {
+      return { ok: false, error: "La relance 1 a déjà été envoyée pour ce mail." };
+    }
+  } else {
+    if (!touch.relanceSentAt) {
+      return { ok: false, error: "La relance 1 doit partir avant la relance 2." };
+    }
+    if (touch.relance2SentAt) {
+      return { ok: false, error: "La relance 2 a déjà été envoyée pour ce mail." };
+    }
+    const { outreachRelance2Eligible } = await import("@/lib/outreach-constants");
+    if (!outreachRelance2Eligible(touch.relanceSentAt)) {
+      return {
+        ok: false,
+        error:
+          "Pas de R2 sur ce cycle : la R1 est antérieure au 25/09/2026 (rattrapage limité).",
+      };
+    }
   }
 
   const target = touch.target;
@@ -531,13 +563,46 @@ export async function executeBeneluxOutreachRelance(
     options.subjectOverride?.trim() ||
     (subjectSrc.toLowerCase().startsWith("re:") ? subjectSrc : `Re: ${subjectSrc}`);
 
-  const bodyTemplate =
-    options.bodyOverride?.trim() ||
-    buildOutreachRelanceTemplate(
+  const lang: "fr" | "en" = target.language === "en" ? "en" : "fr";
+  let bodyTemplate = options.bodyOverride?.trim() || "";
+  if (!bodyTemplate) {
+    try {
+      const { generateOutreachRelanceBody } = await import(
+        "@/lib/outreach-relance-ai"
+      );
+      const ai = await generateOutreachRelanceBody({
+        touchId: touch.id,
+        round,
+        language: lang,
+        company: target.companyName,
+        previousSubject: touch.subject,
+        previousBodyHtml: touch.bodyHtml || "",
+        firstSentAt: touch.sentAt,
+      });
+      if (ai?.bodyHtml?.trim()) bodyTemplate = ai.bodyHtml.trim();
+    } catch (e) {
+      console.warn(
+        `[benelux-outreach] relance R${round} IA soft-fail:`,
+        e instanceof Error ? e.message : e
+      );
+    }
+  }
+  if (!bodyTemplate) {
+    bodyTemplate = buildOutreachRelanceTemplate(
       target.companyName,
-      target.language === "en" ? "en" : "fr",
+      lang,
       touch.sentAt
     );
+  }
+
+  const { ensureTalentExtralinksInHtml } = await import(
+    "@/lib/talent-email-links"
+  );
+  bodyTemplate = ensureTalentExtralinksInHtml(
+    bodyTemplate,
+    null,
+    touch.bodyHtml || ""
+  );
 
   const vars = {
     firstname: target.firstname || "",
@@ -558,9 +623,13 @@ export async function executeBeneluxOutreachRelance(
   });
   const finalHtml = `${trackedBody}${quotedOriginal}`;
 
+  const replyToGmailId =
+    round === 2 && touch.relanceMessageId
+      ? touch.relanceMessageId
+      : touch.messageId;
   let inReplyTo: string | undefined;
-  if (touch.messageId) {
-    inReplyTo = (await getMessageRfcId(fromEmail, touch.messageId)) || undefined;
+  if (replyToGmailId) {
+    inReplyTo = (await getMessageRfcId(fromEmail, replyToGmailId)) || undefined;
   }
 
   try {
@@ -573,22 +642,40 @@ export async function executeBeneluxOutreachRelance(
       inReplyTo,
     });
 
-    await prisma.beneluxOutreachTouch.update({
-      where: { id: touch.id },
-      data: {
-        relanceSentAt: new Date(),
-        relanceMessageId: messageId,
-        relanceError: null,
-      },
-    });
-
-    console.info(`[benelux-outreach] relance J+3 → ${target.email} (touch=${touch.id})`);
+    if (round === 1) {
+      await prisma.beneluxOutreachTouch.update({
+        where: { id: touch.id },
+        data: {
+          relanceSentAt: new Date(),
+          relanceMessageId: messageId,
+          relanceError: null,
+        },
+      });
+      console.info(
+        `[benelux-outreach] relance R1 J+3 → ${target.email} (touch=${touch.id})`
+      );
+    } else {
+      await prisma.beneluxOutreachTouch.update({
+        where: { id: touch.id },
+        data: {
+          relance2SentAt: new Date(),
+          relance2MessageId: messageId,
+          relance2Error: null,
+        },
+      });
+      console.info(
+        `[benelux-outreach] relance R2 J+10 → ${target.email} (touch=${touch.id})`
+      );
+    }
     return { ok: true, messageId };
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Erreur Gmail inconnue";
     await prisma.beneluxOutreachTouch.update({
       where: { id: touch.id },
-      data: { relanceError: msg },
+      data:
+        round === 1
+          ? { relanceError: msg }
+          : { relance2Error: msg },
     });
     return { ok: false, error: `Échec Gmail : ${msg}` };
   }
