@@ -138,7 +138,9 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
       if (mode === "mine") params.set("mine", "1");
       if (showArchived) params.set("archived", "1");
       if (q.trim()) params.set("q", q.trim());
-      if (assigneeFilter) params.set("assigneeId", assigneeFilter);
+      if (mode === "manage" && assigneeFilter) {
+        params.set("assigneeId", assigneeFilter);
+      }
       if (priorityFilter) params.set("priority", priorityFilter);
       if (statusFilter === "open") {
         params.set("status", "TODO,IN_PROGRESS,BLOCKED");
@@ -703,7 +705,7 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
           <p className="text-[12.5px] mt-1" style={{ color: "var(--rh-text-secondary)" }}>
             {mode === "manage"
               ? "Assigne · suis · débloque — N nouvelle · / chercher · 1/2/3 vues"
-              : "N nouvelle · / chercher · Échap fermer"}
+              : "Uniquement les tâches qui te sont assignées"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

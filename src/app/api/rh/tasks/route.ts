@@ -31,15 +31,17 @@ export async function GET(request: NextRequest) {
     : undefined;
 
   try {
+    const mineOnly = sp.get("mine") === "1";
     const tasks = await listRhTasks(session.employee, {
-      assigneeId: sp.get("assigneeId") || undefined,
-      creatorId: sp.get("creatorId") || undefined,
+      // En mode « mes tâches », on ignore un éventuel assigneeId (toujours soi)
+      assigneeId: mineOnly ? undefined : sp.get("assigneeId") || undefined,
+      creatorId: mineOnly ? undefined : sp.get("creatorId") || undefined,
       status: status?.length === 1 ? status[0] : status,
       priority: priority?.length === 1 ? priority[0] : priority,
       q: sp.get("q") || undefined,
       includeArchived: sp.get("archived") === "1",
       overdueOnly: sp.get("overdue") === "1",
-      mineOnly: sp.get("mine") === "1",
+      mineOnly,
     });
     return NextResponse.json({ tasks });
   } catch (e) {

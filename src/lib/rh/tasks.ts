@@ -293,16 +293,21 @@ export async function listRhTasks(
     where.archivedAt = null;
   }
 
-  // Hub patron (Sofian) : toute l’équipe. Sinon : mes tâches seulement.
-  if (filters.mineOnly || !isPatronHubUser(viewer)) {
-    where.OR = [
-      { assigneeId: viewer.id },
-      { creatorId: viewer.id },
-      { assignees: { some: { employeeId: viewer.id } } },
+  // Espace collab / ?mine=1 : uniquement les tâches où JE suis assigné.
+  // Hub ADMIN (manage) : toute l’équipe.
+  const onlyMine = filters.mineOnly || !isPatronHubUser(viewer);
+  if (onlyMine) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      {
+        OR: [
+          { assigneeId: viewer.id },
+          { assignees: { some: { employeeId: viewer.id } } },
+        ],
+      },
     ];
-  }
-
-  if (filters.assigneeId) {
+  } else if (filters.assigneeId) {
+    // Hub ADMIN : filtre optionnel par assigné
     where.AND = [
       ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
       {
