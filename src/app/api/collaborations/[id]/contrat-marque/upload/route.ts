@@ -7,7 +7,7 @@ import {
   hasStoredContratMarqueClientContact,
   parseContratMarqueContactInput,
 } from "@/lib/contratMarqueClientContact";
-import { v2 as cloudinary } from "cloudinary";
+import { v2 as cloudinary, type UploadApiResponse } from "cloudinary";
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -19,6 +19,30 @@ function statutV1FromLegacyCollab(statut: string | null | undefined): string {
   if (statut === "APPROUVE" || statut === "SIGNE") return "APPROUVE";
   if (statut === "A_MODIFIER") return "A_MODIFIER";
   return "EN_ATTENTE_JURISTE";
+}
+
+/** Upload PDF via stream (pas de data-URI base64 → ~33 % de RAM en moins). */
+function uploadPdfBufferToCloudinary(
+  buffer: Buffer,
+  options: { folder: string; public_id: string }
+): Promise<UploadApiResponse> {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: options.folder,
+        public_id: options.public_id,
+        resource_type: "auto",
+      },
+      (error, result) => {
+        if (error || !result) {
+          reject(error ?? new Error("Upload Cloudinary échoué"));
+          return;
+        }
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
 }
 
 export async function POST(
@@ -114,13 +138,10 @@ export async function POST(
       }
     }
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-    const base64 = `data:${file.type};base64,${buffer.toString("base64")}`;
-    const uploaded = await cloudinary.uploader.upload(base64, {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const uploaded = await uploadPdfBufferToCloudinary(buffer, {
       folder: "glowup-contrats-marques",
       public_id: `${collaboration.reference}-${Date.now()}`,
-      resource_type: "auto",
     });
 
     const url = uploaded.secure_url;
