@@ -1138,9 +1138,13 @@ export default function OutreachPage() {
                   return `${Number(day)} ${moLabel} à ${hm}`;
                 })()
               : null;
+          const staggerNote =
+            group.targets.length > 1 && sendMode !== "at"
+              ? `\n\n⏱ Étalement anti-spam : ~1 mail / 3 min, max 19h (reprise 7h30 le lendemain si besoin).`
+              : "";
           const scheduleNote = scheduleLabelFr
             ? `\n\n🕒 Programmé pour le ${scheduleLabelFr} (heure française).`
-            : "";
+            : staggerNote;
           const verb = sendMode === "at" ? "Programmer" : "Envoyer";
           const confirmed = window.confirm(
             group.targets.length > 1
@@ -1223,9 +1227,18 @@ export default function OutreachPage() {
               data.translated > 0
                 ? ` · ${data.translated} traduit${data.translated > 1 ? "s" : ""} auto`
                 : "";
+            const whenLabel = scheduleLabelFr
+              ? `pour le ${scheduleLabelFr} (heure FR)`
+              : data.firstScheduledAt
+              ? `à partir de ${new Date(data.firstScheduledAt).toLocaleString("fr-FR", {
+                  timeZone: "Europe/Paris",
+                  dateStyle: "short",
+                  timeStyle: "short",
+                })}`
+              : "(étalement anti-spam)";
             flash(
               "success",
-              `${n} mail${n > 1 ? "s" : ""} programmé${n > 1 ? "s" : ""} pour le ${scheduleLabelFr} (heure FR)${translatedNote}${
+              `${n} mail${n > 1 ? "s" : ""} programmé${n > 1 ? "s" : ""} ${whenLabel}${translatedNote}${
                 failed.length > 0 ? ` · ${failed.length} échec${failed.length > 1 ? "s" : ""}` : ""
               }.`
             );

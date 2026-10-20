@@ -8,6 +8,7 @@ import {
   computeAgencyStaggeredTimesFrom,
   parseParisDateTimeLocalToUtc,
 } from "@/lib/agency-outreach-send";
+import { shouldStaggerBulk } from "@/lib/email-send-pacing";
 import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
 
 /**
@@ -358,8 +359,8 @@ export async function POST(request: NextRequest) {
     const sourceLanguage = normalizeLang(body.sourceLanguage);
     const force = body.force === true;
     const stream = body.stream === true;
-    // "now" (défaut) : tout part immédiatement ; "staggered" : étalé jusqu'à
-    // 18h30 (Paris) ; "at" : programmé à une heure précise choisie (heure FR).
+    // "now" : immédiat si 1 destinataire, sinon étalé (7h30–19h, reprise 7h30).
+    // "staggered" / "at" : toujours programmé.
     const mode =
       body.mode === "staggered" ? "staggered" : body.mode === "at" ? "at" : "now";
 
@@ -421,11 +422,13 @@ export async function POST(request: NextRequest) {
       force,
       relanceScheduledAt,
     };
-    // "now" → envoi immédiat ; "staggered"/"at" → programmation (le cron enverra).
+    // ≥2 destinataires : toujours étalé (anti-rafale), même en mode « now ».
+    const useSchedule =
+      mode !== "now" || shouldStaggerBulk(targets.length);
     const runBulk = (onProgress: (event: ProgressEvent) => void) =>
-      mode === "now"
-        ? runBulkSend(sendParams, onProgress)
-        : runBulkSchedule({ ...sendParams, scheduledStart }, onProgress);
+      useSchedule
+        ? runBulkSchedule({ ...sendParams, scheduledStart }, onProgress)
+        : runBulkSend(sendParams, onProgress);
 
     if (stream) {
       const encoder = new TextEncoder();

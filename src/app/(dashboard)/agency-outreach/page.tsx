@@ -389,8 +389,8 @@ export default function AgencyOutreachPage() {
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [subject, setSubject] = useState("");
   const [language, setLanguage] = useState<"fr" | "en">("fr");
-  // Mode d'envoi : "now" = tout part maintenant ; "staggered" = étalé jusqu'à
-  // 18h30 ; "at" = programmé à une heure précise choisie (heure de Paris).
+  // Mode d'envoi : "now" = démarre maintenant (étalé si ≥2) ; "staggered" =
+  // étalé 7h30–19h ; "at" = départ à une heure précise (heure de Paris).
   const [sendMode, setSendMode] = useState<"now" | "staggered" | "at">("now");
   // Heure d'envoi choisie (mode "at"), au format datetime-local, heure de Paris.
   const [scheduledAt, setScheduledAt] = useState<string>("");
@@ -871,10 +871,13 @@ export default function AgencyOutreachPage() {
         (p) => setProgress(p)
       );
       const parts: string[] = [];
-      if (sendMode !== "now") {
+      if (result.scheduled > 0) {
         parts.push(`${result.scheduled} mail(s) programmé(s)`);
         if (result.firstScheduledAt) {
           parts.push(`à partir de ${fmtDateTime(result.firstScheduledAt)}`);
+        }
+        if (result.lastScheduledAt && result.lastScheduledAt !== result.firstScheduledAt) {
+          parts.push(`jusqu'à ${fmtDateTime(result.lastScheduledAt)}`);
         }
       } else {
         parts.push(`${result.sent} mail(s) envoyé(s)`);
@@ -2015,7 +2018,7 @@ export default function AgencyOutreachPage() {
                       Maintenant
                     </span>
                     <span className="block text-[11px] opacity-70" style={{ color: LICORICE }}>
-                      Tous les mails partent tout de suite.
+                      Démarre tout de suite (étalé si plusieurs, max 19h).
                     </span>
                   </button>
                   <button
@@ -2031,7 +2034,7 @@ export default function AgencyOutreachPage() {
                       En décalé
                     </span>
                     <span className="block text-[11px] opacity-70" style={{ color: LICORICE }}>
-                      Étalés dans la journée, tous avant 18h30.
+                      Étalés 7h30–19h, reprise le lendemain à 7h30.
                     </span>
                   </button>
                   <button
@@ -2055,7 +2058,7 @@ export default function AgencyOutreachPage() {
                       À une heure précise
                     </span>
                     <span className="block text-[11px] opacity-70" style={{ color: LICORICE }}>
-                      Départ choisi, puis étalés jusqu&apos;à 18h30.
+                      Départ choisi, puis étalés (max 19h, reprise 7h30).
                     </span>
                   </button>
                 </div>
@@ -2074,7 +2077,7 @@ export default function AgencyOutreachPage() {
                     />
                     <p className="text-[11px] opacity-70 mt-1" style={{ color: LICORICE }}>
                       {selectedTargets.length > 1
-                        ? `Les ${selectedTargets.length} mails seront répartis entre cette heure et 18h30 (pas tous d'un coup).`
+                        ? `Les ${selectedTargets.length} mails seront étalés dès cette heure (max 19h, reprise 7h30 le lendemain si besoin).`
                         : "Le mail partira à cette heure."}
                     </p>
                   </div>

@@ -48,6 +48,10 @@ import {
   evaluateIndivBrandSendGuard,
   type SendLine,
 } from "@/lib/contact-cooldown";
+import {
+  computeStaggeredSendTimesFrom,
+  shouldStaggerBulk,
+} from "@/lib/email-send-pacing";
 
 export { isInternalGlowUpEmail } from "@/lib/casting-recipient-guard";
 
@@ -81,6 +85,11 @@ type SentMessageRecord = {
   messageId?: string;
   threadId?: string;
   error?: string;
+  /**
+   * Créneau d'envoi anti-rafale (ISO). Présent tant que le mail n'est pas
+   * parti ; effacé dès qu'un messageId est posé.
+   */
+  pendingSendAt?: string;
   /** Exclut ce destinataire des relances auto/manuel (ex. contact AO envoyé par erreur). */
   skipRelance?: boolean;
   openCount?: number;
@@ -796,20 +805,105 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     byEmail: {},
   };
 
+  const previousMessages: Record<string, SentMessageRecord> =
+    mission.sentMessageIds && typeof mission.sentMessageIds === "object"
+      ? { ...(mission.sentMessageIds as Record<string, SentMessageRecord>) }
+      : {};
+
+  const now = new Date();
+  const stagger = shouldStaggerBulk(newContacts.length);
+
+  // Assigne un créneau (7h30–19h, gap 3 min, reprise J+1 7h30) aux contacts
+  // pas encore planifiés / envoyés.
+  if (stagger) {
+    const needSchedule = newContacts.filter((c) => {
+      const email = (c.email || "").toLowerCase();
+      if (!email || blocked.has(email)) return false;
+      const rec = previousMessages[email];
+      return !rec?.pendingSendAt;
+    });
+    if (needSchedule.length > 0) {
+      const times = computeStaggeredSendTimesFrom(needSchedule.length, now);
+      for (let i = 0; i < needSchedule.length; i += 1) {
+        const email = (needSchedule[i].email || "").toLowerCase();
+        previousMessages[email] = {
+          ...previousMessages[email],
+          pendingSendAt: times[i]!.toISOString(),
+        };
+      }
+    }
+  }
+
+  // Blocages cooldown : on les enregistre tout de suite (pas d'attente pacing).
   for (const contact of newContacts) {
+    const email = (contact.email || "").toLowerCase();
+    if (!email || !blocked.has(email)) continue;
+    // Déjà consigné lors d'un passage précédent (vague étalée).
+    if (previousMessages[email]?.error && !previousMessages[email]?.messageId) {
+      continue;
+    }
+    outcome.attempted += 1;
+    outcome.failed += 1;
+    const detail =
+      blockedList.find((b) => b.email === email)?.guard.message ||
+      `${email} : plafond 1 mail/mois sur cette ligne`;
+    outcome.errors.push(detail);
+    outcome.byEmail[email] = { error: detail };
+  }
+
+  const dueSendable = newContacts.filter((c) => {
+    const email = (c.email || "").toLowerCase();
+    if (!email || blocked.has(email)) return false;
+    if (!stagger) return true;
+    const pending = previousMessages[email]?.pendingSendAt;
+    if (!pending) return true;
+    return new Date(pending).getTime() <= now.getTime();
+  });
+
+  // Rien à envoyer maintenant : on fige les créneaux et on reporte.
+  if (stagger && dueSendable.length === 0) {
+    let nextAt: Date | null = null;
+    for (const c of newContacts) {
+      const email = (c.email || "").toLowerCase();
+      if (!email || blocked.has(email)) continue;
+      if (outcome.byEmail[email]?.messageId) continue;
+      const pending = previousMessages[email]?.pendingSendAt;
+      if (!pending) continue;
+      const t = new Date(pending);
+      if (!nextAt || t.getTime() < nextAt.getTime()) nextAt = t;
+    }
+    const mergedEarly = { ...previousMessages, ...outcome.byEmail };
+    const stillPending = newContacts.some((c) => {
+      const email = (c.email || "").toLowerCase();
+      if (!email || blocked.has(email)) return false;
+      const rec = mergedEarly[email];
+      return !(rec?.messageId && !rec.error);
+    });
+    await contactMissionModel.update({
+      where: { id: missionId },
+      data: {
+        sentMessageIds: mergedEarly,
+        sendError: outcome.errors.length > 0 ? outcome.errors.join(" | ") : null,
+        scheduledSendAt: stillPending ? nextAt : null,
+        ...(mission.forceSend && !stillPending
+          ? {
+              forceSend: false,
+              brandCooldownUntil: null,
+              brandCooldownReason: null,
+            }
+          : {}),
+      },
+    });
+    return outcome;
+  }
+
+  // 1 mail Gmail max / passage si vague multi-contacts (cron toutes les ~5 min).
+  const sendQueue = stagger ? dueSendable.slice(0, 1) : dueSendable;
+
+  for (const contact of sendQueue) {
     const email = (contact.email || "").toLowerCase();
     if (!email) continue;
     outcome.attempted += 1;
-    if (blocked.has(email)) {
-      outcome.failed += 1;
-      const detail =
-        blockedList.find((b) => b.email === email)?.guard.message ||
-        `${email} : plafond 1 mail/mois sur cette ligne`;
-      outcome.errors.push(detail);
-      outcome.byEmail[email] = { error: detail };
-      continue;
-    }
-    // Langue de CE contact, captée depuis la fiche client (sinon fallback).
     const contactLang = contactLangByEmail.get(email) ?? fallbackLang;
     const version = await getVersion(contactLang);
     const personalizedSubject = ensureBrandInSubject(
@@ -844,11 +938,37 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     }
   }
 
-  const previousMessages =
-    mission.sentMessageIds && typeof mission.sentMessageIds === "object"
-      ? (mission.sentMessageIds as Record<string, SentMessageRecord>)
-      : {};
   const mergedMessages = { ...previousMessages, ...outcome.byEmail };
+
+  // Prochain créneau encore en attente (contacts non envoyés avec pending).
+  let nextScheduledAt: Date | null = null;
+  for (const c of newContacts) {
+    const email = (c.email || "").toLowerCase();
+    if (!email) continue;
+    const rec = mergedMessages[email];
+    if (rec?.messageId && !rec.error) continue;
+    if (blocked.has(email)) continue;
+    const pending = rec?.pendingSendAt;
+    if (!pending) continue;
+    const t = new Date(pending);
+    if (t.getTime() <= now.getTime()) {
+      // Dû mais pas traité ce passage (cap 1/run) → dès le prochain cron.
+      if (!nextScheduledAt || now.getTime() < nextScheduledAt.getTime()) {
+        nextScheduledAt = now;
+      }
+      continue;
+    }
+    if (!nextScheduledAt || t.getTime() < nextScheduledAt.getTime()) {
+      nextScheduledAt = t;
+    }
+  }
+
+  const remainingToSend = newContacts.some((c) => {
+    const email = (c.email || "").toLowerCase();
+    if (!email || blocked.has(email)) return false;
+    const rec = mergedMessages[email];
+    return !(rec?.messageId && !rec.error);
+  });
 
   // Si la mission etait deja envoyee, on garde le sentAt initial pour ne
   // pas faire repartir le compteur des relances J+3 a zero. On ne touche
@@ -871,10 +991,9 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
       ...stageUpdate,
       sentMessageIds: mergedMessages,
       sendError: combinedErrors.length > 0 ? combinedErrors.join(" | ") : null,
-      scheduledSendAt: null,
-      // Le flag de forcage est a usage unique : on le remet a false apres
-      // l'execution pour ne pas court-circuiter le cooldown sur de futurs ajouts.
-      ...(mission.forceSend
+      scheduledSendAt: remainingToSend ? nextScheduledAt : null,
+      // Flag de forcage : on ne le consomme que quand toute la vague est finie.
+      ...(mission.forceSend && !remainingToSend
         ? {
             forceSend: false,
             brandCooldownUntil: null,

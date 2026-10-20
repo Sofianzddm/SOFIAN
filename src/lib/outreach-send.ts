@@ -572,7 +572,8 @@ export async function executeOutreachSchedule(
  */
 export async function processOutreachScheduledSends(
   now: Date = new Date(),
-  limit = 50
+  /** Cap bas pour éviter une rafale si beaucoup d'échéances tombent ensemble. */
+  limit = 10
 ): Promise<{ processed: number; sent: number; failed: number }> {
   const due = await prisma.outreachTarget.findMany({
     where: {

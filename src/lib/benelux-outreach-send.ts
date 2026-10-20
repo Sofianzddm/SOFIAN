@@ -250,6 +250,10 @@ export async function executeBeneluxOutreachSend(
         nextRecontactAt,
         draftSubject: null,
         draftBodyHtml: null,
+        scheduledSendAt: null,
+        scheduledSubject: null,
+        scheduledBodyHtml: null,
+        scheduledById: null,
         autoRescheduleReason: null,
         autoRescheduledAt: null,
       },
@@ -261,6 +265,190 @@ export async function executeBeneluxOutreachSend(
   );
 
   return { ok: true, touchId: touch.id, messageId };
+}
+
+export type BeneluxOutreachScheduleResult =
+  | { ok: true; scheduledSendAt: string }
+  | {
+      ok: false;
+      error: string;
+      needsConfirmation?: boolean;
+      alreadyContactedAt?: string;
+      suggestedNextRecontactAt?: string;
+    };
+
+/**
+ * Programme (sans envoyer) un mail de cycle BENELUX à une échéance précise.
+ * Même garde-fou anti double-contact que l'envoi immédiat. Le cron envoie
+ * quand `scheduledSendAt` est atteint.
+ */
+export async function executeBeneluxOutreachSchedule(
+  targetId: string,
+  input: {
+    subject: string;
+    bodyHtml: string;
+    scheduledSendAt: Date;
+    sentById?: string | null;
+    force?: boolean;
+  }
+): Promise<BeneluxOutreachScheduleResult> {
+  const target = await prisma.beneluxOutreachTarget.findUnique({
+    where: { id: targetId },
+  });
+  if (!target) return { ok: false, error: "Prospect introuvable." };
+  if (target.status === "STOPPED") {
+    return { ok: false, error: "Ce prospect est sorti du cycle (stoppé)." };
+  }
+
+  const subjectTpl = input.subject.trim();
+  const bodyTpl = input.bodyHtml.trim();
+  if (!subjectTpl || !bodyTpl) {
+    return { ok: false, error: "Sujet et corps du mail requis." };
+  }
+  if (!isValidEmail(target.email)) {
+    return { ok: false, error: `Email invalide : ${target.email}` };
+  }
+
+  const fromEmail = beneluxOutreachFromEmail(target);
+
+  if (!input.force) {
+    const externalContact = await detectRecentExternalContact(
+      fromEmail,
+      target.id,
+      target.email
+    );
+    if (externalContact.contacted) {
+      if (externalContact.lastDate) {
+        const suggestedNextRecontactAt = new Date(
+          externalContact.lastDate.getTime() +
+            BENELUX_OUTREACH_RECONTACT_DAYS * 24 * 60 * 60 * 1000
+        );
+        return {
+          ok: false,
+          needsConfirmation: true,
+          alreadyContactedAt: externalContact.lastDate.toISOString(),
+          suggestedNextRecontactAt: suggestedNextRecontactAt.toISOString(),
+          error:
+            `Déjà contacté le ${formatFrDate(externalContact.lastDate)} depuis la boîte ` +
+            `${fromEmail} (hors prospection BENELUX : envoi manuel ou autre canal).`,
+        };
+      }
+      return {
+        ok: false,
+        needsConfirmation: true,
+        error: `${target.email} a déjà reçu un mail depuis la boîte ${fromEmail} il y a moins de ${BENELUX_OUTREACH_RECONTACT_DAYS} jours.`,
+      };
+    }
+  }
+
+  await prisma.beneluxOutreachTarget.update({
+    where: { id: target.id },
+    data: {
+      scheduledSendAt: input.scheduledSendAt,
+      scheduledSubject: subjectTpl,
+      scheduledBodyHtml: bodyTpl,
+      scheduledById: input.sentById || null,
+      draftSubject: null,
+      draftBodyHtml: null,
+      autoRescheduleReason: null,
+      autoRescheduledAt: null,
+    },
+  });
+
+  return { ok: true, scheduledSendAt: input.scheduledSendAt.toISOString() };
+}
+
+/**
+ * Cron : envoie les mails BENELUX programmés / étalés dont l'échéance est
+ * atteinte. Cap bas pour éviter une rafale.
+ */
+export async function processBeneluxScheduledSends(
+  now: Date = new Date(),
+  limit = 10
+): Promise<{ processed: number; sent: number; failed: number }> {
+  const due = await prisma.beneluxOutreachTarget.findMany({
+    where: {
+      status: { not: "STOPPED" },
+      scheduledSendAt: { not: null, lte: now },
+    },
+    select: {
+      id: true,
+      email: true,
+      firstname: true,
+      lastname: true,
+      companyName: true,
+      createdById: true,
+      scheduledSubject: true,
+      scheduledBodyHtml: true,
+      scheduledById: true,
+    },
+    orderBy: { scheduledSendAt: "asc" },
+    take: limit,
+  });
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const t of due) {
+    const subject = (t.scheduledSubject || "").trim();
+    const bodyHtml = (t.scheduledBodyHtml || "").trim();
+
+    if (!subject || !bodyHtml) {
+      await prisma.beneluxOutreachTarget
+        .update({
+          where: { id: t.id },
+          data: {
+            scheduledSendAt: null,
+            scheduledSubject: null,
+            scheduledBodyHtml: null,
+            scheduledById: null,
+          },
+        })
+        .catch(() => null);
+      continue;
+    }
+
+    await prisma.beneluxOutreachTarget
+      .update({
+        where: { id: t.id },
+        data: {
+          scheduledSendAt: null,
+          scheduledSubject: null,
+          scheduledBodyHtml: null,
+          scheduledById: null,
+        },
+      })
+      .catch(() => null);
+
+    const result = await executeBeneluxOutreachSend(t.id, {
+      subject,
+      bodyHtml,
+      sentById: t.scheduledById,
+      force: true,
+    });
+
+    if (result.ok) {
+      sent += 1;
+      continue;
+    }
+
+    failed += 1;
+    await prisma.notification
+      .create({
+        data: {
+          userId: t.createdById,
+          type: "GENERAL",
+          titre: "Envoi programmé échoué (Outreach BENELUX)",
+          message: `Le mail programmé pour ${t.firstname} ${t.lastname || ""} (${t.companyName}, ${t.email}) n'a pas pu partir : ${result.error}`,
+          lien: "/outreach?market=BENELUX",
+        },
+      })
+      .catch((e) =>
+        console.warn("[benelux-outreach] notif envoi programmé échoué:", e)
+      );
+  }
+
+  return { processed: due.length, sent, failed };
 }
 
 export type BeneluxOutreachRescheduleResult =

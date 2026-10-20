@@ -12,8 +12,8 @@ import {
 
 /**
  * Cron du module Prospection Agences (jours ouvrés) :
- *  0. Envoie les mails « décalés » dont l'échéance est atteinte (option d'envoi
- *     étalé dans la journée jusqu'à 18h30).
+ *  0. Envoie les mails « décalés » dont l'échéance est atteinte (étalement
+ *     7h30–19h Paris, reprise 7h30 le lendemain).
  *  1. Détecte les réponses sur le dernier mail de chaque agence en attente
  *     (info seulement : l'agence RESTE dans le cycle 45 jours). Les bounces
  *     (adresse invalide) marquent le contact « email incorrect » sans le

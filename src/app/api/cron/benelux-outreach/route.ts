@@ -5,11 +5,14 @@ import { relanceDue, isBusinessDay, isWithinRelanceHours } from "@/lib/business-
 import {
   executeBeneluxOutreachRelance,
   beneluxOutreachFromEmail,
+  processBeneluxScheduledSends,
   BENELUX_OUTREACH_RELANCE_BUSINESS_DAYS,
 } from "@/lib/benelux-outreach-send";
 
 /**
  * Cron du module Prospection BENELUX (jours ouvrés) :
+ *  0. Envoie les mails programmés / étalés dont l'échéance est atteinte
+ *     (7h30–19h, reprise 7h30 — y compris week-end si échéance tombée).
  *  1. Détecte les réponses sur le dernier mail de chaque prospect en attente
  *     (info seulement : il RESTE dans le cycle 45 jours). Les bounces (adresse
  *     invalide) retirent automatiquement le prospect du cycle.
@@ -26,11 +29,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
 
-  if (!isBusinessDay(new Date())) {
-    return NextResponse.json({ processed: 0, skipped: "weekend" });
+  const now = new Date();
+
+  // Envois étalés : avant le garde-fou week-end (comme outreach FR).
+  const scheduled = await processBeneluxScheduledSends(now);
+
+  if (!isBusinessDay(now)) {
+    return NextResponse.json({ processed: 0, scheduled, skipped: "weekend" });
   }
 
-  const now = new Date();
   // Relances auto uniquement dans les heures de bureau (8h30–18h30 Paris) :
   // hors fenêtre, on ne relance pas (report au prochain passage dans la
   // fenêtre). La détection de réponse et la bascule J+45 continuent.
@@ -164,6 +171,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     processed: targets.length,
+    scheduled,
     replies,
     relances,
     recontacts,

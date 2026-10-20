@@ -29,7 +29,8 @@ export async function GET(request: NextRequest) {
       stage: { in: ["TO_SEND", "SENT"] },
     },
     select: { id: true },
-    take: 50,
+    // Cap bas : chaque mission n'envoie qu'1 contact / passage (anti-rafale).
+    take: 5,
   });
 
   const results: Array<{

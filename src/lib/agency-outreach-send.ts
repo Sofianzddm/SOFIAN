@@ -35,6 +35,16 @@ import {
   buildQuotedOriginal,
 } from "@/lib/email-body-html";
 import { LEYNA_FROM_EMAIL, LEYNA_OWNER_FIRSTNAME } from "@/lib/casting-auto-send";
+import {
+  computeStaggeredSendTimes,
+  computeStaggeredSendTimesFrom,
+  nextSendWindowInstant,
+  parisTimeOnDay,
+  parisWallClockToUtc,
+  SEND_PACING_END_HOUR,
+  SEND_PACING_END_MINUTE,
+  SEND_PACING_LEAD_MS,
+} from "@/lib/email-send-pacing";
 
 export const AGENCY_OUTREACH_RELANCE_BUSINESS_DAYS = 3;
 /** Jours calendaires avant le retour de l'agence en file « À recontacter ». */
@@ -444,119 +454,40 @@ export async function executeAgencyOutreachSend(
 // ============================================================================
 // ENVOI DÉCALÉ (staggered) : étale l'envoi groupé dans la journée
 // ============================================================================
-// Plutôt que d'envoyer tous les mails d'un coup, on répartit les envois entre
-// « maintenant » et 18h30 (heure de Paris) pour que les destinataires ne
-// reçoivent pas tous au même instant (meilleure délivrabilité, plus naturel).
-// Le cron /api/cron/agency-outreach envoie chaque mail quand son échéance
-// (scheduledSendAt) est atteinte.
+// Gap 3 min, fenêtre 19h Paris, reprise le lendemain à 7h30.
+// Le cron /api/cron/agency-outreach envoie chaque mail à son échéance.
 
-const PARIS_TZ = "Europe/Paris";
-
-/** Heure limite (Paris) : tous les mails décalés partent AVANT cette heure. */
-export const AGENCY_STAGGER_END_HOUR = 18;
-export const AGENCY_STAGGER_END_MINUTE = 30;
-/**
- * Repli si on démarre déjà trop tard : on étale quand même jusqu'à cette heure
- * (Paris) LE JOUR MÊME — on ne reporte jamais au lendemain. C'est aussi le
- * maximum absolu : aucun mail ne part après 20h30.
- */
-export const AGENCY_STAGGER_LATE_END_HOUR = 20;
-export const AGENCY_STAGGER_LATE_END_MINUTE = 30;
-
-/** Convertit une heure « murale » de Paris (y/m/d h:min) en instant UTC. */
-function parisWallClockToUtc(
-  year: number,
-  month: number,
-  day: number,
-  hour: number,
-  minute: number
-): Date {
-  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, 0);
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: PARIS_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date(utcGuess));
-  const map: Record<string, number> = {};
-  for (const p of parts) if (p.type !== "literal") map[p.type] = Number(p.value);
-  // 24:xx (minuit) formaté par Intl selon l'env → ramené à 0.
-  const h = map.hour === 24 ? 0 : map.hour;
-  const asUtc = Date.UTC(map.year, map.month - 1, map.day, h, map.minute, map.second);
-  const offset = asUtc - utcGuess;
-  return new Date(utcGuess - offset);
-}
-
-/** Renvoie l'instant UTC correspondant à `hour:minute` (Paris) le jour de `base`. */
-function parisTimeOnDay(base: Date, hour: number, minute: number): Date {
-  const [y, m, d] = new Intl.DateTimeFormat("en-CA", {
-    timeZone: PARIS_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-    .format(base)
-    .split("-")
-    .map(Number);
-  return parisWallClockToUtc(y, m, d, hour, minute);
-}
+/** @deprecated Utiliser SEND_PACING_END_* — conservé pour imports existants. */
+export const AGENCY_STAGGER_END_HOUR = SEND_PACING_END_HOUR;
+export const AGENCY_STAGGER_END_MINUTE = SEND_PACING_END_MINUTE;
+/** @deprecated Plus de « late end » : report au lendemain 7h30. */
+export const AGENCY_STAGGER_LATE_END_HOUR = SEND_PACING_END_HOUR;
+export const AGENCY_STAGGER_LATE_END_MINUTE = SEND_PACING_END_MINUTE;
 
 /**
- * Fenêtre d'étalement des envois : de « maintenant » jusqu'à 18h30 (Paris) LE
- * JOUR MÊME. On ne reporte jamais au lendemain : si 18h30 est déjà passé (ou
- * trop proche), on étale quand même jusqu'à 20h30 — le maximum absolu, aucun
- * mail ne part plus tard. Passé 20h30, tout part au plus tôt (prochain cron).
+ * Fenêtre d'étalement : de « maintenant + 1 min » (snappé dans 7h30–19h)
+ * jusqu'à 19h le jour du premier créneau. Le débordement J+1 est géré par
+ * `computeAgencyStaggeredTimes` / `From`, pas par cette fenêtre seule.
  */
 export function computeAgencyStaggerWindow(now: Date = new Date()): {
   start: Date;
   end: Date;
 } {
-  const MIN_LEAD_MS = 60_000; // on démarre ~1 min après maintenant
-  const MIN_WINDOW_MS = 10 * 60_000; // il faut au moins 10 min de marge
-
-  const start = new Date(now.getTime() + MIN_LEAD_MS);
-  let end = parisTimeOnDay(now, AGENCY_STAGGER_END_HOUR, AGENCY_STAGGER_END_MINUTE);
-
-  if (end.getTime() - start.getTime() < MIN_WINDOW_MS) {
-    // Plus assez de marge avant 18h30 → on étale jusqu'à 20h30 (maximum absolu).
-    end = parisTimeOnDay(now, AGENCY_STAGGER_LATE_END_HOUR, AGENCY_STAGGER_LATE_END_MINUTE);
-  }
-  // On ne dépasse jamais 20h30 : si on est déjà après, la fenêtre est vide et
-  // tous les envois partent au plus tôt (dès le prochain passage du cron).
-  if (end.getTime() < start.getTime()) {
-    end = new Date(now.getTime());
-  }
-
+  const start = nextSendWindowInstant(new Date(now.getTime() + SEND_PACING_LEAD_MS));
+  const end = parisTimeOnDay(
+    start,
+    SEND_PACING_END_HOUR,
+    SEND_PACING_END_MINUTE
+  );
   return { start, end };
 }
 
-/**
- * Répartit `count` envois dans la fenêtre [start, end] : un créneau par mail,
- * avec un décalage aléatoire à l'intérieur du créneau. Les dates renvoyées sont
- * strictement croissantes et toutes < end.
- */
+/** Répartit `count` envois (gap 3 min, max 19h, reprise 7h30 J+1). */
 export function computeAgencyStaggeredTimes(
   count: number,
   now: Date = new Date()
 ): Date[] {
-  const { start, end } = computeAgencyStaggerWindow(now);
-  if (count <= 0) return [];
-  if (count === 1) return [new Date(start)];
-
-  const span = Math.max(0, end.getTime() - start.getTime());
-  const slot = span / count;
-  const times: Date[] = [];
-  for (let i = 0; i < count; i += 1) {
-    const slotStart = start.getTime() + slot * i;
-    const jitter = Math.random() * slot;
-    times.push(new Date(Math.min(end.getTime() - 1, slotStart + jitter)));
-  }
-  times.sort((a, b) => a.getTime() - b.getTime());
-  return times;
+  return computeStaggeredSendTimes(count, now);
 }
 
 /**
@@ -578,38 +509,11 @@ export function parseParisDateTimeLocalToUtc(value: string): Date | null {
 }
 
 /**
- * Étale `count` envois à partir de `start` (instant UTC choisi), jusqu'à
- * 18h30 Paris le même jour (20h30 si la fenêtre est trop courte). Répartit
- * uniformément avec un léger aléa — pour une grosse vague (ex. 200+), les
- * mails partent donc tout au long de la journée, pas en rafale.
- *
- * Si `start` est déjà après 18h30/20h30, repli ~1 mail/minute à partir de start.
+ * Étale `count` envois à partir de `start` : gap 3 min, jamais après 19h,
+ * report au lendemain 7h30.
  */
 export function computeAgencyStaggeredTimesFrom(count: number, start: Date): Date[] {
-  if (count <= 0) return [];
-  if (count === 1) return [new Date(start)];
-
-  const MIN_WINDOW_MS = 10 * 60_000;
-  let end = parisTimeOnDay(start, AGENCY_STAGGER_END_HOUR, AGENCY_STAGGER_END_MINUTE);
-  if (end.getTime() - start.getTime() < MIN_WINDOW_MS) {
-    end = parisTimeOnDay(start, AGENCY_STAGGER_LATE_END_HOUR, AGENCY_STAGGER_LATE_END_MINUTE);
-  }
-
-  // Fenêtre trop courte / déjà passée → ~1 mail/minute à partir de start.
-  if (end.getTime() <= start.getTime()) {
-    end = new Date(start.getTime() + (count - 1) * 60_000);
-  }
-
-  const span = Math.max(0, end.getTime() - start.getTime());
-  const slot = span / count;
-  const times: Date[] = [];
-  for (let i = 0; i < count; i += 1) {
-    const slotStart = start.getTime() + slot * i;
-    const jitter = Math.random() * slot;
-    times.push(new Date(Math.min(end.getTime(), slotStart + jitter)));
-  }
-  times.sort((a, b) => a.getTime() - b.getTime());
-  return times;
+  return computeStaggeredSendTimesFrom(count, start);
 }
 
 export type AgencyOutreachScheduleResult =
@@ -729,7 +633,8 @@ export async function executeAgencyOutreachSchedule(
  */
 export async function processAgencyScheduledSends(
   now: Date = new Date(),
-  limit = 50
+  /** Cap bas pour éviter une rafale si beaucoup d'échéances tombent ensemble. */
+  limit = 10
 ): Promise<{ processed: number; sent: number; failed: number }> {
   const due = await prisma.agencyOutreachTarget.findMany({
     where: {

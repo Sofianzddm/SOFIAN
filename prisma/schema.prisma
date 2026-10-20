@@ -4381,6 +4381,12 @@ model BeneluxOutreachTarget {
   stoppedAt       DateTime?
   stoppedById     String?
 
+  // Envoi programmé / étalé anti-spam (même modèle que outreach FR).
+  scheduledSendAt   DateTime?
+  scheduledSubject  String?   @db.Text
+  scheduledBodyHtml String?   @db.Text
+  scheduledById     String?
+
   autoRescheduleReason String?   @db.Text
   autoRescheduledAt    DateTime?
 
@@ -4394,6 +4400,7 @@ model BeneluxOutreachTarget {
   @@index([status, nextRecontactAt])
   @@index([companyId])
   @@index([status, createdAt])
+  @@index([scheduledSendAt])
   @@map("benelux_outreach_targets")
 }
 

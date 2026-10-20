@@ -3,9 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { executeOutreachSend, executeOutreachSchedule } from "@/lib/outreach-send";
 import {
+  computeAgencyStaggeredTimes,
   computeAgencyStaggeredTimesFrom,
   parseParisDateTimeLocalToUtc,
 } from "@/lib/agency-outreach-send";
+import { shouldStaggerBulk } from "@/lib/email-send-pacing";
 import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
 
 /**
@@ -203,7 +205,8 @@ async function runBulkSchedule(
     sourceLanguage: Lang;
     sentById: string;
     force: boolean;
-    scheduledStart: Date;
+    /** Null = étalement depuis maintenant (7h30–19h, reprise 7h30). */
+    scheduledStart: Date | null;
   },
   onProgress: (event: ProgressEvent) => void
 ): Promise<BulkResult> {
@@ -255,14 +258,16 @@ async function runBulkSchedule(
   const failed: BulkResult["failed"] = [];
   const needsConfirmation: BulkResult["needsConfirmation"] = [];
 
-  const times = computeAgencyStaggeredTimesFrom(targets.length, scheduledStart);
+  const times = scheduledStart
+    ? computeAgencyStaggeredTimesFrom(targets.length, scheduledStart)
+    : computeAgencyStaggeredTimes(targets.length);
   const scheduledDates: Date[] = [];
 
   for (let i = 0; i < targets.length; i += 1) {
     const target = targets[i];
     const lang = normalizeLang(target.language);
     const version = versions.get(lang) ?? { subject, bodyHtml };
-    const when = times[i] ?? times[times.length - 1] ?? scheduledStart;
+    const when = times[i] ?? times[times.length - 1] ?? new Date();
 
     onProgress({
       type: "progress",
@@ -350,8 +355,8 @@ export async function POST(request: NextRequest) {
     const sourceLanguage = normalizeLang(body.sourceLanguage);
     const force = body.force === true;
     const stream = body.stream === true;
-    // "now" (défaut) : tout part immédiatement ; "at" : programmé à une heure
-    // précise choisie (heure de Paris).
+    // "now" : immédiat si 1 destinataire, sinon étalé (7h30–19h, reprise 7h30).
+    // "at" : départ à l'heure choisie, puis étalé.
     const mode = body.mode === "at" ? "at" : "now";
 
     let scheduledStart: Date | null = null;
@@ -400,9 +405,10 @@ export async function POST(request: NextRequest) {
       sentById: session.user.id,
       force,
     };
-    // "now" → envoi immédiat ; "at" → programmation (le cron enverra à l'heure).
+    // ≥2 destinataires : toujours étalé (anti-rafale), même en mode « now ».
+    const useSchedule = mode === "at" || shouldStaggerBulk(targets.length);
     const runBulk = (onProgress: (event: ProgressEvent) => void) =>
-      mode === "at" && scheduledStart
+      useSchedule
         ? runBulkSchedule({ ...sendParams, scheduledStart }, onProgress)
         : runBulkSend(sendParams, onProgress);
 

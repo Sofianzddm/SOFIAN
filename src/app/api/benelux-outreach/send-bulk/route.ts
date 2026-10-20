@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
-import { executeBeneluxOutreachSend } from "@/lib/benelux-outreach-send";
+import {
+  executeBeneluxOutreachSend,
+  executeBeneluxOutreachSchedule,
+} from "@/lib/benelux-outreach-send";
+import {
+  computeAgencyStaggeredTimes,
+  computeAgencyStaggeredTimesFrom,
+  parseParisDateTimeLocalToUtc,
+} from "@/lib/agency-outreach-send";
+import { shouldStaggerBulk } from "@/lib/email-send-pacing";
 import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
 
 /**
@@ -9,7 +18,9 @@ import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
  * individuellement (1 mail / thread / cycle indépendant), variables
  * {{contact.*}} personnalisées + traduction automatique FR ↔ EN.
  *
- * Body : { targetIds: string[], subject, bodyHtml, sourceLanguage?, force?, stream? }
+ * ≥2 destinataires : étalement anti-spam automatique (7h30–19h, reprise 7h30).
+ *
+ * Body : { targetIds, subject, bodyHtml, sourceLanguage?, force?, stream?, mode?, scheduledAt? }
  */
 
 const ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
@@ -32,6 +43,9 @@ type ProgressEvent = {
 
 type BulkResult = {
   sent: number;
+  scheduled: number;
+  firstScheduledAt: string | null;
+  lastScheduledAt: string | null;
   failed: { email: string; error: string }[];
   needsConfirmation: {
     targetId: string;
@@ -48,29 +62,29 @@ function langLabel(lang: Lang): string {
   return lang === "en" ? "anglais" : "français";
 }
 
-async function runBulkSend(
+async function buildVersions(
   params: {
     targets: { id: string; email: string; language: string | null }[];
     subject: string;
     bodyHtml: string;
     sourceLanguage: Lang;
-    sentById: string;
-    force: boolean;
   },
-  onProgress: (event: ProgressEvent) => void
-): Promise<BulkResult> {
-  const { targets, subject, bodyHtml, sourceLanguage, sentById, force } = params;
-
+  onProgress: (event: ProgressEvent) => void,
+  total: number
+): Promise<{
+  versions: Map<Lang, { subject: string; bodyHtml: string }>;
+  translationFailed: Lang | null;
+  done: number;
+}> {
+  const { targets, subject, bodyHtml, sourceLanguage } = params;
   const neededLangs = new Set<Lang>(targets.map((t) => normalizeLang(t.language)));
   const langsToTranslate = [...neededLangs].filter((l) => l !== sourceLanguage);
-
-  const total = langsToTranslate.length + targets.length;
-  let done = 0;
 
   const versions = new Map<Lang, { subject: string; bodyHtml: string }>();
   versions.set(sourceLanguage, { subject, bodyHtml });
 
   let translationFailed: Lang | null = null;
+  let done = 0;
 
   for (const lang of langsToTranslate) {
     onProgress({
@@ -100,6 +114,32 @@ async function runBulkSend(
       label: `Traduction en ${langLabel(lang)} terminée`,
     });
   }
+
+  return { versions, translationFailed, done };
+}
+
+async function runBulkSend(
+  params: {
+    targets: { id: string; email: string; language: string | null }[];
+    subject: string;
+    bodyHtml: string;
+    sourceLanguage: Lang;
+    sentById: string;
+    force: boolean;
+  },
+  onProgress: (event: ProgressEvent) => void
+): Promise<BulkResult> {
+  const { targets, subject, bodyHtml, sourceLanguage, sentById, force } = params;
+
+  const neededLangs = new Set<Lang>(targets.map((t) => normalizeLang(t.language)));
+  const total = [...neededLangs].filter((l) => l !== sourceLanguage).length + targets.length;
+
+  const { versions, translationFailed, done: doneAfterTr } = await buildVersions(
+    { targets, subject, bodyHtml, sourceLanguage },
+    onProgress,
+    total
+  );
+  let done = doneAfterTr;
 
   let sent = 0;
   let translated = 0;
@@ -146,7 +186,113 @@ async function runBulkSend(
     });
   }
 
-  return { sent, failed, needsConfirmation, translated, translationFailed };
+  return {
+    sent,
+    scheduled: 0,
+    firstScheduledAt: null,
+    lastScheduledAt: null,
+    failed,
+    needsConfirmation,
+    translated,
+    translationFailed,
+  };
+}
+
+async function runBulkSchedule(
+  params: {
+    targets: { id: string; email: string; language: string | null }[];
+    subject: string;
+    bodyHtml: string;
+    sourceLanguage: Lang;
+    sentById: string;
+    force: boolean;
+    scheduledStart: Date | null;
+  },
+  onProgress: (event: ProgressEvent) => void
+): Promise<BulkResult> {
+  const { targets, subject, bodyHtml, sourceLanguage, sentById, force, scheduledStart } =
+    params;
+
+  const neededLangs = new Set<Lang>(targets.map((t) => normalizeLang(t.language)));
+  const total = [...neededLangs].filter((l) => l !== sourceLanguage).length + targets.length;
+
+  const { versions, translationFailed, done: doneAfterTr } = await buildVersions(
+    { targets, subject, bodyHtml, sourceLanguage },
+    onProgress,
+    total
+  );
+  let done = doneAfterTr;
+
+  let scheduled = 0;
+  let translated = 0;
+  const failed: BulkResult["failed"] = [];
+  const needsConfirmation: BulkResult["needsConfirmation"] = [];
+
+  const times = scheduledStart
+    ? computeAgencyStaggeredTimesFrom(targets.length, scheduledStart)
+    : computeAgencyStaggeredTimes(targets.length);
+  const scheduledDates: Date[] = [];
+
+  for (let i = 0; i < targets.length; i += 1) {
+    const target = targets[i]!;
+    const lang = normalizeLang(target.language);
+    const version = versions.get(lang) ?? { subject, bodyHtml };
+    const when = times[i] ?? times[times.length - 1] ?? new Date();
+
+    onProgress({
+      type: "progress",
+      done,
+      total,
+      phase: "sending",
+      label: `Programmation de ${target.email}…`,
+    });
+
+    const result = await executeBeneluxOutreachSchedule(target.id, {
+      subject: version.subject,
+      bodyHtml: version.bodyHtml,
+      scheduledSendAt: when,
+      sentById,
+      force,
+    });
+
+    if (result.ok) {
+      scheduled += 1;
+      if (lang !== sourceLanguage) translated += 1;
+      scheduledDates.push(when);
+    } else if (result.needsConfirmation) {
+      needsConfirmation.push({
+        targetId: target.id,
+        email: target.email,
+        message: result.error,
+        alreadyContactedAt: result.alreadyContactedAt,
+        suggestedNextRecontactAt: result.suggestedNextRecontactAt,
+      });
+    } else {
+      failed.push({ email: target.email, error: result.error });
+    }
+
+    done += 1;
+    onProgress({
+      type: "progress",
+      done,
+      total,
+      phase: "sending",
+      label: `${scheduled} mail${scheduled > 1 ? "s" : ""} programmé${scheduled > 1 ? "s" : ""}`,
+    });
+  }
+
+  scheduledDates.sort((a, b) => a.getTime() - b.getTime());
+
+  return {
+    sent: 0,
+    scheduled,
+    firstScheduledAt: scheduledDates[0]?.toISOString() ?? null,
+    lastScheduledAt: scheduledDates[scheduledDates.length - 1]?.toISOString() ?? null,
+    failed,
+    needsConfirmation,
+    translated,
+    translationFailed,
+  };
 }
 
 export async function POST(request: NextRequest) {
@@ -166,6 +312,8 @@ export async function POST(request: NextRequest) {
       sourceLanguage?: string;
       force?: boolean;
       stream?: boolean;
+      mode?: string;
+      scheduledAt?: string;
     };
     const targetIds = Array.isArray(body.targetIds)
       ? body.targetIds.filter((id) => typeof id === "string" && id.trim())
@@ -175,6 +323,21 @@ export async function POST(request: NextRequest) {
     const sourceLanguage = normalizeLang(body.sourceLanguage);
     const force = body.force === true;
     const stream = body.stream === true;
+    const mode = body.mode === "at" ? "at" : "now";
+
+    let scheduledStart: Date | null = null;
+    if (mode === "at") {
+      scheduledStart = parseParisDateTimeLocalToUtc(String(body.scheduledAt || ""));
+      if (!scheduledStart) {
+        return NextResponse.json({ error: "Heure d'envoi invalide." }, { status: 400 });
+      }
+      if (scheduledStart.getTime() < Date.now() - 60_000) {
+        return NextResponse.json(
+          { error: "L'heure d'envoi choisie est déjà passée." },
+          { status: 400 }
+        );
+      }
+    }
 
     if (targetIds.length === 0) {
       return NextResponse.json({ error: "Aucun destinataire." }, { status: 400 });
@@ -208,6 +371,11 @@ export async function POST(request: NextRequest) {
       sentById: session.user.id,
       force,
     };
+    const useSchedule = mode === "at" || shouldStaggerBulk(targets.length);
+    const runBulk = (onProgress: (event: ProgressEvent) => void) =>
+      useSchedule
+        ? runBulkSchedule({ ...sendParams, scheduledStart }, onProgress)
+        : runBulkSend(sendParams, onProgress);
 
     if (stream) {
       const encoder = new TextEncoder();
@@ -217,7 +385,7 @@ export async function POST(request: NextRequest) {
             controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
           };
           try {
-            const result = await runBulkSend(sendParams, (event) => write(event));
+            const result = await runBulk((event) => write(event));
             write({ type: "result", ...result });
           } catch (error) {
             console.error("POST /api/benelux-outreach/send-bulk (stream):", error);
@@ -239,7 +407,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const result = await runBulkSend(sendParams, () => {});
+    const result = await runBulk(() => {});
     return NextResponse.json(result);
   } catch (error) {
     console.error("POST /api/benelux-outreach/send-bulk:", error);
