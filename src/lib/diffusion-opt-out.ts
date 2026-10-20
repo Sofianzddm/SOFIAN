@@ -128,3 +128,46 @@ export async function setMarqueContactDiffusionOptOut(input: {
 
   return { contact: updated, removedClientTargets: removedClient.count };
 }
+
+/**
+ * Opt-out one-click (List-Unsubscribe) : pose diffusionOptOut sur toutes les
+ * fiches MarqueContact de cet email, et exclut agence / Benelux si besoin.
+ */
+export async function optOutDiffusionByEmail(email: string): Promise<{
+  updatedContacts: number;
+}> {
+  const normalized = (email || "").trim().toLowerCase();
+  if (!normalized) return { updatedContacts: 0 };
+
+  const contacts = await prisma.marqueContact.findMany({
+    where: {
+      email: { equals: normalized, mode: "insensitive" },
+      diffusionOptOut: false,
+    },
+    select: { id: true, marqueId: true },
+  });
+
+  for (const c of contacts) {
+    await setMarqueContactDiffusionOptOut({
+      contactId: c.id,
+      marqueId: c.marqueId,
+      optedOut: true,
+    });
+  }
+
+  // Pas de fiche marque : exclure quand même les pipelines agence / Benelux.
+  if (contacts.length === 0) {
+    await prisma.agencyContact.updateMany({
+      where: { email: { equals: normalized, mode: "insensitive" } },
+      data: { excluded: true },
+    });
+    await prisma.agencyOutreachTarget.deleteMany({ where: { email: normalized } });
+    await prisma.beneluxContact.updateMany({
+      where: { email: { equals: normalized, mode: "insensitive" } },
+      data: { excluded: true, outreachExcluded: true },
+    });
+    await prisma.beneluxOutreachTarget.deleteMany({ where: { email: normalized } });
+  }
+
+  return { updatedContacts: contacts.length };
+}

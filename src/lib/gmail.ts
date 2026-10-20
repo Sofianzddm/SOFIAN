@@ -1,4 +1,6 @@
+import { createHmac, timingSafeEqual } from "crypto";
 import { prisma } from "@/lib/prisma";
+import { getNextAuthSecret } from "@/lib/nextAuthSecret";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
@@ -174,7 +176,114 @@ function sanitizeAttachmentFilename(name: string): string {
   return cleaned || "piece-jointe.pdf";
 }
 
-function buildMimeMessage(options: {
+function mimeBoundary(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Version texte dérivée du HTML — uniquement pour la part `text/plain`
+ * (clients / filtres). Le HTML affiché reste strictement inchangé.
+ */
+export function htmlToPlainTextForMime(html: string): string {
+  return String(html || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<\/tr>/gi, "\n")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<\/h[1-6]>/gi, "\n\n")
+    .replace(
+      /<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+      (_m, href: string, text: string) => {
+        const t = text.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+        return t ? `${t} (${href})` : href;
+      }
+    )
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function publicAppBaseUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    "https://app.glowupagence.fr"
+  ).replace(/\/$/, "");
+}
+
+/** URL one-click signée pour List-Unsubscribe (RFC 8058). */
+export function buildListUnsubscribeHttpsUrl(recipientEmail: string): string {
+  const email = recipientEmail.trim().toLowerCase();
+  const e = Buffer.from(email, "utf8").toString("base64url");
+  const s = createHmac("sha256", getNextAuthSecret())
+    .update(`unsub:v1:${email}`)
+    .digest("base64url");
+  return `${publicAppBaseUrl()}/api/public/unsubscribe?e=${e}&s=${s}`;
+}
+
+export function verifyListUnsubscribeToken(
+  recipientEmail: string,
+  signature: string
+): boolean {
+  const email = recipientEmail.trim().toLowerCase();
+  if (!email || !signature) return false;
+  const expected = createHmac("sha256", getNextAuthSecret())
+    .update(`unsub:v1:${email}`)
+    .digest("base64url");
+  try {
+    const a = Buffer.from(expected);
+    const b = Buffer.from(signature);
+    return a.length === b.length && timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+function listUnsubscribeHeaders(fromEmail: string, toEmail: string): string[] {
+  const httpsUrl = buildListUnsubscribeHttpsUrl(toEmail);
+  const mailto = `mailto:${fromEmail}?subject=${encodeURIComponent("Unsubscribe")}`;
+  return [
+    `List-Unsubscribe: <${httpsUrl}>, <${mailto}>`,
+    "List-Unsubscribe-Post: List-Unsubscribe=One-Click",
+  ];
+}
+
+/** Partie multipart/alternative : plain d'abord, HTML ensuite (préféré par les clients). */
+function buildAlternativeBodyParts(htmlBody: string, altBoundary: string): string[] {
+  const plain = htmlToPlainTextForMime(htmlBody) || " ";
+  return [
+    `--${altBoundary}`,
+    "Content-Type: text/plain; charset=utf-8",
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    plain,
+    `--${altBoundary}`,
+    "Content-Type: text/html; charset=utf-8",
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    htmlBody,
+    `--${altBoundary}--`,
+  ];
+}
+
+/**
+ * Construit le MIME brut. Le `htmlBody` est recopié tel quel dans la part HTML
+ * — aucun wrapping, aucun style injecté (forme visuelle inchangée).
+ */
+export function buildMimeMessage(options: {
   fromName: string;
   fromEmail: string;
   to: string;
@@ -192,36 +301,38 @@ function buildMimeMessage(options: {
     headers.push(`In-Reply-To: ${options.inReplyTo}`);
     headers.push(`References: ${options.inReplyTo}`);
   }
+  headers.push(...listUnsubscribeHeaders(options.fromEmail, options.to));
   headers.push("MIME-Version: 1.0");
 
   const attachments = options.attachments?.filter((a) => a.content?.length) ?? [];
+  const altBoundary = mimeBoundary("alt");
+
   if (attachments.length === 0) {
     return [
       ...headers,
-      "Content-Type: text/html; charset=utf-8",
-      "Content-Transfer-Encoding: 8bit",
+      `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
       "",
-      options.htmlBody,
+      ...buildAlternativeBodyParts(options.htmlBody, altBoundary),
+      "",
     ].join("\r\n");
   }
 
-  const boundary = `glowup_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  const mixedBoundary = mimeBoundary("glowup");
   const parts: string[] = [
     ...headers,
-    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
     "",
-    `--${boundary}`,
-    "Content-Type: text/html; charset=utf-8",
-    "Content-Transfer-Encoding: 8bit",
+    `--${mixedBoundary}`,
+    `Content-Type: multipart/alternative; boundary="${altBoundary}"`,
     "",
-    options.htmlBody,
+    ...buildAlternativeBodyParts(options.htmlBody, altBoundary),
   ];
 
   for (const att of attachments) {
     const filename = sanitizeAttachmentFilename(att.filename);
     const b64 = att.content.toString("base64").replace(/(.{76})/g, "$1\r\n");
     parts.push(
-      `--${boundary}`,
+      `--${mixedBoundary}`,
       `Content-Type: ${att.contentType || "application/octet-stream"}; name="${filename}"`,
       "Content-Transfer-Encoding: base64",
       `Content-Disposition: attachment; filename="${filename}"`,
@@ -229,7 +340,7 @@ function buildMimeMessage(options: {
       b64
     );
   }
-  parts.push(`--${boundary}--`, "");
+  parts.push(`--${mixedBoundary}--`, "");
   return parts.join("\r\n");
 }
 
