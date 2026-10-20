@@ -3,6 +3,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { canUploadContratMarque, contratMarqueTalentAccessSelect } from "@/lib/contratMarqueAccess";
+import {
+  hasStoredContratMarqueClientContact,
+  parseContratMarqueContactInput,
+} from "@/lib/contratMarqueClientContact";
 import { v2 as cloudinary } from "cloudinary";
 
 cloudinary.config({
@@ -35,6 +39,9 @@ export async function POST(
         contratMarquePdfUrl: true,
         contratMarqueStatut: true,
         contratMarqueMode: true,
+        contratMarqueContactNom: true,
+        contratMarqueContactEmail: true,
+        contratMarqueContactTelephone: true,
         isPrivate: true,
         accountManagerId: true,
         accountManager: { select: { role: true } },
@@ -65,6 +72,47 @@ export async function POST(
       formData.get("signedFinal") === "true" ||
       formData.get("signedFinal") === "1" ||
       formData.get("signedFinal") === "on";
+
+    const contactFromForm = parseContratMarqueContactInput({
+      nom: typeof formData.get("contactNom") === "string" ? String(formData.get("contactNom")) : null,
+      email:
+        typeof formData.get("contactEmail") === "string" ? String(formData.get("contactEmail")) : null,
+      telephone:
+        typeof formData.get("contactTelephone") === "string"
+          ? String(formData.get("contactTelephone"))
+          : null,
+    });
+    const hasFormContact = Boolean(
+      (typeof formData.get("contactNom") === "string" && String(formData.get("contactNom")).trim()) ||
+        (typeof formData.get("contactEmail") === "string" && String(formData.get("contactEmail")).trim())
+    );
+
+    let contactToStore: {
+      contratMarqueContactNom: string;
+      contratMarqueContactEmail: string;
+      contratMarqueContactTelephone: string | null;
+    } | null = null;
+
+    if (!signedFinal) {
+      if (hasFormContact) {
+        if (!contactFromForm.ok) {
+          return NextResponse.json({ error: contactFromForm.error }, { status: 400 });
+        }
+        contactToStore = {
+          contratMarqueContactNom: contactFromForm.value.nom,
+          contratMarqueContactEmail: contactFromForm.value.email,
+          contratMarqueContactTelephone: contactFromForm.value.telephone,
+        };
+      } else if (!hasStoredContratMarqueClientContact(collaboration)) {
+        return NextResponse.json(
+          {
+            error:
+              "Contact client requis : renseignez le nom et l’email du contact marque avant d’uploader le contrat.",
+          },
+          { status: 400 }
+        );
+      }
+    }
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
@@ -227,6 +275,12 @@ export async function POST(
         contratMarqueVersionActuelle: newVersion.numero,
         contratMarqueApprouveAt: null,
         contratMarqueEnvoyeJuristeAt: null,
+        contratMarqueDocusealTemplateId: null,
+        contratMarqueSignataires: [],
+        contratMarqueSubmissionId: null,
+        contratMarqueMode: null,
+        contratMarqueSigneAt: null,
+        ...(contactToStore ?? {}),
       },
     });
 

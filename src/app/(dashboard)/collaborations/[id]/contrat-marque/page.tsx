@@ -13,6 +13,7 @@ import {
   livrablesForClient,
 } from "@/lib/serializeContratMarqueReview";
 import { buildContratMarqueVersionsForClient } from "@/lib/contratMarqueVersions";
+import { resolveContratMarqueClientContact } from "@/lib/contratMarqueClientContact";
 import ContratMarqueReviewClient from "@/components/contrat-marque/ContratMarqueReviewClient";
 
 export default async function ContratMarqueReviewPage({
@@ -43,7 +44,24 @@ export default async function ContratMarqueReviewPage({
           },
         },
       },
-      marque: true,
+      marque: {
+        include: {
+          contacts: {
+            orderBy: [{ principal: "desc" }, { nom: "asc" }],
+            select: {
+              prenom: true,
+              nom: true,
+              email: true,
+              telephone: true,
+              poste: true,
+              principal: true,
+            },
+          },
+        },
+      },
+      negociation: {
+        select: { contactMarque: true, emailContact: true },
+      },
       accountManager: { select: { role: true } },
       livrables: { orderBy: { createdAt: "asc" } },
       contratMarqueAnnotations: { orderBy: { createdAt: "asc" } },
@@ -75,6 +93,11 @@ export default async function ContratMarqueReviewPage({
       : annotationsForClient(collaboration.contratMarqueAnnotations);
   const commentaires = commentairesForCurrentVersionOnly(collaboration);
   const livrables = livrablesForClient(collaboration.livrables);
+  const clientContact = resolveContratMarqueClientContact({
+    collaboration,
+    negociation: collaboration.negociation,
+    marqueContacts: collaboration.marque.contacts,
+  });
 
   const currentUser = {
     id: user.id,
@@ -95,6 +118,7 @@ export default async function ContratMarqueReviewPage({
         initialCommentaires={commentaires}
         livrables={livrables}
         versions={versions}
+        clientContact={clientContact}
         showBackToCollab
       />
     </div>

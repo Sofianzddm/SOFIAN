@@ -1570,6 +1570,14 @@ model Collaboration {
    * Date du dépôt du PDF / scan officiellement signé (glisser-déposer « version finale signée »).
    */
   contratMarquePdfOfficielSigneDeposeAt DateTime?
+  /** Contact client confirmé par le TM à l’upload (pour échange direct juriste). */
+  contratMarqueContactNom               String?
+  contratMarqueContactEmail             String?
+  contratMarqueContactTelephone         String?
+  /** Pipeline signature DocuSeal (builder /signatures) — dédié, hors contrat collab. */
+  contratMarqueDocusealTemplateId       Int?
+  contratMarqueSignataires              Json?
+  contratMarqueSubmissionId             String?
 
   // Qualification du contact client (collab créée en direct, sans négo) :
   // agence ou marque en direct + langue. Route le contact vers le bon pipeline

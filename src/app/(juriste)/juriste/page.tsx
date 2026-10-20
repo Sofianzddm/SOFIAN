@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { resolveContratMarqueClientContact } from "@/lib/contratMarqueClientContact";
 
 export default async function JuristeListePage() {
   const session = await getServerSession(authOptions);
@@ -20,7 +21,25 @@ export default async function JuristeListePage() {
     orderBy: [{ updatedAt: "desc" }],
     include: {
       talent: { select: { prenom: true, nom: true } },
-      marque: { select: { nom: true } },
+      marque: {
+        select: {
+          nom: true,
+          contacts: {
+            orderBy: [{ principal: "desc" }, { nom: "asc" }],
+            select: {
+              prenom: true,
+              nom: true,
+              email: true,
+              telephone: true,
+              poste: true,
+              principal: true,
+            },
+          },
+        },
+      },
+      negociation: {
+        select: { contactMarque: true, emailContact: true },
+      },
       _count: { select: { contratMarqueAnnotations: true } },
     },
   });
@@ -29,13 +48,15 @@ export default async function JuristeListePage() {
     ["EN_ATTENTE_JURISTE", "A_MODIFIER"].includes(c.contratMarqueStatut ?? "")
   );
   const aSigner = collabs.filter((c) => c.contratMarqueStatut === "APPROUVE");
+  const enSignature = collabs.filter((c) => c.contratMarqueStatut === "EN_SIGNATURE");
   const signesSansDepot = collabs.filter(
     (c) => c.contratMarqueStatut === "SIGNE" && !c.contratMarquePdfOfficielSigneDeposeAt
   );
   const archive = collabs.filter(
     (c) =>
-      !["EN_ATTENTE_JURISTE", "A_MODIFIER", "APPROUVE"].includes(c.contratMarqueStatut ?? "") &&
-      !(c.contratMarqueStatut === "SIGNE" && !c.contratMarquePdfOfficielSigneDeposeAt)
+      !["EN_ATTENTE_JURISTE", "A_MODIFIER", "APPROUVE", "EN_SIGNATURE"].includes(
+        c.contratMarqueStatut ?? ""
+      ) && !(c.contratMarqueStatut === "SIGNE" && !c.contratMarquePdfOfficielSigneDeposeAt)
   );
 
   function renderList(items: typeof collabs, emptyLabel: string) {
@@ -44,7 +65,16 @@ export default async function JuristeListePage() {
     }
     return (
       <ul className="space-y-3">
-        {items.map((c) => (
+        {items.map((c) => {
+          const contact = resolveContratMarqueClientContact({
+            collaboration: c,
+            negociation: c.negociation,
+            marqueContacts: c.marque.contacts,
+          });
+          const contactLabel = contact
+            ? [contact.nom, contact.email].filter(Boolean).join(" · ")
+            : "Contact client non renseigné";
+          return (
           <li key={c.id}>
             <Link
               href={`/juriste/${c.id}`}
@@ -57,11 +87,13 @@ export default async function JuristeListePage() {
                 <p className="text-xs text-gray-500 mt-1">
                   Statut: {c.contratMarqueStatut ?? "AUCUN"} · {c._count.contratMarqueAnnotations} annotation(s)
                 </p>
+                <p className="text-xs text-[#1A1110]/mt-1">{contactLabel}</p>
               </div>
               <span className="text-sm font-medium text-[#1A1110] shrink-0">Ouvrir →</span>
             </Link>
           </li>
-        ))}
+          );
+        })}
       </ul>
     );
   }
@@ -73,7 +105,7 @@ export default async function JuristeListePage() {
         <p className="text-sm text-gray-500 mt-1">Acces a tous les contrats + suivi signature et depot des PDF signes.</p>
       </div>
 
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <section className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-xs text-gray-500">A relire</p>
           <p className="text-xl font-semibold text-[#1A1110]">{aRelire.length}</p>
@@ -81,6 +113,10 @@ export default async function JuristeListePage() {
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-xs text-gray-500">A lancer en signature</p>
           <p className="text-xl font-semibold text-[#1A1110]">{aSigner.length}</p>
+        </div>
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+          <p className="text-xs text-indigo-900">En signature</p>
+          <p className="text-xl font-semibold text-indigo-950">{enSignature.length}</p>
         </div>
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
           <p className="text-xs text-amber-900">Signes sans PDF final</p>
@@ -100,6 +136,11 @@ export default async function JuristeListePage() {
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-[#1A1110]">A envoyer en signature</h2>
         {renderList(aSigner, "Aucun contrat en attente de lancement signature.")}
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-[#1A1110]">En attente de signature</h2>
+        {renderList(enSignature, "Aucun contrat en cours de signature.")}
       </section>
 
       <section className="space-y-3">

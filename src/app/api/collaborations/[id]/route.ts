@@ -64,11 +64,27 @@ export async function GET(
             siret: true,
             numeroTVA: true,
             devise: true,
-            contacts: { orderBy: { principal: "desc" }, select: { id: true, email: true, nom: true, prenom: true, principal: true } },
+            contacts: {
+              orderBy: { principal: "desc" },
+              select: {
+                id: true,
+                email: true,
+                nom: true,
+                prenom: true,
+                telephone: true,
+                poste: true,
+                principal: true,
+              },
+            },
           },
         },
         negociation: {
-          select: { contactKind: true, contactAgence: true },
+          select: {
+            contactKind: true,
+            contactAgence: true,
+            contactMarque: true,
+            emailContact: true,
+          },
         },
         createdBy: {
           select: { id: true, prenom: true, email: true },

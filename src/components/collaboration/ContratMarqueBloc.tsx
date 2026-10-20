@@ -1,9 +1,15 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, FileText, Loader2, Upload } from "lucide-react";
+import { ArrowRight, FileText, Upload } from "lucide-react";
 import { canReadContratMarqueReview, canUploadContratMarque } from "@/lib/contratMarqueAccess";
+import {
+  hasStoredContratMarqueClientContact,
+  resolveContratMarqueClientContact,
+  type ContratMarqueClientContact,
+} from "@/lib/contratMarqueClientContact";
+import ContratMarqueUploadModal from "@/components/contrat-marque/ContratMarqueUploadModal";
 
 type CurrentUser = {
   id: string;
@@ -14,7 +20,17 @@ type CurrentUser = {
 type CollaborationContratMarque = {
   id: string;
   isPrivate?: boolean;
-  marque: { nom: string };
+  marque: {
+    nom: string;
+    contacts?: Array<{
+      prenom?: string | null;
+      nom: string;
+      email?: string | null;
+      telephone?: string | null;
+      poste?: string | null;
+      principal?: boolean;
+    }>;
+  };
   talent: {
     prenom: string;
     nom: string;
@@ -23,11 +39,18 @@ type CollaborationContratMarque = {
   };
   accountManagerId?: string | null;
   accountManager?: { role?: string | null } | null;
+  negociation?: {
+    contactMarque?: string | null;
+    emailContact?: string | null;
+  } | null;
   contratMarquePdfUrl?: string | null;
   contratMarqueStatut?: string | null;
   contratMarqueMode?: string | null;
   contratSubmissionId?: string | null;
   contratMarqueVersionActuelle?: number;
+  contratMarqueContactNom?: string | null;
+  contratMarqueContactEmail?: string | null;
+  contratMarqueContactTelephone?: string | null;
   contratMarqueCommentaires?: { id: string }[];
   contratMarqueAnnotations?: { id: string }[];
   contratMarquePdfOfficielSigneDeposeAt?: string | Date | null;
@@ -56,6 +79,11 @@ function statusBadge(statut: string): { className: string; label: string } | nul
         className: "bg-blue-100 text-blue-900 border border-blue-200/80",
         label: "Approuvé par le juriste",
       };
+    case "EN_SIGNATURE":
+      return {
+        className: "bg-amber-100 text-amber-900 border border-amber-200/80",
+        label: "Envoyé en signature",
+      };
     case "SIGNE":
       return {
         className: "bg-emerald-100 text-emerald-900 border border-emerald-200/80",
@@ -68,7 +96,7 @@ function statusBadge(statut: string): { className: string; label: string } | nul
 
 export default function ContratMarqueBloc({ collaboration, currentUser, onRefresh }: Props) {
   const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
 
   const collabAccess = {
     isPrivate: collaboration.isPrivate ?? false,
@@ -92,6 +120,22 @@ export default function ContratMarqueBloc({ collaboration, currentUser, onRefres
 
   const statut = collaboration.contratMarqueStatut ?? "AUCUN";
 
+  const suggestedContact: ContratMarqueClientContact | null = useMemo(
+    () =>
+      resolveContratMarqueClientContact({
+        collaboration,
+        negociation: collaboration.negociation,
+        marqueContacts: collaboration.marque.contacts,
+      }),
+    [collaboration]
+  );
+
+  const storedContactLabel = hasStoredContratMarqueClientContact(collaboration)
+    ? [collaboration.contratMarqueContactNom, collaboration.contratMarqueContactEmail]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
+
   const docusealUrl = useMemo(() => {
     if (!collaboration.contratSubmissionId) return "";
     const base = (process.env.NEXT_PUBLIC_DOCUSEAL_URL || "https://docuseal.com").replace(/\/$/, "");
@@ -100,20 +144,29 @@ export default function ContratMarqueBloc({ collaboration, currentUser, onRefres
 
   if (!canRead) return null;
 
-  const uploadFile = async (file: File) => {
+  const uploadWithContact = async (payload: {
+    file: File;
+    contact: { nom: string; email: string; telephone: string };
+  }) => {
     setUploading(true);
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", payload.file);
+      formData.append("contactNom", payload.contact.nom);
+      formData.append("contactEmail", payload.contact.email);
+      if (payload.contact.telephone.trim()) {
+        formData.append("contactTelephone", payload.contact.telephone.trim());
+      }
       const res = await fetch(`/api/collaborations/${collaboration.id}/contrat-marque/upload`, {
         method: "POST",
         body: formData,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.error || "Erreur upload contrat");
+        alert((data as { error?: string }).error || "Erreur upload contrat");
         return;
       }
+      setUploadModalOpen(false);
       await onRefresh();
     } finally {
       setUploading(false);
@@ -137,30 +190,19 @@ export default function ContratMarqueBloc({ collaboration, currentUser, onRefres
       <div className="p-5">
         {statut === "AUCUN" && (
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <p className="text-sm text-gray-400">Aucun contrat reçu.</p>
+            <p className="text-sm text-gray-400">
+              Aucun contrat reçu. Contact client obligatoire à l’upload.
+            </p>
             {canUploadContract && (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) uploadFile(file);
-                    e.currentTarget.value = "";
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 shrink-0"
-                >
-                  {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                  Uploader le contrat reçu
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => setUploadModalOpen(true)}
+                disabled={uploading}
+                className="inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 shrink-0"
+              >
+                <Upload className="w-4 h-4" />
+                Uploader le contrat reçu
+              </button>
             )}
           </div>
         )}
@@ -173,6 +215,15 @@ export default function ContratMarqueBloc({ collaboration, currentUser, onRefres
               </span>
             )}
             <p className="text-sm text-gray-500">{infoLine}</p>
+            {storedContactLabel ? (
+              <p className="text-xs text-gray-600">
+                <span className="text-gray-400">Contact client :</span> {storedContactLabel}
+              </p>
+            ) : (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Contact client manquant — rouvrez la review pour uploader une version avec contact.
+              </p>
+            )}
             {statut === "SIGNE" && !collaboration.contratMarquePdfOfficielSigneDeposeAt ? (
               <p
                 className="text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-300/80 rounded-lg px-3 py-2"
@@ -215,6 +266,16 @@ export default function ContratMarqueBloc({ collaboration, currentUser, onRefres
           </div>
         )}
       </div>
+
+      <ContratMarqueUploadModal
+        open={uploadModalOpen}
+        uploading={uploading}
+        initialContact={suggestedContact}
+        onClose={() => {
+          if (!uploading) setUploadModalOpen(false);
+        }}
+        onConfirm={uploadWithContact}
+      />
     </div>
   );
 }

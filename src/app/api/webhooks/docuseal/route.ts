@@ -7,6 +7,11 @@ import { render } from "@react-email/render";
 import { SignatureCompletedEmail } from "@/lib/emails/SignatureCompletedEmail";
 import { ContratGlowUpEmail } from "@/lib/emails/ContratGlowUpEmail";
 import { DocumentSigneEmail } from "@/lib/emails/DocumentSigneEmail";
+import {
+  getAgenceSignatureEmail,
+  getAgenceSignatureName,
+  isAgenceSubmitter,
+} from "@/lib/agence-signature";
 
 type DocuSealPayload = {
   event_type?: string;
@@ -114,6 +119,8 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
             }).catch((err) =>
               console.error("Collaboration contrat: erreur email PDF signé", err)
             );
+          } else if (await handleContratMarqueCompleted(submissionId, body)) {
+            // Contrat marque → SIGNE
           } else if (await handleTalentContratCompleted(submissionId, body)) {
             // Contrat talent (fiche talent) marqué SIGNE
           } else if (await handleSignatureDocumentCompleted(submissionId, body)) {
@@ -306,6 +313,8 @@ async function processDocuSealWebhook(body: DocuSealPayload) {
             console.error("Collaboration contrat: erreur envoi lien agence", err)
           );
         }
+      } else if (await handleContratMarqueFormCompleted(submissionId, body)) {
+        // Contrat marque : reste EN_SIGNATURE jusqu'à completion totale
       } else if (await handleTalentContratFormCompleted(submissionId, body)) {
         // Contrat talent (fiche talent) : statut avancé
       } else if (await handleSignatureDocumentFormCompleted(submissionId, body)) {
@@ -508,6 +517,122 @@ async function handleTalentContratFormCompleted(
       console.error("TalentContrat: erreur envoi lien agence", err)
     );
   }
+  return true;
+}
+
+// ============================================
+// Contrat marque — Collaboration.contratMarqueSubmissionId
+// ============================================
+
+async function handleContratMarqueCompleted(
+  submissionId: string,
+  body: DocuSealPayload
+): Promise<boolean> {
+  const collab = await prisma.collaboration.findFirst({
+    where: { contratMarqueSubmissionId: submissionId },
+    include: {
+      talent: { select: { prenom: true, nom: true } },
+      marque: { select: { nom: true } },
+    },
+  });
+  if (!collab) return false;
+
+  const signedDocumentUrl =
+    body.data?.documents?.[0]?.url ??
+    body.document_url?.trim() ??
+    body.documents?.[0]?.url?.trim() ??
+    null;
+  const now = new Date();
+  const currentVer = collab.contratMarqueVersionActuelle
+    ? await prisma.contratMarqueVersion.findFirst({
+        where: {
+          collaborationId: collab.id,
+          numero: collab.contratMarqueVersionActuelle,
+        },
+      })
+    : null;
+  if (currentVer) {
+    await prisma.contratMarqueVersion.update({
+      where: { id: currentVer.id },
+      data: { statut: "SIGNE" },
+    });
+  }
+  await prisma.collaboration.update({
+    where: { id: collab.id },
+    data: {
+      contratMarqueStatut: "SIGNE",
+      contratMarqueSigneAt: now,
+      contratMarqueMode: "DOCUSEAL",
+    },
+  });
+  console.log("Contrat marque: submission.completed → SIGNE", collab.id);
+
+  const titre = `Contrat marque — ${collab.talent.prenom} ${collab.talent.nom} x ${collab.marque.nom}`;
+  await envoyerEmailsDocumentSigneComplet({
+    submissionId,
+    body,
+    titre,
+    signedDocumentUrl,
+    kind: "document",
+  }).catch((err) => console.error("Contrat marque: erreur email PDF signé", err));
+
+  return true;
+}
+
+async function handleContratMarqueFormCompleted(
+  submissionId: string,
+  body: DocuSealPayload
+): Promise<boolean> {
+  const collab = await prisma.collaboration.findFirst({
+    where: { contratMarqueSubmissionId: submissionId },
+  });
+  if (!collab) return false;
+
+  const submittersRaw = body.submitters ?? body.data?.submitters ?? [];
+  const submitters = submittersRaw as Array<{
+    completed_at?: string | null;
+    status?: string;
+  }>;
+  const completedCount = submitters.filter((s) => {
+    const hasCompletedAt = !!(s.completed_at && String(s.completed_at).trim());
+    return hasCompletedAt || s.status === "completed";
+  }).length;
+  const storedSigners = Array.isArray(collab.contratMarqueSignataires)
+    ? collab.contratMarqueSignataires.length
+    : 0;
+  const total =
+    storedSigners > 0 ? storedSigners : submitters.length > 0 ? submitters.length : 1;
+
+  if (completedCount >= total) {
+    const now = new Date();
+    const currentVer = collab.contratMarqueVersionActuelle
+      ? await prisma.contratMarqueVersion.findFirst({
+          where: {
+            collaborationId: collab.id,
+            numero: collab.contratMarqueVersionActuelle,
+          },
+        })
+      : null;
+    if (currentVer) {
+      await prisma.contratMarqueVersion.update({
+        where: { id: currentVer.id },
+        data: { statut: "SIGNE" },
+      });
+    }
+    await prisma.collaboration.update({
+      where: { id: collab.id },
+      data: {
+        contratMarqueStatut: "SIGNE",
+        contratMarqueSigneAt: now,
+        contratMarqueMode: "DOCUSEAL",
+      },
+    });
+  }
+  console.log("Contrat marque: form.completed", {
+    submissionId,
+    completedCount,
+    total,
+  });
   return true;
 }
 
@@ -752,20 +877,18 @@ async function envoyerLienSignatureAgence(submissionId: string, contratTitre: st
       status?: string;
     }>;
   };
-  const agenceEmailConfigured = (
-    process.env.AGENCE_SIGNATURE_EMAIL?.trim() ||
-    process.env.NEXT_PUBLIC_AGENCE_EMAIL?.trim() ||
-    "contrat@glowupagence.fr"
-  ).toLowerCase();
+  const agenceEmailConfigured = getAgenceSignatureEmail();
   const agence = (submission.submitters ?? []).find((s) => {
     const pending =
       !(s.completed_at && String(s.completed_at).trim()) && s.status !== "completed";
     if (!pending) return false;
-    const role = (s.role || "").trim().toLowerCase();
-    const email = (s.email || "").trim().toLowerCase();
-    return role === "agence" || email === agenceEmailConfigured;
+    return isAgenceSubmitter({
+      role: s.role,
+      email: s.email,
+      agenceEmail: agenceEmailConfigured,
+    });
   });
-  if (!agence?.email) {
+  if (!agence) {
     console.warn("Contrat: submitter Agence en attente introuvable", submissionId);
     return;
   }
@@ -779,7 +902,7 @@ async function envoyerLienSignatureAgence(submissionId: string, contratTitre: st
 
   const html = await render(
     React.createElement(ContratGlowUpEmail, {
-      signerName: process.env.NEXT_PUBLIC_AGENCE_NOM?.trim() || "Glow Up Agence",
+      signerName: getAgenceSignatureName(),
       contratTitre,
       signingUrl,
       isAgence: true,
@@ -787,9 +910,10 @@ async function envoyerLienSignatureAgence(submissionId: string, contratTitre: st
     })
   );
   const resend = new Resend(resendKey);
+  // Toujours envoyer au canonique contrat@, jamais à un email DocuSeal potentiellement typé
   const sendResult = await resend.emails.send({
-    from: resendFromAddress(agence.email),
-    to: agence.email,
+    from: resendFromAddress(agenceEmailConfigured),
+    to: agenceEmailConfigured,
     subject: `À signer — Contrat talent — ${contratTitre}`,
     html,
   });

@@ -30,10 +30,15 @@ import {
 import type { T_ViewportHighlight } from "react-pdf-highlighter/dist/components/PdfHighlighter";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { ContratMarqueVersionClient } from "@/lib/contratMarqueVersions";
+import {
+  hasStoredContratMarqueClientContact,
+  type ContratMarqueClientContact,
+} from "@/lib/contratMarqueClientContact";
 import { canUploadContratMarque } from "@/lib/contratMarqueAccess";
 import { FixedPdfLoader } from "@/components/contrat-marque/FixedPdfLoader";
+import ContratMarqueUploadModal from "@/components/contrat-marque/ContratMarqueUploadModal";
 import { PDFJS_DIST_WORKER_SRC } from "@/lib/pdfjsWorkerSrc";
-import { ChevronDown, ChevronUp, MessageSquare, Package } from "lucide-react";
+import { ChevronDown, ChevronUp, Mail, MessageSquare, Package, Phone } from "lucide-react";
 import {
   MentionTextarea,
   renderCommentWithMentions,
@@ -89,6 +94,11 @@ type CollabShape = {
   contratMarqueSigneAt?: string | Date | null;
   /** Renseigné quand le PDF officiellement signé a été déposé (upload « version finale signée »). */
   contratMarquePdfOfficielSigneDeposeAt?: string | Date | null;
+  contratMarqueContactNom?: string | null;
+  contratMarqueContactEmail?: string | null;
+  contratMarqueContactTelephone?: string | null;
+  contratMarqueDocusealTemplateId?: number | null;
+  contratMarqueSubmissionId?: string | null;
   isPrivate?: boolean;
   accountManager?: { role?: string | null } | null;
   talent: {
@@ -118,6 +128,8 @@ export interface ContratPdfReviewerProps {
   livrables?: LivrableRow[];
   /** Vide si pas encore de versioning (rétrocompat). */
   versions?: ContratMarqueVersionClient[];
+  /** Contact client (négo / CRM) pour échange direct juriste ↔ marque. */
+  clientContact?: ContratMarqueClientContact | null;
   showBackToCollab?: boolean;
   isJuristeContext?: boolean;
   onStatutChange?: () => void;
@@ -312,9 +324,13 @@ export default function ContratPdfReviewer({
   onStatutChange,
   versions: versionsProp,
   livrables: livrablesProp,
+  clientContact = null,
 }: ContratPdfReviewerProps) {
   const versions = versionsProp ?? [];
   const livrables = livrablesProp ?? [];
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploadModalFile, setUploadModalFile] = useState<File | null>(null);
+  const [relancing, setRelancing] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState<ContratMarqueVersionClient | null>(() =>
     versions.length > 0 ? versions[versions.length - 1]! : null
   );
@@ -431,9 +447,12 @@ export default function ContratPdfReviewer({
     return base;
   }, [collaborationId, selectedVersion?.id]);
   const docusealBaseUrl = (process.env.NEXT_PUBLIC_DOCUSEAL_URL || "https://docuseal.com").replace(/\/$/, "");
-  const existingDocusealSubmissionUrl = collaboration.contratSubmissionId
-    ? `${docusealBaseUrl}/submissions/${collaboration.contratSubmissionId}`
-    : "";
+  const existingDocusealSubmissionUrl = collaboration.contratMarqueSubmissionId
+    ? `${docusealBaseUrl}/submissions/${collaboration.contratMarqueSubmissionId}`
+    : collaboration.contratSubmissionId
+      ? `${docusealBaseUrl}/submissions/${collaboration.contratSubmissionId}`
+      : "";
+  const hasBuilderTemplate = Boolean(collaboration.contratMarqueDocusealTemplateId);
 
   const latestVersionId = versions.length > 0 ? versions[versions.length - 1]?.id : null;
   const isArchivedVersion =
@@ -599,14 +618,21 @@ export default function ContratPdfReviewer({
   const canLaunchDocuseal = isAdmin || isHeadOfInfluence || isJuriste;
   const showDecisionAdminSign =
     canLaunchDocuseal && statut === "APPROUVE" && canActOnCurrentVersion;
+  const showDecisionEnSignature =
+    canLaunchDocuseal && statut === "EN_SIGNATURE" && canActOnCurrentVersion;
   const showDecisionSigne = statut === "SIGNE" && Boolean(collaboration.contratMarqueSigneAt) && canActOnCurrentVersion;
   const officielSigneManquant =
     statut === "SIGNE" && !collaboration.contratMarquePdfOfficielSigneDeposeAt;
-  const showJuristeSignedDepositHint = isJuriste && statut === "APPROUVE" && canActOnCurrentVersion;
+  const showJuristeSignedDepositHint =
+    isJuriste &&
+    canActOnCurrentVersion &&
+    (statut === "APPROUVE" || statut === "EN_SIGNATURE");
   const showJuristeDocusealAction =
     isJuriste &&
     canActOnCurrentVersion &&
-    (statut === "APPROUVE" || (statut === "SIGNE" && collaboration.contratMarqueMode === "DOCUSEAL"));
+    (statut === "APPROUVE" ||
+      statut === "EN_SIGNATURE" ||
+      (statut === "SIGNE" && collaboration.contratMarqueMode === "DOCUSEAL"));
 
   const scrollToAnnotation = useCallback((a: AnnotationRow) => {
     const scrollTo = scrollToHighlightRef.current;
@@ -680,28 +706,73 @@ export default function ContratPdfReviewer({
           alert((j as { error?: string }).error || "Erreur");
           return;
         }
-        const payload = (await res.json().catch(() => ({}))) as {
-          submissionId?: string | null;
-          signingUrl?: string | null;
-        };
-        if (nextStatut === "SIGNE" && mode === "DOCUSEAL") {
-          const directSigningUrl = payload.signingUrl ?? null;
-          const submissionId = payload.submissionId ?? collaboration.contratSubmissionId ?? null;
-          if (directSigningUrl) {
-            window.open(directSigningUrl, "_blank", "noopener,noreferrer");
-          } else if (submissionId) {
-            const url = `${docusealBaseUrl}/submissions/${submissionId}`;
-            window.open(url, "_blank", "noopener,noreferrer");
-          }
-        }
         onStatutChange?.();
         window.location.reload();
       } finally {
         setBusy(false);
       }
     },
-    [annotations, collaboration.contratSubmissionId, collaborationId, docusealBaseUrl, onStatutChange, versions]
+    [annotations, collaborationId, onStatutChange, versions]
   );
+
+  const openSignatureBuilder = useCallback(async () => {
+    setBusy(true);
+    try {
+      const res = await fetch(
+        `/api/collaborations/${collaborationId}/contrat-marque/prepare-signature`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            forceNewTemplate: !hasBuilderTemplate,
+          }),
+        }
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        builderPath?: string;
+      };
+      if (!res.ok) {
+        alert(data.error || "Impossible de préparer la signature");
+        return;
+      }
+      const path =
+        data.builderPath ||
+        (isJuristeContext
+          ? `/juriste/signature-builder/${collaborationId}`
+          : `/collaborations/${collaborationId}/contrat-marque/builder`);
+      window.location.href = path;
+    } finally {
+      setBusy(false);
+    }
+  }, [collaborationId, hasBuilderTemplate, isJuristeContext]);
+
+  const handleRelancerSignataire = useCallback(async () => {
+    if (relancing) return;
+    setRelancing(true);
+    try {
+      const res = await fetch(
+        `/api/collaborations/${collaborationId}/contrat-marque/relancer`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        success?: boolean;
+        relanceEmail?: string;
+      };
+      if (!res.ok || !data.success) {
+        alert(data.error || "Impossible d’envoyer la relance");
+        return;
+      }
+      alert(`Relance envoyée à ${data.relanceEmail}`);
+    } finally {
+      setRelancing(false);
+    }
+  }, [collaborationId, relancing]);
 
   const postComment = async () => {
     const contenu = commentText.trim();
@@ -727,7 +798,13 @@ export default function ContratPdfReviewer({
   };
 
   const uploadPdfFile = useCallback(
-    async (file: File) => {
+    async (
+      file: File,
+      options?: {
+        signedFinal?: boolean;
+        contact?: { nom: string; email: string; telephone: string };
+      }
+    ) => {
       const isPdfMime = file.type === "application/pdf";
       const isPdfByName = file.name.toLowerCase().endsWith(".pdf");
       if (!isPdfMime && !isPdfByName) {
@@ -738,10 +815,15 @@ export default function ContratPdfReviewer({
       try {
         const formData = new FormData();
         formData.append("file", file);
-        const shouldUploadAsSignedFinal =
-          statut === "SIGNE" || (isJuriste && statut === "APPROUVE");
-        if (shouldUploadAsSignedFinal) {
+        if (options?.signedFinal) {
           formData.append("signedFinal", "true");
+        }
+        if (options?.contact) {
+          formData.append("contactNom", options.contact.nom);
+          formData.append("contactEmail", options.contact.email);
+          if (options.contact.telephone.trim()) {
+            formData.append("contactTelephone", options.contact.telephone.trim());
+          }
         }
         const res = await fetch(`/api/collaborations/${collaborationId}/contrat-marque/upload`, {
           method: "POST",
@@ -753,6 +835,7 @@ export default function ContratPdfReviewer({
           return;
         }
         if (data.success) {
+          setUploadModalOpen(false);
           window.location.reload();
         }
       } catch (err) {
@@ -763,16 +846,42 @@ export default function ContratPdfReviewer({
         if (uploadRef.current) uploadRef.current.value = "";
       }
     },
-    [collaborationId, isJuriste, statut]
+    [collaborationId]
+  );
+
+  const isSignedFinalUpload =
+    statut === "SIGNE" || (Boolean(isJuriste) && statut === "APPROUVE");
+
+  const beginVersionUpload = useCallback(
+    (file?: File | null) => {
+      if (isSignedFinalUpload) {
+        if (file) void uploadPdfFile(file, { signedFinal: true });
+        else uploadRef.current?.click();
+        return;
+      }
+      if (hasStoredContratMarqueClientContact(collaboration)) {
+        if (file) void uploadPdfFile(file);
+        else uploadRef.current?.click();
+        return;
+      }
+      setUploadModalFile(file ?? null);
+      setUploadModalOpen(true);
+    },
+    [collaboration, isSignedFinalUpload, uploadPdfFile]
   );
 
   const handleUploadNewVersion = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (file) void uploadPdfFile(file);
       e.currentTarget.value = "";
+      if (!file) return;
+      if (isSignedFinalUpload) {
+        void uploadPdfFile(file, { signedFinal: true });
+        return;
+      }
+      void uploadPdfFile(file);
     },
-    [uploadPdfFile]
+    [isSignedFinalUpload, uploadPdfFile]
   );
 
   const handleExportPdf = async () => {
@@ -866,6 +975,18 @@ export default function ContratPdfReviewer({
           </p>
           {showJuristeDocusealAction ? (
             <div className="mt-2 flex flex-wrap items-center gap-2">
+              {statut === "APPROUVE" ? (
+                <button
+                  type="button"
+                  onClick={() => void openSignatureBuilder()}
+                  disabled={busy}
+                  className="inline-flex items-center rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100 disabled:opacity-50"
+                >
+                  {hasBuilderTemplate
+                    ? "Continuer le placement des champs"
+                    : "Placer les champs & envoyer en signature"}
+                </button>
+              ) : null}
               {existingDocusealSubmissionUrl ? (
                 <a
                   href={existingDocusealSubmissionUrl}
@@ -873,18 +994,19 @@ export default function ContratPdfReviewer({
                   rel="noopener noreferrer"
                   className="inline-flex items-center rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100"
                 >
-                  Ouvrir DocuSeal pour signer / compléter
+                  Ouvrir DocuSeal (suivi)
                 </a>
-              ) : (
+              ) : null}
+              {statut === "EN_SIGNATURE" ? (
                 <button
                   type="button"
-                  onClick={() => void handleStatut("SIGNE", "DOCUSEAL")}
-                  disabled={busy}
-                  className="inline-flex items-center rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-semibold text-blue-900 hover:bg-blue-100 disabled:opacity-50"
+                  onClick={() => void handleRelancerSignataire()}
+                  disabled={busy || relancing}
+                  className="inline-flex items-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-50"
                 >
-                  Lancer DocuSeal pour signature manuelle
+                  {relancing ? "Relance…" : "Relancer le signataire en attente"}
                 </button>
-              )}
+              ) : null}
               <button
                 type="button"
                 onClick={() => void handleStatut("SIGNE", "EXTERNE")}
@@ -1018,7 +1140,7 @@ export default function ContratPdfReviewer({
                   />
                   <button
                     type="button"
-                    onClick={() => uploadRef.current?.click()}
+                    onClick={() => beginVersionUpload()}
                     disabled={isUploading}
                     style={{
                       marginLeft: "auto",
@@ -1054,7 +1176,7 @@ export default function ContratPdfReviewer({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    uploadRef.current?.click();
+                    beginVersionUpload();
                   }
                 }}
                 onDragEnter={(e) => {
@@ -1076,9 +1198,9 @@ export default function ContratPdfReviewer({
                   e.stopPropagation();
                   setSignedDropActive(false);
                   const f = e.dataTransfer.files?.[0];
-                  if (f) void uploadPdfFile(f);
+                  if (f) beginVersionUpload(f);
                 }}
-                onClick={() => !isUploading && uploadRef.current?.click()}
+                onClick={() => !isUploading && beginVersionUpload()}
                 style={{
                   border: `2px dashed ${
                     signedDropActive
@@ -1158,7 +1280,7 @@ export default function ContratPdfReviewer({
               e.preventDefault();
               e.stopPropagation();
               setPdfViewerDropActive(false);
-              void uploadPdfFile(f);
+              beginVersionUpload(f);
             }}
             style={{
               // Un seul scroll : celui de PdfHighlighter (absolu height 100%).
@@ -1308,6 +1430,71 @@ export default function ContratPdfReviewer({
                   </p>
                 </div>
               ) : null}
+            </section>
+
+            <section
+              className={
+                isJuristeContext
+                  ? "rounded-xl border border-amber-200 bg-amber-50/70"
+                  : "rounded-xl border border-gray-100 bg-gray-50/50"
+              }
+            >
+              <div className="px-3 py-2 text-sm font-medium text-[#1A1110]">
+                Contact client
+                {clientContact ? (
+                  <span className="ml-1.5 text-[11px] font-normal text-gray-500">
+                    (
+                    {clientContact.source === "COLLAB"
+                      ? "confirmé à l’upload"
+                      : clientContact.source === "NEGOCIATION"
+                        ? "négociation"
+                        : "fiche marque"}
+                    )
+                  </span>
+                ) : null}
+              </div>
+              <div className="space-y-1.5 px-3 pb-3 text-xs text-gray-700">
+                {clientContact ? (
+                  <>
+                    {clientContact.nom ? (
+                      <p>
+                        <span className="text-gray-500">Nom :</span> {clientContact.nom}
+                        {clientContact.poste ? (
+                          <span className="text-gray-500"> — {clientContact.poste}</span>
+                        ) : null}
+                      </p>
+                    ) : null}
+                    {clientContact.email ? (
+                      <p className="flex items-center gap-1.5">
+                        <Mail className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                        <a
+                          href={`mailto:${clientContact.email}`}
+                          className="font-medium text-[#1A1110] underline-offset-2 hover:underline"
+                        >
+                          {clientContact.email}
+                        </a>
+                      </p>
+                    ) : (
+                      <p className="text-gray-500">Email non renseigné</p>
+                    )}
+                    {clientContact.telephone ? (
+                      <p className="flex items-center gap-1.5">
+                        <Phone className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                        <a
+                          href={`tel:${clientContact.telephone.replace(/\s+/g, "")}`}
+                          className="font-medium text-[#1A1110] underline-offset-2 hover:underline"
+                        >
+                          {clientContact.telephone}
+                        </a>
+                      </p>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="text-gray-500">
+                    Aucun contact client renseigné sur la négociation ni la fiche marque.
+                  </p>
+                )}
+              </div>
             </section>
 
             <section className="rounded-xl border border-gray-100 bg-gray-50/50">
@@ -1564,7 +1751,10 @@ export default function ContratPdfReviewer({
             </section>
           </div>
 
-          {(showDecisionJuriste || showDecisionAdminSign || showDecisionSigne) && (
+          {(showDecisionJuriste ||
+            showDecisionAdminSign ||
+            showDecisionEnSignature ||
+            showDecisionSigne) && (
             <div className="shrink-0 w-full box-border border-t border-gray-200 bg-[#fafafa] px-4 py-4">
               {showDecisionJuriste ? (
                 <div className="flex flex-col gap-2">
@@ -1641,9 +1831,30 @@ export default function ContratPdfReviewer({
                       marginBottom: "4px",
                     }}
                   >
-                    ✓ Approuvé par le juriste — en attente de votre signature
+                    ✓ Approuvé — placez les champs puis envoyez (comme /signatures)
                   </div>
-                  {(isAdmin || isHeadOfInfluence) ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void openSignatureBuilder()}
+                    style={{
+                      padding: "10px",
+                      borderRadius: "8px",
+                      border: "none",
+                      background: "#1A1110",
+                      color: "white",
+                      fontSize: "13px",
+                      fontWeight: 500,
+                      cursor: busy ? "not-allowed" : "pointer",
+                      width: "100%",
+                      opacity: busy ? 0.6 : 1,
+                    }}
+                  >
+                    {hasBuilderTemplate
+                      ? "Continuer le placement des champs →"
+                      : "Placer les champs & envoyer en signature →"}
+                  </button>
+                  {(isAdmin || isHeadOfInfluence || isJuriste) ? (
                     <button
                       type="button"
                       disabled={busy}
@@ -1651,9 +1862,9 @@ export default function ContratPdfReviewer({
                       style={{
                         padding: "10px",
                         borderRadius: "8px",
-                        border: "none",
-                        background: "#1A1110",
-                        color: "white",
+                        border: "0.5px solid var(--color-border-tertiary, #e8e4df)",
+                        background: "var(--color-background-primary, #fff)",
+                        color: "var(--color-text-primary, #1A1110)",
                         fontSize: "13px",
                         fontWeight: 500,
                         cursor: busy ? "not-allowed" : "pointer",
@@ -1664,25 +1875,64 @@ export default function ContratPdfReviewer({
                       Marquer comme signé (externe) ✓
                     </button>
                   ) : null}
+                </div>
+              ) : null}
+
+              {showDecisionEnSignature ? (
+                <div className="flex flex-col gap-2">
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      background: "rgba(217, 119, 6, 0.1)",
+                      borderRadius: "8px",
+                      fontSize: "13px",
+                      fontWeight: 500,
+                      color: "#92400e",
+                      textAlign: "center",
+                    }}
+                  >
+                    Envoyé en signature — en attente des parties
+                  </div>
                   <button
                     type="button"
-                    disabled={busy}
-                    onClick={() => handleStatut("SIGNE", "DOCUSEAL")}
+                    disabled={busy || relancing}
+                    onClick={() => void handleRelancerSignataire()}
                     style={{
                       padding: "10px",
                       borderRadius: "8px",
-                      border: "0.5px solid var(--color-border-tertiary, #e8e4df)",
-                      background: "var(--color-background-primary, #fff)",
-                      color: "var(--color-text-primary, #1A1110)",
+                      border: "none",
+                      background: "#1A1110",
+                      color: "white",
                       fontSize: "13px",
                       fontWeight: 500,
-                      cursor: busy ? "not-allowed" : "pointer",
+                      cursor: busy || relancing ? "not-allowed" : "pointer",
                       width: "100%",
-                      opacity: busy ? 0.6 : 1,
+                      opacity: busy || relancing ? 0.6 : 1,
                     }}
                   >
-                    Envoyer en signature electronique (DocuSeal)
+                    {relancing ? "Envoi de la relance…" : "Relancer le signataire en attente"}
                   </button>
+                  {existingDocusealSubmissionUrl ? (
+                    <a
+                      href={existingDocusealSubmissionUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: "block",
+                        padding: "10px",
+                        borderRadius: "8px",
+                        border: "0.5px solid var(--color-border-tertiary, #e8e4df)",
+                        background: "var(--color-background-primary, #fff)",
+                        color: "var(--color-text-primary, #1A1110)",
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        textAlign: "center",
+                        textDecoration: "none",
+                      }}
+                    >
+                      Suivre sur DocuSeal
+                    </a>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -1718,6 +1968,27 @@ export default function ContratPdfReviewer({
           </div>
         </aside>
       </div>
+
+      <ContratMarqueUploadModal
+        open={uploadModalOpen}
+        uploading={isUploading}
+        initialContact={clientContact}
+        initialFile={uploadModalFile}
+        onClose={() => {
+          if (isUploading) return;
+          setUploadModalOpen(false);
+          setUploadModalFile(null);
+        }}
+        onConfirm={({ file, contact }) =>
+          uploadPdfFile(file, {
+            contact: {
+              nom: contact.nom,
+              email: contact.email,
+              telephone: contact.telephone,
+            },
+          })
+        }
+      />
     </div>
   );
 }

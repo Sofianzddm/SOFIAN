@@ -48,6 +48,10 @@ import ContratMarqueBloc from "@/components/collaboration/ContratMarqueBloc";
 import ContratUploadModal from "@/components/collaboration/ContratUploadModal";
 import DelegationBanner from "@/components/delegation/DelegationBanner";
 import { DEVISES, formatMontant, type DeviseCode } from "@/lib/devises";
+import {
+  CANONICAL_AGENCE_SIGNATURE_EMAIL,
+  resolveAgenceSignatureEmail,
+} from "@/lib/agence-signature";
 
 interface Livrable {
   id: string;
@@ -129,6 +133,9 @@ interface CollabDetail {
   contratMarqueApprouveAt?: string | null;
   contratMarqueSigneAt?: string | null;
   contratMarqueMode?: string | null;
+  contratMarqueContactNom?: string | null;
+  contratMarqueContactEmail?: string | null;
+  contratMarqueContactTelephone?: string | null;
   accountManagerId?: string | null;
   dateAssignationAM?: string | null;
   isPrivate?: boolean;
@@ -141,7 +148,12 @@ interface CollabDetail {
   contactKind?: string | null;
   contactAgence?: string | null;
   nomMarqueVerifieAt?: string | null;
-  negociation?: { contactKind?: string | null; contactAgence?: string | null } | null;
+  negociation?: {
+    contactKind?: string | null;
+    contactAgence?: string | null;
+    contactMarque?: string | null;
+    emailContact?: string | null;
+  } | null;
   talent: {
     id: string;
     prenom: string;
@@ -175,7 +187,15 @@ interface CollabDetail {
     numeroTVA?: string;
     devise?: string | null;
     email?: string | null;
-    contacts?: Array< { id: string; email: string | null; nom: string; prenom: string | null; principal: boolean } >;
+    contacts?: Array<{
+      id: string;
+      email: string | null;
+      nom: string;
+      prenom: string | null;
+      telephone?: string | null;
+      poste?: string | null;
+      principal: boolean;
+    }>;
   };
   documents?: DocumentInfo[];
   comments?: Array<{
@@ -970,7 +990,7 @@ export default function CollabDetailPage() {
       : "";
     setSignatureEmail(email);
     setSignatureSignerName(name);
-    setSignatureAgenceEmail("contrat@glowupagence.fr");
+    setSignatureAgenceEmail(CANONICAL_AGENCE_SIGNATURE_EMAIL);
     setSignatureAgenceName(process.env.NEXT_PUBLIC_AGENCE_NOM || "Sofian Zeddam");
     setShowSignatureModal(true);
   };
@@ -1015,6 +1035,7 @@ export default function CollabDetailPage() {
   const handleSendSignature = async () => {
     if (!signatureDoc || !signatureEmail.trim() || !signatureAgenceEmail.trim()) return;
     setSignatureSending(true);
+    const agenceEmailFixed = resolveAgenceSignatureEmail(signatureAgenceEmail);
     try {
       const res = await fetch(`/api/documents/${signatureDoc.id}/envoyer-signature`, {
         method: "POST",
@@ -1022,7 +1043,7 @@ export default function CollabDetailPage() {
         body: JSON.stringify({
           email: signatureEmail.trim(),
           signerName: signatureSignerName.trim() || "Signataire",
-          agenceEmail: signatureAgenceEmail.trim(),
+          agenceEmail: agenceEmailFixed,
           agenceName: signatureAgenceName.trim() || "Agence",
         }),
       });
@@ -1034,7 +1055,7 @@ export default function CollabDetailPage() {
           templateId: String(data.templateId),
           email: signatureEmail.trim(),
           name: signatureSignerName.trim() || "Signataire",
-          agenceEmail: signatureAgenceEmail.trim(),
+          agenceEmail: agenceEmailFixed,
           agenceName: signatureAgenceName.trim() || "Agence",
         });
         router.push(`/documents/${signatureDoc.id}/signature-builder?${q.toString()}`);
@@ -3134,7 +3155,7 @@ export default function CollabDetailPage() {
             },
             {
               name: "Glow Up Agence",
-              email: "contrat@glowupagence.fr",
+              email: CANONICAL_AGENCE_SIGNATURE_EMAIL,
             },
           ]}
         />
