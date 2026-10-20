@@ -2690,8 +2690,8 @@ export default function CastingComposer({
                     ))}
 
                     <p className="text-[11px] opacity-60 px-1" style={{ color: LICORICE }}>
-                      Note : le pixel de tracking (ouvertures/clics) est ajouté automatiquement
-                      à l'envoi — il est invisible et ne change rien au contenu ci-dessus.
+                      Note : le tracking (pixel / liens) est désactivé pour limiter les spams —
+                      les liens partent en dur, sans pixel d&apos;ouverture.
                     </p>
                   </>
                 )}

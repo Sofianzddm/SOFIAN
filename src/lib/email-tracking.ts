@@ -76,15 +76,9 @@ function buildPixelTag(opportunityId: string): string {
  * - Réécrit tous les <a href> http(s).
  * - Ajoute le pixel à la fin du body (avant </body> si présent, sinon append).
  */
-export function injectInboundTracking(html: string, opportunityId: string): string {
-  if (!opportunityId) return html;
-  const withLinks = rewriteLinks(html, opportunityId);
-  const pixel = buildPixelTag(opportunityId);
-
-  if (/<\/body>/i.test(withLinks)) {
-    return withLinks.replace(/<\/body>/i, `${pixel}</body>`);
-  }
-  return `${withLinks}${pixel}`;
+/** Anti-spam : tracking désactivé (pas de pixel, pas de rewrite de liens). */
+export function injectInboundTracking(html: string, _opportunityId: string): string {
+  return html;
 }
 
 /**

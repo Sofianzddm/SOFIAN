@@ -17,8 +17,8 @@ import {
  * défaut leyna@glowupagence.fr. ADMIN + STRATEGY_PLANNER (la strategy planner
  * pilote la prospection de ses projets). Après envoi : statut IDENTIFIEE → CONTACTEE.
  *
- * Le mail embarque le tracking (pixel d'ouverture + liens réécrits) et le
- * cron quotidien gère la relance auto J+3 ouvrés + la détection de réponse.
+ * Tracking pixel/liens désactivé (anti-spam). Le cron quotidien gère la
+ * relance auto J+3 ouvrés + la détection de réponse.
  */
 
 export async function POST(

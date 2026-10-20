@@ -79,14 +79,9 @@ function buildPixelTag(clientId: string): string {
   return `<img src="${src}" alt="" width="1" height="1" border="0" style="display:block;width:1px;height:1px;border:0;outline:none;opacity:0;visibility:hidden;overflow:hidden;mso-hide:all" />`;
 }
 
-export function injectFwTracking(html: string, clientId: string): string {
-  if (!clientId) return html;
-  const withLinks = rewriteLinks(html, clientId);
-  const pixel = buildPixelTag(clientId);
-  if (/<\/body>/i.test(withLinks)) {
-    return withLinks.replace(/<\/body>/i, `${pixel}</body>`);
-  }
-  return `${withLinks}${pixel}`;
+/** Anti-spam : tracking désactivé (pas de pixel, pas de rewrite de liens). */
+export function injectFwTracking(html: string, _clientId: string): string {
+  return html;
 }
 
 export function contactHasFwEmail(email: string | null | undefined): boolean {

@@ -86,8 +86,7 @@ export async function POST(
     // On NE réécrit PAS opportunity.threadId : il reste l'id Gmail talent,
     // pour dédupliquer les "Re:" côté boîte talent. L'id Leyna va dans
     // gmailSentMessageId (relances / détection de réponse).
-    // Tracking ouvertures (pixel) + clics (liens réécrits). Invisible côté
-    // destinataire ; on garde le htmlBody original pour l'affichage modale.
+    // Tracking désactivé (anti-spam) — injectInboundTracking est un no-op.
     const trackedHtmlBody = injectInboundTracking(htmlBody, id);
 
     let messageId = "";

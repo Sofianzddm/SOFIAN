@@ -11,7 +11,7 @@
  *  - From: leyna@glowupagence.fr
  *  - Variables {{contact.firstname}}, {{contact.lastname}}, {{contact.company}},
  *    {{owner.firstname}} sont remplacees au moment de l'envoi
- *  - Tracking ouvertures + clics injecte (pixel + reecriture liens)
+ *  - Tracking ouvertures/clics : désactivé (anti-spam)
  *  - Si un contact echoue, on log dans sendError mais on passe quand meme
  *    en SENT pour ne pas bloquer toute la mission
  */
@@ -460,9 +460,8 @@ export type CastingSendPreview = {
  * Reutilise le MEME pipeline que executeCastingSend (liens talents,
  * normalisation HTML Gmail, langue captee par contact depuis la fiche
  * client, traduction auto, variables {{...}} remplacees par contact).
- * Seul le tracking (pixel invisible + reecriture des liens) n'est pas
- * injecte : il ne change rien visuellement et cliquer un lien depuis
- * l'apercu fausserait les stats d'ouverture/clic.
+ * Le tracking est globalement désactivé (anti-spam) — l'aperçu et l'envoi
+ * utilisent donc le même HTML (liens en dur, sans pixel).
  *
  * `overrides` permet de previsualiser le contenu en cours de redaction
  * dans le composer (pas encore sauvegarde sur la mission).

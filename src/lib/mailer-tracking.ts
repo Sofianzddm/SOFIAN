@@ -32,17 +32,15 @@ function injectPixel(html: string, pixel: string): string {
   return `${html}${pixel}`;
 }
 
-/** Ajoute le pixel d'ouverture du mail initial. */
-export function injectMailerOpenTracking(html: string, mailId: string): string {
-  if (!mailId) return html;
-  return injectPixel(html, buildPixelTag("m", mailId));
+/** Anti-spam : tracking désactivé (pas de pixel). */
+export function injectMailerOpenTracking(html: string, _mailId: string): string {
+  return html;
 }
 
-/** Ajoute le pixel d'ouverture d'une relance. */
+/** Anti-spam : tracking désactivé (pas de pixel). */
 export function injectFollowupOpenTracking(
   html: string,
-  followupId: string
+  _followupId: string
 ): string {
-  if (!followupId) return html;
-  return injectPixel(html, buildPixelTag("f", followupId));
+  return html;
 }
