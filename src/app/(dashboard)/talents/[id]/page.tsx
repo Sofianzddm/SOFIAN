@@ -235,6 +235,8 @@ export default function TalentDetailPage() {
     role === "HEAD_OF" ||
     role === "HEAD_OF_INFLUENCE" ||
     role === "HEAD_OF_SALES";
+  // TM : uniquement ses talents ; ASSISTANTE_TM / Head / Admin : tous
+  const showStatsEditButton = canUpdateStats && (role !== "TM" || isMyTalent);
   const canUploadPhoto =
     role === "ADMIN" ||
     role === "HEAD_OF" ||
@@ -243,6 +245,7 @@ export default function TalentDetailPage() {
     role === "TM" ||
     role === "ASSISTANTE_TM";
   const canEditBio = canEditTalent;
+  const isAssistanteTm = role === "ASSISTANTE_TM";
 
   useEffect(() => {
     if (params.id) fetchTalent();
@@ -783,38 +786,42 @@ export default function TalentDetailPage() {
           </Link>
           
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            <Link
-              href={`/kit/${talentSlug(talent.prenom, talent.nom)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
-              title="Ouvrir le Kit Media public dans un nouvel onglet"
-            >
-              <Share2 className="w-5 h-5" />
-            </Link>
-            <Link
-              href={`/tarifs/${talentSlug(talent.prenom, talent.nom)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
-              title="Ouvrir la Grille Tarifaire publique dans un nouvel onglet"
-            >
-              <Euro className="w-5 h-5" />
-            </Link>
-            <Link
-              href={`/simulateur-emv?talent=${talent.id}`}
-              className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
-              title="Simulateur EMV — comparer tarif et media value"
-            >
-              <Gauge className="w-5 h-5" />
-            </Link>
-            <Link
-              href={`/simulateur-cessions?talent=${talent.id}`}
-              className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
-              title="Simulateur cessions — droits d'usage"
-            >
-              <Scale className="w-5 h-5" />
-            </Link>
+            {!isAssistanteTm && (
+              <>
+                <Link
+                  href={`/kit/${talentSlug(talent.prenom, talent.nom)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
+                  title="Ouvrir le Kit Media public dans un nouvel onglet"
+                >
+                  <Share2 className="w-5 h-5" />
+                </Link>
+                <Link
+                  href={`/tarifs/${talentSlug(talent.prenom, talent.nom)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
+                  title="Ouvrir la Grille Tarifaire publique dans un nouvel onglet"
+                >
+                  <Euro className="w-5 h-5" />
+                </Link>
+                <Link
+                  href={`/simulateur-emv?talent=${talent.id}`}
+                  className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
+                  title="Simulateur EMV — comparer tarif et media value"
+                >
+                  <Gauge className="w-5 h-5" />
+                </Link>
+                <Link
+                  href={`/simulateur-cessions?talent=${talent.id}`}
+                  className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
+                  title="Simulateur cessions — droits d'usage"
+                >
+                  <Scale className="w-5 h-5" />
+                </Link>
+              </>
+            )}
             {canUploadPhoto && (
               <button
                 type="button"
@@ -825,14 +832,14 @@ export default function TalentDetailPage() {
                 <Camera className="w-5 h-5" />
               </button>
             )}
-            {canUpdateStats && (isMyTalent || role !== "TM") && (
+            {showStatsEditButton && (
               <Link 
                 href={`/talents/${talent.id}/stats`}
-                className="flex items-center gap-2 px-3 py-2.5 sm:px-4 bg-white/15 backdrop-blur-md rounded-2xl text-white hover:bg-white/25 transition-all hover:scale-105 border border-white/20"
+                className="flex items-center gap-2 px-3 py-2.5 sm:px-4 bg-glowup-rose rounded-2xl text-white hover:bg-glowup-rose/90 transition-all hover:scale-105 shadow-lg shadow-glowup-rose/30"
                 title="Mettre à jour les stats"
               >
                 <BarChart3 className="w-5 h-5 flex-shrink-0" />
-                <span className="text-sm font-semibold whitespace-nowrap">Stats</span>
+                <span className="text-sm font-semibold whitespace-nowrap">Mettre à jour les stats</span>
               </Link>
             )}
             {canEditTalent && (
@@ -1090,6 +1097,30 @@ export default function TalentDetailPage() {
 
         <DelegationBanner talent={talent} userId={userId} contexte="ce talent" />
 
+        {/* CTA stats toujours visible (même sans followers déjà renseignés) */}
+        {showStatsEditButton && (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-3xl border border-rose-200 bg-white p-4 sm:p-5 shadow-lg shadow-rose-100/60">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="p-2.5 rounded-2xl bg-rose-100 text-glowup-rose shrink-0">
+                <BarChart3 className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-glowup-licorice">Statistiques du talent</p>
+                <p className="text-sm text-gray-600">
+                  Followers, engagement, démographie Instagram / TikTok / YouTube
+                </p>
+              </div>
+            </div>
+            <Link
+              href={`/talents/${talent.id}/stats`}
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-glowup-rose text-white text-sm font-semibold rounded-xl hover:bg-glowup-rose/90 transition-colors shrink-0"
+            >
+              <BarChart3 className="w-4 h-4" />
+              Mettre à jour les stats
+            </Link>
+          </div>
+        )}
+
         {/* Alerte stats périmées — TM (ses talents) + Assistante TM (tous) */}
         {((role === "TM" && isMyTalent) || role === "ASSISTANTE_TM") && stats?.lastUpdate && (
           (() => {
@@ -1220,20 +1251,6 @@ export default function TalentDetailPage() {
         {/* Stats Section */}
         {(hasInstagram || hasTiktok) && (
           <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 overflow-hidden border border-gray-100">
-            {canUpdateStats && (isMyTalent || role !== "TM") && (
-              <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 bg-gradient-to-r from-rose-50 to-pink-50 border-b border-rose-100">
-                <p className="text-sm text-gray-700">
-                  Modifier les followers, engagement, démographie…
-                </p>
-                <Link
-                  href={`/talents/${talent.id}/stats`}
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-glowup-rose text-white text-sm font-semibold rounded-xl hover:bg-glowup-rose/90 transition-colors shadow-sm"
-                >
-                  <BarChart3 className="w-4 h-4" />
-                  Mettre à jour les stats
-                </Link>
-              </div>
-            )}
             {/* Tab Header */}
             <div className="flex border-b border-gray-100">
               {hasInstagram && (

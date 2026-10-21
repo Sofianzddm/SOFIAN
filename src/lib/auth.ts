@@ -192,6 +192,7 @@ export const authOptions: NextAuthOptions = {
       }
 
       // Invalider le JWT si le compte réel a été désactivé (arrêt maladie, etc.)
+      // + resync du rôle (ex. passage en ASSISTANTE_TM) sans forcer une reconnexion
       const realUserId = (token.sub ?? (token as { id?: string }).id) as
         | string
         | undefined;
@@ -199,11 +200,14 @@ export const authOptions: NextAuthOptions = {
         try {
           const dbUser = await prisma.user.findUnique({
             where: { id: realUserId },
-            select: { actif: true },
+            select: { actif: true, role: true },
           });
           if (!dbUser?.actif) {
             (token as { error?: string }).error = "CompteDesactive";
             return token;
+          }
+          if (dbUser.role) {
+            (token as { role?: string }).role = dbUser.role;
           }
         } catch (err) {
           console.error("[auth] Erreur contrôle actif JWT:", err);
