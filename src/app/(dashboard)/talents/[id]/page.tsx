@@ -825,13 +825,14 @@ export default function TalentDetailPage() {
                 <Camera className="w-5 h-5" />
               </button>
             )}
-            {(canUpdateStats && (isMyTalent || role !== "TM")) && (
+            {canUpdateStats && (isMyTalent || role !== "TM") && (
               <Link 
                 href={`/talents/${talent.id}/stats`}
-                className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
+                className="flex items-center gap-2 px-3 py-2.5 sm:px-4 bg-white/15 backdrop-blur-md rounded-2xl text-white hover:bg-white/25 transition-all hover:scale-105 border border-white/20"
                 title="Mettre à jour les stats"
               >
-                <BarChart3 className="w-5 h-5" />
+                <BarChart3 className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm font-semibold whitespace-nowrap">Stats</span>
               </Link>
             )}
             {canEditTalent && (
@@ -1089,8 +1090,8 @@ export default function TalentDetailPage() {
 
         <DelegationBanner talent={talent} userId={userId} contexte="ce talent" />
 
-        {/* Alerte stats périmées */}
-        {role === "TM" && isMyTalent && stats?.lastUpdate && (
+        {/* Alerte stats périmées — TM (ses talents) + Assistante TM (tous) */}
+        {((role === "TM" && isMyTalent) || role === "ASSISTANTE_TM") && stats?.lastUpdate && (
           (() => {
             const daysSinceUpdate = Math.floor((Date.now() - new Date(stats.lastUpdate).getTime()) / (1000 * 60 * 60 * 24));
             if (daysSinceUpdate > 30) {
@@ -1219,6 +1220,20 @@ export default function TalentDetailPage() {
         {/* Stats Section */}
         {(hasInstagram || hasTiktok) && (
           <div className="bg-white rounded-3xl shadow-xl shadow-gray-200/50 overflow-hidden border border-gray-100">
+            {canUpdateStats && (isMyTalent || role !== "TM") && (
+              <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-3 bg-gradient-to-r from-rose-50 to-pink-50 border-b border-rose-100">
+                <p className="text-sm text-gray-700">
+                  Modifier les followers, engagement, démographie…
+                </p>
+                <Link
+                  href={`/talents/${talent.id}/stats`}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-glowup-rose text-white text-sm font-semibold rounded-xl hover:bg-glowup-rose/90 transition-colors shadow-sm"
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  Mettre à jour les stats
+                </Link>
+              </div>
+            )}
             {/* Tab Header */}
             <div className="flex border-b border-gray-100">
               {hasInstagram && (
