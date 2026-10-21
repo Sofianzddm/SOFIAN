@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
-  if (!canAccessRhPeople(session.employee.rhRole)) {
+  if (!canAccessRhPeople(session.employee.appRole)) {
     return NextResponse.json({ error: "Non requis" }, { status: 400 });
   }
 

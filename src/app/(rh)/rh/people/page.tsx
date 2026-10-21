@@ -8,8 +8,8 @@ export default async function RhPeoplePage() {
   if (!session) {
     redirect("/rh/login");
   }
-  // HR + managers N+1 (inbox validations équipe)
-  if (!canAccessRhPeople(session.employee.rhRole)) {
+  // Console employeur : ADMIN plateforme uniquement
+  if (!canAccessRhPeople(session.employee.appRole)) {
     redirect("/rh/espace");
   }
   if (!(await hasRhSecureSession(session.app.user.id))) {

@@ -181,15 +181,15 @@ export function initials(e: { prenom: string; nom: string }): string {
   return `${a}${b}` || "??";
 }
 
-export function homePathForRole(role: RhRole): string {
-  // HR + managers N+1 → console People (inbox validations)
-  if (role === "HR" || role === "MANAGER") return "/rh/people";
+export function homePathForRole(appRole: string): string {
+  // Console employeur (/rh/people) : ADMIN plateforme uniquement
+  if (appRole === "ADMIN") return "/rh/people";
   return "/rh/espace";
 }
 
-/** Accès UI console People (inbox validations pour manager ; full pour HR). */
-export function canAccessRhPeople(role: RhRole): boolean {
-  return role === "HR" || role === "MANAGER";
+/** Accès UI console employeur People — ADMIN plateforme uniquement. */
+export function canAccessRhPeople(appRole: string): boolean {
+  return appRole === "ADMIN";
 }
 
 /** Lecture d’un autre profil RH : soi-même, HR, ou N+1 (reports). */

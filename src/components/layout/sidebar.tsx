@@ -38,6 +38,7 @@ import {
   Compass,
   FileSignature,
   ListTodo,
+  CalendarDays,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { canAccessFashionWeek } from "@/lib/fw-access";
@@ -328,7 +329,25 @@ const menuItems = [
     icon: ListTodo,
     roles: ["ADMIN"],
   },
-  // RH Glow Up : masqué du layout (aucune visibilité nav)
+  {
+    label: "RH Glow Up",
+    href: "/rh/espace",
+    icon: CalendarDays,
+    // Salariés Glow Up — hors TALENT, JURISTE, COMPTABLE
+    roles: [
+      "ADMIN",
+      "HEAD_OF",
+      "HEAD_OF_INFLUENCE",
+      "HEAD_OF_SALES",
+      "TM",
+      "ASSISTANTE_TM",
+      "CM",
+      "CASTING_MANAGER",
+      "COMMUNITY_MANAGER",
+      "STRATEGY_PLANNER",
+      "COIFFEUR",
+    ],
+  },
   {
     label: "Dossiers",
     href: "/dossiers",
@@ -516,6 +535,23 @@ export function Sidebar({
             />
             {!collapsed && <span className="font-medium text-sm">Talents</span>}
           </Link>
+          <Link
+            href="/rh/espace"
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${
+              pathname === "/rh/espace" || pathname?.startsWith("/rh/")
+                ? "bg-glowup-rose text-white"
+                : "text-gray-600 hover:bg-glowup-lace hover:text-glowup-licorice"
+            }`}
+          >
+            <CalendarDays
+              className={`w-5 h-5 flex-shrink-0 ${
+                pathname === "/rh/espace" || pathname?.startsWith("/rh/")
+                  ? "text-white"
+                  : "text-gray-400 group-hover:text-glowup-rose"
+              }`}
+            />
+            {!collapsed && <span className="font-medium text-sm">RH Glow Up</span>}
+          </Link>
         </nav>
         <div className="flex-shrink-0 relative border-t border-gray-100 pb-12">
           {!collapsed && (
@@ -688,6 +724,12 @@ export function Sidebar({
             label: "Cannes 2026",
             href: "/cannes-2026",
             icon: Briefcase,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
+            label: "RH Glow Up",
+            href: "/rh/espace",
+            icon: CalendarDays,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
         ]

@@ -69,12 +69,8 @@ function PeopleAppInner() {
 
   useEffect(() => {
     if (error === "NO_RH_PROFILE") router.replace("/rh/login");
-    // Collabs → espace salarié ; HR + managers → console People
-    if (
-      me &&
-      me.employee.rhRole !== "HR" &&
-      me.employee.rhRole !== "MANAGER"
-    ) {
+    // Collabs / managers → espace salarié ; ADMIN → console employeur
+    if (me && !me.canAccessPeople) {
       router.replace("/rh/espace");
     }
   }, [error, me, router]);

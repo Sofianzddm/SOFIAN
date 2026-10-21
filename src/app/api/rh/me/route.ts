@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
     },
     balances,
     bookableTotal,
-    homePath: homePathForRole(employee.rhRole),
-    canAccessPeople: canAccessRhPeople(employee.rhRole),
+    homePath: homePathForRole(employee.appRole),
+    canAccessPeople: canAccessRhPeople(employee.appRole),
   });
 }
