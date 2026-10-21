@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import { RhDataProvider, useRhData } from "@/components/rh/RhDataContext";
@@ -26,8 +27,17 @@ function PatronHubInner({ variant }: { variant: "embedded" | "standalone" }) {
   const taskParam = searchParams.get("task");
   const { me, employees, loading, error } = useRhData();
 
+  // Compat deep-link legacy `/hub?task=` → page détail
+  useEffect(() => {
+    if (taskParam) router.replace(`/hub/tasks/${taskParam}`);
+  }, [taskParam, router]);
+
   if (error === "NO_RH_PROFILE") {
     router.replace("/rh/login");
+    return null;
+  }
+
+  if (taskParam) {
     return null;
   }
 
@@ -75,7 +85,6 @@ function PatronHubInner({ variant }: { variant: "embedded" | "standalone" }) {
       <TaskHub
         mode="manage"
         meId={me.employee.id}
-        initialTaskId={taskParam}
         employees={employees.map((e) => ({
           id: String(e.id),
           name: String(e.name || "—"),

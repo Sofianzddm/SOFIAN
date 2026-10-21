@@ -587,6 +587,7 @@ export async function notifyRhTaskAssigned(params: {
       return;
     }
     const from = creator ? displayName(creator.user) : "ton manager";
+    // Assignation → espace salarié (liste). Le détail plein écran est ADMIN (/hub/tasks).
     const lien = `${baseUrl()}/rh/espace?tab=tasks&task=${params.taskId}`;
     const due = params.dueAt
       ? params.dueAt.toLocaleDateString("fr-FR", {
@@ -641,22 +642,22 @@ export async function notifyRhTaskStatusChanged(params: {
     if (!ids.length) return;
     const people = await prisma.rhEmployee.findMany({
       where: { id: { in: ids } },
-      include: { user: { select: { id: true, email: true, prenom: true, nom: true } } },
+      include: {
+        user: {
+          select: { id: true, email: true, prenom: true, nom: true, role: true },
+        },
+      },
     });
     const actor = await prisma.rhEmployee.findUnique({
       where: { id: params.actorId },
       include: { user: { select: { prenom: true, nom: true } } },
     });
     const actorName = actor ? displayName(actor.user) : "Quelqu'un";
-    const lienHub = `${baseUrl()}/hub?task=${params.taskId}`;
+    const lienHub = `${baseUrl()}/hub/tasks/${params.taskId}`;
     const lienEspace = `${baseUrl()}/rh/espace?tab=tasks&task=${params.taskId}`;
-    const assigneeSet = new Set([
-      params.assigneeId,
-      ...(params.assigneeIds || []),
-    ]);
     for (const p of people) {
-      const isAssignee = assigneeSet.has(p.id);
-      const lien = isAssignee ? lienEspace : lienHub;
+      // Hub plein écran = ADMIN uniquement pour le moment
+      const lien = p.user.role === "ADMIN" ? lienHub : lienEspace;
       await notifyUsers([p.user], {
         titre: `Tâche · ${STATUS_LABEL[params.to] || params.to}`,
         message: `${params.title} · ${actorName}`,
@@ -701,22 +702,23 @@ export async function notifyRhTaskComment(params: {
     if (!ids.length) return;
     const people = await prisma.rhEmployee.findMany({
       where: { id: { in: ids } },
-      include: { user: { select: { id: true, email: true, prenom: true, nom: true } } },
+      include: {
+        user: {
+          select: { id: true, email: true, prenom: true, nom: true, role: true },
+        },
+      },
     });
     const author = await prisma.rhEmployee.findUnique({
       where: { id: params.authorId },
       include: { user: { select: { prenom: true, nom: true } } },
     });
     const authorName = author ? displayName(author.user) : "Quelqu'un";
-    const assigneeSet = new Set([
-      params.assigneeId,
-      ...(params.assigneeIds || []),
-    ]);
     for (const p of people) {
-      const isAssignee = assigneeSet.has(p.id);
-      const lien = isAssignee
-        ? `${baseUrl()}/rh/espace?tab=tasks&task=${params.taskId}`
-        : `${baseUrl()}/hub?task=${params.taskId}`;
+      // Hub plein écran = ADMIN uniquement pour le moment
+      const lien =
+        p.user.role === "ADMIN"
+          ? `${baseUrl()}/hub/tasks/${params.taskId}`
+          : `${baseUrl()}/rh/espace?tab=tasks&task=${params.taskId}`;
       await notifyUsers([p.user], {
         titre: "Commentaire sur une tâche",
         message: `${authorName} · ${params.title}`,
@@ -753,7 +755,11 @@ export async function notifyRhTaskMention(params: {
     if (!ids.length) return;
     const people = await prisma.rhEmployee.findMany({
       where: { id: { in: ids } },
-      include: { user: { select: { id: true, email: true, prenom: true, nom: true } } },
+      include: {
+        user: {
+          select: { id: true, email: true, prenom: true, nom: true, role: true },
+        },
+      },
     });
     const author = await prisma.rhEmployee.findUnique({
       where: { id: params.authorId },
@@ -761,7 +767,10 @@ export async function notifyRhTaskMention(params: {
     });
     const authorName = author ? displayName(author.user) : "Quelqu'un";
     for (const p of people) {
-      const lien = `${baseUrl()}/rh/espace?tab=tasks&task=${params.taskId}`;
+      const lien =
+        p.user.role === "ADMIN"
+          ? `${baseUrl()}/hub/tasks/${params.taskId}`
+          : `${baseUrl()}/rh/espace?tab=tasks&task=${params.taskId}`;
       await notifyUsers([p.user], {
         titre: "Tu as été mentionné",
         message: `${authorName} · ${params.title}`,

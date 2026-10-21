@@ -184,6 +184,11 @@ export function isoDateLocal(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+/** URL page détail tâche — Hub ADMIN uniquement. */
+export function taskDetailPath(taskId: string): string {
+  return `/hub/tasks/${taskId}`;
+}
+
 export function duePresets(): Array<{ label: string; value: string }> {
   const today = startOfDay(new Date());
   const tomorrow = new Date(today);

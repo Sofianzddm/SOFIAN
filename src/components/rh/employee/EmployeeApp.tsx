@@ -85,6 +85,7 @@ function EmployeeAppInner() {
   const [screen, setScreen] = useState<EmployeeScreenId>(
     tabParam && VALID_SCREENS.includes(tabParam) ? tabParam : "home"
   );
+
   const [palette, setPalette] = useState(false);
   const [sel, setSel] = useState(0);
 
@@ -112,6 +113,11 @@ function EmployeeAppInner() {
     // sync from URL only
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabParam]);
+
+  // Deep-link notif `?tab=tasks&task=` → onglet tâches (overlay, pas de page publique)
+  useEffect(() => {
+    if (taskParam && screen !== "tasks") setScreen("tasks");
+  }, [taskParam, screen]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

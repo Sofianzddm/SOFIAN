@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  Archive,
-  CheckCircle2,
   Clock3,
   FileSpreadsheet,
   LayoutGrid,
@@ -13,7 +13,6 @@ import {
   Paperclip,
   Plus,
   Search,
-  Trash2,
   Users,
   X,
 } from "lucide-react";
@@ -25,21 +24,17 @@ import {
   RhCard,
   RhCardHead,
 } from "@/components/rh/ui/primitives";
-import { ExcelOfficeEditor } from "@/components/rh/tasks/ExcelOfficeEditor";
+import { TalentLinkPicker } from "@/components/rh/tasks/TalentLinkPicker";
+import { TaskDetailPage } from "@/components/rh/tasks/TaskDetailPage";
 import {
-  CommentComposer,
-  renderCommentBody,
-} from "@/components/rh/tasks/CommentComposer";
-import {
-  EVENT_LABEL,
   PRIORITY_META,
   STATUS_COLUMNS,
   STATUS_META,
   duePresets,
   dueTone,
   formatDueRelative,
-  formatWhen,
   isOfficeFileName,
+  taskDetailPath,
   type RhTaskDto,
   type TaskPerson,
   type TaskPriority,
@@ -63,6 +58,7 @@ type Props = {
   mode: "manage" | "mine";
   employees?: EmpOpt[];
   meId: string;
+  /** Deep-link espace salarié (`?task=`) — overlay, pas de page publique. */
   initialTaskId?: string | null;
 };
 
@@ -97,7 +93,13 @@ function taskAssignees(task: RhTaskDto): TaskPerson[] {
   return task.assignee ? [task.assignee] : [];
 }
 
-export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
+export function TaskHub({
+  mode,
+  employees = [],
+  meId,
+  initialTaskId,
+}: Props) {
+  const router = useRouter();
   const [tasks, setTasks] = useState<RhTaskDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -107,8 +109,9 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
   const [priorityFilter, setPriorityFilter] = useState<string>("");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("");
   const [showArchived, setShowArchived] = useState(false);
+  /** Overlay détail — mode mine uniquement (page `/hub/tasks` = ADMIN). */
   const [selectedId, setSelectedId] = useState<string | null>(
-    initialTaskId || null
+    mode === "mine" ? initialTaskId || null : null
   );
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -117,14 +120,7 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
   const [talentQuery, setTalentQuery] = useState("");
   const [talentResults, setTalentResults] = useState<TalentOpt[]>([]);
   const [talentSearching, setTalentSearching] = useState(false);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDesc, setEditDesc] = useState("");
   const [dragOverCol, setDragOverCol] = useState<TaskStatus | null>(null);
-  const [officeEdit, setOfficeEdit] = useState<{
-    taskId: string;
-    attachmentId: string;
-    fileName: string;
-  } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const titleCreateRef = useRef<HTMLInputElement>(null);
 
@@ -165,19 +161,8 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
   }, [load]);
 
   useEffect(() => {
-    if (initialTaskId) setSelectedId(initialTaskId);
-  }, [initialTaskId]);
-
-  const selected = useMemo(
-    () => tasks.find((t) => t.id === selectedId) || null,
-    [tasks, selectedId]
-  );
-
-  useEffect(() => {
-    if (!selected) return;
-    setEditTitle(selected.title);
-    setEditDesc(selected.description || "");
-  }, [selected]);
+    if (mode === "mine" && initialTaskId) setSelectedId(initialTaskId);
+  }, [initialTaskId, mode]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -273,7 +258,6 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
       }
 
       let excelAttachmentId: string | null = null;
-      let excelName = "Classeur.xlsx";
       if (wantExcel) {
         try {
           const exRes = await fetch(
@@ -292,9 +276,6 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
             excelAttachmentId = exData.attachmentId
               ? String(exData.attachmentId)
               : null;
-            excelName =
-              task.attachments.find((a) => a.id === excelAttachmentId)
-                ?.fileName || excelName;
           }
         } catch {
           toast.error("Excel vierge non créé");
@@ -317,30 +298,25 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
       setForm(emptyForm());
       setPendingFiles([]);
       setAssigneeQuery("");
-      setSelectedId(task.id);
       await load();
 
-      if (excelAttachmentId && openAfter) {
-        setOfficeEdit({
-          taskId: task.id,
-          attachmentId: excelAttachmentId,
-          fileName: excelName,
-        });
-      } else if (
-        openAfter &&
-        !excelAttachmentId &&
-        files.some((f) => isOfficeFileName(f.name))
-      ) {
-        const officeAtt = task.attachments.find((a) =>
-          isOfficeFileName(a.fileName)
-        );
-        if (officeAtt) {
-          setOfficeEdit({
-            taskId: task.id,
-            attachmentId: officeAtt.id,
-            fileName: officeAtt.fileName,
-          });
+      if (openAfter) {
+        if (mode === "manage") {
+          let officeId = excelAttachmentId;
+          if (
+            !officeId &&
+            files.some((f) => isOfficeFileName(f.name))
+          ) {
+            const officeAtt = task.attachments.find((a) =>
+              isOfficeFileName(a.fileName)
+            );
+            officeId = officeAtt?.id || null;
+          }
+          const base = taskDetailPath(task.id);
+          router.push(officeId ? `${base}?office=${officeId}` : base);
+          return;
         }
+        setSelectedId(task.id);
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
@@ -398,130 +374,6 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
       toast.error(e instanceof Error ? e.message : "Erreur");
       await load();
       return null;
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function sendComment(body: string, mentionedIds: string[]) {
-    if (!selected || !body.trim()) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/rh/tasks/${selected.id}/comments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body, mentionedIds }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur");
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === selected.id ? (data.task as RhTaskDto) : t
-        )
-      );
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function uploadFile(file: File) {
-    if (!selected) return;
-    setBusy(true);
-    try {
-      const task = await uploadToTask(selected.id, file);
-      setTasks((prev) =>
-        prev.map((t) => (t.id === selected.id ? task : t))
-      );
-      toast.success(`${file.name} ajouté`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function uploadFiles(files: FileList | File[]) {
-    if (!selected) return;
-    const list = [...files];
-    for (const f of list) {
-      await uploadFile(f);
-    }
-  }
-
-  async function createBlankExcel() {
-    if (!selected) return;
-    const name = window.prompt("Nom du fichier Excel", "Classeur.xlsx");
-    if (name == null) return;
-    setBusy(true);
-    try {
-      const res = await fetch(
-        `/api/rh/tasks/${selected.id}/attachments/blank-excel`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileName: name.trim() || "Classeur.xlsx" }),
-        }
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Création impossible");
-      const task = data.task as RhTaskDto;
-      setTasks((prev) =>
-        prev.map((t) => (t.id === selected.id ? task : t))
-      );
-      toast.success("Excel créé");
-      if (data.attachmentId && data.onlyOfficeReady) {
-        setOfficeEdit({
-          taskId: selected.id,
-          attachmentId: String(data.attachmentId),
-          fileName:
-            task.attachments.find((a) => a.id === data.attachmentId)
-              ?.fileName || "Classeur.xlsx",
-        });
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeAttachment(attachmentId: string) {
-    if (!selected) return;
-    if (!window.confirm("Retirer cette pièce jointe ?")) return;
-    setBusy(true);
-    try {
-      const res = await fetch(
-        `/api/rh/tasks/${selected.id}/attachments?attachmentId=${attachmentId}`,
-        { method: "DELETE" }
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur");
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.id === selected.id ? (data.task as RhTaskDto) : t
-        )
-      );
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeTask(id: string) {
-    if (!window.confirm("Supprimer définitivement cette tâche ?")) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/rh/tasks/${id}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur");
-      setTasks((prev) => prev.filter((t) => t.id !== id));
-      if (selectedId === id) setSelectedId(null);
-      toast.success("Tâche supprimée");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
       setBusy(false);
     }
@@ -611,7 +463,7 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
   }, [employees, openTasks, mode]);
 
   useEffect(() => {
-    if (!creating && !selectedId) return;
+    if (!creating) return;
     const q = talentQuery.trim();
     let cancelled = false;
     const t = setTimeout(() => {
@@ -634,7 +486,7 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [talentQuery, creating, selectedId]);
+  }, [talentQuery, creating]);
 
   function openCreateFor(assigneeId?: string) {
     setForm({
@@ -1085,10 +937,19 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
                     <TaskCard
                       key={task.id}
                       task={task}
+                      href={
+                        mode === "manage"
+                          ? taskDetailPath(task.id)
+                          : undefined
+                      }
+                      onClick={
+                        mode === "mine"
+                          ? () => setSelectedId(task.id)
+                          : undefined
+                      }
                       active={task.id === selectedId}
                       showAssignee={mode === "manage"}
                       draggable
-                      onClick={() => setSelectedId(task.id)}
                     />
                   ))}
                 </div>
@@ -1106,30 +967,33 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
                 compact
               />
             ) : (
-              tasks.map((task) => (
-                <button
-                  key={task.id}
-                  type="button"
-                  onClick={() => setSelectedId(task.id)}
-                  className="w-full text-left px-4 py-3 flex items-center gap-3 transition-colors border-0 cursor-pointer"
-                  style={{
-                    background:
-                      task.id === selectedId
-                        ? "var(--rh-surface-selected)"
-                        : "transparent",
-                    color: "inherit",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (task.id !== selectedId)
-                      e.currentTarget.style.background = "var(--rh-surface-hover)";
-                  }}
-                  onMouseLeave={(e) => {
+              tasks.map((task) => {
+                const rowClass =
+                  "w-full text-left px-4 py-3 flex items-center gap-3 transition-colors no-underline cursor-pointer border-0";
+                const rowStyle = {
+                  background:
+                    task.id === selectedId
+                      ? "var(--rh-surface-selected)"
+                      : "transparent",
+                  color: "inherit",
+                } as const;
+                const hoverIn = (
+                  e: React.MouseEvent<HTMLElement>
+                ) => {
+                  if (task.id !== selectedId)
                     e.currentTarget.style.background =
-                      task.id === selectedId
-                        ? "var(--rh-surface-selected)"
-                        : "transparent";
-                  }}
-                >
+                      "var(--rh-surface-hover)";
+                };
+                const hoverOut = (
+                  e: React.MouseEvent<HTMLElement>
+                ) => {
+                  e.currentTarget.style.background =
+                    task.id === selectedId
+                      ? "var(--rh-surface-selected)"
+                      : "transparent";
+                };
+                const inner = (
+                  <>
                   <RhAvatar
                     initials={
                       mode === "manage"
@@ -1199,65 +1063,56 @@ export function TaskHub({ mode, employees = [], meId, initialTaskId }: Props) {
                       </span>
                     </div>
                   </div>
-                </button>
-              ))
+                  </>
+                );
+                if (mode === "manage") {
+                  return (
+                    <Link
+                      key={task.id}
+                      href={taskDetailPath(task.id)}
+                      className={rowClass}
+                      style={rowStyle}
+                      onMouseEnter={hoverIn}
+                      onMouseLeave={hoverOut}
+                    >
+                      {inner}
+                    </Link>
+                  );
+                }
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => setSelectedId(task.id)}
+                    className={rowClass}
+                    style={rowStyle}
+                    onMouseEnter={hoverIn}
+                    onMouseLeave={hoverOut}
+                  >
+                    {inner}
+                  </button>
+                );
+              })
             )}
           </div>
         </RhCard>
       )}
 
-      {/* Drawer */}
-      {selected ? (
-        <DetailDrawer
-          selected={selected}
-          mode={mode}
-          meId={meId}
-          employees={employees}
-          busy={busy}
-          editTitle={editTitle}
-          editDesc={editDesc}
-          setEditTitle={setEditTitle}
-          setEditDesc={setEditDesc}
-          talentQuery={talentQuery}
-          setTalentQuery={setTalentQuery}
-          talentResults={talentResults}
-          talentSearching={talentSearching}
-          onClose={() => {
-            setSelectedId(null);
-            setTalentQuery("");
-          }}
-          onPatch={(body) => patchTask(selected.id, body)}
-          onComment={(body, mentionedIds) =>
-            void sendComment(body, mentionedIds)
-          }
-          onUpload={(files) => void uploadFiles(files)}
-          acceptFiles={ACCEPT_FILES}
-          onRemoveAtt={(id) => void removeAttachment(id)}
-          onRemove={() => void removeTask(selected.id)}
-          onOpenOffice={(att) =>
-            setOfficeEdit({
-              taskId: selected.id,
-              attachmentId: att.id,
-              fileName: att.fileName,
-            })
-          }
-          onCreateExcel={() => void createBlankExcel()}
-        />
-      ) : null}
-
-      {officeEdit ? (
-        <ExcelOfficeEditor
-          taskId={officeEdit.taskId}
-          attachmentId={officeEdit.attachmentId}
-          fileName={officeEdit.fileName}
-          onClose={() => {
-            setOfficeEdit(null);
-            void load();
-          }}
-          onSaved={() => {
-            void load();
-          }}
-        />
+      {/* Overlay détail — salarié seulement (page URL = ADMIN) */}
+      {mode === "mine" && selectedId ? (
+        <div
+          className="fixed inset-0 z-50 overflow-y-auto"
+          style={{ background: "var(--rh-bg)" }}
+        >
+          <TaskDetailPage
+            taskId={selectedId}
+            mode="mine"
+            meId={meId}
+            employees={employees}
+            backHref="/rh/espace?tab=tasks"
+            onBack={() => setSelectedId(null)}
+          />
+        </div>
       ) : null}
 
       {/* Create modal */}
@@ -1837,37 +1692,40 @@ function EmptyState({
 
 function TaskCard({
   task,
+  href,
+  onClick,
   active,
   showAssignee,
   draggable,
-  onClick,
 }: {
   task: RhTaskDto;
-  active: boolean;
+  href?: string;
+  onClick?: () => void;
+  active?: boolean;
   showAssignee: boolean;
   draggable?: boolean;
-  onClick: () => void;
 }) {
-  return (
-    <button
-      type="button"
-      draggable={draggable}
-      onDragStart={(e) => {
-        e.dataTransfer.setData("text/task-id", task.id);
-        e.dataTransfer.effectAllowed = "move";
-      }}
-      onClick={onClick}
-      className="text-left rounded-xl p-3 border transition-colors cursor-grab active:cursor-grabbing"
-      style={{
-        background: active ? "var(--rh-surface-selected)" : "var(--rh-bg-panel)",
-        borderColor: active
-          ? "var(--rh-accent)"
-          : task.overdue
-            ? "rgba(242,96,78,.35)"
-            : "var(--rh-border-subtle)",
-        boxShadow: task.priority === "URGENT" ? "inset 3px 0 0 #F2604E" : undefined,
-      }}
-    >
+  const className =
+    "block text-left rounded-xl p-3 border transition-colors cursor-grab active:cursor-grabbing no-underline w-full";
+  const style = {
+    background: active ? "var(--rh-surface-selected)" : "var(--rh-bg-panel)",
+    borderColor: active
+      ? "var(--rh-accent)"
+      : task.overdue
+        ? "rgba(242,96,78,.35)"
+        : "var(--rh-border-subtle)",
+    boxShadow: task.priority === "URGENT" ? "inset 3px 0 0 #F2604E" : undefined,
+    color: "inherit",
+  } as const;
+  const dragProps = {
+    draggable: !!draggable,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.setData("text/task-id", task.id);
+      e.dataTransfer.effectAllowed = "move";
+    },
+  };
+  const body = (
+    <>
       <div className="flex items-start justify-between gap-2 mb-1.5">
         <span className="text-[13px] font-medium leading-snug">{task.title}</span>
         <RhBadge
@@ -1935,749 +1793,25 @@ function TaskCard({
           </span>
         </span>
       </div>
+    </>
+  );
+  if (href) {
+    return (
+      <Link href={href} className={className} style={style} {...dragProps}>
+        {body}
+      </Link>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={className}
+      style={style}
+      {...dragProps}
+    >
+      {body}
     </button>
   );
 }
 
-function DetailDrawer({
-  selected,
-  mode,
-  meId,
-  employees,
-  busy,
-  editTitle,
-  editDesc,
-  setEditTitle,
-  setEditDesc,
-  talentQuery,
-  setTalentQuery,
-  talentResults,
-  talentSearching,
-  onClose,
-  onPatch,
-  onComment,
-  onUpload,
-  acceptFiles,
-  onRemoveAtt,
-  onRemove,
-  onOpenOffice,
-  onCreateExcel,
-}: {
-  selected: RhTaskDto;
-  mode: "manage" | "mine";
-  meId: string;
-  employees: EmpOpt[];
-  busy: boolean;
-  editTitle: string;
-  editDesc: string;
-  setEditTitle: (v: string) => void;
-  setEditDesc: (v: string) => void;
-  talentQuery: string;
-  setTalentQuery: (v: string) => void;
-  talentResults: TalentOpt[];
-  talentSearching: boolean;
-  onClose: () => void;
-  onPatch: (body: Record<string, unknown>) => Promise<RhTaskDto | null>;
-  onComment: (body: string, mentionedIds: string[]) => void;
-  onUpload: (files: FileList | File[]) => void;
-  acceptFiles: string;
-  onRemoveAtt: (id: string) => void;
-  onRemove: () => void;
-  onOpenOffice: (att: RhTaskDto["attachments"][number]) => void;
-  onCreateExcel: () => void;
-}) {
-  const canManage = mode === "manage" || selected.creator.id === meId;
-  const [dropHot, setDropHot] = useState(false);
-  const people = taskAssignees(selected);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end"
-      style={{ background: "rgba(0,0,0,.55)" }}
-      onClick={onClose}
-    >
-      <div
-        className="h-full w-full max-w-[480px] overflow-y-auto border-l flex flex-col rh-rise"
-        style={{ background: "var(--rh-bg-panel)", borderColor: "var(--rh-border)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div
-          className="sticky top-0 z-10 flex items-start justify-between gap-3 px-5 py-4 border-b"
-          style={{ background: "var(--rh-bg-panel)", borderColor: "var(--rh-border)" }}
-        >
-          <div className="min-w-0 flex-1">
-            {canManage && mode === "manage" ? (
-              <input
-                className="rh-input w-full !text-[16px] !font-semibold"
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                onBlur={() => {
-                  if (editTitle.trim() && editTitle !== selected.title) {
-                    void onPatch({ title: editTitle });
-                  }
-                }}
-              />
-            ) : (
-              <h2 className="text-[16px] font-semibold leading-snug">
-                {selected.title}
-              </h2>
-            )}
-            <div className="mt-2 flex flex-wrap gap-2">
-              <RhBadge
-                bg={STATUS_META[selected.status].bg}
-                fg={STATUS_META[selected.status].fg}
-              >
-                {STATUS_META[selected.status].label}
-              </RhBadge>
-              <RhBadge
-                bg={PRIORITY_META[selected.priority].bg}
-                fg={PRIORITY_META[selected.priority].fg}
-              >
-                {PRIORITY_META[selected.priority].label}
-              </RhBadge>
-              <span className="text-[11px]" style={{ color: dueTone(selected) }}>
-                {formatDueRelative(selected.dueAt, {
-                  overdue: selected.overdue,
-                  done:
-                    selected.status === "DONE" ||
-                    selected.status === "CANCELLED",
-                })}
-              </span>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="p-2 border-0 bg-transparent cursor-pointer"
-            style={{ color: "var(--rh-text-muted)" }}
-            onClick={onClose}
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        <div className="px-5 py-4 flex flex-col gap-5 flex-1">
-          <section className="flex flex-col gap-3">
-            <div>
-              <div className="rh-micro mb-1.5">
-                Assignés · {people.length}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {people.map((p) => (
-                  <div
-                    key={p.id}
-                    className="inline-flex items-center gap-1.5 rounded-full pl-1 pr-2.5 py-1"
-                    style={{ background: "var(--rh-surface)" }}
-                  >
-                    <RhAvatar
-                      initials={p.initials}
-                      color={p.avatarColor}
-                      src={p.avatarUrl}
-                      size={22}
-                    />
-                    <span className="text-[12px]">{p.name}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="rh-micro mb-1">Créée par</div>
-              <div className="flex items-center gap-2">
-                <RhAvatar
-                  initials={selected.creator.initials}
-                  color={selected.creator.avatarColor}
-                  src={selected.creator.avatarUrl}
-                  size={24}
-                />
-                <span className="text-[13px]">{selected.creator.name}</span>
-              </div>
-            </div>
-            <div>
-              <div className="rh-micro mb-1.5">
-                Talent concerné{" "}
-                <span style={{ color: "var(--rh-text-dim)" }}>· interne</span>
-              </div>
-              {canManage ? (
-                <TalentLinkPicker
-                  selected={selected.talent}
-                  query={talentQuery}
-                  onQuery={setTalentQuery}
-                  results={talentResults}
-                  searching={talentSearching}
-                  onSelect={(t) => {
-                    void onPatch({ talentId: t.id });
-                    setTalentQuery("");
-                  }}
-                  onClear={() => void onPatch({ talentId: null })}
-                />
-              ) : selected.talent ? (
-                <a
-                  href={`/talents/${selected.talent.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 no-underline"
-                  style={{ color: "inherit" }}
-                >
-                  <RhAvatar
-                    initials={selected.talent.initials}
-                    color="#7C3AED"
-                    src={selected.talent.photo}
-                    size={24}
-                  />
-                  <span className="text-[13px]">{selected.talent.name}</span>
-                </a>
-              ) : (
-                <span
-                  className="text-[12px]"
-                  style={{ color: "var(--rh-text-dim)" }}
-                >
-                  Aucun
-                </span>
-              )}
-            </div>
-          </section>
-
-          <section>
-            <div className="rh-micro mb-2">Statut</div>
-            <div className="flex flex-wrap gap-1.5">
-              {(
-                [
-                  "TODO",
-                  "IN_PROGRESS",
-                  "BLOCKED",
-                  "DONE",
-                  "CANCELLED",
-                ] as TaskStatus[]
-              ).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  disabled={busy || selected.status === s}
-                  onClick={() => void onPatch({ status: s })}
-                  className="rh-badge cursor-pointer border-0 disabled:opacity-40"
-                  style={{
-                    background: STATUS_META[s].bg,
-                    color: STATUS_META[s].fg,
-                    outline:
-                      selected.status === s
-                        ? "1px solid var(--rh-accent)"
-                        : undefined,
-                  }}
-                >
-                  {STATUS_META[s].label}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {mode === "manage" ? (
-            <section className="grid grid-cols-2 gap-3">
-              <div>
-                <div className="rh-micro mb-1">Priorité</div>
-                <select
-                  className="rh-input w-full"
-                  value={selected.priority}
-                  disabled={busy}
-                  onChange={(e) => void onPatch({ priority: e.target.value })}
-                >
-                  {(Object.keys(PRIORITY_META) as TaskPriority[]).map((p) => (
-                    <option key={p} value={p}>
-                      {PRIORITY_META[p].label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <div className="rh-micro mb-1">Échéance</div>
-                <input
-                  type="date"
-                  className="rh-input w-full"
-                  value={selected.dueAt ? selected.dueAt.slice(0, 10) : ""}
-                  disabled={busy}
-                  onChange={(e) =>
-                    void onPatch({ dueAt: e.target.value || null })
-                  }
-                />
-              </div>
-              <div className="col-span-2 flex flex-wrap gap-1.5">
-                {duePresets().map((p) => (
-                  <button
-                    key={p.label}
-                    type="button"
-                    className="rounded-full px-2.5 py-1 text-[11px] border-0 cursor-pointer"
-                    style={{
-                      background: "var(--rh-surface)",
-                      color: "var(--rh-text-muted)",
-                    }}
-                    onClick={() => void onPatch({ dueAt: p.value })}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </div>
-              <div className="col-span-2">
-                <div className="rh-micro mb-1.5">Assignés (multi)</div>
-                <div className="flex flex-wrap gap-1.5 max-h-[140px] overflow-y-auto">
-                  {employees.map((e) => {
-                    const on = people.some((p) => p.id === e.id);
-                    return (
-                      <button
-                        key={e.id}
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          const next = on
-                            ? people.filter((p) => p.id !== e.id).map((p) => p.id)
-                            : [...people.map((p) => p.id), e.id];
-                          if (!next.length) {
-                            toast.error("Au moins un assigné");
-                            return;
-                          }
-                          void onPatch({ assigneeIds: next });
-                        }}
-                        className="inline-flex items-center gap-1.5 rounded-full pl-1 pr-2.5 py-1 border cursor-pointer"
-                        style={{
-                          background: on ? "var(--rh-chip)" : "var(--rh-surface)",
-                          borderColor: on ? "var(--rh-accent)" : "transparent",
-                          color: on ? "var(--rh-accent)" : "var(--rh-text-muted)",
-                        }}
-                      >
-                        <RhAvatar
-                          initials={e.initials}
-                          color={e.avatarColor}
-                          src={e.avatarUrl}
-                          size={18}
-                        />
-                        <span className="text-[11px]">
-                          {e.name.split(" ")[0]}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
-          ) : null}
-
-          <section>
-            <div className="rh-micro mb-1">Description</div>
-            {mode === "manage" ? (
-              <textarea
-                className="rh-input w-full min-h-[100px]"
-                value={editDesc}
-                onChange={(e) => setEditDesc(e.target.value)}
-                onBlur={() => {
-                  if (editDesc !== (selected.description || "")) {
-                    void onPatch({ description: editDesc || null });
-                  }
-                }}
-                placeholder="Contexte, livrables…"
-              />
-            ) : (
-              <p
-                className="text-[13px] whitespace-pre-wrap leading-relaxed"
-                style={{ color: "var(--rh-text-body)" }}
-              >
-                {selected.description || "Pas de description."}
-              </p>
-            )}
-          </section>
-
-          {selected.tags.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
-              {selected.tags.map((tag) => (
-                <RhBadge key={tag} bg="#1E222A" fg="#A8C0E0">
-                  #{tag}
-                </RhBadge>
-              ))}
-            </div>
-          ) : null}
-
-          <section>
-            <RhCardHead
-              title="Pièces jointes"
-              right={
-                <div className="flex items-center gap-1.5">
-                  <RhButton
-                    variant="secondary"
-                    disabled={busy}
-                    onClick={onCreateExcel}
-                    className="!text-[12px] !px-2.5 !py-1.5"
-                  >
-                    <FileSpreadsheet size={12} /> Excel
-                  </RhButton>
-                  <label className="rh-btn-secondary cursor-pointer inline-flex items-center gap-1.5 text-[12px] px-2.5 py-1.5">
-                    <Paperclip size={12} /> Ajouter
-                    <input
-                      type="file"
-                      className="hidden"
-                      multiple
-                      accept={acceptFiles}
-                      disabled={busy}
-                      onChange={(e) => {
-                        if (e.target.files?.length) onUpload(e.target.files);
-                        e.target.value = "";
-                      }}
-                    />
-                  </label>
-                </div>
-              }
-            />
-            <div
-              className="mt-2 rounded-xl border border-dashed px-3 py-4 text-center transition-colors"
-              style={{
-                borderColor: dropHot
-                  ? "var(--rh-accent)"
-                  : "var(--rh-border-strong)",
-                background: dropHot
-                  ? "rgba(31,41,55,.06)"
-                  : "var(--rh-surface)",
-                color: "var(--rh-text-muted)",
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDropHot(true);
-              }}
-              onDragLeave={() => setDropHot(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDropHot(false);
-                if (e.dataTransfer.files?.length) onUpload(e.dataTransfer.files);
-              }}
-            >
-              <div className="text-[12px]">
-                Glisse Excel, PDF, Word, CSV… ici
-              </div>
-              <div className="text-[10px] mt-0.5" style={{ color: "var(--rh-text-dim)" }}>
-                Max 25 Mo · Excel éditable dans le navigateur
-              </div>
-            </div>
-            {selected.attachments.length === 0 ? (
-              <p
-                className="text-[12px] mt-2"
-                style={{ color: "var(--rh-text-muted)" }}
-              >
-                Aucune pour l’instant.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-2 mt-2">
-                {selected.attachments.map((a) => (
-                  <li
-                    key={a.id}
-                    className="flex items-center gap-2 text-[12px] rounded-lg px-3 py-2"
-                    style={{ background: "var(--rh-surface)" }}
-                  >
-                    {isOfficeFileName(a.fileName) ? (
-                      <FileSpreadsheet
-                        size={12}
-                        className="shrink-0"
-                        style={{ color: "var(--rh-accent)" }}
-                      />
-                    ) : (
-                      <Paperclip
-                        size={12}
-                        className="shrink-0"
-                        style={{ color: "var(--rh-accent)" }}
-                      />
-                    )}
-                    <a
-                      href={a.fileUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex-1 truncate"
-                      download={a.fileName}
-                    >
-                      {a.fileName}
-                    </a>
-                    {a.sizeBytes ? (
-                      <span
-                        className="rh-mono text-[10px] shrink-0"
-                        style={{ color: "var(--rh-text-dim)" }}
-                      >
-                        {Math.max(1, Math.round(a.sizeBytes / 1024))} Ko
-                      </span>
-                    ) : null}
-                    {isOfficeFileName(a.fileName) ? (
-                      <RhButton
-                        variant="secondary"
-                        className="!text-[11px] !px-2 !py-1"
-                        disabled={busy}
-                        onClick={() => onOpenOffice(a)}
-                      >
-                        Ouvrir
-                      </RhButton>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="border-0 bg-transparent cursor-pointer"
-                      style={{ color: "var(--rh-text-muted)" }}
-                      onClick={() => onRemoveAtt(a.id)}
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section>
-            <RhCardHead title="Commentaires" />
-            <div className="flex flex-col gap-3 mt-2">
-              {selected.comments.map((c) => (
-                <div
-                  key={c.id}
-                  className="rounded-lg px-3 py-2"
-                  style={{ background: "var(--rh-surface)" }}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <RhAvatar
-                      initials={c.author.initials}
-                      color={c.author.avatarColor}
-                      src={c.author.avatarUrl}
-                      size={20}
-                    />
-                    <span className="text-[12px] font-medium">
-                      {c.author.name}
-                    </span>
-                    <span
-                      className="text-[10px]"
-                      style={{ color: "var(--rh-text-dim)" }}
-                    >
-                      {formatWhen(c.createdAt)}
-                    </span>
-                  </div>
-                  <p
-                    className="text-[13px] whitespace-pre-wrap"
-                    style={{ color: "var(--rh-text-body)" }}
-                  >
-                    {renderCommentBody(c.body).map((part, i) =>
-                      part.type === "mention" ? (
-                        <span
-                          key={i}
-                          className="inline-flex rounded px-1 mx-0.5 text-[12px] font-medium"
-                          style={{
-                            background: "rgba(124,140,248,.2)",
-                            color: "#A5B0FA",
-                          }}
-                        >
-                          @{part.value}
-                        </span>
-                      ) : (
-                        <span key={i}>{part.value}</span>
-                      )
-                    )}
-                  </p>
-                </div>
-              ))}
-              <CommentComposer
-                employees={employees}
-                busy={busy}
-                onSend={onComment}
-              />
-            </div>
-          </section>
-
-          <section>
-            <RhCardHead title="Historique" />
-            <ul className="mt-2 flex flex-col gap-1.5">
-              {selected.events.map((ev) => (
-                <li
-                  key={ev.id}
-                  className="text-[11px] flex gap-2"
-                  style={{ color: "var(--rh-text-muted)" }}
-                >
-                  <span className="tabular-nums shrink-0">
-                    {formatWhen(ev.createdAt)}
-                  </span>
-                  <span>
-                    <strong style={{ color: "var(--rh-text-body)" }}>
-                      {EVENT_LABEL[ev.kind] || ev.kind}
-                    </strong>
-                    {ev.actor ? ` · ${ev.actor.name}` : ""}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
-
-        <div
-          className="sticky bottom-0 flex flex-wrap gap-2 px-5 py-3 border-t"
-          style={{ background: "var(--rh-bg-panel)", borderColor: "var(--rh-border)" }}
-        >
-          {selected.status !== "DONE" ? (
-            <RhButton
-              disabled={busy}
-              onClick={() => void onPatch({ status: "DONE" })}
-            >
-              <CheckCircle2 size={14} /> Terminer
-            </RhButton>
-          ) : null}
-          {mode === "manage" ? (
-            <>
-              <RhButton
-                variant="secondary"
-                disabled={busy}
-                onClick={() =>
-                  void onPatch({ archived: !selected.archivedAt })
-                }
-              >
-                <Archive size={14} />
-                {selected.archivedAt ? "Désarchiver" : "Archiver"}
-              </RhButton>
-              <RhButton variant="danger" disabled={busy} onClick={onRemove}>
-                <Trash2 size={14} /> Supprimer
-              </RhButton>
-            </>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Sélecteur talent — lien interne RH, aucune notif au talent. */
-function TalentLinkPicker({
-  selected,
-  query,
-  onQuery,
-  results,
-  searching,
-  onSelect,
-  onClear,
-}: {
-  selected: TalentOpt | null;
-  query: string;
-  onQuery: (v: string) => void;
-  results: TalentOpt[];
-  searching: boolean;
-  onSelect: (t: TalentOpt) => void;
-  onClear: () => void;
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      {selected ? (
-        <div
-          className="flex items-center gap-2 rounded-xl px-2.5 py-2 border"
-          style={{
-            background: "rgba(124,58,237,.08)",
-            borderColor: "rgba(124,58,237,.2)",
-          }}
-        >
-          <RhAvatar
-            initials={selected.initials}
-            color="#7C3AED"
-            src={selected.photo}
-            size={28}
-          />
-          <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-medium truncate">
-              {selected.name}
-            </div>
-            {selected.instagram ? (
-              <div
-                className="text-[10px] truncate"
-                style={{ color: "var(--rh-text-dim)" }}
-              >
-                @{selected.instagram.replace(/^@/, "")}
-              </div>
-            ) : null}
-          </div>
-          <a
-            href={`/talents/${selected.id}`}
-            target="_blank"
-            rel="noreferrer"
-            className="text-[11px] no-underline"
-            style={{ color: "var(--rh-accent)" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            Fiche
-          </a>
-          <button
-            type="button"
-            className="p-1 border-0 bg-transparent cursor-pointer"
-            style={{ color: "var(--rh-text-muted)" }}
-            onClick={onClear}
-            title="Retirer"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      ) : (
-        <>
-          <div className="relative">
-            <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2"
-              style={{ color: "var(--rh-text-dim)" }}
-            />
-            <input
-              className="rh-input w-full !pl-9"
-              placeholder="Rechercher un talent (nom, IG)…"
-              value={query}
-              onChange={(e) => onQuery(e.target.value)}
-            />
-          </div>
-          {(query.trim() || results.length > 0) && (
-            <div
-              className="max-h-[160px] overflow-y-auto rounded-xl border p-1"
-              style={{
-                background: "var(--rh-bg-panel)",
-                borderColor: "var(--rh-border-subtle)",
-              }}
-            >
-              {searching ? (
-                <div
-                  className="text-center text-[12px] py-3"
-                  style={{ color: "var(--rh-text-dim)" }}
-                >
-                  Recherche…
-                </div>
-              ) : results.length === 0 ? (
-                <div
-                  className="text-center text-[12px] py-3"
-                  style={{ color: "var(--rh-text-dim)" }}
-                >
-                  Aucun talent
-                </div>
-              ) : (
-                results.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => onSelect(t)}
-                    className="flex w-full items-center gap-2 text-left rounded-lg px-2 py-1.5 border-0 cursor-pointer"
-                    style={{
-                      background: "transparent",
-                      color: "inherit",
-                    }}
-                  >
-                    <RhAvatar
-                      initials={t.initials}
-                      color="#7C3AED"
-                      src={t.photo}
-                      size={24}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[12.5px] font-medium truncate">
-                        {t.name}
-                      </div>
-                      {t.instagram ? (
-                        <div
-                          className="text-[10px] truncate"
-                          style={{ color: "var(--rh-text-dim)" }}
-                        >
-                          @{t.instagram.replace(/^@/, "")}
-                        </div>
-                      ) : null}
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
