@@ -301,33 +301,26 @@ export default function NewUserPage() {
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Rôle *
           </label>
-          <div className="space-y-3">
+          <select
+            value={formData.role}
+            onChange={(e) =>
+              setFormData({ ...formData, role: e.target.value })
+            }
+            className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-glowup-rose focus:border-transparent ${
+              errors.role ? "border-red-500" : "border-gray-300"
+            }`}
+          >
             {roleOptions.map((role) => (
-              <label
-                key={role.value}
-                className={`flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-all ${
-                  formData.role === role.value
-                    ? "border-glowup-rose bg-pink-50"
-                    : "border-gray-300 hover:border-glowup-rose hover:bg-gray-50"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="role"
-                  value={role.value}
-                  checked={formData.role === role.value}
-                  onChange={(e) =>
-                    setFormData({ ...formData, role: e.target.value })
-                  }
-                  className="mt-1 text-glowup-rose focus:ring-glowup-rose"
-                />
-                <div className="flex-1">
-                  <div className="font-medium text-gray-900">{role.label}</div>
-                  <div className="text-sm text-gray-600">{role.description}</div>
-                </div>
-              </label>
+              <option key={role.value} value={role.value}>
+                {role.label}
+              </option>
             ))}
-          </div>
+          </select>
+          {roleOptions.find((r) => r.value === formData.role)?.description && (
+            <p className="text-sm text-gray-600 mt-2">
+              {roleOptions.find((r) => r.value === formData.role)?.description}
+            </p>
+          )}
           {errors.role && (
             <p className="text-red-600 text-sm mt-2">{errors.role}</p>
           )}
