@@ -241,6 +241,21 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // Assistante TM : uniquement module Talents (liste / fiche / édition) + APIs associées
+  if (effectiveRole === "ASSISTANTE_TM") {
+    const allowed =
+      pathname === "/login" ||
+      pathname.startsWith("/api/auth") ||
+      pathname === "/talents" ||
+      pathname.startsWith("/talents/") ||
+      pathname.startsWith("/api/talents") ||
+      pathname.startsWith("/api/upload/") ||
+      pathname === "/api/users";
+    if (!allowed) {
+      return withNoIndex(NextResponse.redirect(new URL("/talents", request.url)));
+    }
+  }
+
   // Compte coiffeur : uniquement Cannes 2026 + API coiffeur + liste talents Cannes + auth
   if (effectiveRole === "COIFFEUR") {
     const allowed =

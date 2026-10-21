@@ -6,7 +6,7 @@ import {
   shouldSkipActivityPath,
 } from "@/lib/activity-modules";
 
-const SKIP_ROLES = new Set(["TALENT", "COMPTABLE", "JURISTE", "COIFFEUR"]);
+const SKIP_ROLES = new Set(["TALENT", "COMPTABLE", "JURISTE", "COIFFEUR", "ASSISTANTE_TM"]);
 
 type TokenLike = {
   id?: unknown;

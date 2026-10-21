@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
 
-const EDIT_ROLES = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"];
+const EDIT_ROLES = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "ASSISTANTE_TM"];
 
 function parseOptionalInt(value: unknown): number | null | undefined {
   if (value === undefined) return undefined;

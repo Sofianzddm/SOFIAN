@@ -118,7 +118,10 @@ export default function NewTalentPage() {
   const isTm = role === "TM";
   const isAdmin = role === "ADMIN";
   const canManageManagers =
-    role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
+    role === "ADMIN" ||
+    role === "HEAD_OF" ||
+    role === "HEAD_OF_INFLUENCE" ||
+    role === "ASSISTANTE_TM";
   const [currentStep, setCurrentStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(false);

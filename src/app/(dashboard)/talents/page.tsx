@@ -130,13 +130,24 @@ export default function TalentsPage() {
   }, []);
 
   // Permissions basées sur le rôle effectif
-  const canAddTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
+  const canAddTalent =
+    role === "ADMIN" ||
+    role === "HEAD_OF" ||
+    role === "HEAD_OF_INFLUENCE" ||
+    role === "ASSISTANTE_TM";
   const canDeleteTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canArchiveTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   const canReorderBook = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
   // TM : édition de ses propres talents uniquement (API PUT déjà alignée)
+  // ASSISTANTE_TM : tous les talents
   const canEditThisTalent = (talent: Talent) => {
-    if (role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE") return true;
+    if (
+      role === "ADMIN" ||
+      role === "HEAD_OF" ||
+      role === "HEAD_OF_INFLUENCE" ||
+      role === "ASSISTANTE_TM"
+    )
+      return true;
     if (role === "TM" && user?.id) {
       return isTmAssigneOuRelai(user.id, talent);
     }

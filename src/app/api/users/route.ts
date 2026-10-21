@@ -13,14 +13,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
-    // Seuls ADMIN et HEAD_OF peuvent voir la liste complète
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(session.user.role)) {
-      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
-    }
-
     const { searchParams } = new URL(request.url);
     const role = searchParams.get("role");
     const showAll = searchParams.get("showAll") === "true";
+
+    // Assistante TM : uniquement la liste des TM (assignation manager à la création)
+    if (session.user.role === "ASSISTANTE_TM") {
+      if (role !== "TM") {
+        return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
+      }
+    } else if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(session.user.role)) {
+      // Seuls ADMIN et HEAD_OF peuvent voir la liste complète
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
+    }
 
     const where: any = {};
     

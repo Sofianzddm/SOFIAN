@@ -51,7 +51,7 @@ function isAllowedScreenshotUrl(url: string): boolean {
   }
 }
 
-const UPLOAD_ROLES = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"];
+const UPLOAD_ROLES = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "ASSISTANTE_TM"];
 
 // POST : enregistre des URLs déjà uploadées en direct sur Cloudinary (bypass limite body Vercel)
 export async function POST(

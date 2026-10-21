@@ -46,6 +46,9 @@ export function resolvePostLoginPath(
   if (role === "COIFFEUR") {
     return safe?.startsWith("/cannes-2026") ? safe : "/cannes-2026";
   }
+  if (role === "ASSISTANTE_TM") {
+    return safe?.startsWith("/talents") ? safe : "/talents";
+  }
   if (role === "STRATEGY_PLANNER") {
     return safe || "/strategy/projets/villa-cannes";
   }

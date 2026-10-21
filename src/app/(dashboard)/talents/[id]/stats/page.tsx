@@ -116,6 +116,7 @@ export default function TalentStatsEditPage() {
     role === "ADMIN" ||
     role === "HEAD_OF" ||
     role === "HEAD_OF_INFLUENCE" ||
+    role === "ASSISTANTE_TM" ||
     (role === "TM" && !!talent && isTmAssigneOuRelai(userId, talent));
 
   useEffect(() => {

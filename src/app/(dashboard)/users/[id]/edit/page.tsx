@@ -28,6 +28,7 @@ const roleOptions = [
   { value: "JURISTE", label: "Juriste" },
   { value: "STRATEGY_PLANNER", label: "Strategy Planner" },
   { value: "TM", label: "Talent Manager" },
+  { value: "ASSISTANTE_TM", label: "Assistante TM" },
   { value: "CASTING_MANAGER", label: "Casting Manager" },
   { value: "CM", label: "Account Manager" },
   { value: "COMMUNITY_MANAGER", label: "Community Manager" },

@@ -220,14 +220,28 @@ export default function TalentDetailPage() {
 
   const isMyTalent = !!talent && isTmAssigneOuRelai(userId, talent);
   // TM : édition complète (attributs, bio…) de ses talents + relais actif
+  // ASSISTANTE_TM : tous les talents
   const canEditTalent =
     role === "ADMIN" ||
     role === "HEAD_OF" ||
     role === "HEAD_OF_INFLUENCE" ||
+    role === "ASSISTANTE_TM" ||
     (role === "TM" && isMyTalent);
   const canDeleteTalent = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE";
-  const canUpdateStats = role === "TM" || role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE" || role === "HEAD_OF_SALES";
-  const canUploadPhoto = role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_INFLUENCE" || role === "HEAD_OF_SALES" || role === "TM";
+  const canUpdateStats =
+    role === "TM" ||
+    role === "ASSISTANTE_TM" ||
+    role === "ADMIN" ||
+    role === "HEAD_OF" ||
+    role === "HEAD_OF_INFLUENCE" ||
+    role === "HEAD_OF_SALES";
+  const canUploadPhoto =
+    role === "ADMIN" ||
+    role === "HEAD_OF" ||
+    role === "HEAD_OF_INFLUENCE" ||
+    role === "HEAD_OF_SALES" ||
+    role === "TM" ||
+    role === "ASSISTANTE_TM";
   const canEditBio = canEditTalent;
 
   useEffect(() => {

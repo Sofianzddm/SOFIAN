@@ -72,6 +72,12 @@ export default function DashboardLayout({
         router.replace("/juriste");
       }
     }
+    if (status === "authenticated" && session?.user?.role === "ASSISTANTE_TM") {
+      const p = typeof window !== "undefined" ? window.location.pathname : "";
+      if (p && !p.startsWith("/talents")) {
+        router.replace("/talents");
+      }
+    }
   }, [status, session, router]);
 
   if (status === "loading") {

@@ -15,6 +15,11 @@ const roleOptions = [
   { value: "STRATEGY_PLANNER", label: "Strategy Planner", description: "Pilotage stratégique des projets /strategy" },
   { value: "TM", label: "Talent Manager", description: "Gestion des talents et négociations" },
   {
+    value: "ASSISTANTE_TM",
+    label: "Assistante TM",
+    description: "Accès uniquement au module Talents (création / modification)",
+  },
+  {
     value: "CASTING_MANAGER",
     label: "Casting Manager",
     description: "Prospection casting & listes HubSpot",

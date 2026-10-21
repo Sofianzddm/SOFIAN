@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
 
     const user = session.user as { id: string; role: string };
     
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(user.role)) {
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "ASSISTANTE_TM"].includes(user.role)) {
       return NextResponse.json(
         { message: "Vous n'avez pas les droits pour créer un talent" },
         { status: 403 }

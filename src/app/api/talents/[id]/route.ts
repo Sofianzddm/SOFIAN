@@ -113,7 +113,7 @@ export async function PUT(
     const userId = (session.user as { id?: string }).id;
     
     // Vérifier les permissions
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM"].includes(userRole)) {
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "ASSISTANTE_TM"].includes(userRole)) {
       return NextResponse.json({ 
         error: "Permissions insuffisantes" 
       }, { status: 403 });
@@ -123,6 +123,7 @@ export async function PUT(
     const data = await request.json();
 
     // Un TM ne peut modifier que ses talents (portefeuille + délégations actives).
+    // ASSISTANTE_TM : tous les talents (comme HEAD_OF).
     if (userRole === "TM") {
       const existing = await prisma.talent.findUnique({
         where: { id },
