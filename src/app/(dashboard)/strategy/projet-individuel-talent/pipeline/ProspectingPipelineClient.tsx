@@ -475,6 +475,11 @@ export function ProspectingPipelineClient() {
   const [editingBrandValue, setEditingBrandValue] = useState("");
 
   const [activeStageTab, setActiveStageTab] = useState<StageTab>("TO_DRAFT");
+  /** Filtre issu de la barre batch (onglet Déjà faits / lot terminé). */
+  const [batchFocus, setBatchFocus] = useState<{
+    missionIds: Set<string>;
+    label: string;
+  } | null>(null);
   const [readyItems, setReadyItems] = useState<ReadyItem[]>([]);
   const [enrichItems, setEnrichItems] = useState<EnrichItem[]>([]);
   const [readyLoading, setReadyLoading] = useState(false);
@@ -1689,8 +1694,12 @@ export function ProspectingPipelineClient() {
   /** Cartes hors marques déjà contactées ce mois (tous talents — affichées à part). */
   const missionsForStage = (stage: Stage): Mission[] => {
     const list = grouped[stage] || [];
-    if (stage === "SENT" || stage === "RESPONSE_RECEIVED") return list;
-    return list.filter((m) => !isMissionBrandBlocked(m));
+    const base =
+      stage === "SENT" || stage === "RESPONSE_RECEIVED"
+        ? list
+        : list.filter((m) => !isMissionBrandBlocked(m));
+    if (!batchFocus || batchFocus.missionIds.size === 0) return base;
+    return base.filter((m) => batchFocus.missionIds.has(m.id));
   };
 
   const stageCounts = useMemo(() => {
@@ -1907,9 +1916,9 @@ export function ProspectingPipelineClient() {
             </button>
           )}
         </div>
-        {selectedTalent && canUseReadyTab && (
+        {canUseReadyTab && talents.length > 0 && (
           <TalentIndivBatchAnalyzeBar
-            talent={selectedTalent}
+            talents={talents}
             missions={missions}
             draftContactsByMissionId={Object.fromEntries(
               Object.entries(contactFormByMission).map(([id, form]) => [
@@ -1924,7 +1933,37 @@ export function ProspectingPipelineClient() {
             }}
             setError={setError}
             setSuccess={setSuccess}
+            onFocusMissions={(payload) => {
+              if (!payload || payload.missionIds.length === 0) {
+                setBatchFocus(null);
+                return;
+              }
+              setBatchFocus({
+                missionIds: new Set(payload.missionIds),
+                label: payload.label,
+              });
+              setActiveStageTab(payload.stage);
+              if (payload.stage === "DRAFTED_FOR_VALIDATION") {
+                setReadySubTab("cards");
+              }
+            }}
           />
+        )}
+        {batchFocus && (
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            <span>
+              Filtre batch : <strong>{batchFocus.label}</strong> ·{" "}
+              {batchFocus.missionIds.size} carte
+              {batchFocus.missionIds.size > 1 ? "s" : ""} dans la grille ci-dessous
+            </span>
+            <button
+              type="button"
+              className="rounded border border-amber-300 bg-white px-2 py-1 font-semibold text-amber-900"
+              onClick={() => setBatchFocus(null)}
+            >
+              Voir tout
+            </button>
+          </div>
         )}
         {isAdmin && addBrandsOpen && selectedTalent && (
           <AdminAddBrandsPanel

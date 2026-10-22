@@ -13,6 +13,7 @@ import {
 type MissionLite = {
   id: string;
   talentId?: string | null;
+  talentName?: string | null;
   creatorName: string;
   targetBrand: string;
   marqueNom?: string | null;
@@ -35,6 +36,8 @@ type MissionLite = {
   }> | null;
   sentAt?: string | null;
   awaitingContactsCompletion?: boolean;
+  createdAt?: string | Date | null;
+  updatedAt?: string | Date | null;
 };
 
 type TalentLite = {
@@ -42,6 +45,10 @@ type TalentLite = {
   name: string;
   instagram?: string | null;
 };
+
+/** Lundi 19 oct. 2026 00:00 Europe/Paris — ne traiter que ce qui n’était pas fait avant. */
+const BATCH_SINCE_MS = Date.parse("2026-10-19T00:00:00+02:00");
+const BATCH_SINCE_LABEL = "lundi 19 oct.";
 
 type CachedBrandResearch = {
   recentCampaigns: string;
@@ -160,7 +167,7 @@ function contactFromRaw(
  * 1) snapshot mission enregistré
  * 2) formulaire ouvert non encore « Enregistrer »
  * 3) CRM marque
- * Sans email, le scan Leyna ne peut pas confirmer un vrai échange.
+ * Sans email → scan Leyna + rédaction OK quand même (contexte par nom de marque).
  */
 async function resolveContactsForMission(
   m: MissionLite,
@@ -240,7 +247,9 @@ async function mapPool<T>(
   await Promise.all(workers);
 }
 
-type BatchRunOpts = { quiet?: boolean };
+type BatchRunOpts = { quiet?: boolean; scope?: MissionLite[] };
+type PeriodTab = "since" | "before" | "done";
+const DEFAULT_BATCH_SIZE = 25;
 
 type DraftContact = {
   firstname?: string;
@@ -250,7 +259,8 @@ type DraftContact = {
 };
 
 type Props = {
-  talent: TalentLite;
+  /** Tous les talents pipeline (batch multi-talents). */
+  talents: TalentLite[];
   missions: MissionLite[];
   /** Contacts saisis dans le formulaire mais pas encore « Enregistrer ». */
   draftContactsByMissionId?: Record<string, DraftContact[]>;
@@ -258,30 +268,37 @@ type Props = {
   onChanged: () => Promise<void>;
   setError: (v: string | null) => void;
   setSuccess: (v: string | null) => void;
+  /** Affiche les cartes dans le pipeline (vrais boutons contact / mail). */
+  onFocusMissions?: (payload: {
+    missionIds: string[];
+    stage: "DRAFTED_FOR_VALIDATION" | "TO_DRAFT";
+    label: string;
+  } | null) => void;
 };
 
 /**
- * Même flux que projets-outreach : marque → talent → Leyna → rédaction,
- * limité aux marques du talent sélectionné (prospection individuelle).
+ * Même flux que projets-outreach : marque → talent → Leyna → rédaction.
+ * Tous les talents dispo. Refait les brouillons last-update avant le lundi 19 oct. 2026.
  */
 export function TalentIndivBatchAnalyzeBar({
-  talent,
+  talents,
   missions,
   draftContactsByMissionId,
   canRun,
   onChanged,
   setError,
   setSuccess,
+  onFocusMissions,
 }: Props) {
-  const [brandResearchCache, setBrandResearchCache] = useState<
-    Record<string, CachedBrandResearch>
-  >(() => loadIndivBrandResearchCache(talent.id));
-  const [talentResearchCache, setTalentResearchCache] = useState<
-    Record<string, CachedTalentResearchItem[]>
-  >(() => loadIndivTalentResearchCache(talent.id));
-  const [leynaExchangeCache, setLeynaExchangeCache] = useState<
-    Record<string, CachedLeynaExchange>
-  >(() => loadIndivLeynaExchangeCache(talent.id));
+  const talentById = useMemo(() => {
+    const map = new Map<string, TalentLite>();
+    for (const t of talents) map.set(t.id, t);
+    return map;
+  }, [talents]);
+
+  const [cacheTick, setCacheTick] = useState(0);
+  const [periodTab, setPeriodTab] = useState<PeriodTab>("since");
+  const [batchSize, setBatchSize] = useState(DEFAULT_BATCH_SIZE);
 
   const [batchResearch, setBatchResearch] = useState<{
     running: boolean;
@@ -318,82 +335,105 @@ export function TalentIndivBatchAnalyzeBar({
   const batchDraftAbortRef = useRef<AbortController | null>(null);
   const batchPipelineActiveRef = useRef(false);
 
-  useEffect(() => {
-    setBrandResearchCache(loadIndivBrandResearchCache(talent.id));
-    setTalentResearchCache(loadIndivTalentResearchCache(talent.id));
-    setLeynaExchangeCache(loadIndivLeynaExchangeCache(talent.id));
-  }, [talent.id]);
+  /** Missions ouvertes tous talents (indépendant du filtre UI). */
+  const [allOpenMissions, setAllOpenMissions] = useState<MissionLite[] | null>(
+    null
+  );
 
-  /** Relire storage (composer + barre partagent le même cache lib). */
-  function readLiveCaches() {
-    const brands = {
-      ...brandResearchCache,
-      ...loadIndivBrandResearchCache(talent.id),
+  const reloadAllOpenMissions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/strategy/contact-missions", {
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      const rows = Array.isArray(data.missions)
+        ? (data.missions as MissionLite[])
+        : [];
+      setAllOpenMissions(rows);
+    } catch {
+      // garde le snapshot précédent
+    }
+  }, []);
+
+  useEffect(() => {
+    void reloadAllOpenMissions();
+  }, [missions.length, reloadAllOpenMissions]);
+
+  function resolveTalent(m: MissionLite): TalentLite {
+    if (m.talentId && talentById.has(m.talentId)) {
+      return talentById.get(m.talentId)!;
+    }
+    const name = (m.talentName || m.creatorName || "Talent").trim();
+    return {
+      id: m.talentId || `unknown:${name}`,
+      name,
     };
-    const talents = {
-      ...talentResearchCache,
-      ...loadIndivTalentResearchCache(talent.id),
-    };
-    const leyna = {
-      ...leynaExchangeCache,
-      ...loadIndivLeynaExchangeCache(talent.id),
-    };
-    setBrandResearchCache(brands);
-    setTalentResearchCache(talents);
-    setLeynaExchangeCache(leyna);
-    return { brands, talents, leyna };
   }
 
-  const cacheBrandResearch = useCallback(
-    (brandName: string, data: CachedBrandResearch) => {
-      cacheIndivBrandResearch(talent.id, brandName, data);
-      const key = brandResearchKey(brandName);
-      if (!key) return;
-      setBrandResearchCache((prev) => ({ ...prev, [key]: data }));
-    },
-    [talent.id]
-  );
+  function missionTimeMs(value: string | Date | null | undefined): number {
+    if (!value) return 0;
+    const t = new Date(value).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  }
 
-  const cacheTalentResearch = useCallback(
-    (brandName: string, list: CachedTalentResearchItem[]) => {
-      cacheIndivTalentResearch(talent.id, brandName, list);
-      const key = brandResearchKey(brandName);
-      if (!key) return;
-      setTalentResearchCache((prev) => ({ ...prev, [key]: list }));
-    },
-    [talent.id]
-  );
-
-  const cacheLeynaExchange = useCallback(
-    (brandName: string, data: CachedLeynaExchange) => {
-      cacheIndivLeynaExchange(talent.id, brandName, data);
-      const key = brandResearchKey(brandName);
-      if (!key) return;
-      setLeynaExchangeCache((prev) => ({ ...prev, [key]: data }));
-    },
-    [talent.id]
-  );
-
-  /** Déjà rédigé / prêt → hors batch (ne pas réanalyser). */
-  function missionAlreadyDrafted(m: MissionLite): boolean {
-    const hasDraft =
-      Boolean(String(m.draftEmailSubject || "").trim()) &&
-      Boolean(String(m.draftEmailBody || "").trim());
-    if (!hasDraft) return false;
+  function hasCompleteDraft(m: MissionLite): boolean {
     return (
-      m.stage === "DRAFTED_FOR_VALIDATION" ||
-      m.stage === "TO_SEND" ||
-      m.status === "EMAIL_DRAFTED"
+      Boolean(String(m.draftEmailSubject || "").trim()) &&
+      Boolean(String(m.draftEmailBody || "").trim())
     );
   }
 
-  /** Marques du talent encore à traiter (pas les « Prêt à envoyer » déjà rédigés). */
-  const brandsToBatchResearch = useMemo(() => {
+  /**
+   * Brouillon considéré « déjà OK depuis le 19 » → on ne retouche pas.
+   * Proxy : updatedAt (dernière sauvegarde du brouillon / carte).
+   */
+  function missionDraftDoneSinceMonday(m: MissionLite): boolean {
+    if (!hasCompleteDraft(m)) return false;
+    const updated = missionTimeMs(m.updatedAt);
+    if (updated <= 0) return false;
+    return updated >= BATCH_SINCE_MS;
+  }
+
+  function bumpCache() {
+    setCacheTick((n) => n + 1);
+  }
+
+  const cacheBrandResearch = useCallback(
+    (talentId: string, brandName: string, data: CachedBrandResearch) => {
+      cacheIndivBrandResearch(talentId, brandName, data);
+      bumpCache();
+    },
+    []
+  );
+
+  const cacheTalentResearch = useCallback(
+    (talentId: string, brandName: string, list: CachedTalentResearchItem[]) => {
+      cacheIndivTalentResearch(talentId, brandName, list);
+      bumpCache();
+    },
+    []
+  );
+
+  const cacheLeynaExchange = useCallback(
+    (talentId: string, brandName: string, data: CachedLeynaExchange) => {
+      cacheIndivLeynaExchange(talentId, brandName, data);
+      bumpCache();
+    },
+    []
+  );
+
+  /**
+   * Tous talents · stages ouverts ·
+   * - brouillon last-update depuis le 19 → skip
+   * - sinon → éligible (à faire ou à refaire)
+   */
+  const eligibleAll = useMemo(() => {
+    const source = allOpenMissions ?? missions;
     const byKey = new Map<string, MissionLite>();
-    for (const m of missions) {
-      if (m.talentId && m.talentId !== talent.id) continue;
+    for (const m of source) {
+      if (!m.talentId) continue;
       if (m.sentAt || m.stage === "SENT") continue;
-      if (missionAlreadyDrafted(m)) continue;
       if (
         m.stage !== "TO_DRAFT" &&
         m.stage !== "DRAFTED_FOR_VALIDATION" &&
@@ -402,41 +442,167 @@ export function TalentIndivBatchAnalyzeBar({
       ) {
         continue;
       }
+      if (missionDraftDoneSinceMonday(m)) continue;
       const name = brandLabel(m);
       if (!name) continue;
-      const key = brandResearchKey(name);
+      const key = `${m.talentId}:${brandResearchKey(name)}`;
       if (!byKey.has(key)) byKey.set(key, m);
     }
     return Array.from(byKey.values());
-  }, [missions, talent.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allOpenMissions, missions]);
+
+  /** Avant le 19 = brouillon vieux à refaire, ou carte créée avant sans brouillon. */
+  function isBeforeMondayCard(m: MissionLite): boolean {
+    const created = missionTimeMs(m.createdAt);
+    const updated = missionTimeMs(m.updatedAt);
+    if (hasCompleteDraft(m)) {
+      return updated > 0 && updated < BATCH_SINCE_MS;
+    }
+    return created > 0 && created < BATCH_SINCE_MS;
+  }
+
+  const beforeMondayList = useMemo(
+    () => eligibleAll.filter(isBeforeMondayCard),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [eligibleAll]
+  );
+  const sinceMondayList = useMemo(
+    () => eligibleAll.filter((m) => !isBeforeMondayCard(m)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [eligibleAll]
+  );
+
+  /** Brouillons déjà OK depuis le 19 — suivi / tri, pas de relance. */
+  const doneSinceMondayList = useMemo(() => {
+    const source = allOpenMissions ?? missions;
+    const out: MissionLite[] = [];
+    const seen = new Set<string>();
+    for (const m of source) {
+      if (!m.talentId) continue;
+      if (m.sentAt || m.stage === "SENT") continue;
+      if (
+        m.stage !== "TO_DRAFT" &&
+        m.stage !== "DRAFTED_FOR_VALIDATION" &&
+        m.stage !== "STRATEGY_DEFINED" &&
+        m.stage !== "TO_SEND"
+      ) {
+        continue;
+      }
+      if (!missionDraftDoneSinceMonday(m)) continue;
+      const name = brandLabel(m);
+      if (!name) continue;
+      const key = `${m.talentId}:${brandResearchKey(name)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(m);
+    }
+    out.sort(
+      (a, b) => missionTimeMs(b.updatedAt) - missionTimeMs(a.updatedAt)
+    );
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allOpenMissions, missions]);
+
+  const periodList =
+    periodTab === "before"
+      ? beforeMondayList
+      : periodTab === "since"
+        ? sinceMondayList
+        : [];
+  const isDoneTab = periodTab === "done";
+
+  function selectPeriodTab(id: PeriodTab) {
+    setPeriodTab(id);
+    if (!onFocusMissions) return;
+    if (id === "done") {
+      onFocusMissions({
+        missionIds: doneSinceMondayList.map((m) => m.id),
+        stage: "DRAFTED_FOR_VALIDATION",
+        label: `Déjà faits depuis ${BATCH_SINCE_LABEL}`,
+      });
+      return;
+    }
+    if (id === "since") {
+      const ids = sinceMondayList.map((m) => m.id);
+      // Sans brouillon → À rédiger ; avec vieux brouillon rare → prêt
+      const mostlyDraft = sinceMondayList.every((m) => !hasCompleteDraft(m));
+      onFocusMissions({
+        missionIds: ids,
+        stage: mostlyDraft ? "TO_DRAFT" : "DRAFTED_FOR_VALIDATION",
+        label: `À faire depuis ${BATCH_SINCE_LABEL}`,
+      });
+      return;
+    }
+    if (id === "before") {
+      onFocusMissions({
+        missionIds: beforeMondayList.map((m) => m.id),
+        stage: "DRAFTED_FOR_VALIDATION",
+        label: `À refaire (avant ${BATCH_SINCE_LABEL})`,
+      });
+      return;
+    }
+    onFocusMissions(null);
+  }
+
+  useEffect(() => {
+    if (periodTab !== "done" || !onFocusMissions) return;
+    onFocusMissions({
+      missionIds: doneSinceMondayList.map((m) => m.id),
+      stage: "DRAFTED_FOR_VALIDATION",
+      label: `Déjà faits depuis ${BATCH_SINCE_LABEL}`,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodTab, doneSinceMondayList]);
+
+  const nextChunk = useMemo(
+    () => periodList.slice(0, Math.max(1, batchSize)),
+    [periodList, batchSize]
+  );
+
+  const talentCountInPeriod = useMemo(
+    () => new Set(periodList.map((m) => m.talentId).filter(Boolean)).size,
+    [periodList]
+  );
 
   const brandCacheCount = useMemo(
     () =>
-      brandsToBatchResearch.filter((m) =>
-        hasBrandCacheEntry(brandResearchCache, m.marqueNom, m.targetBrand)
-      ).length,
-    [brandsToBatchResearch, brandResearchCache]
+      nextChunk.filter((m) => {
+        const tid = m.talentId!;
+        return hasBrandCacheEntry(
+          loadIndivBrandResearchCache(tid),
+          m.marqueNom,
+          m.targetBrand
+        );
+      }).length,
+    [nextChunk, cacheTick]
   );
   const talentCacheCount = useMemo(
     () =>
-      brandsToBatchResearch.filter((m) => {
+      nextChunk.filter((m) => {
+        const tid = m.talentId!;
         const hit = lookupBrandCache(
-          talentResearchCache,
+          loadIndivTalentResearchCache(tid),
           m.marqueNom,
           m.targetBrand
         );
         return Array.isArray(hit) && hit.length > 0;
       }).length,
-    [brandsToBatchResearch, talentResearchCache]
+    [nextChunk, cacheTick]
   );
 
+  function poolFrom(opts?: BatchRunOpts): MissionLite[] {
+    return opts?.scope ?? nextChunk;
+  }
+
   function talentProjectPayload(m: MissionLite, brandName: string) {
+    const t = resolveTalent(m);
     return {
       projectBrief: {
-        talentId: talent.id,
+        talentId: t.id,
         projectTitle: null,
         projectDescription: null,
-        creatorName: talent.name || m.creatorName,
+        creatorName: t.name || m.creatorName,
         targetBrand: brandName,
         strategyReason: m.strategyReason,
         recommendedAngle: m.recommendedAngle,
@@ -529,32 +695,29 @@ export function TalentIndivBatchAnalyzeBar({
 
   async function runBatchBrandResearch(opts?: BatchRunOpts): Promise<boolean> {
     if (batchResearch?.running) return false;
-    if (brandsToBatchResearch.length === 0) {
-      if (!opts?.quiet) setSuccess("Aucune marque à analyser pour ce talent.");
-      return true;
-    }
-    const { brands: brandCacheNow } = readLiveCaches();
-    const targets = brandsToBatchResearch.filter(
-      (m) =>
-        !hasBrandCacheEntry(
-          brandCacheNow,
-          m.marqueNom,
-          m.targetBrand,
-          brandLabel(m)
-        )
-    );
-    if (targets.length === 0) {
-      const already = brandsToBatchResearch.filter((m) =>
-        hasBrandCacheEntry(
-          brandCacheNow,
-          m.marqueNom,
-          m.targetBrand,
-          brandLabel(m)
-        )
-      ).length;
+    const pool = poolFrom(opts);
+    const talentN = new Set(pool.map((m) => m.talentId).filter(Boolean)).size;
+    if (pool.length === 0) {
       if (!opts?.quiet) {
         setSuccess(
-          `Toutes les marques de ${talent.name} sont déjà analysées (${already}).`
+          `Aucune marque à analyser depuis ${BATCH_SINCE_LABEL} (tous talents).`
+        );
+      }
+      return true;
+    }
+    const targets = pool.filter((m) => {
+      const tid = m.talentId!;
+      return !hasBrandCacheEntry(
+        loadIndivBrandResearchCache(tid),
+        m.marqueNom,
+        m.targetBrand,
+        brandLabel(m)
+      );
+    });
+    if (targets.length === 0) {
+      if (!opts?.quiet) {
+        setSuccess(
+          `Toutes les marques du batch sont déjà analysées (${pool.length}, ${talentN} talent${talentN > 1 ? "s" : ""}).`
         );
       }
       return true;
@@ -566,6 +729,7 @@ export function TalentIndivBatchAnalyzeBar({
 
     const analyzeOne = async (m: MissionLite) => {
       const brandName = brandLabel(m);
+      const t = resolveTalent(m);
       const res = await fetch("/api/casting/brand-research", {
         method: "POST",
         credentials: "include",
@@ -583,7 +747,7 @@ export function TalentIndivBatchAnalyzeBar({
           typeof data.error === "string" ? data.error : "Analyse marque impossible"
         );
       }
-      cacheBrandResearch(brandName, data as CachedBrandResearch);
+      cacheBrandResearch(t.id, brandName, data as CachedBrandResearch);
     };
 
     const runWave = async (wave: MissionLite[]) => {
@@ -655,7 +819,7 @@ export function TalentIndivBatchAnalyzeBar({
           );
         } else if (!opts?.quiet) {
           setSuccess(
-            `Marques OK (${targets.length}). Ensuite : analyser le talent.`
+            `Marques OK (${targets.length}, tous talents). Ensuite : analyser les talents.`
           );
         }
         return !ac.signal.aborted;
@@ -663,7 +827,9 @@ export function TalentIndivBatchAnalyzeBar({
       if (ac.signal.aborted) return false;
       setBatchResearch(null);
       if (!opts?.quiet) {
-        setSuccess(`Marques OK (${result.done}) pour ${talent.name}.`);
+        setSuccess(
+          `Marques OK (${result.done}) · ${talentN} talent${talentN > 1 ? "s" : ""}.`
+        );
       }
       return true;
     } catch (e) {
@@ -676,15 +842,20 @@ export function TalentIndivBatchAnalyzeBar({
 
   async function runBatchTalentResearch(opts?: BatchRunOpts): Promise<boolean> {
     if (batchResearch?.running) return false;
-    if (brandsToBatchResearch.length === 0) {
-      if (!opts?.quiet) setSuccess("Aucune marque à analyser pour ce talent.");
+    const pool = poolFrom(opts);
+    const talentN = new Set(pool.map((m) => m.talentId).filter(Boolean)).size;
+    if (pool.length === 0) {
+      if (!opts?.quiet) {
+        setSuccess(
+          `Aucune marque à analyser depuis ${BATCH_SINCE_LABEL} (tous talents).`
+        );
+      }
       return true;
     }
 
-    const { brands: brandCacheNow, talents: talentCacheNow } = readLiveCaches();
-    const withBrand = brandsToBatchResearch.filter((m) =>
+    const withBrand = pool.filter((m) =>
       hasBrandCacheEntry(
-        brandCacheNow,
+        loadIndivBrandResearchCache(m.talentId!),
         m.marqueNom,
         m.targetBrand,
         brandLabel(m)
@@ -697,12 +868,18 @@ export function TalentIndivBatchAnalyzeBar({
       return false;
     }
     const targets = withBrand.filter((m) => {
-      const hit = lookupBrandCache(talentCacheNow, m.marqueNom, m.targetBrand);
+      const hit = lookupBrandCache(
+        loadIndivTalentResearchCache(m.talentId!),
+        m.marqueNom,
+        m.targetBrand
+      );
       return !(Array.isArray(hit) && hit.length > 0);
     });
     if (targets.length === 0) {
       if (!opts?.quiet) {
-        setSuccess(`Talent déjà analysé pour toutes les marques (${talentCacheCount}).`);
+        setSuccess(
+          `Talents déjà analysés pour toutes les marques du batch (${talentCacheCount}).`
+        );
       }
       return true;
     }
@@ -713,6 +890,7 @@ export function TalentIndivBatchAnalyzeBar({
 
     const analyzeOne = async (m: MissionLite) => {
       const brandName = brandLabel(m);
+      const t = resolveTalent(m);
       const res = await fetch("/api/casting/talent-research", {
         method: "POST",
         credentials: "include",
@@ -720,7 +898,7 @@ export function TalentIndivBatchAnalyzeBar({
         signal: ac.signal,
         body: JSON.stringify({
           brandName,
-          talentIds: [talent.id],
+          talentIds: [t.id],
           strategyReason: m.strategyReason || "",
           recommendedAngle: m.recommendedAngle || "",
           ...talentProjectPayload(m, brandName),
@@ -736,7 +914,7 @@ export function TalentIndivBatchAnalyzeBar({
         ? (data.talents as CachedTalentResearchItem[])
         : [];
       if (list.length === 0) throw new Error("Réponse talent vide");
-      cacheTalentResearch(brandName, list);
+      cacheTalentResearch(t.id, brandName, list);
     };
 
     const runWave = async (wave: MissionLite[]) => {
@@ -807,13 +985,15 @@ export function TalentIndivBatchAnalyzeBar({
             `Talent OK ${ok}/${targets.length}. Encore en échec : ${stillFailed.join(", ")}.`
           );
         } else if (!opts?.quiet) {
-          setSuccess(`Talent OK (${targets.length}) pour ${talent.name}.`);
+          setSuccess(`Talents OK (${targets.length}) — tous talents du batch.`);
         }
         return !ac.signal.aborted;
       }
       if (ac.signal.aborted) return false;
       setBatchResearch(null);
-      if (!opts?.quiet) setSuccess(`Talent OK (${result.done}) pour ${talent.name}.`);
+      if (!opts?.quiet) {
+        setSuccess(`Talents OK (${result.done}) — tous talents du batch.`);
+      }
       return true;
     } catch (e) {
       if (ac.signal.aborted) return false;
@@ -825,14 +1005,19 @@ export function TalentIndivBatchAnalyzeBar({
 
   async function runBatchLeynaExchange(opts?: BatchRunOpts): Promise<boolean> {
     if (batchLeyna?.running) return false;
-    if (brandsToBatchResearch.length === 0) {
-      if (!opts?.quiet) setSuccess("Aucune marque à analyser pour ce talent.");
+    const pool = poolFrom(opts);
+    const talentN = new Set(pool.map((m) => m.talentId).filter(Boolean)).size;
+    if (pool.length === 0) {
+      if (!opts?.quiet) {
+        setSuccess(
+          `Aucune marque à analyser depuis ${BATCH_SINCE_LABEL} (tous talents).`
+        );
+      }
       return true;
     }
-    const { brands: brandCacheNow, leyna: leynaCacheNow } = readLiveCaches();
-    const withBrand = brandsToBatchResearch.filter((m) =>
+    const withBrand = pool.filter((m) =>
       hasBrandCacheEntry(
-        brandCacheNow,
+        loadIndivBrandResearchCache(m.talentId!),
         m.marqueNom,
         m.targetBrand,
         brandLabel(m)
@@ -846,7 +1031,7 @@ export function TalentIndivBatchAnalyzeBar({
     const targets = withBrand.filter(
       (m) =>
         !hasBrandCacheEntry(
-          leynaCacheNow,
+          loadIndivLeynaExchangeCache(m.talentId!),
           m.marqueNom,
           m.targetBrand,
           brandLabel(m)
@@ -861,23 +1046,27 @@ export function TalentIndivBatchAnalyzeBar({
     const ac = new AbortController();
     batchLeynaAbortRef.current = ac;
 
-    const skippedNoEmail: string[] = [];
+    const scannedBrandOnly: string[] = [];
+    const foundExchangeNoEmail: string[] = [];
 
     const analyzeOne = async (m: MissionLite) => {
       const brandName = brandLabel(m);
+      const t = resolveTalent(m);
       const contacts = await resolveContactsForMission(m, {
         signal: ac.signal,
         draftContacts: draftsFor(m),
       });
       const emails = contacts.map((c) => c.email);
-      // Sans email, on ne cache PAS « aucun échange » (faux négatif) :
-      // il faut d’abord renseigner les contacts CRM / mission / formulaire.
+      // Sans email → scan Leyna par nom de marque (objet / corps / domaine).
+      // La rédaction peut quand même partir : generate-email refait ce scan.
       if (emails.length === 0) {
-        skippedNoEmail.push(brandName || m.id);
-        return;
+        if (brandName.trim().length < 2) {
+          throw new Error("Sans email ni nom de marque — scan Leyna impossible");
+        }
+        scannedBrandOnly.push(`${t.name} · ${brandName}`);
+      } else {
+        await persistContactsIfNeeded(m, contacts).catch(() => {});
       }
-      // Formulaire non enregistré → on persiste au passage pour Leyna.
-      await persistContactsIfNeeded(m, contacts).catch(() => {});
       const res = await fetch("/api/casting/leyna-exchange-context", {
         method: "POST",
         credentials: "include",
@@ -886,7 +1075,7 @@ export function TalentIndivBatchAnalyzeBar({
         body: JSON.stringify({
           recipientEmails: emails,
           brandName,
-          talentNames: [talent.name].filter(Boolean),
+          talentNames: [t.name].filter(Boolean),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -896,7 +1085,10 @@ export function TalentIndivBatchAnalyzeBar({
         );
       }
       const ctx = (data?.context || { hasExchange: false }) as CachedLeynaExchange;
-      cacheLeynaExchange(brandName, {
+      if (emails.length === 0 && Boolean(ctx.hasExchange)) {
+        foundExchangeNoEmail.push(`${t.name} · ${brandName}`);
+      }
+      cacheLeynaExchange(t.id, brandName, {
         hasExchange: Boolean(ctx.hasExchange),
         tone: ctx.tone ?? null,
         bannerLabel: ctx.bannerLabel ?? null,
@@ -962,12 +1154,25 @@ export function TalentIndivBatchAnalyzeBar({
       return { done, failed, failedMissions };
     };
 
-    const noEmailNote = () => {
-      const unique = Array.from(new Set(skippedNoEmail.filter(Boolean)));
-      if (unique.length === 0) return "";
-      const preview = unique.slice(0, 5).join(", ");
-      const more = unique.length > 5 ? ` (+${unique.length - 5})` : "";
-      return ` ${unique.length} marque${unique.length > 1 ? "s" : ""} sans email (CRM/mission) — renseigne les contacts puis relance Boîte mail : ${preview}${more}.`;
+    const brandScanNote = () => {
+      const parts: string[] = [];
+      const brandOnly = Array.from(new Set(scannedBrandOnly.filter(Boolean)));
+      const withHit = Array.from(new Set(foundExchangeNoEmail.filter(Boolean)));
+      if (brandOnly.length > 0) {
+        const preview = brandOnly.slice(0, 5).join(", ");
+        const more = brandOnly.length > 5 ? ` (+${brandOnly.length - 5})` : "";
+        parts.push(
+          `${brandOnly.length} sans email → scan Leyna par nom de marque (${preview}${more})`
+        );
+      }
+      if (withHit.length > 0) {
+        const preview = withHit.slice(0, 5).join(", ");
+        const more = withHit.length > 5 ? ` (+${withHit.length - 5})` : "";
+        parts.push(
+          `${withHit.length} déjà vue(s) sur Leyna sans contact carte (rédaction quand même) : ${preview}${more}`
+        );
+      }
+      return parts.length ? ` ${parts.join(". ")}.` : "";
     };
 
     try {
@@ -982,21 +1187,21 @@ export function TalentIndivBatchAnalyzeBar({
         setBatchLeyna(null);
         if (stillFailed.length > 0) {
           setError(
-            `Boîte mail OK ${ok}/${targets.length}. Encore en échec : ${stillFailed.join(", ")}.${noEmailNote()}`
+            `Boîte mail OK ${ok}/${targets.length}. Encore en échec : ${stillFailed.join(", ")}.${brandScanNote()}`
           );
         } else if (!opts?.quiet) {
-          setSuccess(`Boîte mail OK (${targets.length}).${noEmailNote()}`);
-        } else if (skippedNoEmail.length > 0) {
-          setSuccess(noEmailNote().trim());
+          setSuccess(`Boîte mail OK (${targets.length}).${brandScanNote()}`);
+        } else if (scannedBrandOnly.length > 0 || foundExchangeNoEmail.length > 0) {
+          setSuccess(brandScanNote().trim());
         }
         return !ac.signal.aborted;
       }
       if (ac.signal.aborted) return false;
       setBatchLeyna(null);
       if (!opts?.quiet) {
-        setSuccess(`Boîte mail OK (${result.done}).${noEmailNote()}`);
-      } else if (skippedNoEmail.length > 0) {
-        setSuccess(noEmailNote().trim());
+        setSuccess(`Boîte mail OK (${result.done}).${brandScanNote()}`);
+      } else if (scannedBrandOnly.length > 0 || foundExchangeNoEmail.length > 0) {
+        setSuccess(brandScanNote().trim());
       }
       return true;
     } catch (e) {
@@ -1009,28 +1214,34 @@ export function TalentIndivBatchAnalyzeBar({
 
   async function runBatchDraftEmails(opts?: BatchRunOpts): Promise<boolean> {
     if (batchDraft?.running) return false;
-    if (brandsToBatchResearch.length === 0) {
-      if (!opts?.quiet) setSuccess("Aucune marque à rédiger pour ce talent.");
+    const pool = poolFrom(opts);
+    const talentN = new Set(pool.map((m) => m.talentId).filter(Boolean)).size;
+    if (pool.length === 0) {
+      if (!opts?.quiet) {
+        setSuccess(
+          `Aucune marque à rédiger depuis ${BATCH_SINCE_LABEL} (tous talents).`
+        );
+      }
       return true;
     }
 
-    const { brands: brandCacheNow, talents: talentCacheNow } = readLiveCaches();
-
-    const targets = brandsToBatchResearch.filter((m) => {
-      if (m.awaitingContactsCompletion) return false;
+    const targets = pool.filter((m) => {
+      // Pas de contact OK : le mail se rédige quand même (contexte Leyna par marque).
       if (m.sentAt || m.stage === "SENT") return false;
+      // Brouillon déjà OK depuis le 19 → skip (les plus vieux sont bien refaits).
+      if (missionDraftDoneSinceMonday(m)) return false;
+      const tid = m.talentId!;
       if (
-        m.stage === "DRAFTED_FOR_VALIDATION" &&
-        String(m.draftEmailSubject || "").trim() &&
-        String(m.draftEmailBody || "").trim()
+        !hasBrandCacheEntry(
+          loadIndivBrandResearchCache(tid),
+          m.marqueNom,
+          m.targetBrand
+        )
       ) {
         return false;
       }
-      if (!hasBrandCacheEntry(brandCacheNow, m.marqueNom, m.targetBrand)) {
-        return false;
-      }
       const talentHit = lookupBrandCache(
-        talentCacheNow,
+        loadIndivTalentResearchCache(tid),
         m.marqueNom,
         m.targetBrand
       );
@@ -1040,7 +1251,7 @@ export function TalentIndivBatchAnalyzeBar({
     if (targets.length === 0) {
       if (!opts?.quiet) {
         setSuccess(
-          "Rien à rédiger (déjà à valider, analyses manquantes, ou enrichissement contacts)."
+          "Rien à rédiger (déjà OK depuis le 19, ou analyses marque/talent manquantes)."
         );
       }
       return true;
@@ -1052,6 +1263,9 @@ export function TalentIndivBatchAnalyzeBar({
 
     const draftOne = async (m: MissionLite) => {
       const brandName = brandLabel(m);
+      const t = resolveTalent(m);
+      const brandCacheNow = loadIndivBrandResearchCache(t.id);
+      const talentCacheNow = loadIndivTalentResearchCache(t.id);
       const brandResearch = lookupBrandCache(
         brandCacheNow,
         m.marqueNom,
@@ -1074,18 +1288,35 @@ export function TalentIndivBatchAnalyzeBar({
         signal: ac.signal,
         draftContacts: draftsFor(m),
       });
-      if (contacts.length === 0) throw new Error("Aucun contact email");
       await persistContactsIfNeeded(m, contacts).catch(() => {});
+
+      // Sans contact carte : emails éventuels du scan Leyna (marque) pour le contexte.
+      let recipientEmails = contacts.map((c) => c.email).filter(Boolean);
+      if (recipientEmails.length === 0) {
+        const leynaHit = lookupBrandCache(
+          loadIndivLeynaExchangeCache(t.id),
+          m.marqueNom,
+          m.targetBrand,
+          brandName
+        );
+        recipientEmails = Array.from(
+          new Set(
+            (Array.isArray(leynaHit?.contacts) ? leynaHit!.contacts! : [])
+              .map((c) => String(c.email || "").trim())
+              .filter((e) => e.includes("@"))
+          )
+        );
+      }
 
       const talentsPayload = [
         {
-          talentId: talent.id,
-          name: talent.name,
+          talentId: t.id,
+          name: t.name,
           niche: "—",
           followers: 0,
           igFollowers: 0,
           ttFollowers: 0,
-          instagram: talent.instagram ?? null,
+          instagram: t.instagram ?? null,
         },
       ];
 
@@ -1103,8 +1334,10 @@ export function TalentIndivBatchAnalyzeBar({
 
       const enCount = contacts.filter((c) => c.language === "en").length;
       const genLanguage =
-        m.clientLanguage === "EN" || enCount >= contacts.length / 2 ? "en" : "fr";
-      const recipientEmails = contacts.map((c) => c.email);
+        m.clientLanguage === "EN" ||
+        (contacts.length > 0 && enCount >= contacts.length / 2)
+          ? "en"
+          : "fr";
 
       const res = await fetch("/api/casting/generate-email", {
         method: "POST",
@@ -1133,19 +1366,23 @@ export function TalentIndivBatchAnalyzeBar({
       const body = String(data.body || "").trim();
       if (!subject || !body) throw new Error("Brouillon vide");
 
-      await patchMissionDraft(m.id, {
+      const patch: Record<string, unknown> = {
         stage: "DRAFTED_FOR_VALIDATION",
         status: "EMAIL_DRAFTED",
         draftEmailSubject: subject,
         draftEmailBody: body,
         draftLanguage: genLanguage,
-        clientContacts: contacts.map((c) => ({
+      };
+      // Ne pas écraser les contacts carte avec une liste vide.
+      if (contacts.length > 0) {
+        patch.clientContacts = contacts.map((c) => ({
           firstname: c.firstname || "",
           lastname: c.lastname || "",
           email: c.email,
           role: c.role || "",
-        })),
-      });
+        }));
+      }
+      await patchMissionDraft(m.id, patch);
     };
 
     const runWave = async (wave: MissionLite[]) => {
@@ -1209,7 +1446,7 @@ export function TalentIndivBatchAnalyzeBar({
           );
         } else if (!opts?.quiet) {
           setSuccess(
-            `Mails rédigés (${targets.length}) pour ${talent.name} — à valider.`
+            `Mails rédigés (${targets.length}) · ${talentN} talent${talentN > 1 ? "s" : ""} — à valider.`
           );
         }
         return !ac.signal.aborted;
@@ -1219,7 +1456,7 @@ export function TalentIndivBatchAnalyzeBar({
       await onChanged();
       if (!opts?.quiet) {
         setSuccess(
-          `Mails rédigés (${result.done}) pour ${talent.name} — à valider.`
+          `Mails rédigés (${result.done}) · ${talentN} talent${talentN > 1 ? "s" : ""} — à valider.`
         );
       }
       return true;
@@ -1231,7 +1468,9 @@ export function TalentIndivBatchAnalyzeBar({
     }
   }
 
-  async function runBatchFullPipeline() {
+  async function runBatchFullPipeline(opts?: BatchRunOpts) {
+    const pool = poolFrom(opts);
+    const talentN = new Set(pool.map((m) => m.talentId).filter(Boolean)).size;
     if (
       batchResearch?.running ||
       batchLeyna?.running ||
@@ -1240,33 +1479,49 @@ export function TalentIndivBatchAnalyzeBar({
     ) {
       return;
     }
-    if (brandsToBatchResearch.length === 0) {
-      setSuccess(`Aucune marque à analyser pour ${talent.name}.`);
+    if (pool.length === 0) {
+      setSuccess(
+        `Rien à faire : tout est déjà OK depuis ${BATCH_SINCE_LABEL}, ou aucune carte ouverte.`
+      );
       return;
     }
-    // Sync cache composer → barre avant de filtrer les cibles.
-    readLiveCaches();
+    bumpCache();
     batchPipelineActiveRef.current = true;
     setError(null);
     try {
       setBatchPipeline({ running: true, step: 1, label: "Marques" });
-      const brandsOk = await runBatchBrandResearch({ quiet: true });
+      const brandsOk = await runBatchBrandResearch({ quiet: true, scope: pool });
       if (!batchPipelineActiveRef.current || !brandsOk) return;
 
-      setBatchPipeline({ running: true, step: 2, label: "Talent" });
-      const talentsOk = await runBatchTalentResearch({ quiet: true });
+      setBatchPipeline({ running: true, step: 2, label: "Talents" });
+      const talentsOk = await runBatchTalentResearch({ quiet: true, scope: pool });
       if (!batchPipelineActiveRef.current || !talentsOk) return;
 
       setBatchPipeline({ running: true, step: 3, label: "Boîte mail Leyna" });
-      await runBatchLeynaExchange({ quiet: true });
+      await runBatchLeynaExchange({ quiet: true, scope: pool });
       if (!batchPipelineActiveRef.current) return;
 
       setBatchPipeline({ running: true, step: 4, label: "Rédaction mails" });
-      await runBatchDraftEmails({ quiet: true });
+      await runBatchDraftEmails({ quiet: true, scope: pool });
       if (!batchPipelineActiveRef.current) return;
 
+      const n = pool.length;
+      const t = talentN;
+      await onChanged();
+      await reloadAllOpenMissions();
+      const label =
+        periodTab === "before"
+          ? `brouillons d’avant ${BATCH_SINCE_LABEL}`
+          : `cartes depuis ${BATCH_SINCE_LABEL}`;
+      const doneIds = pool.map((m) => m.id);
+      onFocusMissions?.({
+        missionIds: doneIds,
+        stage: "DRAFTED_FOR_VALIDATION",
+        label: `Lot terminé (${n})`,
+      });
+      setPeriodTab("done");
       setSuccess(
-        `Pipeline terminé pour ${talent.name} (${brandsToBatchResearch.length} marque${brandsToBatchResearch.length > 1 ? "s" : ""}) — mails à valider.`
+        `Lot terminé — ${n} carte${n > 1 ? "s" : ""} · ${t} talent${t > 1 ? "s" : ""} (${label}). Elles sont dans « Prêt à envoyer » — tu peux ajouter les contacts.`
       );
     } finally {
       batchPipelineActiveRef.current = false;
@@ -1285,15 +1540,68 @@ export function TalentIndivBatchAnalyzeBar({
   const btnPrimary =
     "inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40";
 
+  const tabBtn = (id: PeriodTab, label: string, count: number) => {
+    const active = periodTab === id;
+    return (
+      <button
+        type="button"
+        key={id}
+        disabled={running}
+        onClick={() => selectPeriodTab(id)}
+        className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold transition disabled:opacity-50"
+        style={
+          active
+            ? { background: "#0f172a", color: "#fff" }
+            : { background: "#f1f5f9", color: "#0f172a" }
+        }
+      >
+        {label}
+        <span
+          className="rounded-md px-1.5 py-0.5 text-xs tabular-nums"
+          style={
+            active
+              ? { background: "rgba(255,255,255,0.15)" }
+              : { background: "#e2e8f0" }
+          }
+        >
+          {count}
+        </span>
+      </button>
+    );
+  };
+
   return (
     <div className="mt-3 w-full rounded-xl border border-slate-200 bg-white p-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {tabBtn("since", "À faire · depuis le 19", sinceMondayList.length)}
+        {tabBtn("before", "À refaire · avant le 19", beforeMondayList.length)}
+        {tabBtn("done", "Déjà faits · depuis le 19", doneSinceMondayList.length)}
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="m-0 text-xs leading-snug text-slate-500">
             {batchPipeline?.running
-              ? `Pipeline ${batchPipeline.step}/4 · ${batchPipeline.label} — ${talent.name} uniquement.`
-              : `Tout analyser + rédiger pour ${talent.name} : marque → talent → Leyna → mails (${brandsToBatchResearch.length} à traiter). Skip auto : déjà « Prêt à envoyer » / brouillon OK, et analyses déjà en cache.`}
+              ? `Pipeline ${batchPipeline.step}/4 · ${batchPipeline.label} — lot en cours (${periodTab === "before" ? "avant" : "depuis"} le 19).`
+              : isDoneTab
+                ? `Brouillons OK depuis ${BATCH_SINCE_LABEL} — affichés en cartes dans « Prêt à envoyer » (contacts, revoir le mail, etc.). ${doneSinceMondayList.length} carte${doneSinceMondayList.length > 1 ? "s" : ""}.`
+                : periodTab === "before"
+                  ? `Brouillons faits avant ${BATCH_SINCE_LABEL} — on les refait. ${beforeMondayList.length} cartes · ${talentCountInPeriod} talent${talentCountInPeriod > 1 ? "s" : ""}. Lance par lots pour éviter de saturer.`
+                  : `Cartes depuis ${BATCH_SINCE_LABEL} pas encore OK. ${sinceMondayList.length} cartes · ${talentCountInPeriod} talent${talentCountInPeriod > 1 ? "s" : ""}.`}
           </p>
+          {!running && !isDoneTab && periodList.length > 0 ? (
+            <p className="m-0 mt-1.5 text-xs text-slate-600">
+              Prochain lot : <strong>{nextChunk.length}</strong> / {periodList.length}
+              {periodList.length > nextChunk.length
+                ? ` — il restera ${periodList.length - nextChunk.length} après`
+                : " — dernier lot"}
+            </p>
+          ) : null}
+          {isDoneTab ? (
+            <p className="m-0 mt-1.5 text-xs font-medium text-slate-700">
+              ↓ Regarde la grille « Prêt à envoyer » en dessous — ce sont les vraies cartes.
+            </p>
+          ) : null}
           {(batchResearch?.running ||
             batchLeyna?.running ||
             batchDraft?.running) && (
@@ -1301,7 +1609,7 @@ export function TalentIndivBatchAnalyzeBar({
               {batchResearch?.running ? (
                 <ProgressRow
                   label={`${batchPipeline?.running ? `${batchPipeline.step}/4 · ` : ""}${
-                    batchResearch.phase === "marques" ? "Marques" : "Talent"
+                    batchResearch.phase === "marques" ? "Marques" : "Talents"
                   }${batchResearch.current ? ` · ${batchResearch.current}` : ""}`}
                   done={batchResearch.phaseDone}
                   total={batchResearch.phaseTotal}
@@ -1332,8 +1640,25 @@ export function TalentIndivBatchAnalyzeBar({
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {running ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {!isDoneTab && !running ? (
+            <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+              Taille du lot
+              <select
+                value={batchSize}
+                onChange={(e) => setBatchSize(Number(e.target.value))}
+                className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm font-semibold text-slate-900"
+              >
+                {[10, 25, 50, 100].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          {isDoneTab ? null : running ? (
             <button
               type="button"
               className={btnBase}
@@ -1362,18 +1687,34 @@ export function TalentIndivBatchAnalyzeBar({
                 type="button"
                 className={btnPrimary}
                 style={{ background: "#0f172a" }}
-                disabled={!canRun || brandsToBatchResearch.length === 0}
-                onClick={() => void runBatchFullPipeline()}
-                title="Marque → talent → Leyna → rédaction (uniquement les marques de ce talent)"
+                disabled={!canRun || nextChunk.length === 0}
+                onClick={() =>
+                  void runBatchFullPipeline({ scope: nextChunk })
+                }
+                title={`Lance un lot de ${nextChunk.length} (onglet ${periodTab === "before" ? "avant" : "depuis"} le 19)`}
               >
-                Tout analyser + rédiger
+                Lancer le lot ({nextChunk.length})
               </button>
               <button
                 type="button"
                 className={btnBase}
                 style={{ borderColor: "#e2e8f0", color: "#0f172a" }}
-                disabled={!canRun || brandsToBatchResearch.length === 0}
-                onClick={() => void runBatchBrandResearch()}
+                disabled={!canRun || periodList.length === 0}
+                onClick={() =>
+                  void runBatchFullPipeline({ scope: periodList })
+                }
+                title="Tout l’onglet d’un coup — plus long"
+              >
+                Tout l’onglet ({periodList.length})
+              </button>
+              <button
+                type="button"
+                className={btnBase}
+                style={{ borderColor: "#e2e8f0", color: "#0f172a" }}
+                disabled={!canRun || nextChunk.length === 0}
+                onClick={() =>
+                  void runBatchBrandResearch({ scope: nextChunk })
+                }
               >
                 Marques
               </button>
@@ -1382,30 +1723,24 @@ export function TalentIndivBatchAnalyzeBar({
                 className={btnBase}
                 style={{ borderColor: "#e2e8f0", color: "#0f172a" }}
                 disabled={
-                  !canRun ||
-                  brandsToBatchResearch.length === 0 ||
-                  brandCacheCount === 0
+                  !canRun || nextChunk.length === 0 || brandCacheCount === 0
                 }
-                onClick={() => void runBatchTalentResearch()}
-                title={
-                  brandCacheCount === 0
-                    ? "Analyse d’abord les marques"
-                    : `Analyse ${talent.name} pour chaque marque`
+                onClick={() =>
+                  void runBatchTalentResearch({ scope: nextChunk })
                 }
               >
-                Talent
+                Talents
               </button>
               <button
                 type="button"
                 className={btnBase}
                 style={{ borderColor: "#e2e8f0", color: "#0f172a" }}
                 disabled={
-                  !canRun ||
-                  brandsToBatchResearch.length === 0 ||
-                  brandCacheCount === 0
+                  !canRun || nextChunk.length === 0 || brandCacheCount === 0
                 }
-                onClick={() => void runBatchLeynaExchange()}
-                title="Scan Leyna avec emails CRM, carte enregistrée, ou formulaire ouvert (même sans Enregistrer). Sans email → skip."
+                onClick={() =>
+                  void runBatchLeynaExchange({ scope: nextChunk })
+                }
               >
                 Boîte mail
               </button>
@@ -1415,18 +1750,15 @@ export function TalentIndivBatchAnalyzeBar({
                 style={{ borderColor: "#e2e8f0", color: "#0f172a" }}
                 disabled={
                   !canRun ||
-                  brandsToBatchResearch.length === 0 ||
+                  nextChunk.length === 0 ||
                   brandCacheCount === 0 ||
                   talentCacheCount === 0
                 }
-                onClick={() => void runBatchDraftEmails()}
-                title={
-                  talentCacheCount === 0
-                    ? "Analyse d’abord marques + talent"
-                    : "Rédige les mails → À valider"
+                onClick={() =>
+                  void runBatchDraftEmails({ scope: nextChunk })
                 }
               >
-                Rédiger les mails
+                Rédiger
               </button>
             </>
           )}
