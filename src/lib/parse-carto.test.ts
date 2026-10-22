@@ -57,6 +57,25 @@ function run() {
   );
   assert(ekoiParsed.rows[1].prenom === "Ward", ekoiParsed.rows[1].prenom);
 
+  // Régression AO Ekoï : périmètre court « …établissement du budget » + URL
+  // LinkedIn ≤ 48 car. ne doivent PAS devenir une 2ᵉ ligne d’en-tête.
+  const ekoiAo = [
+    "Priorité\tPrénom\tNom\tRôle\tÉquipe / Périmètre\tMarché\tLocalisation\tEmail\tURL LinkedIn\tNote",
+    "P1 🔥\tMarine\tROSSIGNOL MARION\tManaging Director\tDirection générale\tGlobal\tFrance\t\thttps://www.linkedin.com/in/marine-rossignol-marion-b66060a0/\tNote Marine",
+    "P1 🔥\tAlexandre\tFRELIGER\tHead of Communication\tCommunication — « établissement du budget »\tGlobal\tFréjus\t\thttps://www.linkedin.com/in/alexandrefreliger/\tNote Alex",
+    "P2 ⭐\tNoémie\tFRANCESCHINI\tRAF\tFinance\tFR\tSignes\t\thttps://www.linkedin.com/in/noemie-franceschini-97b3a2a0/\tNote Noémie",
+    "P2 ⭐\tXavier\tSCHNEIDER\tContrôle de gestion\tContrôle\tFR\tNice\t\thttps://www.linkedin.com/in/xavier-schneider-988b6380/\tNote Xavier",
+  ].join("\n");
+  const ekoiAoParsed = parseCartoText(ekoiAo);
+  assert(!ekoiAoParsed.error, ekoiAoParsed.error || "ekoi AO error");
+  assert(ekoiAoParsed.rows.length === 4, `ekoi AO: attendu 4, got ${ekoiAoParsed.rows.length}`);
+  assert(
+    ekoiAoParsed.rows.every((r) => Boolean(r.prenom && r.nom)),
+    `ekoi AO: noms manquants → ${ekoiAoParsed.rows.map((r) => `${r.prenom}|${r.nom}`).join(" ; ")}`
+  );
+  assert(ekoiAoParsed.rows[1].prenom === "Alexandre", ekoiAoParsed.rows[1].prenom);
+  assert(ekoiAoParsed.rows[2].nom === "FRANCESCHINI", ekoiAoParsed.rows[2].nom);
+
   console.log("parse-carto.test.ts OK");
 }
 

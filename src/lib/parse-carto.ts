@@ -42,12 +42,52 @@ const norm = (s: string) =>
     .trim();
 
 /**
- * Les `.includes("linkedin"|"etablissement"|…)` ne doivent matcher que des
- * libellés d’en-tête courts. Sinon une note « Profil LinkedIn ouvert… » ou un
- * périmètre « établissement du budget » est pris pour une 2ᵉ ligne d’en-tête
- * → prénom/nom vides à l’import enrichissement.
+ * Les `.includes("linkedin"|…)` ne doivent matcher que des libellés d’en-tête
+ * courts. Une note « Profil LinkedIn… », un périmètre « établissement du
+ * budget », ou une URL `linkedin.com/in/…` (souvent ≤ 48 car.) pris pour une
+ * 2ᵉ ligne d’en-tête → prénom/nom vides à l’import enrichissement.
  */
 const HEADER_LABEL_MAX = 48;
+
+/** Ligne de contact (pas un en-tête) : priorité P1/P2, URL, email. */
+function looksLikeDataRow(cells: string[]): boolean {
+  return cells.some((raw) => {
+    const t = raw.trim();
+    if (!t) return false;
+    if (/https?:\/\//i.test(t) || /linkedin\.com\//i.test(t)) return true;
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) return true;
+    const n = norm(t);
+    // P1, P2 ⭐, P1 🔥, P3 •
+    if (/^p[1-5]\b/.test(n)) return true;
+    return false;
+  });
+}
+
+function isHotelHeaderLabel(c: string): boolean {
+  return (
+    c === "hotel" ||
+    c === "hotels" ||
+    c.startsWith("hotel") ||
+    c === "etablissement" ||
+    c.startsWith("etablissement") ||
+    /\bnom\b.*\betablissement\b/.test(c) ||
+    c === "prestataire" ||
+    c === "maison" ||
+    c === "enseigne" ||
+    c === "nom hotel" ||
+    c === "nom de l hotel" ||
+    c === "nom de l'hotel" ||
+    c === "nom etablissement" ||
+    c === "traiteur" ||
+    c === "fleuriste" ||
+    c === "decorateur" ||
+    c === "studio" ||
+    c === "institut" ||
+    c === "societe" ||
+    c === "société" ||
+    c === "transporteur"
+  );
+}
 
 function mapHeader(cells: string[]): Record<string, number> | null {
   const cols: Record<string, number> = {};
@@ -57,28 +97,7 @@ function mapHeader(cells: string[]): Record<string, number> | null {
     const short = c.length <= HEADER_LABEL_MAX;
     if (c === "prenom" || c === "firstname" || c === "first name") {
       cols.prenom = idx;
-    } else if (
-      short &&
-      (c === "hotel" ||
-        c === "hotels" ||
-        c.startsWith("hotel") ||
-        c.includes("etablissement") ||
-        c === "prestataire" ||
-        c === "maison" ||
-        c === "enseigne" ||
-        c === "nom hotel" ||
-        c === "nom de l hotel" ||
-        c === "nom de l'hotel" ||
-        c === "nom etablissement" ||
-        c === "traiteur" ||
-        c === "fleuriste" ||
-        c === "decorateur" ||
-        c === "studio" ||
-        c === "institut" ||
-        c === "societe" ||
-        c === "société" ||
-        c === "transporteur")
-    ) {
+    } else if (short && isHotelHeaderLabel(c)) {
       if (cols.hotel === undefined) cols.hotel = idx;
     } else if (
       c === "nom" ||
@@ -95,7 +114,12 @@ function mapHeader(cells: string[]): Record<string, number> | null {
       if (cols.nom === undefined) cols.nom = idx;
     } else if (short && c.startsWith("prior")) {
       cols.priorite = idx;
-    } else if (short && c.includes("linkedin")) {
+    } else if (
+      short &&
+      c.includes("linkedin") &&
+      !c.includes("http") &&
+      !c.includes("linkedin.com")
+    ) {
       cols.linkedinUrl = idx;
     } else if (
       c === "email" ||
@@ -157,7 +181,10 @@ export function parseCartoText(text: string): {
 
   const headers: { idx: number; cols: Record<string, number> }[] = [];
   for (let i = 0; i < lines.length; i++) {
-    const mapped = mapHeader(splitLine(lines[i]));
+    const cells = splitLine(lines[i]);
+    // Ne jamais promouvoir une ligne de contact (P1, URL LinkedIn…) en en-tête.
+    if (looksLikeDataRow(cells)) continue;
+    const mapped = mapHeader(cells);
     if (mapped) headers.push({ idx: i, cols: mapped });
   }
 
@@ -211,15 +238,9 @@ export function parseCartoText(text: string): {
       const priorite = cell(cells, "priorite");
       const hotel = cell(cells, "hotel") || marquesGerees;
       const ville = cell(cells, "ville") || localisation;
-      if (
-        !prenom &&
-        !nom &&
-        !email &&
-        !poste &&
-        !linkedinUrl &&
-        !perimetre &&
-        !hotel
-      ) {
+      // Sans identité (prénom/nom ou hôtel), une URL LinkedIn seule crée des
+      // fantômes « email à noter » dans l’aperçu enrichissement.
+      if (!prenom && !nom && !hotel) {
         continue;
       }
       const key = [
