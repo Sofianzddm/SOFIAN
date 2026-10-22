@@ -39,6 +39,24 @@ function run() {
   const multi = parseCartoText(twoSheets);
   assert(multi.rows.length === 6, `deux tableaux → 6, got ${multi.rows.length}`);
 
+  // Régression : notes « Profil LinkedIn… » + périmètre « établissement… »
+  // ne doivent PAS être prises pour une 2ᵉ ligne d’en-tête (noms vides).
+  const ekoi = [
+    "Priorité\tPrénom\tNom\tRôle\tÉquipe / Périmètre\tMarché\tLocalisation\tEmail\tURL LinkedIn\tNote",
+    "P1\tAlexandre\tFRELIGER\tHead of Communication\tCommunication & marque — établissement du budget ; périmètre marque\tGlobal — FR\tFréjus\t\thttps://www.linkedin.com/in/alexandrefreliger/\tDÉCIDEUR : Head of Communication. Profil LinkedIn ouvert le 21/10/2026.",
+    "P1\tWard\tWAUTERS\tCountry Manager Benelux\tEkoï Benelux\tBE + NL + LU\tGooik\t\thttps://www.linkedin.com/in/ward-wauters-b06a4a179/\tSEUL salarié Benelux. Profil LinkedIn ouvert le 21/10/2026.",
+  ].join("\n");
+  const ekoiParsed = parseCartoText(ekoi);
+  assert(!ekoiParsed.error, ekoiParsed.error || "ekoi error");
+  assert(ekoiParsed.rows.length === 2, `ekoi: attendu 2, got ${ekoiParsed.rows.length}`);
+  assert(ekoiParsed.rows[0].prenom === "Alexandre", `ekoi prenom: ${ekoiParsed.rows[0].prenom}`);
+  assert(ekoiParsed.rows[0].nom === "FRELIGER", `ekoi nom: ${ekoiParsed.rows[0].nom}`);
+  assert(
+    ekoiParsed.rows[0].linkedinUrl.includes("alexandrefreliger"),
+    `ekoi linkedin: ${ekoiParsed.rows[0].linkedinUrl}`
+  );
+  assert(ekoiParsed.rows[1].prenom === "Ward", ekoiParsed.rows[1].prenom);
+
   console.log("parse-carto.test.ts OK");
 }
 

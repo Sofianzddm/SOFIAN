@@ -41,33 +41,43 @@ const norm = (s: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+/**
+ * Les `.includes("linkedin"|"etablissement"|…)` ne doivent matcher que des
+ * libellés d’en-tête courts. Sinon une note « Profil LinkedIn ouvert… » ou un
+ * périmètre « établissement du budget » est pris pour une 2ᵉ ligne d’en-tête
+ * → prénom/nom vides à l’import enrichissement.
+ */
+const HEADER_LABEL_MAX = 48;
+
 function mapHeader(cells: string[]): Record<string, number> | null {
   const cols: Record<string, number> = {};
   cells.forEach((raw, idx) => {
     const c = norm(raw);
     if (!c) return;
+    const short = c.length <= HEADER_LABEL_MAX;
     if (c === "prenom" || c === "firstname" || c === "first name") {
       cols.prenom = idx;
     } else if (
-      c === "hotel" ||
-      c === "hotels" ||
-      c.startsWith("hotel") ||
-      c.includes("etablissement") ||
-      c === "prestataire" ||
-      c === "maison" ||
-      c === "enseigne" ||
-      c === "nom hotel" ||
-      c === "nom de l hotel" ||
-      c === "nom de l'hotel" ||
-      c === "nom etablissement" ||
-      c === "traiteur" ||
-      c === "fleuriste" ||
-      c === "decorateur" ||
-      c === "studio" ||
-      c === "institut" ||
-      c === "societe" ||
-      c === "société" ||
-      c === "transporteur"
+      short &&
+      (c === "hotel" ||
+        c === "hotels" ||
+        c.startsWith("hotel") ||
+        c.includes("etablissement") ||
+        c === "prestataire" ||
+        c === "maison" ||
+        c === "enseigne" ||
+        c === "nom hotel" ||
+        c === "nom de l hotel" ||
+        c === "nom de l'hotel" ||
+        c === "nom etablissement" ||
+        c === "traiteur" ||
+        c === "fleuriste" ||
+        c === "decorateur" ||
+        c === "studio" ||
+        c === "institut" ||
+        c === "societe" ||
+        c === "société" ||
+        c === "transporteur")
     ) {
       if (cols.hotel === undefined) cols.hotel = idx;
     } else if (
@@ -83,9 +93,9 @@ function mapHeader(cells: string[]): Record<string, number> | null {
       c === "interlocuteur"
     ) {
       if (cols.nom === undefined) cols.nom = idx;
-    } else if (c.startsWith("prior")) {
+    } else if (short && c.startsWith("prior")) {
       cols.priorite = idx;
-    } else if (c.includes("linkedin")) {
+    } else if (short && c.includes("linkedin")) {
       cols.linkedinUrl = idx;
     } else if (
       c === "email" ||
@@ -97,29 +107,30 @@ function mapHeader(cells: string[]): Record<string, number> | null {
       c === "adresse mail"
     ) {
       cols.email = idx;
-    } else if (c.includes("role") || c === "poste" || c === "titre") {
+    } else if (short && (c.includes("role") || c === "poste" || c === "titre")) {
       cols.poste = idx;
     } else if (
-      c === "telephone" ||
-      c === "tel" ||
-      c === "phone" ||
-      c === "mobile" ||
-      c.includes("telephone")
+      short &&
+      (c === "telephone" ||
+        c === "tel" ||
+        c === "phone" ||
+        c === "mobile" ||
+        c.includes("telephone"))
     ) {
       cols.telephone = idx;
-    } else if (c.includes("equipe") || c.includes("perim")) {
+    } else if (short && (c.includes("equipe") || c.includes("perim"))) {
       cols.perimetre = idx;
-    } else if (c.includes("marque")) {
+    } else if (short && c.includes("marque")) {
       cols.marquesGerees = idx;
     } else if (c === "ville" || c === "city" || c === "town") {
       cols.ville = idx;
-    } else if (c.includes("marche") || c === "market") {
+    } else if (short && (c.includes("marche") || c === "market")) {
       cols.marche = idx;
-    } else if (c.startsWith("local")) {
+    } else if (short && c.startsWith("local")) {
       cols.localisation = idx;
     } else if (c === "note" || c === "notes" || c === "commentaire" || c === "comment") {
       cols.note = idx;
-    } else if (c === "lieu" || c === "restaurant") {
+    } else if (short && (c === "lieu" || c === "restaurant")) {
       if (cols.hotel === undefined) cols.hotel = idx;
     }
   });
