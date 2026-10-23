@@ -20,23 +20,37 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { talentId, purpose } = body as {
+    const { talentId, collaborationId, purpose } = body as {
       talentId?: string;
-      /** talentPhoto (défaut) | storyScreenshots */
+      collaborationId?: string;
+      /** talentPhoto (défaut) | storyScreenshots | collabStatScreenshots */
       purpose?: string;
     };
 
-    if (!talentId) {
+    const timestamp = Math.round(new Date().getTime() / 1000);
+    // Dossiers autorisés uniquement (ne jamais accepter un folder arbitraire du client)
+    let folder = "glowup-talents";
+    let idForPublic = talentId;
+
+    if (purpose === "storyScreenshots") {
+      folder = "glowup-talent-stories";
+      if (!talentId) {
+        return NextResponse.json({ error: "talentId requis" }, { status: 400 });
+      }
+    } else if (purpose === "collabStatScreenshots") {
+      folder = "glowup-collab-stats";
+      idForPublic = collaborationId;
+      if (!collaborationId) {
+        return NextResponse.json(
+          { error: "collaborationId requis" },
+          { status: 400 }
+        );
+      }
+    } else if (!talentId) {
       return NextResponse.json({ error: "talentId requis" }, { status: 400 });
     }
 
-    const timestamp = Math.round(new Date().getTime() / 1000);
-    // Dossiers autorisés uniquement (ne jamais accepter un folder arbitraire du client)
-    const folder =
-      purpose === "storyScreenshots"
-        ? "glowup-talent-stories"
-        : "glowup-talents";
-    const publicId = `${talentId}-${timestamp}-${Math.random()
+    const publicId = `${idForPublic}-${timestamp}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
 

@@ -419,6 +419,7 @@ model User {
   coiffeurSlotsCreated            CannesCoiffeurSlot[]        @relation("CannesCoiffeurSlotCreator")
   coiffeurBookingsPlaced          CannesCoiffeurBooking[]     @relation("CannesCoiffeurBookingCreator")
   activationReportsCreated        ActivationReport[]          @relation("ActivationReportCreatedBy")
+  collabStatsSaisies              CollabStatPublication[]     @relation("CollabStatSaisiPar")
 
   gmailToken GmailToken?
 
@@ -1610,6 +1611,7 @@ model Collaboration {
   contratMarqueAnnotations     ContratMarqueAnnotation[]
   contratMarqueVersions        ContratMarqueVersion[]
   contratMarqueVersionActuelle Int                        @default(0)
+  statPublications             CollabStatPublication[]
 
   @@index([talentId])
   @@index([marqueId])
@@ -1619,6 +1621,52 @@ model Collaboration {
   @@index([isPrivate])
   @@index([depenseId])
   @@map("collaborations")
+}
+
+// Stats post-publication saisies manuellement (assistante TM) + screens
+model CollabStatPublication {
+  id              String        @id @default(cuid())
+  collaborationId String
+  collaboration   Collaboration @relation(fields: [collaborationId], references: [id], onDelete: Cascade)
+
+  typeContenu     String // REEL | POST | TIKTOK | STORY
+  label           String?
+  urlPublication  String?
+  datePublication DateTime?
+
+  vues         Int?
+  likes        Int?
+  commentaires Int?
+  partages     Int?
+  saves        Int?
+  notes        String? @db.Text
+
+  saisiParId String?
+  saisiPar   User?     @relation("CollabStatSaisiPar", fields: [saisiParId], references: [id], onDelete: SetNull)
+  saisiAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  screenshots CollabStatScreenshot[]
+
+  @@index([collaborationId])
+  @@index([saisiParId])
+  @@map("collab_stat_publications")
+}
+
+model CollabStatScreenshot {
+  id            String                @id @default(cuid())
+  publicationId String
+  publication   CollabStatPublication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+
+  imageUrl  String
+  label     String?
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([publicationId])
+  @@map("collab_stat_screenshots")
 }
 
 model ContratMarqueVersion {

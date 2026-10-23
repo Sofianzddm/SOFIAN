@@ -41,11 +41,13 @@ import {
   Languages,
   UserRound,
   UserMinus,
+  BarChart3,
 } from "lucide-react";
 import { MentionTextarea, renderCommentWithMentions, type MentionableUser } from "@/components/MentionTextarea";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
 import ContratMarqueBloc from "@/components/collaboration/ContratMarqueBloc";
 import ContratUploadModal from "@/components/collaboration/ContratUploadModal";
+import CollabStatsTab from "@/components/collaboration/CollabStatsTab";
 import DelegationBanner from "@/components/delegation/DelegationBanner";
 import { DEVISES, formatMontant, type DeviseCode } from "@/lib/devises";
 import {
@@ -294,6 +296,7 @@ export default function CollabDetailPage() {
   const { locked: crmLocked, refresh: refreshNomCampagneGate } = useNomCampagneGate();
   const [collab, setCollab] = useState<CollabDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mainTab, setMainTab] = useState<"overview" | "stats">("overview");
   const [updating, setUpdating] = useState(false);
   const [generatingDoc, setGeneratingDoc] = useState(false);
   const [showPerduModal, setShowPerduModal] = useState(false);
@@ -1524,6 +1527,47 @@ export default function CollabDetailPage() {
           </div>
         </div>
 
+        {/* Onglets Aperçu / Statistiques */}
+        <div className="flex gap-1 mb-8 p-1 bg-slate-100/80 rounded-xl w-fit">
+          <button
+            type="button"
+            onClick={() => setMainTab("overview")}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              mainTab === "overview"
+                ? "bg-white text-glowup-licorice shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Aperçu
+          </button>
+          <button
+            type="button"
+            onClick={() => setMainTab("stats")}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              mainTab === "stats"
+                ? "bg-white text-glowup-licorice shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            <BarChart3 className="w-4 h-4" />
+            Statistiques
+          </button>
+        </div>
+
+        {mainTab === "stats" && (
+          <div className="mb-8">
+            <CollabStatsTab
+              collaborationId={collab.id}
+              role={roleForUi}
+              isViewOnly={isViewOnly}
+              defaultUrlPublication={collab.lienPublication}
+              defaultDatePublication={collab.datePublication}
+            />
+          </div>
+        )}
+
+        {mainTab === "overview" && (
+        <>
         {/* Alertes */}
         {collab.statut === "PERDU" && collab.raisonPerdu && (
           <div className="bg-white border border-red-100 rounded-2xl p-5 flex items-start gap-4 mb-8 shadow-sm">
@@ -3098,6 +3142,8 @@ export default function CollabDetailPage() {
           </div>
         </div>
         </div>
+        </>
+        )}
       </div>
 
       {/* Modals */}
