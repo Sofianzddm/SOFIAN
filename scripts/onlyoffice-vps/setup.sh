@@ -77,10 +77,20 @@ EOF
 cat > Caddyfile <<EOF
 ${DOMAIN} {
 	encode gzip
-	reverse_proxy onlyoffice:80
+
 	header {
+		X-Robots-Tag "noindex, nofollow, noarchive"
 		Content-Security-Policy "frame-ancestors https://app.glowupagence.fr http://localhost:3000"
 		-Server
+	}
+
+	handle /robots.txt {
+		header Content-Type "text/plain; charset=utf-8"
+		respond "User-agent: *\nDisallow: /\n" 200
+	}
+
+	handle {
+		reverse_proxy onlyoffice:80
 	}
 }
 EOF

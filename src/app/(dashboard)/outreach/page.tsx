@@ -860,10 +860,14 @@ export default function OutreachPage() {
       });
   }, [visibleGroups, activeTab]);
 
-  /** Clé de recherche IA = sous-marques si présentes, sinon maison mère (comme CastingComposer). */
-  const composerResearchBrandName = useMemo(() => {
-    if (!composerGroup) return "";
-    const covered = Array.from(
+  /**
+   * Clés de lookup cache = chaque sous-marque séparément (jamais un join).
+   * Si une seule marque → c’est la pitch ; si plusieurs → le composer force le choix
+   * et ne préremplit pas un cache joint.
+   */
+  const composerCoveredBrands = useMemo(() => {
+    if (!composerGroup) return [] as string[];
+    return Array.from(
       new Set(
         composerGroup.targets
           .flatMap((t) => t.coveredBrands || [])
@@ -871,9 +875,14 @@ export default function OutreachPage() {
           .filter(Boolean)
       )
     );
-    if (covered.length > 0) return covered.join(", ");
-    return composerGroup.company;
   }, [composerGroup]);
+
+  const composerResearchBrandName = useMemo(() => {
+    if (!composerGroup) return "";
+    if (composerCoveredBrands.length === 1) return composerCoveredBrands[0]!;
+    if (composerCoveredBrands.length > 1) return "";
+    return composerGroup.company;
+  }, [composerGroup, composerCoveredBrands]);
 
   const composerCacheMarket: Market =
     composerGroup?.targets[0]?.pipeline === "BENELUX" ? "BENELUX" : market;
@@ -2687,44 +2696,32 @@ export default function OutreachPage() {
             : "fr"
         }
         initialBrandResearch={
-          composerGroup
+          composerGroup && composerResearchBrandName
             ? lookupOutreachBrandCache(
                 loadOutreachBrandResearchCache(composerCacheMarket),
-                composerResearchBrandName,
-                composerGroup.company
+                composerResearchBrandName
               )
             : null
         }
         initialTalentResearch={
-          composerGroup
+          composerGroup && composerResearchBrandName
             ? lookupOutreachBrandCache(
                 loadOutreachTalentResearchCache(composerCacheMarket),
-                composerResearchBrandName,
-                composerGroup.company
+                composerResearchBrandName
               )
             : null
         }
         initialLeynaExchange={
-          composerGroup
+          composerGroup && composerResearchBrandName
             ? lookupOutreachBrandCache(
                 loadOutreachLeynaExchangeCache(composerCacheMarket),
-                composerResearchBrandName,
-                composerGroup.company
+                composerResearchBrandName
               )
             : null
         }
         onBrandResearchCached={(brandName, research) => {
+          // Uniquement sous la marque pitchée — pas sous le nom d’agence.
           cacheOutreachBrandResearch(composerCacheMarket, brandName, research);
-          if (
-            composerGroup?.company &&
-            composerGroup.company.trim() !== brandName.trim()
-          ) {
-            cacheOutreachBrandResearch(
-              composerCacheMarket,
-              composerGroup.company,
-              research
-            );
-          }
         }}
         onTalentResearchCached={(brandName, research) => {
           cacheOutreachTalentResearch(composerCacheMarket, brandName, research);

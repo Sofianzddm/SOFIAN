@@ -25,9 +25,14 @@ export type IndivCachedTalentResearchItem = {
 
 export type IndivCachedLeynaExchange = {
   hasExchange: boolean;
+  hasSentNoReplyOnly?: boolean;
   tone?: "tu" | "vous" | null;
   bannerLabel?: string | null;
   alerts?: string[];
+  promptBlockFr?: string;
+  promptBlockEn?: string;
+  scanStatus?: "ok" | "empty" | "failed";
+  fetchedAt?: string | null;
   contacts?: Array<{
     email: string;
     subject?: string | null;

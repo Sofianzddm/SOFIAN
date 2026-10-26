@@ -71,6 +71,8 @@ export type LeynaExchangeContactHit = {
   messageCount?: number;
 };
 
+export type LeynaScanStatus = "ok" | "empty" | "failed";
+
 export type LeynaExchangeContext = {
   hasExchange: boolean;
   /** Ton dominant pour la rédaction (null = défaut vouvoiement). */
@@ -82,6 +84,11 @@ export type LeynaExchangeContext = {
   bannerLabel: string | null;
   promptBlockFr: string;
   promptBlockEn: string;
+  /** ok = scan terminé ; empty = rien trouvé ; failed = erreur technique. */
+  scanStatus: LeynaScanStatus;
+  fetchedAt: string;
+  /** true s’il n’y a que des envois sans réponse (pas d’échange). */
+  hasSentNoReplyOnly: boolean;
 };
 
 type GmailPayloadPart = {
@@ -587,15 +594,23 @@ ${excerpt}`,
   }
 }
 
-function emptyContext(): LeynaExchangeContext {
+function emptyContext(
+  scanStatus: LeynaScanStatus = "empty"
+): LeynaExchangeContext {
   return {
     hasExchange: false,
     tone: null,
     contacts: [],
     alerts: [],
-    bannerLabel: null,
+    bannerLabel:
+      scanStatus === "failed"
+        ? "Scan Leyna échoué — réessayer (ne pas inventer d’historique)"
+        : null,
     promptBlockFr: "",
     promptBlockEn: "",
+    scanStatus,
+    fetchedAt: new Date().toISOString(),
+    hasSentNoReplyOnly: false,
   };
 }
 
@@ -705,19 +720,53 @@ function emailMatchesBrandDomain(email: string, brandDomains: string[]): boolean
   return brandDomains.some((d) => e.endsWith(`@${d}`) || e.endsWith(`.${d}`));
 }
 
-/** Le fil concerne bien CETTE marque (sinon on affiche Airalo/Yepoda sur Dr. Herma). */
+/**
+ * Le fil concerne bien CETTE marque pitchée.
+ * Si le destinataire est une agence multi-marques, on exige la marque dans
+ * l’objet / le corps Leyna (sinon un fil « autre marque via Nice Work » pollue Kiko).
+ */
 function threadIsRelevantToBrand(args: {
   sides: ThreadSides;
   candidate: { anchorEmail: string };
   emails: string[];
   brandDomains: string[];
   brandName: string;
+  /** Domaines d’agence (optionnel) : mails @agence sans marque dans le fil → rejet. */
+  agencyDomains?: string[];
 }): boolean {
   const { sides, candidate, emails, brandDomains, brandName } = args;
+  const agencyDomains = args.agencyDomains || [];
   const anchor = candidate.anchorEmail.toLowerCase();
 
+  const brandInThread =
+    brandInSubjectHint(sides.subject, brandName) ||
+    sides.leynaTexts.some((t) => brandInSubjectHint(t.slice(0, 500), brandName)) ||
+    sides.clientTexts.some((t) => brandInSubjectHint(t.slice(0, 500), brandName));
+
+  const anchorIsAgencyDomain = agencyDomains.some(
+    (d) =>
+      anchor === `*@${d}` ||
+      anchor === `to@${d}` ||
+      anchor.endsWith(`@${d}`) ||
+      (anchor.includes("@") && (anchor.endsWith(`@${d}`) || anchor.endsWith(`.${d}`)))
+  );
+  const clientFromAgency = sides.clientFroms.some((e) =>
+    agencyDomains.some((d) => e.endsWith(`@${d}`) || e.endsWith(`.${d}`))
+  );
+  // Contact / fil agence : rattacher UNIQUEMENT si la marque pitchée apparaît.
+  if ((anchorIsAgencyDomain || clientFromAgency) && agencyDomains.length > 0) {
+    return brandInThread;
+  }
+
   // Destinataire CRM exact
-  if (emails.some((e) => e === anchor)) return true;
+  if (emails.some((e) => e === anchor)) {
+    // CRM exact : OK, mais si on a aussi des domaines agence et PAS de domaine marque,
+    // exiger quand même un hint marque pour éviter le mélange portefeuille.
+    if (agencyDomains.length > 0 && brandDomains.length === 0) {
+      return brandInThread;
+    }
+    return true;
+  }
 
   // Ancre domaine marque (from:@ / to:@)
   if (
@@ -737,7 +786,7 @@ function threadIsRelevantToBrand(args: {
   }
 
   // Marque dans l'objet
-  if (brandInSubjectHint(sides.subject, brandName)) return true;
+  if (brandInThread) return true;
 
   // Variante local-part : seulement si ce local correspond à un email CRM précis
   // (jamais pour collaborations@ / partnerships@ génériques — déjà exclus en amont).
@@ -763,6 +812,7 @@ function threadIsRelevantToBrand(args: {
           ) ||
             brandDomains.includes(crmDomain))
         ) {
+          if (agencyDomains.includes(crmDomain)) return brandInThread;
           return true;
         }
       }
@@ -800,6 +850,8 @@ export async function getLeynaExchangeContext(args: {
   recipientEmails: string[];
   brandName?: string | null;
   talentNames?: string[];
+  /** Nom d’agence (ex. Nice Work) : les fils @agence doivent citer la marque pitchée. */
+  agencyName?: string | null;
 }): Promise<LeynaExchangeContext> {
   const emails = Array.from(
     new Set(
@@ -810,11 +862,49 @@ export async function getLeynaExchangeContext(args: {
   ).slice(0, MAX_CONTACTS);
 
   const brandName = String(args.brandName || "").trim() || "la marque";
+  const agencyName = String(args.agencyName || "").trim();
   const talentNames = (args.talentNames || []).map((n) => n.trim()).filter(Boolean);
-  const brandDomains = resolveBrandDomains(brandName, emails);
+  /**
+   * Agence multi-marques (ex. Nice Work → Kiko) :
+   * les domaines des emails destinataires appartiennent à l’AGENCE, pas à la marque.
+   * Sinon brandDomains absorbe @nicework…, agencyDomains devient vide, et tous les
+   * fils de l’agence polluent l’historique de la marque pitchée.
+   *
+   * Même sans agencyName explicite : si les emails CRM sont sur un domaine qui
+   * n’est pas celui de la marque (jade@nicework.fr sur fiche KIKO), traiter ces
+   * domaines comme agence → exiger la marque pitchée dans le fil.
+   */
+  const agencyDistinct =
+    Boolean(agencyName) &&
+    agencyName.toLowerCase() !== brandName.toLowerCase();
+  const brandDomainsFromName = resolveBrandDomains(brandName, []);
+  const emailDomains = Array.from(
+    new Set(
+      emails
+        .map((e) => domainFromEmail(e))
+        .filter((d): d is string => Boolean(d))
+    )
+  );
+  const foreignEmailDomains = emailDomains.filter(
+    (d) => !brandDomainsFromName.includes(d)
+  );
+  let brandDomains: string[];
+  let agencyDomains: string[];
+  if (agencyDistinct) {
+    brandDomains = brandDomainsFromName;
+    agencyDomains = resolveBrandDomains(agencyName, emails).filter(
+      (d) => !brandDomains.includes(d)
+    );
+  } else if (foreignEmailDomains.length > 0 && brandDomainsFromName.length > 0) {
+    brandDomains = brandDomainsFromName;
+    agencyDomains = foreignEmailDomains;
+  } else {
+    brandDomains = resolveBrandDomains(brandName, emails);
+    agencyDomains = [];
+  }
 
   if (emails.length === 0 && brandName.length < 2) {
-    return emptyContext();
+    return emptyContext("empty");
   }
 
   type Candidate = {
@@ -879,38 +969,42 @@ export async function getLeynaExchangeContext(args: {
     }
   };
 
+  let gmailAttempts = 0;
+  let gmailFailures = 0;
+  const trackGmail = async <T>(label: string, fn: () => Promise<T>): Promise<T | null> => {
+    gmailAttempts += 1;
+    try {
+      return await fn();
+    } catch (e) {
+      gmailFailures += 1;
+      console.warn(
+        `[leyna-exchange-context] ${label}:`,
+        e instanceof Error ? e.message : e
+      );
+      return null;
+    }
+  };
+
   try {
     // 1) Par destinataire — TOUS les fils (pas seulement ceux avec réponse)
     for (const email of emails) {
-      try {
-        await pushAllSentTo(email);
-      } catch (e) {
-        console.warn(
-          `[leyna-exchange-context] search ${email}:`,
-          e instanceof Error ? e.message : e
-        );
-      }
+      await trackGmail(`search ${email}`, () => pushAllSentTo(email));
       // Variantes local-part (eclavery@ → eclavery-ext@) — JAMAIS pour les
       // locaux génériques (collaborations, partnerships, contact…) sinon on
       // ramène Yepoda / Yazio / Airalo sur une autre marque.
       const local = email.split("@")[0]?.replace(/[^a-z0-9._+-]/gi, "") || "";
       if (local.length >= 5 && !isGenericLocalPart(local)) {
-        try {
+        await trackGmail(`local ${local}`, async () => {
           const q = `newer_than:${LOOKBACK_DAYS}d (from:${local} OR to:${local} OR cc:${local})`;
           const msgs = await findRecentMessagesByQuery(LEYNA_FROM_EMAIL, q, 50);
           pushMsgs(msgs.slice(0, 50), `local:${local}`, false);
-        } catch (e) {
-          console.warn(
-            `[leyna-exchange-context] local ${local}:`,
-            e instanceof Error ? e.message : e
-          );
-        }
+        });
       }
     }
 
     // 2a) Inbound domaine marque (from:@) — réponses client = vrais échanges
     for (const domain of brandDomains.slice(0, 4)) {
-      try {
+      await trackGmail(`inbound ${domain}`, async () => {
         const q = `newer_than:${LOOKBACK_DAYS}d from:${domain}`;
         const msgs = await findRecentMessagesByQuery(
           LEYNA_FROM_EMAIL,
@@ -918,17 +1012,12 @@ export async function getLeynaExchangeContext(args: {
           MAX_INBOUND_BRAND
         );
         pushMsgs(msgs.slice(0, MAX_INBOUND_BRAND), `*@${domain}`, true);
-      } catch (e) {
-        console.warn(
-          `[leyna-exchange-context] inbound ${domain}:`,
-          e instanceof Error ? e.message : e
-        );
-      }
+      });
     }
 
     // 2b) Filet large to/cc domaine (complète si peu d’inbound)
     for (const domain of brandDomains.slice(0, 4)) {
-      try {
+      await trackGmail(`domain ${domain}`, async () => {
         const q = `newer_than:${LOOKBACK_DAYS}d (to:${domain} OR cc:${domain})`;
         const msgs = await findRecentMessagesByQuery(
           LEYNA_FROM_EMAIL,
@@ -936,12 +1025,7 @@ export async function getLeynaExchangeContext(args: {
           MAX_BRAND_SCAN
         );
         pushMsgs(msgs.slice(0, MAX_BRAND_SCAN), `to@${domain}`, false);
-      } catch (e) {
-        console.warn(
-          `[leyna-exchange-context] domain ${domain}:`,
-          e instanceof Error ? e.message : e
-        );
-      }
+      });
     }
 
     // 3) Par nom de marque dans l'objet / corps (nom complet + slug compact uniquement —
@@ -961,7 +1045,7 @@ export async function getLeynaExchangeContext(args: {
       brandQueries.push(`subject:${brandCompact}`);
     }
     if (brandQueries.length > 0) {
-      try {
+      await trackGmail("brand subject", async () => {
         const q = `newer_than:${LOOKBACK_DAYS}d (${brandQueries.join(" OR ")})`;
         const msgs = await findRecentMessagesByQuery(
           LEYNA_FROM_EMAIL,
@@ -969,12 +1053,7 @@ export async function getLeynaExchangeContext(args: {
           MAX_BRAND_SCAN
         );
         pushMsgs(msgs.slice(0, MAX_BRAND_SCAN), `brand:${brandToken}`, false);
-      } catch (e) {
-        console.warn(
-          `[leyna-exchange-context] brand subject:`,
-          e instanceof Error ? e.message : e
-        );
-      }
+      });
     }
 
     // Priorité : knownReplied d'abord, puis plus récents
@@ -1031,6 +1110,7 @@ export async function getLeynaExchangeContext(args: {
           emails,
           brandDomains,
           brandName,
+          agencyDomains,
         })
       ) {
         continue;
@@ -1145,10 +1225,17 @@ export async function getLeynaExchangeContext(args: {
         return tb - ta;
       });
 
-    if (hits.length === 0) return emptyContext();
+    if (hits.length === 0) {
+      // Toutes les requêtes Gmail ont échoué (OAuth, réseau…) ≠ « aucun historique ».
+      if (gmailAttempts > 0 && gmailFailures >= gmailAttempts) {
+        return emptyContext("failed");
+      }
+      return emptyContext("empty");
+    }
 
     const exchangeHits = hits.filter((h) => h.status !== "sent_no_reply");
     const hasExchange = exchangeHits.length > 0;
+    const hasSentNoReplyOnly = !hasExchange && hits.length > 0;
 
     // Dès qu’un vrai échange tutoie, on garde le tutoiement (jamais rebasculer
     // en vouvoiement à cause d’un vieux mail d’ouverture en « vous »).
@@ -1262,12 +1349,15 @@ ${detailsFr}
       bannerLabel,
       promptBlockFr,
       promptBlockEn,
+      scanStatus: "ok",
+      fetchedAt: new Date().toISOString(),
+      hasSentNoReplyOnly,
     };
   } catch (e) {
     console.warn(
       "[leyna-exchange-context] échec global soft-fail:",
       e instanceof Error ? e.message : e
     );
-    return emptyContext();
+    return emptyContext("failed");
   }
 }

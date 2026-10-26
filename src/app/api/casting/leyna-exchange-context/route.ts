@@ -31,6 +31,8 @@ export async function POST(request: NextRequest) {
       : [];
     const brandName =
       typeof body?.brandName === "string" ? body.brandName.trim() : "";
+    const agencyName =
+      typeof body?.agencyName === "string" ? body.agencyName.trim() : "";
     const talentNames = Array.isArray(body?.talentNames)
       ? body.talentNames.map((n: unknown) => String(n || "").trim()).filter(Boolean)
       : [];
@@ -38,6 +40,7 @@ export async function POST(request: NextRequest) {
     const context = await getLeynaExchangeContext({
       recipientEmails,
       brandName,
+      agencyName: agencyName || null,
       talentNames,
     });
 
@@ -50,9 +53,13 @@ export async function POST(request: NextRequest) {
           hasExchange: false,
           tone: null,
           contacts: [],
-          bannerLabel: null,
+          bannerLabel: "Scan Leyna échoué — réessayer",
           promptBlockFr: "",
           promptBlockEn: "",
+          scanStatus: "failed",
+          fetchedAt: new Date().toISOString(),
+          hasSentNoReplyOnly: false,
+          alerts: [],
         },
       },
       { status: 200 }

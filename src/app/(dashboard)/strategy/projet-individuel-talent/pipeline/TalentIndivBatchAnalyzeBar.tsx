@@ -9,6 +9,7 @@ import {
   loadIndivLeynaExchangeCache,
   loadIndivTalentResearchCache,
 } from "@/lib/indiv-talent-batch-cache";
+import { buildDraftPrepBrief } from "@/lib/draft-prep-brief";
 
 type MissionLite = {
   id: string;
@@ -44,7 +45,50 @@ type TalentLite = {
   id: string;
   name: string;
   instagram?: string | null;
+  niches?: string[];
+  igFollowers?: number;
+  ttFollowers?: number;
 };
+
+/** Stats talent pour generate-email (évite followers: 0 en lot). */
+async function loadTalentStatsForDraft(
+  talentId: string,
+  signal?: AbortSignal
+): Promise<{
+  niches: string[];
+  igFollowers: number;
+  ttFollowers: number;
+  instagram: string | null;
+}> {
+  try {
+    const res = await fetch(`/api/talents/${encodeURIComponent(talentId)}`, {
+      credentials: "include",
+      signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { niches: [], igFollowers: 0, ttFollowers: 0, instagram: null };
+    }
+    const t = data.talent || data;
+    const stats = t?.stats || {};
+    const niches = Array.isArray(t?.niches)
+      ? t.niches.map((n: unknown) => String(n || "").trim()).filter(Boolean)
+      : Array.isArray(t?.categories)
+        ? t.categories.map((n: unknown) => String(n || "").trim()).filter(Boolean)
+        : [];
+    return {
+      niches,
+      igFollowers: Number(stats.igFollowers ?? t?.igFollowers ?? 0) || 0,
+      ttFollowers: Number(stats.ttFollowers ?? t?.ttFollowers ?? 0) || 0,
+      instagram:
+        typeof t?.instagram === "string" && t.instagram.trim()
+          ? t.instagram.trim()
+          : null,
+    };
+  } catch {
+    return { niches: [], igFollowers: 0, ttFollowers: 0, instagram: null };
+  }
+}
 
 /** Lundi 19 oct. 2026 00:00 Europe/Paris — ne traiter que ce qui n’était pas fait avant. */
 const BATCH_SINCE_MS = Date.parse("2026-10-19T00:00:00+02:00");
@@ -72,9 +116,14 @@ type CachedTalentResearchItem = {
 
 type CachedLeynaExchange = {
   hasExchange: boolean;
+  hasSentNoReplyOnly?: boolean;
   tone?: "tu" | "vous" | null;
   bannerLabel?: string | null;
   alerts?: string[];
+  promptBlockFr?: string;
+  promptBlockEn?: string;
+  scanStatus?: "ok" | "empty" | "failed";
+  fetchedAt?: string | null;
   contacts?: Array<{
     email: string;
     subject?: string | null;
@@ -1090,9 +1139,23 @@ export function TalentIndivBatchAnalyzeBar({
       }
       cacheLeynaExchange(t.id, brandName, {
         hasExchange: Boolean(ctx.hasExchange),
+        hasSentNoReplyOnly: Boolean(
+          (ctx as { hasSentNoReplyOnly?: boolean }).hasSentNoReplyOnly
+        ),
         tone: ctx.tone ?? null,
         bannerLabel: ctx.bannerLabel ?? null,
         alerts: Array.isArray(ctx.alerts) ? ctx.alerts : [],
+        promptBlockFr: String(
+          (ctx as { promptBlockFr?: string }).promptBlockFr || ""
+        ),
+        promptBlockEn: String(
+          (ctx as { promptBlockEn?: string }).promptBlockEn || ""
+        ),
+        scanStatus:
+          (ctx as { scanStatus?: "ok" | "empty" | "failed" }).scanStatus ||
+          (ctx.hasExchange ? "ok" : "empty"),
+        fetchedAt:
+          (ctx as { fetchedAt?: string }).fetchedAt || new Date().toISOString(),
         contacts: Array.isArray(ctx.contacts)
           ? ctx.contacts.map((c) => ({
               email: String(c.email || "").trim(),
@@ -1292,13 +1355,13 @@ export function TalentIndivBatchAnalyzeBar({
 
       // Sans contact carte : emails éventuels du scan Leyna (marque) pour le contexte.
       let recipientEmails = contacts.map((c) => c.email).filter(Boolean);
+      const leynaHit = lookupBrandCache(
+        loadIndivLeynaExchangeCache(t.id),
+        m.marqueNom,
+        m.targetBrand,
+        brandName
+      );
       if (recipientEmails.length === 0) {
-        const leynaHit = lookupBrandCache(
-          loadIndivLeynaExchangeCache(t.id),
-          m.marqueNom,
-          m.targetBrand,
-          brandName
-        );
         recipientEmails = Array.from(
           new Set(
             (Array.isArray(leynaHit?.contacts) ? leynaHit!.contacts! : [])
@@ -1308,15 +1371,33 @@ export function TalentIndivBatchAnalyzeBar({
         );
       }
 
+      if (leynaHit?.scanStatus === "failed") {
+        throw new Error(
+          `[carte ${t.name} × ${brandName}] Scan Leyna échoué — pas de rédaction cold.`
+        );
+      }
+
+      const stats = t.id.startsWith("unknown:")
+        ? {
+            niches: [] as string[],
+            igFollowers: 0,
+            ttFollowers: 0,
+            instagram: t.instagram ?? null,
+          }
+        : await loadTalentStatsForDraft(t.id, ac.signal);
+      const ig = stats.igFollowers || t.igFollowers || 0;
+      const tt = stats.ttFollowers || t.ttFollowers || 0;
+      const niche =
+        (stats.niches.length ? stats.niches : t.niches || []).join(", ") || "—";
       const talentsPayload = [
         {
           talentId: t.id,
           name: t.name,
-          niche: "—",
-          followers: 0,
-          igFollowers: 0,
-          ttFollowers: 0,
-          instagram: t.instagram ?? null,
+          niche,
+          followers: Math.max(ig, tt),
+          igFollowers: ig,
+          ttFollowers: tt,
+          instagram: stats.instagram || t.instagram || null,
         },
       ];
 
@@ -1339,6 +1420,49 @@ export function TalentIndivBatchAnalyzeBar({
           ? "en"
           : "fr";
 
+      const prepBrief = buildDraftPrepBrief({
+        recipients: contacts.map((c) => ({
+          firstname: c.firstname,
+          lastname: c.lastname,
+          email: c.email,
+          role: c.role,
+        })),
+        pitchBrand: brandName,
+        agencyName: null,
+        talentName: t.name,
+        strategyAngle: m.recommendedAngle,
+        talentWhyRelevant: talentResearch[0]?.whyRelevant || null,
+        leyna: {
+          scanStatus: leynaHit?.scanStatus || (leynaHit ? "ok" : "empty"),
+          hasExchange: Boolean(leynaHit?.hasExchange),
+          tone: leynaHit?.tone ?? null,
+          hits: (leynaHit?.contacts || []).map((c) => ({
+            email: String(c.email || ""),
+            subject: c.subject ?? null,
+            lastExchangeAt: c.lastExchangeAt ?? null,
+            status: c.status === "sent_no_reply" ? "sent_no_reply" : "exchange",
+            notes: c.notes,
+            alerts: c.alerts,
+            messageCount: c.messageCount,
+            matchedBrand: brandName,
+          })),
+          alerts: leynaHit?.alerts,
+          promptBlockFr: leynaHit?.promptBlockFr,
+          promptBlockEn: leynaHit?.promptBlockEn,
+          fetchedAt: leynaHit?.fetchedAt,
+          bannerLabel: leynaHit?.bannerLabel,
+        },
+        brandResearchStatus: brandResearch ? "ok" : "empty",
+        talentResearchStatus: talentResearch.length > 0 ? "ok" : "empty",
+        missionStage: m.stage,
+      });
+
+      if (prepBrief.needsNegotiationReview) {
+        throw new Error(
+          `[carte ${t.name} × ${brandName}] REVUE NÉGO — ${prepBrief.negotiationReviewReason}`
+        );
+      }
+
       const res = await fetch("/api/casting/generate-email", {
         method: "POST",
         credentials: "include",
@@ -1353,14 +1477,18 @@ export function TalentIndivBatchAnalyzeBar({
           talents: talentsPayload,
           recipientEmails,
           talentResearch,
+          draftPrepBrief: prepBrief,
+          leynaExchangeCache: leynaHit || undefined,
+          missionStage: m.stage,
           ...talentProjectPayload(m, brandName),
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(
-          typeof data.error === "string" ? data.error : "Rédaction impossible"
-        );
+        const code = typeof data.code === "string" ? data.code : "";
+        const msg =
+          typeof data.error === "string" ? data.error : "Rédaction impossible";
+        throw new Error(`[carte ${t.name} × ${brandName}] ${code ? `${code}: ` : ""}${msg}`);
       }
       const subject = String(data.subject || "").trim();
       const body = String(data.body || "").trim();

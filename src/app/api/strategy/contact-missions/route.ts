@@ -572,15 +572,23 @@ export async function PATCH(request: NextRequest) {
       status?: string;
       stage?: string;
       targetBrand?: string;
+      /** Réaffectation CRM explicite (contrôle serveur des rôles). */
+      marqueId?: string | null;
       draftEmailSubject?: string | null;
       draftEmailBody?: string | null;
       draftLanguage?: string | null;
       clientLanguage?: string | null;
       clientContacts?: unknown;
+      draftPrepBrief?: unknown;
     };
     const missionId = String(body.missionId || "").trim();
     const nextTargetBrand =
       body.targetBrand === undefined ? undefined : String(body.targetBrand || "").trim();
+    const marqueIdProvided = body.marqueId !== undefined;
+    const requestedMarqueIdPatch =
+      body.marqueId === null || body.marqueId === ""
+        ? null
+        : String(body.marqueId || "").trim() || null;
     const nextStatus = String(body.status || "").trim().toUpperCase();
     const nextStage = String(body.stage || "").trim().toUpperCase();
     const draftEmailSubject =
@@ -608,11 +616,43 @@ export async function PATCH(request: NextRequest) {
       body.draftLanguage !== undefined;
     const clientContextProvided = body.clientLanguage !== undefined || body.clientContacts !== undefined;
     const brandProvided = nextTargetBrand !== undefined;
-    if (!statusProvided && !stageProvided && !draftProvided && !clientContextProvided && !brandProvided) {
+    if (
+      !statusProvided &&
+      !stageProvided &&
+      !draftProvided &&
+      !clientContextProvided &&
+      !brandProvided &&
+      !marqueIdProvided &&
+      body.draftPrepBrief === undefined
+    ) {
       return NextResponse.json({ error: "Aucune mise à jour fournie." }, { status: 400 });
     }
     if (brandProvided && !nextTargetBrand) {
       return NextResponse.json({ error: "Le nom de la marque ne peut pas être vide." }, { status: 400 });
+    }
+
+    // Réaffectation marque : rôles contrôlés côté serveur (pas seulement UI).
+    const BRAND_REAFFIGN_ROLES = [
+      "ADMIN",
+      "HEAD_OF",
+      "STRATEGY_PLANNER",
+      "CASTING_MANAGER",
+    ] as const;
+    if (brandProvided || marqueIdProvided) {
+      if (
+        !BRAND_REAFFIGN_ROLES.includes(
+          session.user.role as (typeof BRAND_REAFFIGN_ROLES)[number]
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Permissions insuffisantes pour réaffecter la marque de cette carte.",
+            code: "BRAND_REAFFIGN_FORBIDDEN",
+          },
+          { status: 403 }
+        );
+      }
     }
     if (
       statusProvided &&
@@ -686,18 +726,44 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    // Si le nom de marque change (correction de faute), on relie la mission à
-    // la bonne fiche marque (ou on en crée une nouvelle au besoin).
+    // Réaffectation : marqueId explicite prioritaire, sinon rename → relink par nom.
     const brandChanged =
       brandProvided && nextTargetBrand !== currentMission.targetBrand;
-    const effectiveBrand = brandChanged ? (nextTargetBrand as string) : currentMission.targetBrand;
     let marqueIdForUpdate: string | null | undefined = currentMission.marqueId;
-    if (brandChanged) {
+    let effectiveBrand = brandChanged
+      ? (nextTargetBrand as string)
+      : currentMission.targetBrand;
+    let marqueRelinked = false;
+
+    if (marqueIdProvided) {
+      if (requestedMarqueIdPatch) {
+        const marque = await prisma.marque.findUnique({
+          where: { id: requestedMarqueIdPatch },
+          select: { id: true, nom: true },
+        });
+        if (!marque) {
+          return NextResponse.json(
+            { error: "Marque CRM introuvable.", code: "MARQUE_NOT_FOUND" },
+            { status: 404 }
+          );
+        }
+        marqueIdForUpdate = marque.id;
+        effectiveBrand = marque.nom;
+        marqueRelinked = true;
+      } else {
+        marqueIdForUpdate = null;
+        marqueRelinked = true;
+        if (brandProvided && nextTargetBrand) {
+          effectiveBrand = nextTargetBrand;
+        }
+      }
+    } else if (brandChanged) {
       const relinked = await linkMarqueFromBrandName({
         brandName: effectiveBrand,
         source: "CONTACT_MISSION",
       });
       marqueIdForUpdate = relinked?.marqueId ?? null;
+      marqueRelinked = true;
     }
 
     // Sync contacts pipeline → fiche marque (onglet Contacts sur /marques/[id])
@@ -735,15 +801,20 @@ export async function PATCH(request: NextRequest) {
       data: {
         ...(statusProvided ? { status: nextStatus } : {}),
         ...(stageProvided ? { stage: nextStage } : {}),
-        ...(brandChanged
-          ? { targetBrand: effectiveBrand, targetBrandKey: normalizeMissionBrandKey(effectiveBrand) }
-          : {}),
+        ...(brandChanged || marqueRelinked
+          ? {
+              targetBrand: effectiveBrand,
+              targetBrandKey: normalizeMissionBrandKey(effectiveBrand),
+              marqueId: marqueIdForUpdate ?? null,
+            }
+          : marqueIdForUpdate
+            ? { marqueId: marqueIdForUpdate }
+            : {}),
         ...(body.draftEmailSubject !== undefined ? { draftEmailSubject: draftEmailSubject || null } : {}),
         ...(body.draftEmailBody !== undefined ? { draftEmailBody: draftEmailBody || null } : {}),
         ...(body.draftLanguage !== undefined ? { draftLanguage } : {}),
         ...(body.clientLanguage !== undefined ? { clientLanguage: clientLanguage || null } : {}),
         ...(body.clientContacts !== undefined ? { clientContacts: body.clientContacts ?? null } : {}),
-        ...(brandChanged ? { marqueId: marqueIdForUpdate } : marqueIdForUpdate ? { marqueId: marqueIdForUpdate } : {}),
       },
     });
 

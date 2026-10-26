@@ -503,9 +503,12 @@ export function ProspectingPipelineClient() {
     selectedTalentId === ALL_TALENTS
       ? null
       : talents.find((t) => t.id === selectedTalentId) || null;
-  // Rôles autorisés à corriger le nom de la marque sur une carte.
+  // Rôles autorisés à réaffecter la marque (aligné contrôle serveur PATCH).
   const canEditBrand =
-    role === "ADMIN" || role === "HEAD_OF" || role === "STRATEGY_PLANNER";
+    role === "ADMIN" ||
+    role === "HEAD_OF" ||
+    role === "STRATEGY_PLANNER" ||
+    role === "CASTING_MANAGER";
   const canUseReadyTab =
     role === "ADMIN" ||
     role === "HEAD_OF" ||
@@ -794,6 +797,7 @@ export function ProspectingPipelineClient() {
       stage?: Stage;
       status?: string;
       targetBrand?: string;
+      marqueId?: string | null;
       draftEmailSubject?: string;
       draftEmailBody?: string;
       draftLanguage?: "fr" | "en";
@@ -879,6 +883,30 @@ export function ProspectingPipelineClient() {
       cancelEditBrand();
     } catch {
       // erreur déjà affichée via patchMission
+    }
+  }
+
+  /** Réaffectation précise via fiche CRM (marqueId) — ex. Venus → Gillette. */
+  async function reassignBrand(m: Mission, hit: BrandMatch) {
+    if (!canEditBrand) {
+      setError("Permissions insuffisantes pour réaffecter la marque.");
+      return;
+    }
+    setUpdatingId(m.id);
+    setError(null);
+    try {
+      await patchMission(m.id, {
+        marqueId: hit.id,
+        targetBrand: hit.nom,
+      });
+      setSuccess(`Marque réaffectée → « ${hit.nom} » (fiche CRM).`);
+      setBrandSearchByMission((prev) => ({
+        ...prev,
+        [m.id]: { query: "", loading: false, results: [], searched: false },
+      }));
+      cancelEditBrand();
+    } catch {
+      // erreur déjà affichée
     }
   }
 
@@ -2728,45 +2756,113 @@ export function ProspectingPipelineClient() {
                   }
                 >
                   {editingBrandId === m.id ? (
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className="text-sm font-semibold shrink-0"
-                        style={isCastingManager ? { color: LICORICE } : { color: "#111827" }}
-                      >
-                        {m.creatorName} →
-                      </span>
-                      <input
-                        autoFocus
-                        value={editingBrandValue}
-                        onChange={(e) => setEditingBrandValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") void saveBrand(m);
-                          if (e.key === "Escape") cancelEditBrand();
-                        }}
-                        className="min-w-0 flex-1 rounded border border-gray-300 px-1.5 py-0.5 text-sm"
-                        placeholder="Nom de la marque"
-                      />
-                      <button
-                        type="button"
-                        disabled={updatingId === m.id}
-                        onClick={() => void saveBrand(m)}
-                        className="shrink-0 rounded border border-emerald-200 bg-emerald-50 p-1 text-emerald-700 disabled:opacity-50"
-                        title="Enregistrer"
-                      >
-                        {updatingId === m.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Check className="h-3.5 w-3.5" />
+                    <div className="grid min-w-0 gap-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className="text-sm font-semibold shrink-0"
+                          style={isCastingManager ? { color: LICORICE } : { color: "#111827" }}
+                        >
+                          {m.creatorName} →
+                        </span>
+                        <input
+                          autoFocus
+                          value={editingBrandValue}
+                          onChange={(e) => {
+                            setEditingBrandValue(e.target.value);
+                            setBrandSearchByMission((prev) => ({
+                              ...prev,
+                              [m.id]: {
+                                query: e.target.value,
+                                loading: prev[m.id]?.loading || false,
+                                results: prev[m.id]?.results || [],
+                                searched: false,
+                              },
+                            }));
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void searchBrands(m.id);
+                            }
+                            if (e.key === "Escape") cancelEditBrand();
+                          }}
+                          className="min-w-0 flex-1 rounded border border-gray-300 px-1.5 py-0.5 text-sm"
+                          placeholder="Chercher la fiche CRM (ex. Gillette)"
+                        />
+                        <button
+                          type="button"
+                          disabled={
+                            updatingId === m.id ||
+                            editingBrandValue.trim().length < 2
+                          }
+                          onClick={() => void searchBrands(m.id)}
+                          className="shrink-0 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-1 text-[11px] text-indigo-700 disabled:opacity-50"
+                          title="Chercher dans le CRM"
+                        >
+                          {brandSearchByMission[m.id]?.loading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            "CRM"
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={updatingId === m.id}
+                          onClick={() => void saveBrand(m)}
+                          className="shrink-0 rounded border border-emerald-200 bg-emerald-50 p-1 text-emerald-700 disabled:opacity-50"
+                          title="Enregistrer le nom (sans fiche)"
+                        >
+                          {updatingId === m.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Check className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEditBrand}
+                          className="shrink-0 rounded border border-gray-200 bg-white p-1 text-gray-500"
+                          title="Annuler"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {(brandSearchByMission[m.id]?.results.length ?? 0) > 0 && (
+                        <ul className="grid max-h-40 gap-1 overflow-y-auto rounded border border-indigo-100 bg-indigo-50/40 p-1.5">
+                          {brandSearchByMission[m.id]?.results.map((b) => (
+                            <li key={b.id}>
+                              <button
+                                type="button"
+                                disabled={updatingId === m.id}
+                                onClick={() => void reassignBrand(m, b)}
+                                className="flex w-full items-center justify-between gap-2 rounded border border-indigo-200 bg-white px-2 py-1.5 text-left text-[11px] text-indigo-900 hover:bg-indigo-50 disabled:opacity-50"
+                              >
+                                <span className="min-w-0 truncate font-medium">
+                                  {b.nom}
+                                  {b.ville ? (
+                                    <span className="font-normal text-indigo-600/80">
+                                      {" "}
+                                      · {b.ville}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="shrink-0 tabular-nums text-indigo-600">
+                                  {b.contactCount} contact
+                                  {b.contactCount > 1 ? "s" : ""} · rattacher
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {brandSearchByMission[m.id]?.searched &&
+                        !brandSearchByMission[m.id]?.loading &&
+                        (brandSearchByMission[m.id]?.results.length ?? 0) === 0 && (
+                          <p className="text-[11px] text-amber-700">
+                            Aucune fiche CRM pour « {brandSearchByMission[m.id]?.query} ».
+                            Tu peux enregistrer le nom libre, ou créer la fiche ailleurs.
+                          </p>
                         )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={cancelEditBrand}
-                        className="shrink-0 rounded border border-gray-200 bg-white p-1 text-gray-500"
-                        title="Annuler"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
                     </div>
                   ) : (
                     <p

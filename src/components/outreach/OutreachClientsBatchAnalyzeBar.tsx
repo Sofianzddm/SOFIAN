@@ -24,12 +24,14 @@ type Props = {
   onFlash?: (kind: "success" | "error", message: string) => void;
 };
 
-function researchLabel(g: OutreachBatchBrandGroup): string {
+/** Une entrée de recherche = une marque pitchée (jamais un join multi-marques). */
+function pitchBrandsForGroup(g: OutreachBatchBrandGroup): string[] {
   const covered = (g.coveredBrands || [])
     .map((b) => b.trim())
     .filter(Boolean);
-  if (covered.length > 0) return covered.join(", ");
-  return (g.company || "").trim();
+  if (covered.length > 0) return Array.from(new Set(covered));
+  const company = (g.company || "").trim();
+  return company ? [company] : [];
 }
 
 async function mapPool<T>(
@@ -77,13 +79,10 @@ export default function OutreachClientsBatchAnalyzeBar({
     const cache = loadOutreachBrandResearchCache(market);
     let n = 0;
     for (const g of brands) {
+      const pitches = pitchBrandsForGroup(g);
       if (
-        hasOutreachBrandCacheEntry(
-          cache,
-          researchLabel(g),
-          g.company,
-          ...(g.coveredBrands || [])
-        )
+        pitches.length > 0 &&
+        pitches.every((p) => hasOutreachBrandCacheEntry(cache, p))
       ) {
         n += 1;
       }
@@ -95,18 +94,27 @@ export default function OutreachClientsBatchAnalyzeBar({
     refreshCacheCount();
   }, [refreshCacheCount]);
 
-  const pending = useMemo(() => {
+  /** Marques pitchées encore sans cache (1 entrée = 1 marque, pas le groupe). */
+  const pendingPitches = useMemo(() => {
     const cache = loadOutreachBrandResearchCache(market);
-    return brands.filter(
-      (g) =>
-        researchLabel(g) &&
-        !hasOutreachBrandCacheEntry(
-          cache,
-          researchLabel(g),
-          g.company,
-          ...(g.coveredBrands || [])
-        )
-    );
+    const out: Array<{ brandName: string; pipeline?: "FR" | "BENELUX"; alsoInSiblingMarket?: boolean }> =
+      [];
+    const seen = new Set<string>();
+    for (const g of brands) {
+      for (const brandName of pitchBrandsForGroup(g)) {
+        const key = brandName.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        if (!hasOutreachBrandCacheEntry(cache, brandName)) {
+          out.push({
+            brandName,
+            pipeline: g.pipeline,
+            alsoInSiblingMarket: g.alsoInSiblingMarket,
+          });
+        }
+      }
+    }
+    return out;
   }, [brands, market, brandCacheCount]);
 
   async function runBatchBrandResearch() {
@@ -115,11 +123,11 @@ export default function OutreachClientsBatchAnalyzeBar({
       onFlash?.("success", "Aucune marque à analyser.");
       return;
     }
-    const targets = pending;
+    const targets = pendingPitches;
     if (targets.length === 0) {
       onFlash?.(
         "success",
-        `Toutes les marques sont déjà analysées (${brands.length}).`
+        `Toutes les marques sont déjà analysées (${brands.length} groupe${brands.length > 1 ? "s" : ""}).`
       );
       return;
     }
@@ -131,15 +139,15 @@ export default function OutreachClientsBatchAnalyzeBar({
     setDone(0);
     setTotal(targets.length);
     setFailed(0);
-    setCurrent(researchLabel(targets[0]!) || "");
+    setCurrent(targets[0]?.brandName || "");
 
     let ok = 0;
     let fail = 0;
 
-    const analyzeOne = async (g: OutreachBatchBrandGroup) => {
-      const brandName = researchLabel(g);
+    const analyzeOne = async (t: (typeof targets)[number]) => {
+      const brandName = t.brandName;
       const availabilityFocus: "FR" | "BE" =
-        g.pipeline === "BENELUX" && !g.alsoInSiblingMarket ? "BE" : "FR";
+        t.pipeline === "BENELUX" && !t.alsoInSiblingMarket ? "BE" : "FR";
       const res = await fetch("/api/casting/brand-research", {
         method: "POST",
         credentials: "include",
@@ -158,33 +166,26 @@ export default function OutreachClientsBatchAnalyzeBar({
             : "Analyse marque impossible"
         );
       }
+      // Cache uniquement sous la marque pitchée — jamais sous le nom d’agence
+      // (évite de réutiliser une analyse Kiko pour une autre marque Nice Work).
       cacheOutreachBrandResearch(
         market,
         brandName,
         data as OutreachCachedBrandResearch
       );
-      // Aussi indexer sous le nom maison mère pour le lookup composer.
-      if (g.company && g.company.trim() !== brandName) {
-        cacheOutreachBrandResearch(
-          market,
-          g.company.trim(),
-          data as OutreachCachedBrandResearch
-        );
-      }
     };
 
     try {
-      await mapPool(targets, 2, async (g) => {
+      await mapPool(targets, 2, async (t) => {
         if (ac.signal.aborted) return;
-        const label = researchLabel(g);
-        setCurrent(label);
+        setCurrent(t.brandName);
         try {
-          await analyzeOne(g);
+          await analyzeOne(t);
           ok += 1;
         } catch (e) {
           if (ac.signal.aborted) return;
           fail += 1;
-          console.error(`[outreach-batch] brand-research ${label}:`, e);
+          console.error(`[outreach-batch] brand-research ${t.brandName}:`, e);
         } finally {
           if (!ac.signal.aborted) {
             setDone((d) => d + 1);
@@ -202,7 +203,7 @@ export default function OutreachClientsBatchAnalyzeBar({
       } else {
         onFlash?.(
           "success",
-          `Marques analysées (${ok}). Ouvre « Rédiger le mail » → sélectionne les talents → analyse → Leyna.`
+          `Marques analysées (${ok}). Ouvre « Rédiger le mail » → choisis la marque si besoin → talents → Leyna.`
         );
       }
     } finally {
@@ -276,14 +277,18 @@ export default function OutreachClientsBatchAnalyzeBar({
               onClick={() => void runBatchBrandResearch()}
               title="Analyse toutes les marques pas encore en cache"
             >
-              {pending.length > 0 && brandCacheCount > 0 ? (
-                <>Analyser les marques restantes ({pending.length})</>
+              {pendingPitches.length > 0 && brandCacheCount > 0 ? (
+                <>Analyser les marques restantes ({pendingPitches.length})</>
               ) : brandCacheCount >= brands.length && brands.length > 0 ? (
                 <>Marques déjà analysées ({brands.length})</>
               ) : (
                 <>
                   Analyser toutes les marques
-                  {brands.length > 0 ? ` (${brands.length})` : ""}
+                  {pendingPitches.length > 0
+                    ? ` (${pendingPitches.length})`
+                    : brands.length > 0
+                      ? ` (${brands.length})`
+                      : ""}
                 </>
               )}
             </button>

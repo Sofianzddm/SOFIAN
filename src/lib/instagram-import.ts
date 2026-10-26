@@ -133,17 +133,44 @@ export interface InstagramProfileSnapshot {
   fullName?: string;
   followersCount?: number;
   postsCount?: number;
+  /** Lien bio / external URL si dispo via Apify. */
+  externalUrl?: string;
   captions: InstagramCaptionItem[];
+  /** Hashtags les plus fréquents dans les captions scrapées. */
+  topHashtags: string[];
+  /** @mentions les plus fréquents (souvent des marques). */
+  topMentions: string[];
+}
+
+function extractTagCounts(
+  captions: string[],
+  pattern: RegExp
+): string[] {
+  const counts = new Map<string, number>();
+  for (const c of captions) {
+    const matches = c.match(pattern) || [];
+    for (const raw of matches) {
+      const key = raw.toLowerCase();
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 25)
+    .map(([tag]) => tag);
 }
 
 /**
  * Snapshot profil Instagram + dernières captions (posts + reels).
  * Utilisé pour analyser « qui est / ce que fait » un créateur.
+ *
+ * `options.deep` : scrape plus large (jusqu'à 40 posts, captions plus longues)
+ * pour le matching marques ultra-poussé.
  */
 export async function fetchInstagramProfileSnapshot(
   handle: string,
   count: number = 16,
-  options?: { timeoutMs?: number }
+  options?: { timeoutMs?: number; deep?: boolean }
 ): Promise<InstagramProfileSnapshot> {
   const token = process.env.APIFY_TOKEN;
   if (!token) {
@@ -155,11 +182,17 @@ export async function fetchInstagramProfileSnapshot(
     throw new Error("Handle Instagram vide");
   }
 
-  const resultsLimit = Math.min(Math.max(count, 10), 30);
+  const deep = Boolean(options?.deep);
+  const captionMax = deep ? 900 : 450;
+  const resultsLimit = deep
+    ? Math.min(Math.max(count, 28), 45)
+    : Math.min(Math.max(count, 10), 30);
   const timeoutMs =
     typeof options?.timeoutMs === "number" && options.timeoutMs > 0
       ? options.timeoutMs
-      : 50_000;
+      : deep
+        ? 90_000
+        : 50_000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -203,6 +236,8 @@ export async function fetchInstagramProfileSnapshot(
     followersCount?: number;
     followers?: number;
     postsCount?: number;
+    externalUrl?: string;
+    externalUrls?: string[];
     ownerUsername?: string;
     username?: string;
     // Parfois les métas profil sont dans un sous-objet parent
@@ -237,18 +272,33 @@ export async function fetchInstagramProfileSnapshot(
     typeof postsRaw === "number" && Number.isFinite(postsRaw)
       ? postsRaw
       : undefined;
+  const externalUrl = String(
+    first?.externalUrl ||
+      parent?.externalUrl ||
+      (Array.isArray(first?.externalUrls) && first.externalUrls[0]) ||
+      parent?.externalUrl ||
+      ""
+  ).trim();
 
   const captions: InstagramCaptionItem[] = [];
+  const rawCaptions: string[] = [];
   for (const it of items) {
     const caption = String(it.caption || "").trim();
     if (!caption) continue;
+    rawCaptions.push(caption);
     captions.push({
-      caption: caption.length > 450 ? `${caption.slice(0, 450)}…` : caption,
+      caption:
+        caption.length > captionMax
+          ? `${caption.slice(0, captionMax)}…`
+          : caption,
       timestamp: it.timestamp,
       type: it.type,
     });
     if (captions.length >= count) break;
   }
+
+  const topHashtags = extractTagCounts(rawCaptions, /#[\p{L}\p{N}_]+/gu);
+  const topMentions = extractTagCounts(rawCaptions, /@[\p{L}\p{N}._]+/gu);
 
   return {
     handle: cleanHandle,
@@ -256,7 +306,10 @@ export async function fetchInstagramProfileSnapshot(
     ...(fullName ? { fullName } : {}),
     ...(followersCount !== undefined ? { followersCount } : {}),
     ...(postsCount !== undefined ? { postsCount } : {}),
+    ...(externalUrl ? { externalUrl } : {}),
     captions,
+    topHashtags,
+    topMentions,
   };
 }
 

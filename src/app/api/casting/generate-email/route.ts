@@ -12,6 +12,12 @@ import {
   mergeReachHighlights,
 } from "@/lib/talent-perf-reach";
 import { getLeynaExchangeContext } from "@/lib/leyna-exchange-context";
+import {
+  buildDraftPrepBrief,
+  isLeynaCacheFresh,
+  leynaCacheNeedsRefresh,
+  type DraftPrepBrief,
+} from "@/lib/draft-prep-brief";
 import { isTalentIndividualProspectingBrief } from "@/lib/project-research-brief";
 
 export const maxDuration = 180;
@@ -176,6 +182,37 @@ export interface GenerateEmailBody {
    * Emails destinataires cochés — pour chercher un vrai échange Leyna (réponse client).
    */
   recipientEmails?: string[];
+  /** Agence destinataire si distincte de la marque pitchée (ex. Nice Work vs Kiko). */
+  agencyName?: string | null;
+  /** Brief pré-rédaction partagé (composer + batch). */
+  draftPrepBrief?: DraftPrepBrief | null;
+  /** Cache Leyna client — réutilisé s’il est frais ; sinon re-scan. */
+  leynaExchangeCache?: {
+    hasExchange?: boolean;
+    hasSentNoReplyOnly?: boolean;
+    tone?: "tu" | "vous" | null;
+    bannerLabel?: string | null;
+    alerts?: string[];
+    promptBlockFr?: string;
+    promptBlockEn?: string;
+    fetchedAt?: string | null;
+    scanStatus?: "ok" | "empty" | "failed";
+    contacts?: Array<{
+      email: string;
+      subject?: string | null;
+      tone?: "tu" | "vous" | null;
+      notes?: string;
+      alerts?: string[];
+      lastExchangeAt?: string | null;
+      clientSnippet?: string | null;
+      status?: "exchange" | "sent_no_reply";
+      messageCount?: number;
+    }>;
+  } | null;
+  forceLeynaRefresh?: boolean;
+  /** Stage pipeline (IN_NEGOTIATION → revue, pas de prospection auto). */
+  missionStage?: string | null;
+  missionReplied?: boolean;
   /**
    * Condensation multi-projets : N briefs (Alice + Bob…) pour UN mail à UNE marque.
    * Prioritaire sur projectBrief si length >= 2.
@@ -818,14 +855,16 @@ PROJECT PROHIBITIONS (absolute):
     const projectOrCondensationFr = condensationBlockFr || projectBriefBlockFr;
     const projectOrCondensationEn = condensationBlockEn || projectBriefBlockEn;
 
-    // Quand plusieurs marques filles sont fournies (ex. « Dove, Axe, Rexona »),
-    // on précise à l'IA qu'il s'agit de plusieurs marques d'un même groupe gérées
-    // par le contact, pour que le mail parle de ces marques (pas de la maison mère).
+    // Outreach Clients (historique) : brandName peut être « Dove, Axe » joint.
+    // Si agencyName est fourni (pipeline/future extension), priorité à la note
+    // agence vs marque pitchée — sans changer le parcours Outreach actuel.
     const brandCount = brandName
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean).length;
     const firstBrand = brandName.split(",")[0]?.trim() || "";
+    const agencyNameEarly =
+      typeof body.agencyName === "string" ? body.agencyName.trim() : "";
 
     const recipientFirstName =
       typeof body.recipient?.firstName === "string"
@@ -837,29 +876,36 @@ PROJECT PROHIBITIONS (absolute):
         : "";
     const useDirectRecipient = Boolean(recipientFirstName || recipientBrandName);
     const firstNameToken = recipientFirstName || "{{ contact.firstname }}";
-    const brandNameToken = recipientBrandName || "{{ contact.company }}";
+    const brandNameToken =
+      recipientBrandName ||
+      (agencyNameEarly && agencyNameEarly.toLowerCase() !== brandName.toLowerCase()
+        ? brandName
+        : "{{ contact.company }}");
 
-    // Quand plusieurs marques filles sont fournies (ex. « Dove, Axe, Rexona »),
-    // on précise à l'IA qu'il s'agit de plusieurs marques d'un même groupe gérées
-    // par le contact, pour équilibrer les mentions (pas une seule marque partout).
     const multiBrandNoteFr =
-      brandCount > 1
-        ? `\nIMPORTANT — PLUSIEURS MARQUES : « ${brandName} » sont PLUSIEURS marques (marques filles d'un même groupe) gérées par ce contact.
+      agencyNameEarly &&
+      agencyNameEarly.toLowerCase() !== brandName.toLowerCase()
+        ? `\nIMPORTANT — AGENCE vs MARQUE : tu pitches « ${brandName} » ; le destinataire peut être chez « ${agencyNameEarly} ». Ne confonds pas l'agence et la marque. Angle = ${brandName} uniquement.`
+        : brandCount > 1
+          ? `\nIMPORTANT — PLUSIEURS MARQUES : « ${brandName} » sont PLUSIEURS marques (marques filles d'un même groupe) gérées par ce contact.
 - NE MARTÈLE PAS une seule marque (ne répète pas ${firstBrand || "la première"} partout). C'est l'erreur à éviter absolument.
 - Reconnais d'entrée que la personne gère un portefeuille de marques (tu peux les nommer brièvement, ex. « ${brandName} »).
 - Cite AU MAXIMUM 2 nouveautés concrètes, issues de 2 marques DIFFÉRENTES (pas deux nouveautés de la même marque).
 - Le reste du mail parle du portefeuille en général et des créateurs, sans re-citer une marque en boucle.
 - N'utilise ${brandNameToken} (la maison mère) que si c'est naturel ; sinon parle des marques filles.`
-        : "";
+          : "";
     const multiBrandNoteEn =
-      brandCount > 1
-        ? `\nIMPORTANT — MULTIPLE BRANDS: "${brandName}" are SEVERAL brands (sister brands of the same group) managed by this contact.
+      agencyNameEarly &&
+      agencyNameEarly.toLowerCase() !== brandName.toLowerCase()
+        ? `\nIMPORTANT — AGENCY vs BRAND: pitch "${brandName}"; recipient may sit at "${agencyNameEarly}". Do not confuse agency and brand. Angle = ${brandName} only.`
+        : brandCount > 1
+          ? `\nIMPORTANT — MULTIPLE BRANDS: "${brandName}" are SEVERAL brands (sister brands of the same group) managed by this contact.
 - DO NOT hammer a single brand (do not repeat ${firstBrand || "the first one"} everywhere). This is the key mistake to avoid.
 - Acknowledge upfront that this person manages a portfolio of brands (you may briefly name them, e.g. "${brandName}").
 - Mention AT MOST 2 concrete launches, from 2 DIFFERENT brands (not two launches from the same brand).
 - The rest of the email talks about the portfolio in general and the creators, without repeating one brand over and over.
 - Only use ${brandNameToken} (the parent company) if natural; otherwise talk about the sister brands.`
-        : "";
+          : "";
 
     function formatFollowersCompact(n: number): string {
       if (!Number.isFinite(n) || n <= 0) return "0";
@@ -1166,20 +1212,211 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
     const recipientEmails = Array.isArray(body.recipientEmails)
       ? body.recipientEmails.map((e) => String(e || "").trim()).filter(Boolean)
       : [];
-    let leynaExchange = await getLeynaExchangeContext({
-      recipientEmails,
-      brandName,
-      talentNames: body.talents.map((t) => String(t.name || "").trim()).filter(Boolean),
-    }).catch((e) => {
-      console.warn(
-        "[generate-email] leyna-exchange soft-fail:",
-        e instanceof Error ? e.message : e
+    const agencyName = agencyNameEarly;
+    const talentNames = body.talents
+      .map((t) => String(t.name || "").trim())
+      .filter(Boolean);
+
+    const cacheIn = body.leynaExchangeCache;
+    const cacheUsable =
+      cacheIn &&
+      !body.forceLeynaRefresh &&
+      cacheIn.scanStatus !== "failed" &&
+      isLeynaCacheFresh(cacheIn.fetchedAt) &&
+      !leynaCacheNeedsRefresh({
+        fetchedAt: cacheIn.fetchedAt,
+        hits: cacheIn.contacts || [],
+        force: Boolean(body.forceLeynaRefresh),
+      }) &&
+      Boolean(
+        (cacheIn.promptBlockFr && cacheIn.promptBlockFr.trim()) ||
+          (Array.isArray(cacheIn.contacts) && cacheIn.contacts.length > 0) ||
+          cacheIn.scanStatus === "empty"
       );
-      return null;
-    });
-    if (!leynaExchange?.hasExchange) {
-      leynaExchange = null;
+
+    type LeynaRuntime = {
+      hasExchange: boolean;
+      hasSentNoReplyOnly: boolean;
+      tone: "tu" | "vous" | null;
+      bannerLabel: string | null;
+      alerts: string[];
+      promptBlockFr: string;
+      promptBlockEn: string;
+      scanStatus: "ok" | "empty" | "failed";
+      fetchedAt: string;
+      contacts: Array<{
+        email: string;
+        subject: string | null;
+        tone: "tu" | "vous" | null;
+        notes: string;
+        alerts: string[];
+        lastExchangeAt: string | null;
+        clientSnippet: string | null;
+        status: "exchange" | "sent_no_reply";
+        messageCount?: number;
+      }>;
+    };
+
+    let leynaExchange: LeynaRuntime | null = null;
+    if (cacheUsable && cacheIn) {
+      leynaExchange = {
+        hasExchange: Boolean(cacheIn.hasExchange),
+        hasSentNoReplyOnly: Boolean(cacheIn.hasSentNoReplyOnly),
+        tone: cacheIn.tone ?? null,
+        bannerLabel: cacheIn.bannerLabel ?? null,
+        alerts: Array.isArray(cacheIn.alerts) ? cacheIn.alerts : [],
+        promptBlockFr: String(cacheIn.promptBlockFr || ""),
+        promptBlockEn: String(cacheIn.promptBlockEn || ""),
+        scanStatus: cacheIn.scanStatus || (cacheIn.hasExchange ? "ok" : "empty"),
+        fetchedAt: cacheIn.fetchedAt || new Date().toISOString(),
+        contacts: (cacheIn.contacts || []).map((c) => ({
+          email: String(c.email || "").trim(),
+          subject: c.subject ?? null,
+          tone: c.tone ?? null,
+          notes: String(c.notes || ""),
+          alerts: Array.isArray(c.alerts) ? c.alerts : [],
+          lastExchangeAt: c.lastExchangeAt ?? null,
+          clientSnippet: c.clientSnippet ?? null,
+          status: c.status === "sent_no_reply" ? "sent_no_reply" : "exchange",
+          messageCount: c.messageCount,
+        })),
+      };
+    } else {
+      const scanned = await getLeynaExchangeContext({
+        recipientEmails,
+        brandName,
+        agencyName: agencyName || null,
+        talentNames,
+      }).catch((e) => {
+        console.warn(
+          "[generate-email] leyna-exchange soft-fail:",
+          e instanceof Error ? e.message : e
+        );
+        return null;
+      });
+      if (scanned) {
+        leynaExchange = {
+          hasExchange: scanned.hasExchange,
+          hasSentNoReplyOnly: scanned.hasSentNoReplyOnly,
+          tone: scanned.tone,
+          bannerLabel: scanned.bannerLabel,
+          alerts: scanned.alerts || [],
+          promptBlockFr: scanned.promptBlockFr || "",
+          promptBlockEn: scanned.promptBlockEn || "",
+          scanStatus: scanned.scanStatus,
+          fetchedAt: scanned.fetchedAt,
+          contacts: scanned.contacts.map((c) => ({
+            email: c.email,
+            subject: c.subject,
+            tone: c.tone,
+            notes: c.notes,
+            alerts: c.alerts || [],
+            lastExchangeAt: c.lastExchangeAt,
+            clientSnippet: c.clientSnippet,
+            status: c.status === "sent_no_reply" ? "sent_no_reply" : "exchange",
+            messageCount: c.messageCount,
+          })),
+        };
+      } else {
+        leynaExchange = {
+          hasExchange: false,
+          hasSentNoReplyOnly: false,
+          tone: null,
+          bannerLabel: "Scan Leyna échoué",
+          alerts: [],
+          promptBlockFr: "",
+          promptBlockEn: "",
+          scanStatus: "failed",
+          fetchedAt: new Date().toISOString(),
+          contacts: [],
+        };
+      }
     }
+
+    // Conserver sent_no_reply (ne plus nullifier) ; seul failed sans contenu = pas de bloc.
+    const hasLeynaHistory =
+      Boolean(leynaExchange?.hasExchange) ||
+      Boolean(leynaExchange?.hasSentNoReplyOnly) ||
+      Boolean(leynaExchange?.promptBlockFr?.trim()) ||
+      (Array.isArray(leynaExchange?.contacts) && leynaExchange!.contacts.length > 0);
+    const hasLeynaExchange = Boolean(leynaExchange?.hasExchange);
+
+    const incomingBrief = body.draftPrepBrief;
+    const prepBrief: DraftPrepBrief =
+      incomingBrief && incomingBrief.version === 1
+        ? incomingBrief
+        : buildDraftPrepBrief({
+            recipients: recipientEmails.map((email) => ({ email })),
+            pitchBrand: brandName,
+            agencyName: agencyName || null,
+            talentName: talentNames[0] || null,
+            strategyAngle:
+              body.projectBrief?.recommendedAngle ||
+              body.talentResearch?.[0]?.whyRelevant ||
+              null,
+            talentWhyRelevant: body.talentResearch?.[0]?.whyRelevant || null,
+            leyna: {
+              scanStatus: leynaExchange?.scanStatus || "failed",
+              hasExchange: hasLeynaExchange,
+              tone: leynaExchange?.tone ?? null,
+              hits: (leynaExchange?.contacts || []).map((c) => ({
+                email: c.email,
+                subject: c.subject,
+                lastExchangeAt: c.lastExchangeAt,
+                status: c.status,
+                notes: c.notes,
+                alerts: c.alerts,
+                messageCount: c.messageCount,
+                matchedBrand: brandName,
+              })),
+              alerts: leynaExchange?.alerts,
+              promptBlockFr: leynaExchange?.promptBlockFr,
+              promptBlockEn: leynaExchange?.promptBlockEn,
+              fetchedAt: leynaExchange?.fetchedAt,
+              bannerLabel: leynaExchange?.bannerLabel,
+            },
+            brandResearchStatus: body.brandResearch ? "ok" : "empty",
+            talentResearchStatus:
+              Array.isArray(body.talentResearch) && body.talentResearch.length > 0
+                ? "ok"
+                : "empty",
+            missionStage: body.missionStage,
+            missionReplied: Boolean(body.missionReplied),
+          });
+
+    if (prepBrief.needsNegotiationReview) {
+      return NextResponse.json(
+        {
+          error: prepBrief.negotiationReviewReason || "Revue négociation requise.",
+          code: "NEEDS_NEGOTIATION_REVIEW",
+          draftPrepBrief: prepBrief,
+          leynaExchange: {
+            hasExchange: hasLeynaExchange,
+            hasSentNoReplyOnly: Boolean(leynaExchange?.hasSentNoReplyOnly),
+            tone: leynaExchange?.tone ?? null,
+            bannerLabel: leynaExchange?.bannerLabel ?? null,
+            scanStatus: leynaExchange?.scanStatus ?? "ok",
+            fetchedAt: leynaExchange?.fetchedAt ?? null,
+            contacts: leynaExchange?.contacts || [],
+            alerts: leynaExchange?.alerts || [],
+          },
+        },
+        { status: 409 }
+      );
+    }
+
+    if (leynaExchange?.scanStatus === "failed" && !hasLeynaHistory) {
+      return NextResponse.json(
+        {
+          error:
+            "Scan Leyna échoué — impossible de rédiger sans risque d’inventer l’historique. Réessaie le scan.",
+          code: "LEYNA_SCAN_FAILED",
+          draftPrepBrief: prepBrief,
+        },
+        { status: 503 }
+      );
+    }
+
     const useTutoiement =
       language === "fr" &&
       (leynaExchange?.tone === "tu" ||
@@ -1194,13 +1431,19 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
     const toneBodyFr = useTutoiement
       ? "- Le mail doit rester professionnel et crédible. TUTOIEMENT obligatoire (tu / te / ton / ta / tes). Pas d'argot."
       : "- Le mail doit rester professionnel, soigné et crédible : c'est un mail d'affaires envoyé à une marque, pas un message décontracté.\n- Naturel ne veut PAS dire familier. Vouvoiement obligatoire. Bannis l'argot et les anglicismes relâchés (\"bossez\", \"sans blabla\", \"matcher\", \"clairement partants\", \"monter un truc\", \"jeter un œil\", \"du coup\", \"carrément\"…).";
-    const exchangeBlockFr = leynaExchange?.promptBlockFr
-      ? `\n${leynaExchange.promptBlockFr}\n`
-      : "";
-    const exchangeBlockEn = leynaExchange?.promptBlockEn
-      ? `\n${leynaExchange.promptBlockEn}\n`
-      : "";
-    const hasLeynaExchange = Boolean(leynaExchange?.hasExchange);
+    // Relances (= vrai échange) : prompt IA strictement comme avant — pas de brief pré-rédaction ni de sent_no_reply injectés.
+    const prepBlockFr =
+      !hasLeynaExchange && prepBrief.promptBlockFr
+        ? `\n${prepBrief.promptBlockFr}\n`
+        : "";
+    const exchangeBlockFr =
+      hasLeynaExchange && leynaExchange?.promptBlockFr
+        ? `\n${leynaExchange.promptBlockFr}\n`
+        : "";
+    const exchangeBlockEn =
+      hasLeynaExchange && leynaExchange?.promptBlockEn
+        ? `\n${leynaExchange.promptBlockEn}\n`
+        : "";
     const angleAdaptFr = hasStrategyAngle
       ? `
 - ANGLE STRATEGY (si fourni dans le brief) : NE LE PITCH PAS en cold discovery. REFRAME-le comme suite naturelle à l'échange Leyna :
@@ -1221,6 +1464,7 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
       : `
 - No strategy angle provided: infer a follow-up angle from Leyna notes + talent × brand fit (always anchored on the prior exchange).
 `;
+    // Relances (= hasLeynaExchange) : OVERRIDE strictement identique à avant — on ne touche pas.
     const exchangeStructureOverrideFr = hasLeynaExchange
       ? `
 OVERRIDE ACCROCHE (PRIORITAIRE — historique Leyna présent) :
@@ -1242,6 +1486,30 @@ ${angleAdaptEn}- LENGTH: no ~300-word ceiling. With several talents, develop eac
 `
       : "";
 
+    // Consignes nouvelles : UNIQUEMENT premier contact prospection talent (jamais sur une relance / OVERRIDE).
+    const firstContactProspectingExtraFr =
+      !hasLeynaExchange && isTalentProspecting
+        ? `
+CONSIGNES PREMIER CONTACT PROSPECTION TALENT (hors relance) :
+- STRUCTURE COURTE (4 blocs max après le salut) : accroche marque minimale → UNE raison vérifiable → UNE idée de contenu alignée sur ce qu’il/elle publie vraiment (ou l’angle mission) → CTA 1 phrase.
+- LONGUEUR : ~80–140 mots hors salut/clôture.
+- Chaque affirmation doit être étayée (brief / recherche créateur / recherche marque). Sinon : supprimer.
+- INTERDIT d’empiler hashtags, listes de produits, KPI ; INTERDIT jargon interne (« côté strategy », etc.).
+`
+        : "";
+    const firstContactProspectingExtraEn =
+      !hasLeynaExchange && isTalentProspecting
+        ? `
+FIRST-CONTACT TALENT PROSPECTING RULES (not for follow-ups):
+- SHORT STRUCTURE (max 4 blocks after greeting): minimal brand hook → ONE verifiable reason → ONE content idea aligned with what they actually publish (or mission angle) → CTA 1 sentence.
+- LENGTH: ~80–140 words excluding greeting/closing.
+- Every claim must be backed (brief / creator research / brand research). Otherwise delete it.
+- FORBIDDEN stacking hashtags, product lists, KPIs; FORBIDDEN internal jargon ("strategy side", etc.).
+`
+        : "";
+    const groundingBlockFr = firstContactProspectingExtraFr;
+    const groundingBlockEn = firstContactProspectingExtraEn;
+
     const GROK_SYSTEM_PROMPT =
       language === "en"
         ? `You write like a human who works in influencer marketing and knows the field well, not like an AI. You're part of the Glow Up Agence team and you're writing to a professional (a brand, a marketing/influence team) you respect.
@@ -1260,8 +1528,10 @@ ${reachRuleEn}
 ${notesRuleEn}
 ${momentumRuleEn}
 ${beneluxContextEn}
+${prepBlockFr}
 ${exchangeBlockEn}
 ${exchangeStructureOverrideEn}
+${groundingBlockEn}
 ${projectOrCondensationEn}
 ${
           useDirectRecipient
@@ -1397,8 +1667,10 @@ ${reachRuleFr}
 ${notesRuleFr}
 ${momentumRuleFr}
 ${beneluxContextFr}
+${prepBlockFr}
 ${exchangeBlockFr}
 ${exchangeStructureOverrideFr}
+${groundingBlockFr}
 ${projectOrCondensationFr}
 ${
           useDirectRecipient
@@ -1595,20 +1867,35 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
 
       return NextResponse.json({
         ...parsed,
+        draftPrepBrief: prepBrief,
         leynaExchange: leynaExchange
           ? {
-              hasExchange: true,
+              hasExchange: hasLeynaExchange,
+              hasSentNoReplyOnly: Boolean(leynaExchange.hasSentNoReplyOnly),
               tone: leynaExchange.tone,
               bannerLabel: leynaExchange.bannerLabel,
+              scanStatus: leynaExchange.scanStatus,
+              fetchedAt: leynaExchange.fetchedAt,
+              alerts: leynaExchange.alerts,
+              promptBlockFr: leynaExchange.promptBlockFr,
+              promptBlockEn: leynaExchange.promptBlockEn,
               contacts: leynaExchange.contacts.map((c) => ({
                 email: c.email,
                 subject: c.subject,
                 tone: c.tone,
                 notes: c.notes,
+                alerts: c.alerts,
                 lastExchangeAt: c.lastExchangeAt,
+                status: c.status,
+                messageCount: c.messageCount,
               })),
             }
-          : { hasExchange: false },
+          : {
+              hasExchange: false,
+              hasSentNoReplyOnly: false,
+              scanStatus: "empty",
+              contacts: [],
+            },
       });
     } catch {
       return NextResponse.json(

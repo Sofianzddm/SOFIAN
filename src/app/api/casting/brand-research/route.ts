@@ -267,6 +267,7 @@ Règles strictes :
 - Sois concret : nom du produit/service, date approximative, notes ou caractéristiques clés, et statut de dispo ${r.code} puis EU.
 - Si tu ne trouves rien dans ${contextLabel}, dis-le clairement au lieu d'inventer ou de remonter plus loin.
 - Ne présente JAMAIS un lancement US comme s'il était sorti en ${r.country}/Europe sans preuve.${r.extraRules}
+- INTERDIT d'inventer hashtags de campagne, KPI (% engagement, budgets annuels, couverture %), listes de formats « types » non sourcés — si non trouvé, écris « non confirmé » / « rien de fiable trouvé ».
 - Parle comme quelqu'un qui suit vraiment la marque, pas comme un communiqué.
 
 Réponds UNIQUEMENT en JSON strict :
@@ -350,6 +351,7 @@ Règles strictes :
 ${orient}
 - N'invente rien. Si une info manque, dis-le.
 - Ne présente JAMAIS un lancement US comme s'il était sorti en ${r.country}/Europe sans preuve.${r.extraRules}
+- INTERDIT d'inventer hashtags de campagne, KPI (% engagement, budgets), formats créatifs non sourcés — préfère « non confirmé » à une invention plausible.
 
 Réponds UNIQUEMENT en JSON strict :
 

@@ -179,3 +179,88 @@ export async function fetchTiktokProfile(
     };
   }
 }
+
+/**
+ * Dernières captions / textes TikTok via Apify (clockworks free scraper).
+ * Pour analyse contenu / moments — ne throw jamais.
+ */
+export async function fetchTikTokRecentCaptions(
+  handle: string | null | undefined,
+  count: number = 12,
+  options?: { timeoutMs?: number }
+): Promise<{ captions: string[]; note: string }> {
+  const username = cleanHandle(handle);
+  if (!username) return { captions: [], note: "pas de handle TikTok" };
+  if (!process.env.APIFY_TOKEN?.trim()) {
+    return { captions: [], note: "APIFY_TOKEN absente — TikTok non scrapé" };
+  }
+
+  const timeoutMs =
+    typeof options?.timeoutMs === "number" && options.timeoutMs > 0
+      ? options.timeoutMs
+      : 60_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const token = getToken();
+    const res = await fetch(
+      `${APIFY_BASE}/${TT_ACTOR}/run-sync-get-dataset-items?token=${token}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profiles: [username],
+          resultsPerPage: Math.min(Math.max(count, 5), 20),
+          shouldDownloadVideos: false,
+          shouldDownloadCovers: false,
+          shouldDownloadSubtitles: false,
+          shouldDownloadSlideshowImages: false,
+        }),
+        signal: controller.signal,
+      }
+    );
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      return {
+        captions: [],
+        note: `TikTok Apify ${res.status}: ${text.slice(0, 100)}`,
+      };
+    }
+
+    const items = (await res.json()) as Array<{
+      text?: string;
+      desc?: string;
+      title?: string;
+    }>;
+
+    const captions: string[] = [];
+    for (const it of items || []) {
+      const raw = String(it.text || it.desc || it.title || "").trim();
+      if (!raw) continue;
+      captions.push(raw.length > 500 ? `${raw.slice(0, 500)}…` : raw);
+      if (captions.length >= count) break;
+    }
+
+    return {
+      captions,
+      note: captions.length
+        ? `${captions.length} captions TikTok`
+        : "0 caption TikTok",
+    };
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") {
+      return {
+        captions: [],
+        note: `TikTok timeout (${Math.round(timeoutMs / 1000)}s)`,
+      };
+    }
+    return {
+      captions: [],
+      note: `TikTok indisponible (${e instanceof Error ? e.message : "erreur"})`,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}

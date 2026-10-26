@@ -30,11 +30,24 @@ import {
   plainTextToEmailHtml,
 } from "@/lib/email-body-html";
 import { isBelgianPays } from "@/lib/pays";
+import {
+  buildDraftPrepBrief,
+  type DraftPrepBrief,
+} from "@/lib/draft-prep-brief";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
 const TEA_GREEN = "#C8F285";
 const OLD_LACE = "#F5EBE0";
+
+/** « Boss (via Nice Work) » → marque Boss, agence Nice Work. */
+function parseBrandViaAgency(label: string): { brand: string; agency: string | null } {
+  const raw = String(label || "").trim();
+  if (!raw) return { brand: "", agency: null };
+  const m = raw.match(/^(.+?)\s*\(\s*via\s+(.+?)\s*\)\s*$/i);
+  if (m?.[1] && m[2]) return { brand: m[1].trim(), agency: m[2].trim() };
+  return { brand: raw, agency: null };
+}
 
 type CastingRecipient = {
   id: string;
@@ -87,6 +100,8 @@ type CastingCompanyRecipients = {
     donts?: string | null;
     priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
     status: "READY_FOR_CASTING" | "EMAIL_DRAFTED" | "APPROVED_BY_SALES" | "SENT" | "CANCELLED";
+    /** Stage pipeline (ex. IN_NEGOTIATION → bloque prospection auto). */
+    stage?: string | null;
     clientLanguage?: "FR" | "EN" | null;
     clientContacts?: Array<{ firstname?: string; lastname?: string; email?: string; role?: string }> | null;
     deadlineAt?: string | null;
@@ -523,12 +538,110 @@ export default function CastingComposer({
     return Array.from(set);
   }, [contact]);
 
-  // Cible de la recherche / rédaction IA : les sous-marques si présentes,
-  // sinon la marque elle-même.
+  /**
+   * Marque pitchée vs agence destinataire.
+   * - Cible unique déjà définie (projet / 1 sous-marque) → auto, pas de sélecteur.
+   * - Plusieurs sous-marques sans cible projet → sélecteur marque uniquement
+   *   (les contacts CRM restent sélectionnés automatiquement).
+   */
+  const projectDefinedPitch = useMemo(() => {
+    if (!contact?.missionBrief) return null;
+    const fromBrief =
+      String(contact.missionBrief.targetBrand || "").trim() ||
+      String(contact.company || "").trim();
+    if (!fromBrief) return null;
+    return parseBrandViaAgency(fromBrief).brand || fromBrief;
+  }, [contact]);
+
+  const projectDefinedAgency = useMemo(() => {
+    if (!contact?.missionBrief) return null;
+    const fromBrief =
+      String(contact.missionBrief.targetBrand || "").trim() ||
+      String(contact.company || "").trim();
+    if (!fromBrief) return null;
+    const parsed = parseBrandViaAgency(fromBrief);
+    if (parsed.agency) return parsed.agency;
+    const company = String(contact.company || "").trim();
+    const companyParsed = parseBrandViaAgency(company);
+    if (
+      companyParsed.agency &&
+      companyParsed.brand.toLowerCase() === (parsed.brand || "").toLowerCase()
+    ) {
+      return companyParsed.agency;
+    }
+    if (
+      company &&
+      parsed.brand &&
+      company.toLowerCase() !== parsed.brand.toLowerCase() &&
+      company.toLowerCase() !== fromBrief.toLowerCase()
+    ) {
+      return companyParsed.agency || company;
+    }
+    return null;
+  }, [contact]);
+
+  const [pitchBrandOverride, setPitchBrandOverride] = useState<string | null>(null);
+
+  /** Une seule sous-marque CRM → cible unique, pas de choix manuel. */
+  const uniqueCoveredBrand =
+    !projectDefinedPitch && coveredBrandsAll.length === 1
+      ? coveredBrandsAll[0]!
+      : null;
+
+  /** Sélecteur visible seulement s’il n’y a pas déjà une cible unique. */
+  const needsPitchBrandChoice =
+    !projectDefinedPitch &&
+    !uniqueCoveredBrand &&
+    coveredBrandsAll.length > 1 &&
+    !pitchBrandOverride?.trim();
+
   const researchBrandName = useMemo(() => {
-    if (coveredBrandsAll.length > 0) return coveredBrandsAll.join(", ");
-    return contact?.company?.trim() || "";
-  }, [coveredBrandsAll, contact]);
+    if (projectDefinedPitch) return projectDefinedPitch;
+    if (pitchBrandOverride?.trim()) return pitchBrandOverride.trim();
+    if (uniqueCoveredBrand) return uniqueCoveredBrand;
+    if (coveredBrandsAll.length > 1) return "";
+    const company = contact?.company?.trim() || "";
+    return company ? parseBrandViaAgency(company).brand || company : "";
+  }, [
+    projectDefinedPitch,
+    pitchBrandOverride,
+    uniqueCoveredBrand,
+    coveredBrandsAll,
+    contact,
+  ]);
+
+  const agencyNameForPitch = useMemo(() => {
+    if (projectDefinedAgency) return projectDefinedAgency;
+    const companyRaw = contact?.company?.trim() || "";
+    if (!companyRaw) return "";
+    const companyParsed = parseBrandViaAgency(companyRaw);
+    // Sous-marque(s) pitchée(s) ou cible projet : company = agence / maison si distincte.
+    if (coveredBrandsAll.length > 0 || projectDefinedPitch) {
+      const agencyCandidate = companyParsed.agency || companyParsed.brand;
+      if (
+        researchBrandName &&
+        agencyCandidate.toLowerCase() !== researchBrandName.toLowerCase()
+      ) {
+        return agencyCandidate;
+      }
+      if (!researchBrandName && agencyCandidate) return agencyCandidate;
+    }
+    // « Marque (via Agence) » sans missionBrief.
+    if (
+      companyParsed.agency &&
+      researchBrandName &&
+      companyParsed.brand.toLowerCase() === researchBrandName.toLowerCase()
+    ) {
+      return companyParsed.agency;
+    }
+    return "";
+  }, [
+    projectDefinedAgency,
+    contact,
+    coveredBrandsAll,
+    projectDefinedPitch,
+    researchBrandName,
+  ]);
 
   const [subject, setSubject] = useState("");
   const [talents, setTalents] = useState<PresskitTalent[]>([]);
@@ -575,9 +688,14 @@ export default function CastingComposer({
   const [isGenerating, setIsGenerating] = useState(false);
   const [leynaExchange, setLeynaExchange] = useState<{
     hasExchange: boolean;
+    hasSentNoReplyOnly?: boolean;
     tone?: "tu" | "vous" | null;
     bannerLabel?: string | null;
     alerts?: string[];
+    promptBlockFr?: string;
+    promptBlockEn?: string;
+    scanStatus?: "ok" | "empty" | "failed";
+    fetchedAt?: string | null;
     contacts?: Array<{
       email: string;
       subject?: string | null;
@@ -586,10 +704,30 @@ export default function CastingComposer({
       alerts?: string[];
       lastExchangeAt?: string | null;
       clientSnippet?: string | null;
+      status?: "exchange" | "sent_no_reply";
+      messageCount?: number;
     }>;
   } | null>(null);
   const [leynaExchangeChecked, setLeynaExchangeChecked] = useState(false);
   const [leynaExchangeLoading, setLeynaExchangeLoading] = useState(false);
+  /** Pipeline talent×marque : synthèse confirmée avant rédaction. */
+  const [prepBriefConfirmed, setPrepBriefConfirmed] = useState(false);
+
+  const selectPitchBrand = useCallback(
+    (brand: string) => {
+      const next = brand.trim();
+      if (!next) return;
+      if (pitchBrandOverride?.trim() === next) return;
+      setPitchBrandOverride(next);
+      setBrandResearch(null);
+      setTalentResearch(null);
+      setLeynaExchange(null);
+      setLeynaExchangeChecked(false);
+      setPrepBriefConfirmed(false);
+    },
+    [pitchBrandOverride]
+  );
+
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
   // Programmation d'envoi (mode "at") — heure de Paris.
   const [sendMode, setSendMode] = useState<"now" | "at">("now");
@@ -834,16 +972,29 @@ export default function CastingComposer({
           contact.missionBrief.condensationBriefs.length >= 2
       )
     );
+    // Nouveau contact / ouverture : reset du choix de marque pitchée.
+    setPitchBrandOverride(null);
     // Cache batch parent : lu à l’ouverture seulement (pas en deps → pas de reset frappe).
-    setBrandResearch(initialBrandResearch ?? null);
-    setTalentResearch(initialTalentResearch ?? null);
-    if (initialLeynaExchange) {
+    // Si plusieurs sous-marques, le cache joint n’est plus fiable → pas de préremplissage.
+    const multiCovered =
+      Array.from(
+        new Set(
+          (contact.contacts || [])
+            .flatMap((c) => c.marques || [])
+            .map((m) => (m || "").trim())
+            .filter(Boolean)
+        )
+      ).length > 1;
+    setBrandResearch(multiCovered ? null : initialBrandResearch ?? null);
+    setTalentResearch(multiCovered ? null : initialTalentResearch ?? null);
+    if (!multiCovered && initialLeynaExchange) {
       setLeynaExchange(initialLeynaExchange);
       setLeynaExchangeChecked(true);
     } else {
       setLeynaExchange(null);
       setLeynaExchangeChecked(false);
     }
+    setPrepBriefConfirmed(false);
     prevSelectedTalentKeyRef.current = null;
     // Client EN (fiche CRM / mission) → anglais d'emblée.
     setEmailLanguage(resolveClientEmailLanguage(contact) || defaultLanguage);
@@ -1003,7 +1154,11 @@ export default function CastingComposer({
   }, [contact, selectedRecipientIds]);
 
   const fetchLeynaExchange = useCallback(async () => {
-    const brand = (researchBrandName || contact?.company || "").trim();
+    if (needsPitchBrandChoice || !researchBrandName.trim()) {
+      onError("Choisis d’abord la marque pitchée (distincte de l’agence).");
+      return;
+    }
+    const brand = researchBrandName.trim();
     // Ne pas dépendre de `selectedTalents` (déclaré plus bas) — même logique inline.
     const talentNames = (
       effectiveLockedTalentIds.length > 0
@@ -1025,6 +1180,7 @@ export default function CastingComposer({
           // OK si vide : le serveur cherche aussi par nom/domaine marque.
           recipientEmails: selectedRecipientEmails,
           brandName: brand,
+          agencyName: agencyNameForPitch || undefined,
           talentNames,
         }),
       });
@@ -1034,9 +1190,14 @@ export default function CastingComposer({
         ctx && typeof ctx === "object"
           ? (ctx as {
               hasExchange: boolean;
+              hasSentNoReplyOnly?: boolean;
               tone?: "tu" | "vous" | null;
               bannerLabel?: string | null;
               alerts?: string[];
+              promptBlockFr?: string;
+              promptBlockEn?: string;
+              scanStatus?: "ok" | "empty" | "failed";
+              fetchedAt?: string | null;
               contacts?: Array<{
                 email: string;
                 subject?: string | null;
@@ -1045,14 +1206,25 @@ export default function CastingComposer({
                 alerts?: string[];
                 lastExchangeAt?: string | null;
                 clientSnippet?: string | null;
+                status?: "exchange" | "sent_no_reply";
+                messageCount?: number;
               }>;
             })
-          : { hasExchange: false };
+          : {
+              hasExchange: false,
+              scanStatus: "failed" as const,
+              fetchedAt: new Date().toISOString(),
+            };
       setLeynaExchange(next);
       setLeynaExchangeChecked(true);
       if (brand) onLeynaExchangeCached?.(brand, next);
     } catch {
-      const next = { hasExchange: false };
+      const next = {
+        hasExchange: false,
+        scanStatus: "failed" as const,
+        fetchedAt: new Date().toISOString(),
+        bannerLabel: "Scan Leyna échoué — réessayer",
+      };
       setLeynaExchange(next);
       setLeynaExchangeChecked(true);
       if (brand) onLeynaExchangeCached?.(brand, next);
@@ -1060,9 +1232,11 @@ export default function CastingComposer({
       setLeynaExchangeLoading(false);
     }
   }, [
+    needsPitchBrandChoice,
     selectedRecipientEmails,
     researchBrandName,
-    contact?.company,
+    agencyNameForPitch,
+    onError,
     talents,
     selectedIds,
     effectiveLockedTalentIds,
@@ -1070,8 +1244,12 @@ export default function CastingComposer({
   ]);
 
   const runBrandResearch = useCallback(async () => {
-    if (!researchBrandName.trim()) {
-      onError("Nom de marque manquant pour la recherche.");
+    if (needsPitchBrandChoice || !researchBrandName.trim()) {
+      onError(
+        needsPitchBrandChoice
+          ? "Choisis d’abord la marque pitchée (distincte de l’agence)."
+          : "Nom de marque manquant pour la recherche."
+      );
       return;
     }
     setIsResearching(true);
@@ -1099,12 +1277,14 @@ export default function CastingComposer({
       if (effectiveTalentResearch) setTalentResearch(null);
       setLeynaExchange(null);
       setLeynaExchangeChecked(false);
+      setPrepBriefConfirmed(false);
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
       setIsResearching(false);
     }
   }, [
+    needsPitchBrandChoice,
     researchBrandName,
     availabilityFocus,
     onError,
@@ -1115,8 +1295,12 @@ export default function CastingComposer({
 
   const runTalentResearch = useCallback(async () => {
     if (!effectiveTalentResearch) return;
-    if (!researchBrandName.trim()) {
-      onError("Nom de marque manquant pour la recherche.");
+    if (needsPitchBrandChoice || !researchBrandName.trim()) {
+      onError(
+        needsPitchBrandChoice
+          ? "Choisis d’abord la marque pitchée (distincte de l’agence)."
+          : "Nom de marque manquant pour la recherche."
+      );
       return;
     }
     if (!brandResearch) {
@@ -1164,6 +1348,7 @@ export default function CastingComposer({
       // Nouvelle analyse talent → historique Leyna à relancer (étape dédiée).
       setLeynaExchange(null);
       setLeynaExchangeChecked(false);
+      setPrepBriefConfirmed(false);
     } catch (e: unknown) {
       setTalentResearch(null);
       onError(e instanceof Error ? e.message : "Erreur réseau.");
@@ -1171,6 +1356,7 @@ export default function CastingComposer({
       setIsResearchingTalent(false);
     }
   }, [
+    needsPitchBrandChoice,
     effectiveTalentResearch,
     researchBrandName,
     brandResearch,
@@ -1306,10 +1492,91 @@ export default function CastingComposer({
     if (prevSelectedTalentKeyRef.current === selectedTalentKey) return;
     prevSelectedTalentKeyRef.current = selectedTalentKey;
     setTalentResearch(null);
+    setPrepBriefConfirmed(false);
   }, [selectedTalentKey, effectiveTalentResearch]);
+
+  /** Synthèse pré-rédaction (pipeline talent×marque + projets). */
+  const showPrepBrief =
+    Boolean(contact?.missionBrief) || Boolean(effectiveTalentResearch);
+
+  const draftPrepBrief: DraftPrepBrief | null = useMemo(() => {
+    if (!showPrepBrief || !contact) return null;
+    if (!brandResearch || !leynaExchangeChecked) return null;
+    if (effectiveTalentResearch && (!talentResearch || talentResearch.length === 0)) {
+      return null;
+    }
+    const pitch =
+      researchBrandName ||
+      contact.missionBrief?.targetBrand ||
+      contact.company ||
+      "la marque";
+    const talentName = selectedTalents
+      .map((t) => `${t.prenom} ${t.nom}`.trim())
+      .filter(Boolean)
+      .join(", ");
+    return buildDraftPrepBrief({
+      recipients: (contact.contacts || [])
+        .filter((c) => selectedRecipientIds.has(c.id))
+        .map((c) => ({
+          firstname: c.firstname,
+          lastname: c.lastname,
+          email: c.email,
+          role: c.role,
+        })),
+      pitchBrand: pitch,
+      agencyName: agencyNameForPitch || null,
+      talentName: talentName || contact.missionBrief?.creatorName || null,
+      strategyAngle: contact.missionBrief?.recommendedAngle || null,
+      talentWhyRelevant: talentResearch?.[0]?.whyRelevant || null,
+      leyna: {
+        scanStatus: leynaExchange?.scanStatus || (leynaExchange ? "ok" : "empty"),
+        hasExchange: Boolean(leynaExchange?.hasExchange),
+        tone: leynaExchange?.tone ?? null,
+        hits: (leynaExchange?.contacts || []).map((c) => ({
+          email: String(c.email || ""),
+          subject: c.subject ?? null,
+          lastExchangeAt: c.lastExchangeAt ?? null,
+          status: c.status === "sent_no_reply" ? "sent_no_reply" : "exchange",
+          notes: c.notes,
+          alerts: c.alerts,
+          messageCount: c.messageCount,
+          matchedBrand: pitch,
+        })),
+        alerts: leynaExchange?.alerts,
+        promptBlockFr: leynaExchange?.promptBlockFr,
+        promptBlockEn: leynaExchange?.promptBlockEn,
+        fetchedAt: leynaExchange?.fetchedAt,
+        bannerLabel: leynaExchange?.bannerLabel,
+      },
+      brandResearchStatus: brandResearch ? "ok" : "empty",
+      talentResearchStatus:
+        Array.isArray(talentResearch) && talentResearch.length > 0 ? "ok" : "empty",
+      missionStage: contact.missionBrief?.stage || null,
+    });
+  }, [
+    showPrepBrief,
+    contact,
+    brandResearch,
+    leynaExchangeChecked,
+    leynaExchange,
+    effectiveTalentResearch,
+    talentResearch,
+    researchBrandName,
+    agencyNameForPitch,
+    selectedTalents,
+    selectedRecipientIds,
+  ]);
+
+  useEffect(() => {
+    setPrepBriefConfirmed(false);
+  }, [draftPrepBrief?.summaryText]);
 
   const runGenerateEmail = useCallback(async () => {
     if (!contact) return;
+    if (needsPitchBrandChoice || !researchBrandName.trim()) {
+      onError("Choisis d’abord la marque pitchée (distincte de l’agence).");
+      return;
+    }
     if (!brandResearch) {
       onError("Analyse d’abord la marque (bouton « Analyser la marque »).");
       return;
@@ -1328,6 +1595,14 @@ export default function CastingComposer({
       !leynaExchangeChecked
     ) {
       onError("Analyse ensuite l’historique Leyna, puis rédige.");
+      return;
+    }
+    // Pipeline talent×marque : confirmer la synthèse avant rédaction.
+    if (
+      (Boolean(contact.missionBrief) || effectiveTalentResearch) &&
+      !prepBriefConfirmed
+    ) {
+      onError("Valide d’abord la synthèse (destinataire, marque, historique, angle).");
       return;
     }
     setIsGenerating(true);
@@ -1367,9 +1642,35 @@ export default function CastingComposer({
           market,
           availabilityFocus,
           brandName: researchBrandName || contact.company,
+          agencyName: agencyNameForPitch || undefined,
           brandResearch,
           talents: talentsPayload,
           recipientEmails: selectedRecipientEmails,
+          missionStage: contact.missionBrief?.stage || null,
+          draftPrepBrief: draftPrepBrief || undefined,
+          leynaExchangeCache: leynaExchange
+            ? {
+                hasExchange: Boolean(leynaExchange.hasExchange),
+                hasSentNoReplyOnly: Boolean(
+                  (leynaExchange as { hasSentNoReplyOnly?: boolean }).hasSentNoReplyOnly
+                ),
+                tone: leynaExchange.tone ?? null,
+                bannerLabel: leynaExchange.bannerLabel ?? null,
+                alerts: leynaExchange.alerts || [],
+                promptBlockFr:
+                  (leynaExchange as { promptBlockFr?: string }).promptBlockFr || "",
+                promptBlockEn:
+                  (leynaExchange as { promptBlockEn?: string }).promptBlockEn || "",
+                scanStatus:
+                  (leynaExchange as { scanStatus?: "ok" | "empty" | "failed" })
+                    .scanStatus ||
+                  (leynaExchange.hasExchange ? "ok" : "empty"),
+                fetchedAt:
+                  (leynaExchange as { fetchedAt?: string | null }).fetchedAt ||
+                  null,
+                contacts: leynaExchange.contacts || [],
+              }
+            : undefined,
           ...(effectiveTalentResearch && talentResearch
             ? { talentResearch }
             : {}),
@@ -1420,6 +1721,20 @@ export default function CastingComposer({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (data.code === "NEEDS_NEGOTIATION_REVIEW") {
+          throw new Error(
+            `Revue négociation requise — pas de prospection auto. ${
+              typeof data.error === "string" ? data.error : ""
+            }`.trim()
+          );
+        }
+        if (data.code === "LEYNA_SCAN_FAILED") {
+          throw new Error(
+            typeof data.error === "string"
+              ? data.error
+              : "Scan Leyna échoué — réessaie avant de rédiger."
+          );
+        }
         throw new Error(
           typeof data.error === "string" ? data.error : "Génération impossible."
         );
@@ -1469,16 +1784,21 @@ export default function CastingComposer({
     }
   }, [
     contact,
+    needsPitchBrandChoice,
     brandResearch,
     talentResearch,
     effectiveTalentResearch,
     leynaExchangeChecked,
+    prepBriefConfirmed,
+    draftPrepBrief,
+    leynaExchange,
     selectedTalents,
     selectedRecipientIds,
     emailLanguage,
     market,
     availabilityFocus,
     researchBrandName,
+    agencyNameForPitch,
     editor,
     onError,
     onSuccess,
@@ -1842,12 +2162,19 @@ export default function CastingComposer({
 
   if (!open || !contact) return null;
 
-  // Titre affiché : on met en avant les sous-marques couvertes, avec la maison
-  // mère entre parenthèses — ex. « Dove Men, Dove, Axe, Rexona (Unilever) ».
-  const brandTitle =
-    coveredBrandsAll.length > 0
-      ? `${coveredBrandsAll.join(", ")} (${contact.company})`
-      : contact.company || "Marque";
+  // Titre : marque pitchée + agence si distincte ; sinon company (pipeline).
+  const brandTitle = (() => {
+    const company = contact.company || "Marque";
+    if (projectDefinedPitch) return projectDefinedPitch;
+    if (researchBrandName && agencyNameForPitch) {
+      return `${researchBrandName} · via ${agencyNameForPitch}`;
+    }
+    if (researchBrandName) return researchBrandName;
+    if (coveredBrandsAll.length > 1) {
+      return `${company} (choisir la marque)`;
+    }
+    return company;
+  })();
 
   const isInline = variant === "inline";
 
@@ -1901,6 +2228,39 @@ export default function CastingComposer({
             <X className="h-5 w-5" style={{ color: LICORICE }} />
           </button>
         </div>
+
+        {needsPitchBrandChoice ? (
+          <div
+            className="shrink-0 border-b px-4 py-2 sm:px-5"
+            style={{
+              borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+              backgroundColor: `color-mix(in srgb, ${TEA_GREEN} 18%, white)`,
+            }}
+          >
+            <p className="text-xs font-medium mb-1.5" style={{ color: LICORICE }}>
+              {agencyNameForPitch
+                ? `Agence « ${agencyNameForPitch} » — quelle marque pitches-tu ?`
+                : "Plusieurs marques possibles — laquelle pitches-tu ?"}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {coveredBrandsAll.map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  onClick={() => selectPitchBrand(b)}
+                  className="rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors"
+                  style={{
+                    borderColor: `color-mix(in srgb, ${OLD_ROSE} 45%, transparent)`,
+                    backgroundColor: "white",
+                    color: LICORICE,
+                  }}
+                >
+                  {b}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
           {/* Colonne talents — largeur fixe desktop (évite le trou beige au milieu) */}
@@ -2374,39 +2734,97 @@ export default function CastingComposer({
                   </div>
                 </section>
               ) : (
-                <EmailComposer
-                  subject={subject}
-                  onSubjectChange={setSubject}
-                  language={emailLanguage}
-                  onLanguageChange={setEmailLanguage}
-                  brandName={brandTitle}
-                  brandResearch={brandResearch}
-                  availabilityFocus={availabilityFocus}
-                  onBrandResearch={runBrandResearch}
-                  isResearching={isResearching}
-                  enableTalentResearch={effectiveTalentResearch}
-                  projectResearchMode={isProjectMode}
-                  onTalentResearch={runTalentResearch}
-                  isResearchingTalent={isResearchingTalent}
-                  talentResearch={talentResearch}
-                  enableLeynaExchange={Boolean(contact?.missionBrief) || effectiveTalentResearch}
-                  onLeynaExchangeResearch={() => void fetchLeynaExchange()}
-                  isResearchingLeynaExchange={leynaExchangeLoading}
-                  leynaExchange={leynaExchange}
-                  leynaExchangeChecked={leynaExchangeChecked}
-                  talentsSelected={selectedTalents}
-                  isGenerating={isGenerating}
-                  onGenerate={runGenerateEmail}
-                  editor={editor}
-                  fillHeight={isInline}
-                  showPipelineVariables={Boolean(contact?.missionBrief)}
-                  showMarquesVariable={Boolean(
-                    contact?.contacts?.some((c) => (c.marques || []).length > 0)
-                  )}
-                  researchTargetLabel={
-                    coveredBrandsAll.length > 0 ? researchBrandName : null
-                  }
-                />
+                <div className={isInline ? "flex h-full min-h-0 flex-col gap-2" : "space-y-2"}>
+                  {showPrepBrief && draftPrepBrief ? (
+                    <section
+                      className="shrink-0 rounded-xl border bg-white p-3"
+                      style={{
+                        borderColor: draftPrepBrief.needsNegotiationReview
+                          ? "rgba(180,83,9,0.45)"
+                          : `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+                      }}
+                    >
+                      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                        <p
+                          className="text-[11px] font-semibold uppercase tracking-wide"
+                          style={{ color: OLD_ROSE }}
+                        >
+                          Synthèse avant rédaction
+                        </p>
+                        {prepBriefConfirmed ? (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                            Validée
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                            À valider
+                          </span>
+                        )}
+                      </div>
+                      <pre
+                        className="max-h-40 overflow-y-auto whitespace-pre-wrap font-sans text-[11px] leading-relaxed"
+                        style={{ color: LICORICE }}
+                      >
+                        {draftPrepBrief.summaryText}
+                      </pre>
+                      {draftPrepBrief.needsNegotiationReview ? (
+                        <p className="mt-2 text-[11px] font-medium text-amber-800">
+                          Négociation / réponse en cours — pas de prospection auto. Revue
+                          humaine requise.
+                        </p>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setPrepBriefConfirmed(true)}
+                          disabled={prepBriefConfirmed}
+                          className="mt-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                          style={{ backgroundColor: LICORICE }}
+                        >
+                          {prepBriefConfirmed
+                            ? "Synthèse validée — tu peux rédiger"
+                            : "Valider la synthèse"}
+                        </button>
+                      )}
+                    </section>
+                  ) : null}
+                  <div className={isInline ? "min-h-0 flex-1" : undefined}>
+                    <EmailComposer
+                      subject={subject}
+                      onSubjectChange={setSubject}
+                      language={emailLanguage}
+                      onLanguageChange={setEmailLanguage}
+                      brandName={brandTitle}
+                      brandResearch={brandResearch}
+                      availabilityFocus={availabilityFocus}
+                      onBrandResearch={runBrandResearch}
+                      isResearching={isResearching}
+                      enableTalentResearch={effectiveTalentResearch}
+                      projectResearchMode={isProjectMode}
+                      onTalentResearch={runTalentResearch}
+                      isResearchingTalent={isResearchingTalent}
+                      talentResearch={talentResearch}
+                      enableLeynaExchange={
+                        Boolean(contact?.missionBrief) || effectiveTalentResearch
+                      }
+                      onLeynaExchangeResearch={() => void fetchLeynaExchange()}
+                      isResearchingLeynaExchange={leynaExchangeLoading}
+                      leynaExchange={leynaExchange}
+                      leynaExchangeChecked={leynaExchangeChecked}
+                      talentsSelected={selectedTalents}
+                      isGenerating={isGenerating}
+                      onGenerate={runGenerateEmail}
+                      editor={editor}
+                      fillHeight={isInline}
+                      showPipelineVariables={Boolean(contact?.missionBrief)}
+                      showMarquesVariable={Boolean(
+                        contact?.contacts?.some((c) => (c.marques || []).length > 0)
+                      )}
+                      researchTargetLabel={
+                        coveredBrandsAll.length > 0 ? researchBrandName : null
+                      }
+                    />
+                  </div>
+                </div>
               )}
             </div>
 
