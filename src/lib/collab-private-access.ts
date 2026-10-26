@@ -30,6 +30,8 @@ export function canAccessPrivateCollab(
   }
 
   if (user.role === "ADMIN") return true;
+  // Assistante TM : stats/uploads sur toutes les collabs (y compris privées TM / HoS)
+  if (user.role === "ASSISTANTE_TM") return true;
   if (collab.createdById && collab.createdById === user.id) return true;
   if (collab.accountManagerId && collab.accountManagerId === user.id) return true;
   if (user.role === "JURISTE" && collab.contratMarquePdfUrl) return true;

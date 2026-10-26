@@ -10,6 +10,7 @@ import { accountManagerFieldsForCreator } from "@/lib/account-manager-assign";
 import { hideSofianPrivateCollabsWhere } from "@/lib/collab-private-access";
 import {
   canViewAllTalentCollabs,
+  canViewPrivateTalentCollabs,
   isCollabViewOnly,
 } from "@/lib/collab-viewer-access";
 
@@ -54,8 +55,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    // Viewer lecture seule (Inès) : toutes les collabs talents publiques
-    if (isTalentCollabViewer) {
+    // Viewer lecture seule (Inès) : collabs publiques seulement
+    // Assistante TM : publiques + privées (TM / HoS) — filtre Sofian déjà dans AND
+    if (isTalentCollabViewer && !canViewPrivateTalentCollabs(user.role)) {
       where.isPrivate = false;
     }
     // Si TM → voir uniquement SES collaborations (via ses talents), tous statuts sauf PERDU

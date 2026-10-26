@@ -7,6 +7,7 @@ import { logDelegationActivite } from "@/lib/delegations";
 import { canAccessPrivateCollab } from "@/lib/collab-private-access";
 import {
   canViewAllTalentCollabs,
+  canViewPrivateTalentCollabs,
   isCollabViewOnly,
 } from "@/lib/collab-viewer-access";
 
@@ -191,10 +192,11 @@ export async function GET(
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
 
-    // Viewer : collabs privées Sales hors scope
+    // Viewer Inès : collabs privées hors scope (assistante TM : OK via canViewPrivate)
     if (
       canViewAllTalentCollabs(userRole || "", user.email) &&
-      collaboration.isPrivate
+      collaboration.isPrivate &&
+      !canViewPrivateTalentCollabs(userRole || "")
     ) {
       return NextResponse.json({ message: "Non trouvée" }, { status: 404 });
     }
