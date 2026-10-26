@@ -222,6 +222,28 @@ export async function proxy(request: NextRequest) {
         NextResponse.json({ error: "Non autorise" }, { status: 403 })
       );
     }
+    // Assistante TM : APIs talents/RH + lecture collabs + écriture stats/uploads uniquement
+    if (effectiveRole === "ASSISTANTE_TM") {
+      const method = request.method.toUpperCase();
+      const isCollabListApi = pathname === "/api/collaborations";
+      const isCollabDetailApi = /^\/api\/collaborations\/[^/]+$/.test(pathname);
+      const isCollabStatsApi =
+        /^\/api\/collaborations\/[^/]+\/stats(\/.*)?$/.test(pathname);
+      const allowedApi =
+        pathname.startsWith("/api/auth") ||
+        pathname.startsWith("/api/talents") ||
+        pathname.startsWith("/api/upload/") ||
+        pathname === "/api/users" ||
+        pathname.startsWith("/api/rh") ||
+        (isCollabListApi && method === "GET") ||
+        (isCollabDetailApi && method === "GET") ||
+        isCollabStatsApi;
+      if (!allowedApi) {
+        return withNoIndex(
+          NextResponse.json({ error: "Non autorisé" }, { status: 403 })
+        );
+      }
+    }
     return withNoIndex(NextResponse.next());
   }
 
@@ -241,8 +263,14 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // Assistante TM : uniquement module Talents (liste / fiche / édition) + APIs associées
+  // Assistante TM : Talents + Collaborations (liste/fiche) + RH salarié
+  // Collabs : pas de new / edit / facturer / contrat — stats + uploads via API
   if (effectiveRole === "ASSISTANTE_TM") {
+    const isCollabListPath = pathname === "/collaborations";
+    const isCollabDetailPath =
+      /^\/collaborations\/[^/]+$/.test(pathname) &&
+      pathname !== "/collaborations/new" &&
+      pathname !== "/collaborations/rattrapage-marques";
     const allowed =
       pathname === "/login" ||
       pathname.startsWith("/api/auth") ||
@@ -250,7 +278,12 @@ export async function proxy(request: NextRequest) {
       pathname.startsWith("/talents/") ||
       pathname.startsWith("/api/talents") ||
       pathname.startsWith("/api/upload/") ||
-      pathname === "/api/users";
+      pathname === "/api/users" ||
+      pathname === "/rh" ||
+      pathname.startsWith("/rh/") ||
+      pathname.startsWith("/api/rh") ||
+      isCollabListPath ||
+      isCollabDetailPath;
     if (!allowed) {
       return withNoIndex(NextResponse.redirect(new URL("/talents", request.url)));
     }
@@ -366,10 +399,13 @@ export async function proxy(request: NextRequest) {
   // depuis les projets.
   // + collaborations talents en lecture seule (liste + fiche, pas new/edit/facturer)
   //   pour Inès (allowlist email — voir collab-viewer-access).
+  // + espace RH salarié (/rh, /api/rh).
   const isCannes2026Path = pathname === "/cannes-2026" || pathname.startsWith("/cannes-2026/");
   const isTalentsPath = pathname === "/talents" || pathname.startsWith("/talents/");
   const isSimulateurCessionsPath =
     pathname === "/simulateur-cessions" || pathname.startsWith("/simulateur-cessions/");
+  const isRhPath =
+    pathname === "/rh" || pathname.startsWith("/rh/") || pathname.startsWith("/api/rh");
   const isMarquesListPath = pathname === "/marques";
   const isMarqueDetailPath =
     /^\/marques\/[^/]+$/.test(pathname) &&
@@ -400,6 +436,7 @@ export async function proxy(request: NextRequest) {
     !isCannes2026Path &&
     !isTalentsPath &&
     !isSimulateurCessionsPath &&
+    !isRhPath &&
     !isMarquesListPath &&
     !isMarqueDetailPath &&
     !(isCollabViewer && (isCollabListPath || isCollabDetailPath))

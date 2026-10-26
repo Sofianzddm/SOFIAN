@@ -1938,7 +1938,7 @@ export default function TalentDetailPage() {
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-4 pt-4">
-          {role === "TM" ? (
+          {role === "TM" || role === "ASSISTANTE_TM" ? (
             <>
               <button
                 type="button"

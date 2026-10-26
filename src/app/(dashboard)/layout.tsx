@@ -74,7 +74,12 @@ export default function DashboardLayout({
     }
     if (status === "authenticated" && session?.user?.role === "ASSISTANTE_TM") {
       const p = typeof window !== "undefined" ? window.location.pathname : "";
-      if (p && !p.startsWith("/talents")) {
+      const isCollabOk =
+        p === "/collaborations" ||
+        (/^\/collaborations\/[^/]+$/.test(p) &&
+          p !== "/collaborations/new" &&
+          p !== "/collaborations/rattrapage-marques");
+      if (p && !p.startsWith("/talents") && !p.startsWith("/rh") && !isCollabOk) {
         router.replace("/talents");
       }
     }

@@ -91,8 +91,9 @@ export default function CollaborationsPage() {
 
   const canFilterByUser =
     userRole === "ADMIN" || userRole === "HEAD_OF" || userRole === "HEAD_OF_INFLUENCE";
-  /** STRATEGY_PLANNER (Inès) : lecture seule, sans récaps CA (comme TM pour les agrégats). */
-  const isViewOnly = userRole === "STRATEGY_PLANNER";
+  /** STRATEGY_PLANNER / ASSISTANTE_TM : lecture seule (stats/uploads seuls pour assistante). */
+  const isViewOnly =
+    userRole === "STRATEGY_PLANNER" || userRole === "ASSISTANTE_TM";
   const hideFinancialRecaps = userRole === "TM" || isViewOnly;
   /** Tarif unitaire par collab OK ; commission agence masquée pour viewers. */
   const showBrutColumn = !hideFinancialRecaps || isViewOnly;

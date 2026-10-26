@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
 import { canAccessPrivateCollab } from "@/lib/collab-private-access";
-import { isCollabViewOnly } from "@/lib/collab-viewer-access";
+import { canWriteCollabStats } from "@/lib/collab-viewer-access";
 import {
-  COLLAB_STAT_WRITE_ROLES,
   isCollabStatType,
   parseOptionalInt,
 } from "@/lib/collab-stats";
@@ -38,10 +37,7 @@ export async function PATCH(
     }
 
     const role = session.user.role || "";
-    if (isCollabViewOnly(role, session.user.email)) {
-      return NextResponse.json({ error: "Lecture seule" }, { status: 403 });
-    }
-    if (!(COLLAB_STAT_WRITE_ROLES as readonly string[]).includes(role)) {
+    if (!canWriteCollabStats(role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
@@ -139,10 +135,7 @@ export async function DELETE(
     }
 
     const role = session.user.role || "";
-    if (isCollabViewOnly(role, session.user.email)) {
-      return NextResponse.json({ error: "Lecture seule" }, { status: 403 });
-    }
-    if (!(COLLAB_STAT_WRITE_ROLES as readonly string[]).includes(role)) {
+    if (!canWriteCollabStats(role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 

@@ -436,7 +436,7 @@ export default function CollabDetailPage() {
   // Auto-ouvre la double saisie si le nom de marque n'est pas encore vérifié
   useEffect(() => {
     if (!collab) return;
-    if (effectiveRole === "STRATEGY_PLANNER") return;
+    if (effectiveRole === "STRATEGY_PLANNER" || effectiveRole === "ASSISTANTE_TM") return;
     const force = searchParams.get("corrigerMarque") === "1";
     const needsVerify = !collab.nomMarqueVerifieAt;
     if (force || (crmLocked && needsVerify) || needsVerify) {
@@ -1363,7 +1363,10 @@ export default function CollabDetailPage() {
   // Rôle effectif (via /api/auth/me) pour cohérence avec le masquage backend — seul ADMIN voit les infos de paiement
   const isAdmin = effectiveRole === "ADMIN";
   const roleForUi = effectiveRole ?? (session?.user as { role?: string })?.role ?? "";
-  const isViewOnly = roleForUi === "STRATEGY_PLANNER";
+  /** Métier en lecture seule ; ASSISTANTE_TM peut quand même saisir les stats. */
+  const isViewOnly =
+    roleForUi === "STRATEGY_PLANNER" || roleForUi === "ASSISTANTE_TM";
+  const statsViewOnly = roleForUi === "STRATEGY_PLANNER";
   // Pour les non-ADMIN, on affiche "Facturé" au lieu de "Payé" (ils ne voient pas la suite des paiements)
   const displayStatut = isAdmin ? collab.statut : (collab.statut === "PAYE" ? "FACTURE_RECUE" : collab.statut);
   const statutInfo = getStatutInfo(displayStatut);
@@ -1559,7 +1562,7 @@ export default function CollabDetailPage() {
             <CollabStatsTab
               collaborationId={collab.id}
               role={roleForUi}
-              isViewOnly={isViewOnly}
+              isViewOnly={statsViewOnly}
               defaultUrlPublication={collab.lienPublication}
               defaultDatePublication={collab.datePublication}
             />

@@ -47,9 +47,22 @@ export function resolvePostLoginPath(
     return safe?.startsWith("/cannes-2026") ? safe : "/cannes-2026";
   }
   if (role === "ASSISTANTE_TM") {
-    return safe?.startsWith("/talents") ? safe : "/talents";
+    if (
+      safe?.startsWith("/talents") ||
+      safe?.startsWith("/rh") ||
+      safe === "/collaborations" ||
+      (safe?.startsWith("/collaborations/") &&
+        !safe.startsWith("/collaborations/new") &&
+        !safe.includes("/edit") &&
+        !safe.includes("/facturer") &&
+        !safe.includes("/contrat"))
+    ) {
+      return safe;
+    }
+    return "/talents";
   }
   if (role === "STRATEGY_PLANNER") {
+    if (safe?.startsWith("/rh")) return safe;
     return safe || "/strategy/projets/villa-cannes";
   }
 
