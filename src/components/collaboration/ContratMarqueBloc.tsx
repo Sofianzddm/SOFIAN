@@ -219,9 +219,22 @@ export default function ContratMarqueBloc({ collaboration, currentUser, onRefres
               <p className="text-xs text-gray-600">
                 <span className="text-gray-400">Contact client :</span> {storedContactLabel}
               </p>
+            ) : suggestedContact?.email ? (
+              <p className="text-xs text-gray-600">
+                <span className="text-gray-400">Contact client :</span>{" "}
+                {[suggestedContact.nom, suggestedContact.email].filter(Boolean).join(" · ")}
+                <span className="text-gray-400">
+                  {" "}
+                  (
+                  {suggestedContact.source === "NEGOCIATION"
+                    ? "négociation"
+                    : "fiche marque"}
+                  )
+                </span>
+              </p>
             ) : (
               <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                Contact client manquant — rouvrez la review pour uploader une version avec contact.
+                Contact client manquant — la juriste pourra le saisir avant l’envoi en signature.
               </p>
             )}
             {statut === "SIGNE" && !collaboration.contratMarquePdfOfficielSigneDeposeAt ? (

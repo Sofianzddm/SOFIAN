@@ -37,6 +37,9 @@ import {
 import { canUploadContratMarque } from "@/lib/contratMarqueAccess";
 import { FixedPdfLoader } from "@/components/contrat-marque/FixedPdfLoader";
 import ContratMarqueUploadModal from "@/components/contrat-marque/ContratMarqueUploadModal";
+import ContratMarqueSignatureContactModal, {
+  type SignatureContactSuggestion,
+} from "@/components/contrat-marque/ContratMarqueSignatureContactModal";
 import { PDFJS_DIST_WORKER_SRC } from "@/lib/pdfjsWorkerSrc";
 import { ChevronDown, ChevronUp, Mail, MessageSquare, Package, Phone } from "lucide-react";
 import {
@@ -130,6 +133,8 @@ export interface ContratPdfReviewerProps {
   versions?: ContratMarqueVersionClient[];
   /** Contact client (négo / CRM) pour échange direct juriste ↔ marque. */
   clientContact?: ContratMarqueClientContact | null;
+  /** Suggestions CRM / négo pour choisir le destinataire DocuSeal. */
+  contactSuggestions?: SignatureContactSuggestion[];
   showBackToCollab?: boolean;
   isJuristeContext?: boolean;
   onStatutChange?: () => void;
@@ -325,11 +330,13 @@ export default function ContratPdfReviewer({
   versions: versionsProp,
   livrables: livrablesProp,
   clientContact = null,
+  contactSuggestions = [],
 }: ContratPdfReviewerProps) {
   const versions = versionsProp ?? [];
   const livrables = livrablesProp ?? [];
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadModalFile, setUploadModalFile] = useState<File | null>(null);
+  const [signatureContactModalOpen, setSignatureContactModalOpen] = useState(false);
   const [relancing, setRelancing] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState<ContratMarqueVersionClient | null>(() =>
     versions.length > 0 ? versions[versions.length - 1]! : null
@@ -715,37 +722,78 @@ export default function ContratPdfReviewer({
     [annotations, collaborationId, onStatutChange, versions]
   );
 
-  const openSignatureBuilder = useCallback(async () => {
-    setBusy(true);
-    try {
-      const res = await fetch(
-        `/api/collaborations/${collaborationId}/contrat-marque/prepare-signature`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            forceNewTemplate: !hasBuilderTemplate,
-          }),
-        }
-      );
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        builderPath?: string;
-      };
-      if (!res.ok) {
-        alert(data.error || "Impossible de préparer la signature");
-        return;
-      }
-      const path =
-        data.builderPath ||
-        (isJuristeContext
-          ? `/juriste/signature-builder/${collaborationId}`
-          : `/collaborations/${collaborationId}/contrat-marque/builder`);
-      window.location.href = path;
-    } finally {
-      setBusy(false);
+  const signatureContactSuggestions = useMemo((): SignatureContactSuggestion[] => {
+    const out: SignatureContactSuggestion[] = [...contactSuggestions];
+    const storedNom = collaboration.contratMarqueContactNom?.trim();
+    const storedEmail = collaboration.contratMarqueContactEmail?.trim();
+    if (storedEmail) {
+      out.unshift({
+        nom: storedNom || storedEmail,
+        email: storedEmail,
+        telephone: collaboration.contratMarqueContactTelephone ?? null,
+        sourceLabel: "Contact collaboration",
+      });
     }
-  }, [collaborationId, hasBuilderTemplate, isJuristeContext]);
+    if (clientContact?.email?.trim()) {
+      out.push({
+        nom: clientContact.nom?.trim() || clientContact.email.trim(),
+        email: clientContact.email.trim(),
+        telephone: clientContact.telephone,
+        sourceLabel:
+          clientContact.source === "COLLAB"
+            ? "Contact collaboration"
+            : clientContact.source === "NEGOCIATION"
+              ? "Négociation"
+              : "Fiche marque",
+      });
+    }
+    return out;
+  }, [clientContact, collaboration, contactSuggestions]);
+
+  const openSignatureBuilder = useCallback(() => {
+    setSignatureContactModalOpen(true);
+  }, []);
+
+  const confirmSignatureContact = useCallback(
+    async (contact: { nom: string; email: string; telephone: string }) => {
+      setBusy(true);
+      try {
+        const res = await fetch(
+          `/api/collaborations/${collaborationId}/contrat-marque/prepare-signature`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              forceNewTemplate: !hasBuilderTemplate,
+              contact: {
+                nom: contact.nom,
+                email: contact.email,
+                telephone: contact.telephone || null,
+              },
+            }),
+          }
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          builderPath?: string;
+        };
+        if (!res.ok) {
+          alert(data.error || "Impossible de préparer la signature");
+          return;
+        }
+        setSignatureContactModalOpen(false);
+        const path =
+          data.builderPath ||
+          (isJuristeContext
+            ? `/juriste/signature-builder/${collaborationId}`
+            : `/collaborations/${collaborationId}/contrat-marque/builder`);
+        window.location.href = path;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [collaborationId, hasBuilderTemplate, isJuristeContext]
+  );
 
   const handleRelancerSignataire = useCallback(async () => {
     if (relancing) return;
@@ -1988,6 +2036,18 @@ export default function ContratPdfReviewer({
             },
           })
         }
+      />
+
+      <ContratMarqueSignatureContactModal
+        open={signatureContactModalOpen}
+        busy={busy}
+        initialContact={clientContact}
+        suggestions={signatureContactSuggestions}
+        onClose={() => {
+          if (busy) return;
+          setSignatureContactModalOpen(false);
+        }}
+        onConfirm={confirmSignatureContact}
       />
     </div>
   );

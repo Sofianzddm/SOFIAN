@@ -8,7 +8,11 @@ import {
   type ContratSignataire,
 } from "@/lib/collab-contrat-upload";
 import { getAgenceSignatureEmail } from "@/lib/agence-signature";
-import { hasStoredContratMarqueClientContact } from "@/lib/contratMarqueClientContact";
+import {
+  hasStoredContratMarqueClientContact,
+  parseContratMarqueContactInput,
+  resolveContratMarqueClientContact,
+} from "@/lib/contratMarqueClientContact";
 
 const DOCUSEAL_TEMPLATES_PDF = "https://api.docuseal.com/templates/pdf";
 
@@ -56,13 +60,36 @@ export async function POST(
     const body = (await request.json().catch(() => ({}))) as {
       signataires?: unknown;
       forceNewTemplate?: boolean;
+      contact?: {
+        nom?: string | null;
+        email?: string | null;
+        telephone?: string | null;
+      };
     };
 
     const collab = await prisma.collaboration.findUnique({
       where: { id },
       include: {
         talent: { select: { prenom: true, nom: true } },
-        marque: { select: { nom: true } },
+        marque: {
+          select: {
+            nom: true,
+            contacts: {
+              orderBy: [{ principal: "desc" }, { nom: "asc" }],
+              select: {
+                prenom: true,
+                nom: true,
+                email: true,
+                telephone: true,
+                poste: true,
+                principal: true,
+              },
+            },
+          },
+        },
+        negociation: {
+          select: { contactMarque: true, emailContact: true },
+        },
       },
     });
     if (!collab) {
@@ -77,15 +104,52 @@ export async function POST(
     if (!collab.contratMarquePdfUrl?.trim()) {
       return NextResponse.json({ error: "Aucun PDF contrat marque disponible." }, { status: 400 });
     }
-    if (!hasStoredContratMarqueClientContact(collab)) {
-      return NextResponse.json(
-        {
-          error:
-            "Contact client manquant sur la collaboration — le TM doit le renseigner à l’upload.",
-        },
-        { status: 400 }
-      );
+
+    let contactNom = collab.contratMarqueContactNom;
+    let contactEmail = collab.contratMarqueContactEmail;
+    let contactTelephone = collab.contratMarqueContactTelephone;
+    let contactPersisted = false;
+
+    if (body.contact) {
+      const parsed = parseContratMarqueContactInput(body.contact);
+      if (!parsed.ok) {
+        return NextResponse.json({ error: parsed.error }, { status: 400 });
+      }
+      contactNom = parsed.value.nom;
+      contactEmail = parsed.value.email;
+      contactTelephone = parsed.value.telephone;
+      contactPersisted = true;
+    } else if (!hasStoredContratMarqueClientContact(collab)) {
+      // Fallback : contact négo / fiche marque (même logique que l’UI juriste)
+      const resolved = resolveContratMarqueClientContact({
+        collaboration: collab,
+        negociation: collab.negociation,
+        marqueContacts: collab.marque.contacts,
+      });
+      const parsed = parseContratMarqueContactInput({
+        nom: resolved?.nom,
+        email: resolved?.email,
+        telephone: resolved?.telephone,
+      });
+      if (!parsed.ok) {
+        return NextResponse.json(
+          {
+            error:
+              "Contact client manquant — indiquez le nom et l’email du destinataire avant d’envoyer en signature.",
+          },
+          { status: 400 }
+        );
+      }
+      contactNom = parsed.value.nom;
+      contactEmail = parsed.value.email;
+      contactTelephone = parsed.value.telephone;
+      contactPersisted = true;
     }
+
+    const collabForSigners = {
+      contratMarqueContactNom: contactNom,
+      contratMarqueContactEmail: contactEmail,
+    };
 
     let signataires: ContratSignataire[];
     if (body.signataires !== undefined) {
@@ -95,7 +159,7 @@ export async function POST(
       }
       signataires = validated.signataires;
     } else {
-      const validated = validateSignatairesInput(defaultSignataires(collab));
+      const validated = validateSignatairesInput(defaultSignataires(collabForSigners));
       if (!validated.ok) {
         return NextResponse.json({ error: validated.error }, { status: 400 });
       }
@@ -162,6 +226,13 @@ export async function POST(
         contratMarqueSubmissionId: null,
         contratMarqueMode: null,
         contratMarqueSigneAt: null,
+        ...(contactPersisted
+          ? {
+              contratMarqueContactNom: contactNom,
+              contratMarqueContactEmail: contactEmail,
+              contratMarqueContactTelephone: contactTelephone,
+            }
+          : {}),
       },
     });
 

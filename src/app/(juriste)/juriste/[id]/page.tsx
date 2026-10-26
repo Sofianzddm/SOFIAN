@@ -91,6 +91,29 @@ export default async function JuristeContratPage({
     marqueContacts: collaboration.marque.contacts,
   });
 
+  const contactSuggestions = [
+    ...(collaboration.negociation?.emailContact?.trim()
+      ? [
+          {
+            nom:
+              collaboration.negociation.contactMarque?.trim() ||
+              collaboration.negociation.emailContact.trim(),
+            email: collaboration.negociation.emailContact.trim(),
+            telephone: null as string | null,
+            sourceLabel: "Négociation",
+          },
+        ]
+      : []),
+    ...collaboration.marque.contacts
+      .filter((c) => c.email?.trim())
+      .map((c) => ({
+        nom: [c.prenom?.trim(), c.nom.trim()].filter(Boolean).join(" ") || c.email!.trim(),
+        email: c.email!.trim(),
+        telephone: c.telephone,
+        sourceLabel: c.principal ? "Fiche marque (principal)" : "Fiche marque",
+      })),
+  ];
+
   const currentUser = {
     id: user.id,
     nom: user.name ?? "Juriste",
@@ -110,6 +133,7 @@ export default async function JuristeContratPage({
       livrables={livrables}
       versions={versions}
       clientContact={clientContact}
+      contactSuggestions={contactSuggestions}
       isJuristeContext
     />
   );
