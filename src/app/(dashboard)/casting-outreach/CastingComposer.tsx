@@ -1649,6 +1649,10 @@ export default function CastingComposer({
           recipientEmails: selectedRecipientEmails,
           missionStage: contact.missionBrief?.stage || null,
           draftPrepBrief: draftPrepBrief || undefined,
+          // Revue négo lue + bouton « Revue faite » → autorise la rédaction manuelle.
+          negotiationReviewAcknowledged:
+            Boolean(prepBriefConfirmed) &&
+            Boolean(draftPrepBrief?.needsNegotiationReview),
           leynaExchangeCache: leynaExchange
             ? {
                 hasExchange: Boolean(leynaExchange.hasExchange),
@@ -2777,22 +2781,27 @@ export default function CastingComposer({
                       </pre>
                       {draftPrepBrief.needsNegotiationReview ? (
                         <p className="mt-2 text-[11px] font-medium text-amber-800">
-                          Négociation / réponse en cours — pas de prospection auto. Revue
-                          humaine requise.
+                          Négociation / réponse en cours — pas de prospection auto. Lis
+                          l’historique, puis valide pour autoriser la rédaction manuelle.
                         </p>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setPrepBriefConfirmed(true)}
-                          disabled={prepBriefConfirmed}
-                          className="mt-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
-                          style={{ backgroundColor: LICORICE }}
-                        >
-                          {prepBriefConfirmed
-                            ? "Synthèse validée — tu peux rédiger"
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setPrepBriefConfirmed(true)}
+                        disabled={prepBriefConfirmed}
+                        className="mt-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                        style={{
+                          backgroundColor: draftPrepBrief.needsNegotiationReview
+                            ? "#b45309"
+                            : LICORICE,
+                        }}
+                      >
+                        {prepBriefConfirmed
+                          ? "Synthèse validée — tu peux rédiger"
+                          : draftPrepBrief.needsNegotiationReview
+                            ? "Revue faite — autoriser la rédaction"
                             : "Valider la synthèse"}
-                        </button>
-                      )}
+                      </button>
                     </section>
                   ) : null}
                   <div className={isInline ? "min-h-0 flex-1" : undefined}>

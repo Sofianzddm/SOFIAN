@@ -215,6 +215,11 @@ export interface GenerateEmailBody {
   missionStage?: string | null;
   missionReplied?: boolean;
   /**
+   * Composer : l’humain a lu la synthèse « revue négo » et autorise quand même
+   * la rédaction (pas de prospection auto batch — uniquement parcours manuel).
+   */
+  negotiationReviewAcknowledged?: boolean;
+  /**
    * Condensation multi-projets : N briefs (Alice + Bob…) pour UN mail à UNE marque.
    * Prioritaire sur projectBrief si length >= 2.
    */
@@ -1343,7 +1348,7 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
     const hasLeynaExchange = Boolean(leynaExchange?.hasExchange);
 
     const incomingBrief = body.draftPrepBrief;
-    const prepBrief: DraftPrepBrief =
+    let prepBrief: DraftPrepBrief =
       incomingBrief && incomingBrief.version === 1
         ? incomingBrief
         : buildDraftPrepBrief({
@@ -1385,7 +1390,11 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
             missionReplied: Boolean(body.missionReplied),
           });
 
-    if (prepBrief.needsNegotiationReview) {
+    // Batch / auto : bloquer. Composer manuel : l’humain peut ack après revue.
+    if (
+      prepBrief.needsNegotiationReview &&
+      body.negotiationReviewAcknowledged !== true
+    ) {
       return NextResponse.json(
         {
           error: prepBrief.negotiationReviewReason || "Revue négociation requise.",
@@ -1404,6 +1413,27 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
         },
         { status: 409 }
       );
+    }
+
+    // Revue humaine ack → angle / prompt = suite prudente (pas cold, pas stop).
+    if (
+      prepBrief.needsNegotiationReview &&
+      body.negotiationReviewAcknowledged === true
+    ) {
+      const followUpAngle = `Suite d'échange / discussion en cours avec ${prepBrief.pitchBrand} — mail prudent ancré dans l'historique (pas une prospection à froid).`;
+      prepBrief = {
+        ...prepBrief,
+        proposedAngle: followUpAngle,
+        promptBlockFr: prepBrief.promptBlockFr
+          .replace(
+            /- STOP PROSPECTION AUTO :[^\n]*/g,
+            "- REVUE HUMAINE FAITE : rédige un mail de suite prudent, ancré dans l'historique Leyna — PAS une nouvelle prospection à froid, PAS inventer de deal clos."
+          )
+          .replace(
+            /Angle: Revue humaine requise[^\n]*/g,
+            `Angle: ${followUpAngle}`
+          ),
+      };
     }
 
     if (leynaExchange?.scanStatus === "failed" && !hasLeynaHistory) {
