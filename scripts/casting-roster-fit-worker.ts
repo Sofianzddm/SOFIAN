@@ -1,11 +1,11 @@
 /**
- * Worker VPS — analyse casting roster (jobs Prisma).
- *
- * Tourne en continu hors Vercel : enchaîne les marques sans timeout serverless.
+ * Worker VPS — casting roster-fit + pipeline indiv draft (jobs Prisma).
  *
  * Env requis :
  *   DATABASE_URL
  *   XAI_API_KEY
+ *   APP_URL=https://app.glowupagence.fr   (pour les appels casting brand/talent/email)
+ *   CRON_SECRET=…                        (même que Vercel)
  *
  * Lancer :
  *   pnpm worker:casting-roster-fit
@@ -13,6 +13,7 @@
  */
 import prisma from "../src/lib/prisma";
 import { processRosterFitJobTick } from "../src/lib/casting-roster-fit-job";
+import { processIndivDraftJobTick } from "../src/lib/casting-indiv-draft-job";
 
 const POLL_IDLE_MS = Number(process.env.CASTING_FIT_POLL_MS || 5000);
 const STUCK_BRAND_MS = Number(process.env.CASTING_FIT_STUCK_MS || 8 * 60 * 1000);
@@ -21,9 +22,9 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function recoverStuckBrands() {
+async function recoverStuck() {
   const cutoff = new Date(Date.now() - STUCK_BRAND_MS);
-  const stuck = await prisma.castingRosterFitBrand.updateMany({
+  const stuckBrands = await prisma.castingRosterFitBrand.updateMany({
     where: {
       status: "running",
       startedAt: { lt: cutoff },
@@ -34,55 +35,95 @@ async function recoverStuckBrands() {
       startedAt: null,
     },
   });
-  if (stuck.count > 0) {
+  if (stuckBrands.count > 0) {
     console.warn(
-      `[casting-fit-worker] recovered ${stuck.count} stuck brand(s)`
+      `[casting-fit-worker] recovered ${stuckBrands.count} stuck roster brand(s)`
+    );
+  }
+  const stuckItems = await prisma.castingIndivDraftItem.updateMany({
+    where: {
+      status: "running",
+      startedAt: { lt: cutoff },
+    },
+    data: {
+      status: "pending",
+      error: "Recovered stuck running indiv item (worker)",
+      startedAt: null,
+    },
+  });
+  if (stuckItems.count > 0) {
+    console.warn(
+      `[casting-fit-worker] recovered ${stuckItems.count} stuck indiv item(s)`
     );
   }
 }
 
-/** Cap soft : tous les jobs actifs, traités en parallèle (1 marque / job / tick). */
+/** Cap soft : jobs actifs, traités en parallèle (1 item / job / tick). */
 const MAX_PARALLEL_JOBS = Number(process.env.CASTING_FIT_MAX_PARALLEL || 40);
 
-async function pickJobIds(): Promise<string[]> {
-  const jobs = await prisma.castingRosterFitJob.findMany({
-    where: {
-      status: { in: ["pending", "running"] },
-      cancelRequested: false,
-    },
-    orderBy: { createdAt: "asc" },
-    take: MAX_PARALLEL_JOBS,
-    select: { id: true },
-  });
-  return jobs.map((j) => j.id);
-}
-
 async function loopOnce(): Promise<number> {
-  await recoverStuckBrands();
-  const ids = await pickJobIds();
-  if (ids.length === 0) return 0;
+  await recoverStuck();
 
-  const results = await Promise.all(
-    ids.map(async (id) => {
-      const tick = await processRosterFitJobTick(id, 1);
+  const [rosterJobs, indivJobs] = await Promise.all([
+    prisma.castingRosterFitJob.findMany({
+      where: {
+        status: { in: ["pending", "running"] },
+        cancelRequested: false,
+      },
+      orderBy: { createdAt: "asc" },
+      take: MAX_PARALLEL_JOBS,
+      select: { id: true },
+    }),
+    prisma.castingIndivDraftJob.findMany({
+      where: {
+        status: { in: ["pending", "running"] },
+        cancelRequested: false,
+      },
+      orderBy: { createdAt: "asc" },
+      take: MAX_PARALLEL_JOBS,
+      select: { id: true },
+    }),
+  ]);
+
+  if (rosterJobs.length === 0 && indivJobs.length === 0) return 0;
+
+  const results = await Promise.all([
+    ...rosterJobs.map(async (j) => {
+      const tick = await processRosterFitJobTick(j.id, 1);
       console.log(
-        `[casting-fit-worker] job=${id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
+        `[casting-fit-worker] roster job=${j.id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
       );
       return tick.processed;
-    })
-  );
+    }),
+    ...indivJobs.map(async (j) => {
+      const tick = await processIndivDraftJobTick(j.id, 1);
+      console.log(
+        `[casting-fit-worker] indiv job=${j.id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
+      );
+      return tick.processed;
+    }),
+  ]);
   return results.reduce((a, b) => a + b, 0);
 }
 
 async function main() {
   console.log(
-    `[casting-fit-worker] start · idle=${POLL_IDLE_MS}ms · stuck=${STUCK_BRAND_MS}ms`
+    `[casting-fit-worker] start · idle=${POLL_IDLE_MS}ms · stuck=${STUCK_BRAND_MS}ms · roster+indiv`
   );
   if (!process.env.DATABASE_URL?.trim()) {
     throw new Error("DATABASE_URL manquante");
   }
   if (!process.env.XAI_API_KEY?.trim()) {
     throw new Error("XAI_API_KEY manquante");
+  }
+  if (
+    process.env.CASTING_FIT_EXTERNAL_WORKER === "1" &&
+    !process.env.APP_URL?.trim() &&
+    !process.env.NEXTAUTH_URL?.trim()
+  ) {
+    console.warn(
+      "[casting-fit-worker] APP_URL / NEXTAUTH_URL manquant — les jobs indiv appellent l’app pour brand/talent/email."
+    );
   }
 
   // eslint-disable-next-line no-constant-condition

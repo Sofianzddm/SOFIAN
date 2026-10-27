@@ -2295,12 +2295,23 @@ export function ProspectingPipelineClient() {
                       </p>
                     ) : null}
                   </div>
-                  <span
-                    className="rounded-md px-2 py-0.5 text-[11px] font-semibold"
-                    style={{ background: "#f1f5f9", color: "#475569" }}
-                  >
-                    En file
-                  </span>
+                  {m.draftEmailSubject && m.draftEmailBody ? (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold"
+                      style={{ background: TEA_GREEN, color: LICORICE }}
+                      title="Brouillon prêt — contrôle et envoi"
+                    >
+                      <CheckCircle2 className="h-3 w-3" />
+                      Prêt à contrôler
+                    </span>
+                  ) : (
+                    <span
+                      className="rounded-md px-2 py-0.5 text-[11px] font-semibold"
+                      style={{ background: "#f1f5f9", color: "#475569" }}
+                    >
+                      En file
+                    </span>
+                  )}
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {m.marqueId ? (

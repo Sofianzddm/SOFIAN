@@ -379,6 +379,17 @@ export function TalentIndivBatchAnalyzeBar({
     label: string;
   } | null>(null);
 
+  /** Job serveur (même modèle que outreach casting) — survit à la fermeture de page. */
+  const [serverJob, setServerJob] = useState<{
+    id: string;
+    status: string;
+    done: number;
+    total: number;
+    failed: number;
+    current: string;
+  } | null>(null);
+  const serverPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const batchAbortRef = useRef<AbortController | null>(null);
   const batchLeynaAbortRef = useRef<AbortController | null>(null);
   const batchDraftAbortRef = useRef<AbortController | null>(null);
@@ -1596,6 +1607,153 @@ export function TalentIndivBatchAnalyzeBar({
     }
   }
 
+  const stopServerPoll = useCallback(() => {
+    if (serverPollRef.current) {
+      clearInterval(serverPollRef.current);
+      serverPollRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => stopServerPoll(), [stopServerPoll]);
+
+  const pollServerJob = useCallback(
+    async (jobId: string) => {
+      try {
+        const res = await fetch(`/api/casting/indiv-draft-jobs/${jobId}`, {
+          credentials: "include",
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          status?: string;
+          completed?: number;
+          failed?: number;
+          totalMissions?: number;
+          currentBrandName?: string | null;
+          items?: Array<{ missionId: string; status: string }>;
+        };
+        if (!res.ok) return;
+        setServerJob({
+          id: jobId,
+          status: String(data.status || "running"),
+          done: Number(data.completed || 0) + Number(data.failed || 0),
+          total: Number(data.totalMissions || 0),
+          failed: Number(data.failed || 0),
+          current: data.currentBrandName || "",
+        });
+        const terminal = ["completed", "failed", "cancelled"].includes(
+          String(data.status || "")
+        );
+        if (terminal) {
+          stopServerPoll();
+          const ok = Number(data.completed || 0);
+          const fail = Number(data.failed || 0);
+          const doneIds = (data.items || [])
+            .filter((it) => it.status === "done")
+            .map((it) => it.missionId);
+          await onChanged();
+          await reloadAllOpenMissions();
+          if (doneIds.length > 0) {
+            onFocusMissions?.({
+              missionIds: doneIds,
+              stage: "DRAFTED_FOR_VALIDATION",
+              label: `Job serveur · ${ok} prêt${ok > 1 ? "s" : ""}`,
+            });
+          }
+          setSuccess(
+            data.status === "cancelled"
+              ? `Job indiv arrêté (${ok} OK${fail ? `, ${fail} échec(s)` : ""}).`
+              : ok > 0
+                ? `Pipeline indiv serveur terminé · ${ok} brouillon${ok > 1 ? "s" : ""}${
+                    fail ? ` · ${fail} échec(s)` : ""
+                  }. Contrôle dans « Prêt à envoyer ».`
+                : "Job indiv échoué — réessaie."
+          );
+          setServerJob(null);
+        }
+      } catch (e) {
+        console.error("[indiv-batch] poll server job:", e);
+      }
+    },
+    [onChanged, reloadAllOpenMissions, onFocusMissions, setSuccess, stopServerPoll]
+  );
+
+  /** Même pipeline que le lot navigateur, mais job DB + worker VPS (quitter la page OK). */
+  async function runServerPipeline(opts?: BatchRunOpts) {
+    const pool = poolFrom(opts);
+    if (serverJob || batchPipelineActiveRef.current) return;
+    if (pool.length === 0) {
+      setSuccess(
+        `Rien à faire : tout est déjà OK depuis ${BATCH_SINCE_LABEL}, ou aucune carte ouverte.`
+      );
+      return;
+    }
+    setError(null);
+    try {
+      const talentIds = [
+        ...new Set(pool.map((m) => m.talentId).filter(Boolean)),
+      ] as string[];
+      const res = await fetch("/api/casting/indiv-draft-jobs", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          talentId: talentIds.length === 1 ? talentIds[0] : null,
+          items: pool.map((m) => ({
+            missionId: m.id,
+            talentId: m.talentId,
+            brandName: brandLabel(m),
+          })),
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        jobId?: string;
+        totalMissions?: number;
+        parallelActive?: number;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.jobId) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Impossible de lancer le job"
+        );
+      }
+      setServerJob({
+        id: data.jobId,
+        status: "pending",
+        done: 0,
+        total: Number(data.totalMissions || pool.length),
+        failed: 0,
+        current: "",
+      });
+      setSuccess(
+        data.message ||
+          `Job serveur lancé (${pool.length}) — tu peux quitter la page.`
+      );
+      stopServerPoll();
+      void pollServerJob(data.jobId);
+      serverPollRef.current = setInterval(() => {
+        void pollServerJob(data.jobId!);
+      }, 3000);
+    } catch (e) {
+      setServerJob(null);
+      setError(e instanceof Error ? e.message : "Lancement job impossible.");
+    }
+  }
+
+  async function cancelServerJob() {
+    if (!serverJob?.id) return;
+    try {
+      await fetch(`/api/casting/indiv-draft-jobs/${serverJob.id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+    } catch {
+      /* ignore */
+    }
+    stopServerPoll();
+    setServerJob(null);
+    setSuccess("Arrêt demandé — le serveur s’arrête à la marque en cours.");
+  }
+
   async function runBatchFullPipeline(opts?: BatchRunOpts) {
     const pool = poolFrom(opts);
     const talentN = new Set(pool.map((m) => m.talentId).filter(Boolean)).size;
@@ -1603,7 +1761,8 @@ export function TalentIndivBatchAnalyzeBar({
       batchResearch?.running ||
       batchLeyna?.running ||
       batchDraft?.running ||
-      batchPipelineActiveRef.current
+      batchPipelineActiveRef.current ||
+      serverJob
     ) {
       return;
     }
@@ -1658,6 +1817,7 @@ export function TalentIndivBatchAnalyzeBar({
   }
 
   const running =
+    Boolean(serverJob) ||
     Boolean(batchPipeline?.running) ||
     Boolean(batchResearch?.running) ||
     Boolean(batchLeyna?.running) ||
@@ -1709,14 +1869,28 @@ export function TalentIndivBatchAnalyzeBar({
       <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="m-0 text-xs leading-snug text-slate-500">
-            {batchPipeline?.running
-              ? `Pipeline ${batchPipeline.step}/4 · ${batchPipeline.label} — lot en cours (${periodTab === "before" ? "avant" : "depuis"} le 19).`
-              : isDoneTab
-                ? `Brouillons OK depuis ${BATCH_SINCE_LABEL} — affichés en cartes dans « Prêt à envoyer » (contacts, revoir le mail, etc.). ${doneSinceMondayList.length} carte${doneSinceMondayList.length > 1 ? "s" : ""}.`
-                : periodTab === "before"
-                  ? `Brouillons faits avant ${BATCH_SINCE_LABEL} — on les refait. ${beforeMondayList.length} cartes · ${talentCountInPeriod} talent${talentCountInPeriod > 1 ? "s" : ""}. Lance par lots pour éviter de saturer.`
-                  : `Cartes depuis ${BATCH_SINCE_LABEL} pas encore OK. ${sinceMondayList.length} cartes · ${talentCountInPeriod} talent${talentCountInPeriod > 1 ? "s" : ""}.`}
+            {serverJob
+              ? `Serveur · ${serverJob.current || "…"} · ${serverJob.done}/${serverJob.total}${
+                  serverJob.failed > 0 ? ` · ${serverJob.failed} échec(s)` : ""
+                } — tu peux quitter la page`
+              : batchPipeline?.running
+                ? `Pipeline navigateur ${batchPipeline.step}/4 · ${batchPipeline.label}`
+                : isDoneTab
+                  ? `Brouillons OK depuis ${BATCH_SINCE_LABEL} — affichés en cartes dans « Prêt à envoyer ». ${doneSinceMondayList.length} carte${doneSinceMondayList.length > 1 ? "s" : ""}.`
+                  : periodTab === "before"
+                    ? `Brouillons avant ${BATCH_SINCE_LABEL} — on les refait. ${beforeMondayList.length} cartes · ${talentCountInPeriod} talent${talentCountInPeriod > 1 ? "s" : ""}.`
+                    : `Cartes depuis ${BATCH_SINCE_LABEL} pas encore OK. ${sinceMondayList.length} cartes · ${talentCountInPeriod} talent${talentCountInPeriod > 1 ? "s" : ""}. Lot serveur = même qualité que Outreach (VPS).`}
           </p>
+          {serverJob ? (
+            <div className="mt-2.5">
+              <ProgressRow
+                label={`Job serveur${serverJob.current ? ` · ${serverJob.current}` : ""}`}
+                done={serverJob.done}
+                total={serverJob.total}
+                failed={serverJob.failed}
+              />
+            </div>
+          ) : null}
           {!running && !isDoneTab && periodList.length > 0 ? (
             <p className="m-0 mt-1.5 text-xs text-slate-600">
               Prochain lot : <strong>{nextChunk.length}</strong> / {periodList.length}
@@ -1792,22 +1966,26 @@ export function TalentIndivBatchAnalyzeBar({
               className={btnBase}
               style={{ borderColor: "#e2e8f0", color: "#0f172a" }}
               onClick={
-                batchPipeline?.running
-                  ? stopBatchPipeline
-                  : batchResearch?.running
-                    ? stopBatchResearch
-                    : batchLeyna?.running
-                      ? stopBatchLeyna
-                      : stopBatchDraft
+                serverJob
+                  ? () => void cancelServerJob()
+                  : batchPipeline?.running
+                    ? stopBatchPipeline
+                    : batchResearch?.running
+                      ? stopBatchResearch
+                      : batchLeyna?.running
+                        ? stopBatchLeyna
+                        : stopBatchDraft
               }
             >
-              {batchPipeline?.running
-                ? "Arrêter le pipeline"
-                : batchResearch?.running
-                  ? "Arrêter marques/talent"
-                  : batchLeyna?.running
-                    ? "Arrêter boîte mail"
-                    : "Arrêter rédaction"}
+              {serverJob
+                ? "Arrêter le job serveur"
+                : batchPipeline?.running
+                  ? "Arrêter le pipeline"
+                  : batchResearch?.running
+                    ? "Arrêter marques/talent"
+                    : batchLeyna?.running
+                      ? "Arrêter boîte mail"
+                      : "Arrêter rédaction"}
             </button>
           ) : (
             <>
@@ -1816,24 +1994,32 @@ export function TalentIndivBatchAnalyzeBar({
                 className={btnPrimary}
                 style={{ background: "#0f172a" }}
                 disabled={!canRun || nextChunk.length === 0}
-                onClick={() =>
-                  void runBatchFullPipeline({ scope: nextChunk })
-                }
-                title={`Lance un lot de ${nextChunk.length} (onglet ${periodTab === "before" ? "avant" : "depuis"} le 19)`}
+                onClick={() => void runServerPipeline({ scope: nextChunk })}
+                title="Même pipeline Outreach : job DB + worker VPS — tu peux quitter la page"
               >
-                Lancer le lot ({nextChunk.length})
+                Lancer le lot serveur ({nextChunk.length})
               </button>
               <button
                 type="button"
                 className={btnBase}
                 style={{ borderColor: "#e2e8f0", color: "#0f172a" }}
                 disabled={!canRun || periodList.length === 0}
-                onClick={() =>
-                  void runBatchFullPipeline({ scope: periodList })
-                }
-                title="Tout l’onglet d’un coup — plus long"
+                onClick={() => void runServerPipeline({ scope: periodList })}
+                title="Tout l’onglet en job serveur"
               >
-                Tout l’onglet ({periodList.length})
+                Tout l’onglet serveur ({periodList.length})
+              </button>
+              <button
+                type="button"
+                className={btnBase}
+                style={{ borderColor: "#e2e8f0", color: "#64748b" }}
+                disabled={!canRun || nextChunk.length === 0}
+                onClick={() =>
+                  void runBatchFullPipeline({ scope: nextChunk })
+                }
+                title="Ancien mode navigateur (ne pas quitter la page)"
+              >
+                Lot navigateur ({nextChunk.length})
               </button>
               <button
                 type="button"

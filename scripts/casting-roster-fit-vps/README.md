@@ -19,6 +19,8 @@ Créer `/opt/glowup-casting-worker/.env` (ou `.env` à la racine du clone) :
 ```bash
 DATABASE_URL="postgresql://…neon…"   # même que Vercel
 XAI_API_KEY="…"                      # même que Vercel
+APP_URL="https://app.glowupagence.fr"  # requis pour jobs indiv (brand/talent/email)
+CRON_SECRET="…"                      # même que Vercel (auth appels internes)
 CASTING_FIT_POLL_MS=5000             # optionnel
 ```
 

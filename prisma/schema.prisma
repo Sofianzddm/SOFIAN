@@ -442,6 +442,7 @@ model User {
   activityLogs UserActivityLog[]
 
   castingRosterFitJobs CastingRosterFitJob[]
+  castingIndivDraftJobs CastingIndivDraftJob[]
 
   @@map("users")
 }
@@ -5631,6 +5632,59 @@ model CastingRosterFitBrand {
   @@unique([jobId, groupKey])
   @@index([jobId, status, sortOrder])
   @@map("casting_roster_fit_brands")
+}
+
+/// Job serveur pipeline indiv (marque → talent → Leyna → rédaction) — survit à la fermeture de page.
+model CastingIndivDraftJob {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// pending | running | completed | failed | cancelled
+  status   String  @default("pending")
+  /// Optionnel : filtre talent (job mono-talent) — sinon multi-talents dans les items.
+  talentId String?
+
+  totalMissions    Int     @default(0)
+  completed        Int     @default(0)
+  failed           Int     @default(0)
+  currentBrandName String?
+  cancelRequested  Boolean @default(false)
+  error            String? @db.Text
+
+  items CastingIndivDraftItem[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([userId, status])
+  @@index([status, updatedAt])
+  @@map("casting_indiv_draft_jobs")
+}
+
+model CastingIndivDraftItem {
+  id    String              @id @default(cuid())
+  jobId String
+  job   CastingIndivDraftJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  missionId String
+  talentId  String?
+  brandName String
+  sortOrder Int    @default(0)
+  /// pending | running | done | failed | skipped
+  status String  @default("pending")
+  error  String? @db.Text
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([jobId, missionId])
+  @@index([jobId, status, sortOrder])
+  @@map("casting_indiv_draft_items")
 }
 
 /// Journal d'activité plateforme (lecture réservée Sofian — pas dans le menu).

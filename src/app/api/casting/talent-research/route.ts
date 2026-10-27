@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
+import { isInternalJobAuth } from "@/lib/internal-job-auth";
 import { xaiResponse } from "@/lib/xai";
 import { normalizeInstagramHandle } from "@/lib/social-links";
 import {
@@ -333,15 +334,18 @@ async function researchOneTalent(args: {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getAppSession(request);
-    if (!session?.user) {
-      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
-    }
-    if (!isAllowed(session.user.role)) {
-      return NextResponse.json(
-        { error: "Accès réservé aux rôles Casting, Strategy ou Administrateur." },
-        { status: 403 }
-      );
+    const internal = isInternalJobAuth(request);
+    if (!internal) {
+      const session = await getAppSession(request);
+      if (!session?.user) {
+        return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+      }
+      if (!isAllowed(session.user.role)) {
+        return NextResponse.json(
+          { error: "Accès réservé aux rôles Casting, Strategy ou Administrateur." },
+          { status: 403 }
+        );
+      }
     }
 
     if (!process.env.XAI_API_KEY?.trim()) {
