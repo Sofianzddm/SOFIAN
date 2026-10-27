@@ -21,6 +21,20 @@ export type OutreachCachedTalentResearchItem = {
   whyRelevant: string;
   proofPoints: string;
   sourcesUsed?: string;
+  /** Injecté à la rédaction depuis roster-fit (pas stocké durablement). */
+  suggestedAngle?: string;
+  castingWhyFit?: string;
+};
+
+/** Verdict casting IA : OUI/NON par talent vs brief marque. */
+export type OutreachCachedRosterFitItem = {
+  talentId: string;
+  recommended: boolean;
+  fitScore: number;
+  whyFit: string;
+  risks: string;
+  suggestedAngle: string;
+  proofPoints: string;
 };
 
 export type OutreachCachedLeynaExchange = {
@@ -265,6 +279,49 @@ export function cacheOutreachTalentResearchMarkets(
   list: OutreachCachedTalentResearchItem[]
 ) {
   for (const m of markets) cacheOutreachTalentResearch(m, brandName, list);
+}
+
+export function loadOutreachRosterFitCache(market: "FR" | "BENELUX") {
+  return loadJsonCache<OutreachCachedRosterFitItem[]>(
+    `po-roster-fit:${outreachClientsCacheScope(market)}`
+  );
+}
+
+export function loadOutreachRosterFitCacheMarkets(
+  markets: Array<"FR" | "BENELUX">
+) {
+  return mergeOutreachCaches(
+    markets.map((m) => loadOutreachRosterFitCache(m))
+  );
+}
+
+export function saveOutreachRosterFitCache(
+  market: "FR" | "BENELUX",
+  cache: Record<string, OutreachCachedRosterFitItem[]>
+) {
+  saveJsonCache(
+    `po-roster-fit:${outreachClientsCacheScope(market)}`,
+    cache
+  );
+}
+
+export function cacheOutreachRosterFit(
+  market: "FR" | "BENELUX",
+  brandName: string,
+  list: OutreachCachedRosterFitItem[]
+) {
+  const key = brandResearchKey(brandName);
+  if (!key) return;
+  const prev = loadOutreachRosterFitCache(market);
+  saveOutreachRosterFitCache(market, { ...prev, [key]: list });
+}
+
+export function cacheOutreachRosterFitMarkets(
+  markets: Array<"FR" | "BENELUX">,
+  brandName: string,
+  list: OutreachCachedRosterFitItem[]
+) {
+  for (const m of markets) cacheOutreachRosterFit(m, brandName, list);
 }
 
 export function cacheOutreachLeynaExchange(

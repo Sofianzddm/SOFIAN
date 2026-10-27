@@ -441,6 +441,8 @@ model User {
 
   activityLogs UserActivityLog[]
 
+  castingRosterFitJobs CastingRosterFitJob[]
+
   @@map("users")
 }
 
@@ -5572,6 +5574,63 @@ model RhTaskEvent {
   @@index([taskId, createdAt])
   @@index([actorId])
   @@map("rh_task_events")
+}
+
+/// Job serveur d'analyse casting roster (survit à la fermeture de page).
+model CastingRosterFitJob {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// pending | running | completed | failed | cancelled
+  status String @default("pending")
+  market String @default("FR") // FR | BENELUX | BOTH
+
+  talentIds   String[] @default([])
+  totalBrands Int      @default(0)
+  completed   Int      @default(0)
+  failed      Int      @default(0)
+  currentBrandName String?
+  cancelRequested  Boolean @default(false)
+  error            String? @db.Text
+
+  brands CastingRosterFitBrand[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  startedAt DateTime?
+  finishedAt DateTime?
+
+  @@index([userId, status])
+  @@index([status, updatedAt])
+  @@map("casting_roster_fit_jobs")
+}
+
+model CastingRosterFitBrand {
+  id    String              @id @default(cuid())
+  jobId String
+  job   CastingRosterFitJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  groupKey  String
+  brandName String
+  company   String?
+  /// Brief marque (JSON BrandResearch)
+  brandResearch Json
+  sortOrder Int    @default(0)
+  /// pending | running | done | failed | skipped
+  status String  @default("pending")
+  error  String? @db.Text
+  /// Résultat fits (JSON RosterFitItem[])
+  result Json?
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([jobId, groupKey])
+  @@index([jobId, status, sortOrder])
+  @@map("casting_roster_fit_brands")
 }
 
 /// Journal d'activité plateforme (lecture réservée Sofian — pas dans le menu).

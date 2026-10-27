@@ -149,6 +149,10 @@ export interface GenerateEmailBody {
     whyRelevant: string;
     proofPoints: string;
     sourcesUsed?: string;
+    /** Angle casting IA (roster-fit) — fil conducteur du pitch si fourni. */
+    suggestedAngle?: string;
+    /** WhyFit casting IA (roster-fit). */
+    castingWhyFit?: string;
   }> | null;
   /**
    * Quand fourni, l'IA utilise directement ces valeurs à la place des jetons
@@ -1127,22 +1131,33 @@ PROJECT PROHIBITIONS (absolute):
         )
       : [];
     const hasTalentResearch = talentResearchList.length > 0;
+    const hasCastingAngles = talentResearchList.some(
+      (r) =>
+        String(r.suggestedAngle || "").trim() ||
+        String(r.castingWhyFit || "").trim()
+    );
     const talentResearchBlockEn = hasTalentResearch
       ? `
 CREATOR RESEARCH (MANDATORY — this is the source of truth for WHY each creator is pitched${isProjectMail ? " for THIS project" : ""}):
 ${talentResearchList
   .map(
-    (r, i) => `Talent ${i + 1} — ${String(r.name || "").trim() || "Creator"}
+    (r, i) => {
+      const angle = String(r.suggestedAngle || "").trim();
+      const castingWhy = String(r.castingWhyFit || "").trim();
+      return `Talent ${i + 1} — ${String(r.name || "").trim() || "Creator"}
 - Who they are: ${String(r.whoTheyAre || "").trim() || "—"}
 - What they do / content: ${String(r.whatTheyDo || r.contentThemes || "").trim() || "—"}
 - Profile analysis: ${String(r.profileAnalysis || "").trim() || "—"}
 - Content themes: ${String(r.contentThemes || "").trim() || "—"}
 - Why relevant for this ${isProjectMail ? "project × brand" : "brand"}: ${String(r.whyRelevant || "").trim() || "—"}
-- Proof points: ${String(r.proofPoints || "").trim() || "—"}`
+- Proof points: ${String(r.proofPoints || "").trim() || "—"}
+${angle ? `- CASTING ANGLE (use this as the pitch through-line): ${angle}` : ""}
+${castingWhy ? `- CASTING WHY-FIT: ${castingWhy}` : ""}`;
+    }
   )
   .join("\n\n")}
 CRITICAL: for EACH talent in the email, the reason MUST come from this research (what they actually do + why they fit ${isProjectMail ? `this project with ${brandName}` : brandName}). Forbidden: generic niche labels alone ("lifestyle", "beauty", "fashion") with no concrete explanation.
-VIRAL REACH: if proof points / profile analysis (or REACH MUST) mention a TikTok peak (e.g. 10.9M), you MUST weave it in with "up to …" (e.g. "up to ~10.9M views"). Never lead with a weak Reel (~follower-sized views) when research shows millions on TikTok.
+${hasCastingAngles ? `CASTING ANGLES: when a talent has "CASTING ANGLE", the talent bullet MUST be built around that angle (concrete activation / format / hook). Do NOT replace it with a vague sober fit. Soften wording for email tone if needed, but keep the substance of the angle.\n` : ""}VIRAL REACH: if proof points / profile analysis (or REACH MUST) mention a TikTok peak (e.g. 10.9M), you MUST weave it in with "up to …" (e.g. "up to ~10.9M views"). Never lead with a weak Reel (~follower-sized views) when research shows millions on TikTok.
 CONTENT HEAT: if TikToks / Reels / posts are clearly crushing it right now, you may add a short clause like "her TikToks are performing especially well right now" (vary). Prioritize content heat over follower growth.
 `
       : "";
@@ -1151,17 +1166,23 @@ CONTENT HEAT: if TikToks / Reels / posts are clearly crushing it right now, you 
 RECHERCHE CRÉATEUR (OBLIGATOIRE — c'est la source de vérité pour POURQUOI chaque créateur est pitché${isProjectMail ? " pour CE projet" : ""}) :
 ${talentResearchList
   .map(
-    (r, i) => `Talent ${i + 1} — ${String(r.name || "").trim() || "Créateur"}
+    (r, i) => {
+      const angle = String(r.suggestedAngle || "").trim();
+      const castingWhy = String(r.castingWhyFit || "").trim();
+      return `Talent ${i + 1} — ${String(r.name || "").trim() || "Créateur"}
 - Qui c'est : ${String(r.whoTheyAre || "").trim() || "—"}
 - Ce qu'il/elle fait / contenu : ${String(r.whatTheyDo || r.contentThemes || "").trim() || "—"}
 - Analyse de profil : ${String(r.profileAnalysis || "").trim() || "—"}
 - Thèmes de contenu : ${String(r.contentThemes || "").trim() || "—"}
 - Pourquoi pertinent pour ${isProjectMail ? "ce projet × cette marque" : "cette marque"} : ${String(r.whyRelevant || "").trim() || "—"}
-- Preuves : ${String(r.proofPoints || "").trim() || "—"}`
+- Preuves : ${String(r.proofPoints || "").trim() || "—"}
+${angle ? `- ANGLE CASTING (fil conducteur du pitch) : ${angle}` : ""}
+${castingWhy ? `- WHY-FIT CASTING : ${castingWhy}` : ""}`;
+    }
   )
   .join("\n\n")}
 CRITIQUE : pour CHAQUE talent dans le mail, la raison DOIT venir de cette recherche (ce qu'il/elle fait vraiment + pourquoi ça colle ${isProjectMail ? `à CE projet auprès de ${brandName}` : `à ${brandName}`}). Interdit : se contenter d'une niche générique (« lifestyle », « beauté », « mode ») sans explication concrète.
-PORTÉE VIRALE : si les preuves / l'analyse (ou PORTÉE OBLIGATOIRE) citent un pic TikTok (ex. 10,9M), tu DOIS l'intégrer avec « jusqu'à … » (ex. « jusqu'à ~10,9M de vues »). Ne mets jamais en avant un Reel faible (~niveau abonnés IG) quand la recherche montre des millions sur TikTok.
+${hasCastingAngles ? `ANGLES CASTING : quand un talent a « ANGLE CASTING », le tiret talent DOIT s'appuyer sur cet angle (activation / format / accroche concrets). Ne le remplace PAS par un fit sobre vague. Tu peux adoucir le ton mail, mais tu gardes la substance de l'angle.\n` : ""}PORTÉE VIRALE : si les preuves / l'analyse (ou PORTÉE OBLIGATOIRE) citent un pic TikTok (ex. 10,9M), tu DOIS l'intégrer avec « jusqu'à … » (ex. « jusqu'à ~10,9M de vues »). Ne mets jamais en avant un Reel faible (~niveau abonnés IG) quand la recherche montre des millions sur TikTok.
 DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce moment, tu peux glisser une courte formule du type « ses TikToks performent particulièrement bien en ce moment » (varie). Priorité au contenu qui cartonne, pas à la croissance d'abonnés.
 `
       : "";
@@ -1169,13 +1190,15 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
     const rosterTalentListEn = hasTalentResearch
       ? `- Transition BEFORE the talent list — MANDATORY: always include an observation showing you analyzed the market and their current collaborations, based on the "Current influence strategy of the brand". Something like: "Looking at the market, I noticed you currently work mostly with [profile types from the analysis, e.g. mom / lifestyle / beauty] creators" then continue with "at our agency we have several creators who could be a fit:". Use the REAL profile types inferred from the provided strategy (do not invent them). If the strategy is "—" or empty, use instead: "Looking at the market and your positioning, at our agency we have several creators who could be a fit:". Keep it measured and natural, 1-2 sentences max.
 - List the talents in a clear, airy bullet format — ONE full sentence per talent:
-  <a href="..."><strong>Firstname Lastname</strong></a> — [what they actually do from CREATOR RESEARCH] + [why that fits how ${brandName} already works with creators, from brand research].
+  <a href="..."><strong>Firstname Lastname</strong></a> — [what they actually do from CREATOR RESEARCH] + [why that fits how ${brandName} already works with creators, from brand research${hasCastingAngles ? " — and if CASTING ANGLE is provided, anchor the sentence on it" : ""}].
   Example shape (do NOT copy verbatim): "Julie — she creates hiking and ski content outdoors and has worked with Rossignol; that outdoor / lived-in angle could fit the types of creator partnerships you already run."
   Rules for each sentence:
   - Real sentence (subject + verb), natural, scannable.
   - Fit MUST cross CREATOR RESEARCH × brand research (influenceStrategy / recentCampaigns / brandPositioning) — what the brand ACTUALLY does with creators.
-  - FORBIDDEN: inventing a campaign format the brand may not run (e.g. "costume teaser for a series drop", "unboxing", "haul", "GRWM for your launch") unless clearly supported by brand research.
-  - Prefer sober fit ("could fit the lifestyle / entertainment creators you already work with") over invented creative briefs.
+  ${hasCastingAngles
+    ? `- If "CASTING ANGLE" is provided for that talent: PRIORITIZE that angle (validated casting brief). You may soften wording for email tone, but do not replace it with a generic fit. Formats cited in the angle (unboxing, tutorial, local store…) are ALLOWED because they come from casting.`
+    : `- FORBIDDEN: inventing a campaign format the brand may not run (e.g. "costume teaser for a series drop", "unboxing", "haul", "GRWM for your launch") unless clearly supported by brand research.
+  - Prefer sober fit ("could fit the lifestyle / entertainment creators you already work with") over invented creative briefs.`}
   - Never invent collabs; no follower counts; no TikTok/Instagram/Category stats block.
   - Exception: if "REACH MUST" is present for that talent, weave in the real view/reach proof (e.g. millions of TikTok views) in the same sentence — never invent numbers.
   - 1 sentence per talent (max 2), no marketing fluff.
@@ -1190,13 +1213,15 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
     const rosterTalentListFr = hasTalentResearch
       ? `- Transition AVANT la liste — OBLIGATOIRE : inclure systématiquement une observation qui montre que vous avez analysé le marché et leurs collaborations actuelles, en vous appuyant sur la "Stratégie d'influence actuelle de la marque". Formule du type : "En regardant le marché, j'ai vu qu'en ce moment vous travaillez surtout avec des profils [type de profils issus de l'analyse, ex. mamans / lifestyle / beauté]" puis enchaîne sur "dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reprends le type de profils RÉEL déduit de la stratégie fournie (ne l'invente pas). Si la stratégie est "—" ou vide, formule plutôt : "En regardant le marché et votre positionnement, dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reste sobre et naturel, 1 à 2 phrases max.
 - Lister les talents en format clair et aéré avec des tirets — UNE vraie phrase par talent :
-  <a href="..."><strong>Prénom Nom</strong></a> — [ce qu'il/elle fait vraiment issu de la RECHERCHE CRÉATEUR] + [pourquoi ça colle à la façon dont ${brandName} travaille DÉJÀ avec les créateurs, d'après la recherche marque].
+  <a href="..."><strong>Prénom Nom</strong></a> — [ce qu'il/elle fait vraiment issu de la RECHERCHE CRÉATEUR] + [pourquoi ça colle à la façon dont ${brandName} travaille DÉJÀ avec les créateurs, d'après la recherche marque${hasCastingAngles ? " — et si ANGLE CASTING fourni, ancre la phrase dessus" : ""}].
   Forme type (à NE PAS recopier) : « Julie — elle crée du contenu randonnée / ski outdoor et a déjà collabé avec Rossignol ; cet angle outdoor vécu peut coller aux partenariats créateurs que vous menez déjà. »
   Règles pour chaque phrase :
   - Vraie phrase (sujet + verbe), naturelle, scannable.
   - Le FIT doit croiser RECHERCHE CRÉATEUR × recherche marque (influenceStrategy / recentCampaigns / brandPositioning) — ce que la marque FAIT vraiment en influence.
-  - INTERDIT d'inventer un format de campagne que la marque ne fait pas forcément (ex. « teaser costume pour une sortie de série », « unboxing », « haul », « GRWM pour votre lancement ») sauf si ce format est clairement supporté par la recherche marque.
-  - Préférer un fit sobre (« pourrait coller aux profils lifestyle / entertainment avec lesquels vous travaillez déjà ») plutôt qu'un brief créatif inventé.
+  ${hasCastingAngles
+    ? `- Si « ANGLE CASTING » est fourni pour ce talent : PRIORITÉ à cet angle (c'est le brief casting validé). Tu peux le reformuler en ton mail, mais tu ne le remplaces pas par un fit générique. Les formats cités dans l'angle (unboxing, tutoriel, magasin local…) sont AUTORISÉS car issus du casting.`
+    : `- INTERDIT d'inventer un format de campagne que la marque ne fait pas forcément (ex. « teaser costume pour une sortie de série », « unboxing », « haul », « GRWM pour votre lancement ») sauf si ce format est clairement supporté par la recherche marque.
+  - Préférer un fit sobre (« pourrait coller aux profils lifestyle / entertainment avec lesquels vous travaillez déjà ») plutôt qu'un brief créatif inventé.`}
   - N'invente aucune collab ; pas d'abonnés ; pas de bloc TikTok / Instagram / Catégorie.
   - Exception : si « PORTÉE OBLIGATOIRE » est présente pour ce talent, intègre la preuve de vues/portée réelle (ex. millions de vues TikTok) dans la même phrase — n'invente aucun chiffre.
   - 1 phrase par talent (2 max), sans bla-bla marketing.

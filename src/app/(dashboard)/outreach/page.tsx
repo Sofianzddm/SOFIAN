@@ -47,11 +47,15 @@ import InboundExchangeBadge, {
   type LastInboundExchange,
 } from "@/components/outreach/InboundExchangeBadge";
 import OutreachClientsBatchAnalyzeBar from "@/components/outreach/OutreachClientsBatchAnalyzeBar";
+import OutreachCastingWizard, {
+  type OutreachCastingBrand,
+} from "@/components/outreach/OutreachCastingWizard";
 import {
   cacheOutreachBrandResearchMarkets,
   cacheOutreachLeynaExchangeMarkets,
   cacheOutreachSelectedTalentsMarkets,
   cacheOutreachTalentResearchMarkets,
+  hasOutreachBrandCacheEntry,
   loadOutreachBrandResearchCacheMarkets,
   loadOutreachLeynaExchangeCacheMarkets,
   loadOutreachSelectedTalentsCacheMarkets,
@@ -458,6 +462,9 @@ export default function OutreachPage() {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCartoModal, setShowCartoModal] = useState(false);
+  const [showCastingWizard, setShowCastingWizard] = useState(false);
+  /** Incrémenté après batch marques/Leyna pour rafraîchir le CTA Casting. */
+  const [outreachCacheTick, setOutreachCacheTick] = useState(0);
   const [pendingContacts, setPendingContacts] = useState<PendingContact[]>([]);
   const [editTarget, setEditTarget] = useState<Target | null>(null);
   // Correction d'erreur de classement : ce « client » est en réalité une agence.
@@ -871,6 +878,79 @@ export default function OutreachPage() {
       });
   }, [visibleGroups, activeTab]);
 
+  /** Marques enrichies pour le wizard casting (talents → rédaction → contrôle). */
+  const castingBrands = useMemo((): OutreachCastingBrand[] => {
+    if (activeTab !== "TO_CONTACT" && activeTab !== "TO_RECONTACT") return [];
+    return visibleGroups
+      .filter((g) => g.targets.length > 0)
+      .map((g) => {
+        const covered = Array.from(
+          new Set(
+            g.targets
+              .flatMap((t) => t.coveredBrands || [])
+              .map((b) => b.trim())
+              .filter(Boolean)
+          )
+        );
+        const emails = Array.from(
+          new Set(
+            g.targets
+              .map((t) => (t.email || "").trim().toLowerCase())
+              .filter((e) => e.includes("@"))
+          )
+        );
+        const t0 = g.targets[0];
+        return {
+          groupKey: g.groupKey,
+          company: g.company,
+          coveredBrands: covered,
+          emails,
+          pipeline: (t0?.pipeline === "BENELUX" ? "BENELUX" : "FR") as Market,
+          alsoInSiblingMarket: Boolean(t0?.alsoInSiblingMarket),
+          targets: g.targets.map((t) => ({
+            id: t.id,
+            firstname: t.firstname,
+            lastname: t.lastname || "",
+            email: t.email,
+            language: t.language,
+            pipeline: t.pipeline,
+            siblingTargetId: t.siblingTargetId,
+            siblingPipeline: t.siblingPipeline,
+            draftSubject: t.draftSubject,
+            draftBodyHtml: t.draftBodyHtml,
+          })),
+        };
+      });
+  }, [visibleGroups, activeTab]);
+
+  /**
+   * Marché stable pour la barre batch (ne suit PAS le composer — sinon ouvrir
+   * un contact BE en vue FR+BE basculait le décompte sur le cache BENELUX vide).
+   */
+  const batchCacheMarket: Market =
+    marketView === "BENELUX" ? "BENELUX" : "FR";
+
+  /** Au moins 1 marque de la file a une analyse marque en cache → casting dispo. */
+  const castingReadyCount = useMemo(() => {
+    if (castingBrands.length === 0) return 0;
+    const markets: Array<"FR" | "BENELUX"> =
+      marketView === "BOTH" ? ["FR", "BENELUX"] : [batchCacheMarket];
+    const cache = loadOutreachBrandResearchCacheMarkets(markets);
+    let n = 0;
+    for (const b of castingBrands) {
+      const names =
+        (b.coveredBrands || []).length > 0
+          ? b.coveredBrands!
+          : [b.company];
+      if (names.some((name) => hasOutreachBrandCacheEntry(cache, name, b.company))) {
+        n += 1;
+      }
+    }
+    return n;
+    // outreachCacheTick : relecture localStorage après batch marques/Leyna.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tick volontaire
+  }, [castingBrands, marketView, batchCacheMarket, outreachCacheTick]);
+
   /**
    * Clés de lookup cache = chaque sous-marque séparément (jamais un join).
    * Si une seule marque → c’est la pitch ; si plusieurs → le composer force le choix
@@ -894,13 +974,6 @@ export default function OutreachPage() {
     if (composerCoveredBrands.length > 1) return "";
     return composerGroup.company;
   }, [composerGroup, composerCoveredBrands]);
-
-  /**
-   * Marché stable pour la barre batch (ne suit PAS le composer — sinon ouvrir
-   * un contact BE en vue FR+BE basculait le décompte sur le cache BENELUX vide).
-   */
-  const batchCacheMarket: Market =
-    marketView === "BENELUX" ? "BENELUX" : "FR";
 
   /** Marchés cache pour le groupe ouvert (FR+BE → FR∪BE). */
   const composerCacheMarkets = useMemo((): Array<"FR" | "BENELUX"> => {
@@ -1100,10 +1173,20 @@ export default function OutreachPage() {
    */
   const composerContact = useMemo(() => {
     if (!composerGroup) return null;
-    const withDraft = composerGroup.targets.find((t) => t.draftSubject || t.draftBodyHtml);
+    // Fusionne les brouillons live (targets) — évite l’ouverture vide juste après save.
+    const liveTargets = composerGroup.targets.map((t) => {
+      const live = targets.find((x) => x.id === t.id);
+      if (!live) return t;
+      return {
+        ...t,
+        draftSubject: live.draftSubject ?? t.draftSubject,
+        draftBodyHtml: live.draftBodyHtml ?? t.draftBodyHtml,
+      };
+    });
+    const withDraft = liveTargets.find((t) => t.draftSubject || t.draftBodyHtml);
     return {
       company: composerGroup.company,
-      contacts: composerGroup.targets.map((t) => ({
+      contacts: liveTargets.map((t) => ({
         id: t.id,
         firstname: t.firstname,
         lastname: t.lastname || "",
@@ -1114,7 +1197,7 @@ export default function OutreachPage() {
       initialBodyHtml: withDraft?.draftBodyHtml || "",
       missionBrief: null,
     };
-  }, [composerGroup]);
+  }, [composerGroup, targets]);
 
   /** Brouillon partagé : enregistré sur chaque contact du groupe (+ miroir FR+BE). */
   const saveDraft = useCallback(
@@ -1894,15 +1977,41 @@ export default function OutreachPage() {
       {(activeTab === "TO_CONTACT" || activeTab === "TO_RECONTACT") &&
         !loading &&
         batchBrandGroups.length > 0 && (
-        <OutreachClientsBatchAnalyzeBar
-          market={batchCacheMarket}
-          readBothMarkets={marketView === "BOTH"}
-          brands={batchBrandGroups}
-          fileLabel={
-            activeTab === "TO_RECONTACT" ? "À recontacter" : "À contacter"
-          }
-          onFlash={(kind, message) => flash(kind, message)}
-        />
+        <div className="mb-4 space-y-2">
+          <OutreachClientsBatchAnalyzeBar
+            market={batchCacheMarket}
+            readBothMarkets={marketView === "BOTH"}
+            brands={batchBrandGroups}
+            fileLabel={
+              activeTab === "TO_RECONTACT" ? "À recontacter" : "À contacter"
+            }
+            onFlash={(kind, message) => {
+              flash(kind, message);
+              setOutreachCacheTick((n) => n + 1);
+            }}
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+            <p className="m-0 text-xs leading-snug text-slate-500">
+              Étape 3 : casting talents marque par marque (brief cache), puis
+              rédaction batch et contrôle / envoi.
+            </p>
+            <button
+              type="button"
+              disabled={castingReadyCount === 0}
+              onClick={() => setShowCastingWizard(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ background: "#0f172a" }}
+              title={
+                castingReadyCount === 0
+                  ? "Analyse d’abord les marques (étape 1)"
+                  : "Ouvrir le wizard casting"
+              }
+            >
+              Casting talents
+              {castingReadyCount > 0 ? ` (${castingReadyCount})` : ""}
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Liste */}
@@ -2699,6 +2808,59 @@ export default function OutreachPage() {
           onError={(m) => flash("error", m)}
         />
       )}
+      <OutreachCastingWizard
+        open={showCastingWizard}
+        market={batchCacheMarket}
+        readBothMarkets={marketView === "BOTH"}
+        brands={castingBrands}
+        onClose={() => setShowCastingWizard(false)}
+        onFlash={(kind, message) => flash(kind, message)}
+        onSaveDraft={async (brand, subject, bodyHtml) => {
+          // Map vers les Target complets de la file (pipeline + sibling FR+BE).
+          const group = visibleGroups.find((g) => g.groupKey === brand.groupKey);
+          const targetsInGroup =
+            group?.targets && group.targets.length > 0
+              ? group.targets
+              : (brand.targets as unknown as Target[]);
+          await saveDraft(targetsInGroup, subject, bodyHtml);
+          // Optimistic : le composer de contrôle voit le brouillon sans attendre le reload.
+          const touchIds = new Set<string>();
+          for (const t of targetsInGroup) {
+            touchIds.add(t.id);
+            if (t.siblingTargetId) touchIds.add(t.siblingTargetId);
+          }
+          setTargets((prev) =>
+            prev.map((t) =>
+              touchIds.has(t.id)
+                ? { ...t, draftSubject: subject, draftBodyHtml: bodyHtml }
+                : t
+            )
+          );
+        }}
+        onReviewBrand={(groupKey, draft) => {
+          const group = visibleGroups.find((g) => g.groupKey === groupKey);
+          if (group) {
+            const subject = (draft?.subject || "").trim();
+            const bodyHtml = (draft?.bodyHtml || "").trim();
+            setComposerGroup({
+              company: group.company,
+              targets:
+                subject && bodyHtml
+                  ? group.targets.map((t) => ({
+                      ...t,
+                      draftSubject: subject,
+                      draftBodyHtml: bodyHtml,
+                    }))
+                  : group.targets,
+            });
+          } else {
+            flash("error", "Marque introuvable dans la file — recharge la page.");
+          }
+        }}
+        onDraftsWritten={() => {
+          void loadTargets();
+        }}
+      />
       <CastingComposer
         open={Boolean(composerGroup)}
         contact={composerContact}

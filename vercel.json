@@ -51,6 +51,10 @@
     {
       "path": "/api/cron/activity-logs-purge",
       "schedule": "20 3 * * *"
+    },
+    {
+      "path": "/api/cron/casting-roster-fit",
+      "schedule": "*/2 * * * *"
     }
   ]
 }
