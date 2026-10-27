@@ -281,4 +281,51 @@ export function cacheOutreachLeynaExchangeMarkets(
   for (const m of markets) cacheOutreachLeynaExchange(m, brandName, data);
 }
 
+/** Sélection talents (ids) par marque — restaurée à la réouverture du composer. */
+export function loadOutreachSelectedTalentsCache(market: "FR" | "BENELUX") {
+  return loadJsonCache<string[]>(
+    `po-selected-talents:${outreachClientsCacheScope(market)}`
+  );
+}
+
+export function loadOutreachSelectedTalentsCacheMarkets(
+  markets: Array<"FR" | "BENELUX">
+) {
+  return mergeOutreachCaches(
+    markets.map((m) => loadOutreachSelectedTalentsCache(m))
+  );
+}
+
+function saveOutreachSelectedTalentsCache(
+  market: "FR" | "BENELUX",
+  cache: Record<string, string[]>
+) {
+  saveJsonCache(
+    `po-selected-talents:${outreachClientsCacheScope(market)}`,
+    cache
+  );
+}
+
+export function cacheOutreachSelectedTalents(
+  market: "FR" | "BENELUX",
+  brandName: string,
+  talentIds: string[]
+) {
+  const key = brandResearchKey(brandName);
+  if (!key) return;
+  const prev = loadOutreachSelectedTalentsCache(market);
+  const ids = Array.from(
+    new Set(talentIds.map((id) => String(id || "").trim()).filter(Boolean))
+  );
+  saveOutreachSelectedTalentsCache(market, { ...prev, [key]: ids });
+}
+
+export function cacheOutreachSelectedTalentsMarkets(
+  markets: Array<"FR" | "BENELUX">,
+  brandName: string,
+  talentIds: string[]
+) {
+  for (const m of markets) cacheOutreachSelectedTalents(m, brandName, talentIds);
+}
+
 export { brandResearchKey };

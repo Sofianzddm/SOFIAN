@@ -351,6 +351,14 @@ export interface CastingComposerProps {
       sourcesUsed?: string;
     }>
   ) => void;
+  /**
+   * Ids talents pré-sélectionnés (cache outreach) — restaurés à l’ouverture
+   * si pas de lockedTalentIds. Priorité plus basse que les ids de
+   * `initialTalentResearch` (analyse déjà faite).
+   */
+  initialSelectedTalentIds?: string[] | null;
+  /** Remonte la sélection talents au parent pour le cache local. */
+  onSelectedTalentsCached?: (brandName: string, talentIds: string[]) => void;
   /** Historique Leyna préchargé (batch projet / indiv). */
   initialLeynaExchange?: {
     hasExchange: boolean;
@@ -435,6 +443,8 @@ export default function CastingComposer({
   onBrandResearchCached,
   initialTalentResearch = null,
   onTalentResearchCached,
+  initialSelectedTalentIds = null,
+  onSelectedTalentsCached,
   initialLeynaExchange = null,
   onLeynaExchangeCached,
   variant = "modal",
@@ -957,11 +967,6 @@ export default function CastingComposer({
     const bodyRaw = (contact.initialBodyHtml ?? "").trim();
     const hasHubspotDraft = sub.length > 0 || bodyRaw.length > 0;
 
-    setSelectedIds(
-      lockedTalentIdsKey
-        ? new Set(lockedTalentIdsKey.split("|"))
-        : new Set()
-    );
     setSelectedRecipientIds(
       new Set((contact.contacts || []).map((c) => c.id).filter(Boolean))
     );
@@ -986,8 +991,31 @@ export default function CastingComposer({
             .filter(Boolean)
         )
       ).length > 1;
+    const cachedTalentResearch = multiCovered
+      ? null
+      : initialTalentResearch ?? null;
     setBrandResearch(multiCovered ? null : initialBrandResearch ?? null);
-    setTalentResearch(multiCovered ? null : initialTalentResearch ?? null);
+    setTalentResearch(cachedTalentResearch);
+    // Restaure la sélection : ids de l’analyse cache (prioritaire), sinon sélection cache.
+    if (lockedTalentIdsKey) {
+      setSelectedIds(new Set(lockedTalentIdsKey.split("|").filter(Boolean)));
+      prevSelectedTalentKeyRef.current = lockedTalentIdsKey
+        .split("|")
+        .filter(Boolean)
+        .sort()
+        .join(",");
+    } else {
+      const fromResearch = (cachedTalentResearch || [])
+        .map((t) => String(t.talentId || "").trim())
+        .filter(Boolean);
+      const fromSelection = (initialSelectedTalentIds || [])
+        .map((id) => String(id || "").trim())
+        .filter(Boolean);
+      const restoreIds = fromResearch.length > 0 ? fromResearch : fromSelection;
+      setSelectedIds(new Set(restoreIds));
+      // Clé déjà posée → évite que l’effet « changement talent » wipe l’analyse.
+      prevSelectedTalentKeyRef.current = [...restoreIds].sort().join(",");
+    }
     if (!multiCovered && initialLeynaExchange) {
       setLeynaExchange(initialLeynaExchange);
       setLeynaExchangeChecked(true);
@@ -996,7 +1024,6 @@ export default function CastingComposer({
       setLeynaExchangeChecked(false);
     }
     setPrepBriefConfirmed(false);
-    prevSelectedTalentKeyRef.current = null;
     // Client EN (fiche CRM / mission) → anglais d'emblée.
     setEmailLanguage(resolveClientEmailLanguage(contact) || defaultLanguage);
     setSendMode("now");
@@ -1473,17 +1500,15 @@ export default function CastingComposer({
     return selected;
   }, [talents, selectedIds, effectiveLockedTalentIds]);
 
+  // Clé basée sur selectedIds (pas selectedTalents) : les talents async
+  // ne doivent pas faire basculer "" → "ids" et wipe l’analyse restaurée.
   const selectedTalentKey = useMemo(
-    () =>
-      selectedTalents
-        .map((t) => t.id)
-        .sort()
-        .join(","),
-    [selectedTalents]
+    () => Array.from(selectedIds).sort().join(","),
+    [selectedIds]
   );
 
   // Si on change de talent, l'ancienne analyse créateur n'est plus valide.
-  // Skip le 1er run après ouverture pour ne pas écraser le cache batch.
+  // Garde l’analyse si la sélection correspond encore aux ids analysés.
   useEffect(() => {
     if (!effectiveTalentResearch) return;
     if (prevSelectedTalentKeyRef.current === null) {
@@ -1492,9 +1517,25 @@ export default function CastingComposer({
     }
     if (prevSelectedTalentKeyRef.current === selectedTalentKey) return;
     prevSelectedTalentKeyRef.current = selectedTalentKey;
+
+    const researchedIds = new Set(
+      (talentResearch || [])
+        .map((t) => String(t.talentId || "").trim())
+        .filter(Boolean)
+    );
+    const selectedSet = new Set(
+      selectedTalentKey.split(",").map((s) => s.trim()).filter(Boolean)
+    );
+    if (
+      researchedIds.size > 0 &&
+      researchedIds.size === selectedSet.size &&
+      [...researchedIds].every((id) => selectedSet.has(id))
+    ) {
+      return;
+    }
     setTalentResearch(null);
     setPrepBriefConfirmed(false);
-  }, [selectedTalentKey, effectiveTalentResearch]);
+  }, [selectedTalentKey, effectiveTalentResearch, talentResearch]);
 
   /** Synthèse pré-rédaction (pipeline talent×marque + projets). */
   const showPrepBrief =
@@ -1828,11 +1869,21 @@ export default function CastingComposer({
     return normalizeEditorHtmlForEmail(previewBody);
   }, [contact, selectedTalents, editor, bodyTick, ownerFirstName, previewRecipient]);
 
+  const persistSelectedTalents = useCallback(
+    (ids: Set<string>) => {
+      const brand = researchBrandName.trim();
+      if (!brand || isTalentLocked) return;
+      onSelectedTalentsCached?.(brand, Array.from(ids));
+    },
+    [researchBrandName, isTalentLocked, onSelectedTalentsCached]
+  );
+
   const toggleTalent = (id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      persistSelectedTalents(next);
       return next;
     });
   };
@@ -1841,6 +1892,7 @@ export default function CastingComposer({
     setSelectedIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
+      persistSelectedTalents(next);
       return next;
     });
   };

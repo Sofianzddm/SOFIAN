@@ -50,9 +50,11 @@ import OutreachClientsBatchAnalyzeBar from "@/components/outreach/OutreachClient
 import {
   cacheOutreachBrandResearchMarkets,
   cacheOutreachLeynaExchangeMarkets,
+  cacheOutreachSelectedTalentsMarkets,
   cacheOutreachTalentResearchMarkets,
   loadOutreachBrandResearchCacheMarkets,
   loadOutreachLeynaExchangeCacheMarkets,
+  loadOutreachSelectedTalentsCacheMarkets,
   loadOutreachTalentResearchCacheMarkets,
   lookupOutreachBrandCache,
   outreachCacheMarketsForContact,
@@ -2740,6 +2742,14 @@ export default function OutreachPage() {
               )
             : null
         }
+        initialSelectedTalentIds={
+          composerGroup && composerResearchBrandName
+            ? lookupOutreachBrandCache(
+                loadOutreachSelectedTalentsCacheMarkets(composerCacheMarkets),
+                composerResearchBrandName
+              )
+            : null
+        }
         initialLeynaExchange={
           composerGroup && composerResearchBrandName
             ? lookupOutreachBrandCache(
@@ -2762,6 +2772,19 @@ export default function OutreachPage() {
             composerCacheMarkets,
             brandName,
             research
+          );
+          // Garde aussi la sélection alignée sur l’analyse (réouverture).
+          cacheOutreachSelectedTalentsMarkets(
+            composerCacheMarkets,
+            brandName,
+            research.map((t) => t.talentId).filter(Boolean)
+          );
+        }}
+        onSelectedTalentsCached={(brandName, talentIds) => {
+          cacheOutreachSelectedTalentsMarkets(
+            composerCacheMarkets,
+            brandName,
+            talentIds
           );
         }}
         onLeynaExchangeCached={(brandName, research) => {
