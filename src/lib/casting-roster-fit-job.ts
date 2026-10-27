@@ -267,6 +267,21 @@ export async function processRosterFitJobTick(
         data: { completed: { increment: 1 } },
       });
       processed += 1;
+      // Rédaction dès que la marque est fittée (pas attendre la fin du lot).
+      void maybeChainDraftAfterBrandDone(job, {
+        groupKey: next.groupKey,
+        brandName: next.brandName,
+        company: next.company,
+        pipeline: next.pipeline,
+        targetIds: next.targetIds || [],
+        brandResearch: research,
+        result: talents,
+      }).catch((e) => {
+        console.warn(
+          `[roster-fit-job] chain draft after brand ${next.brandName}:`,
+          e
+        );
+      });
     } catch (e) {
       const msg =
         e instanceof Error ? e.message.slice(0, 500) : "Erreur analyse casting";
@@ -358,6 +373,117 @@ function autoPickTalentIdsFromFitResult(
 }
 
 /**
+ * Dès qu’une marque est fittée : lance sa rédaction serveur (1 item),
+ * sans attendre la fin du lot fit.
+ */
+async function maybeChainDraftAfterBrandDone(
+  fitJob: { id: string; userId: string; market: string },
+  brand: {
+    groupKey: string;
+    brandName: string;
+    company?: string | null;
+    pipeline?: string | null;
+    targetIds: string[];
+    brandResearch: unknown;
+    result: unknown;
+  }
+): Promise<void> {
+  const market = String(fitJob.market || "");
+  if (market.startsWith("INDIV:")) {
+    const talentId = market.slice("INDIV:".length).trim();
+    if (!talentId || !brand.groupKey) return;
+    const already = await prisma.castingIndivDraftItem.findFirst({
+      where: {
+        missionId: brand.groupKey,
+        status: { in: ["pending", "running", "done"] },
+        job: {
+          userId: fitJob.userId,
+          talentId,
+          status: { in: ["pending", "running", "completed"] },
+        },
+      },
+      select: { id: true },
+    });
+    if (already) return;
+    const mission = await prisma.contactMission.findUnique({
+      where: { id: brand.groupKey },
+      select: {
+        id: true,
+        stage: true,
+        draftEmailSubject: true,
+        draftEmailBody: true,
+        sentAt: true,
+      },
+    });
+    if (!mission || mission.sentAt || mission.stage === "SENT") return;
+    if (
+      mission.stage === "DRAFTED_FOR_VALIDATION" &&
+      mission.draftEmailSubject &&
+      mission.draftEmailBody
+    ) {
+      return;
+    }
+    const { createIndivDraftJob, kickIndivDraftJobProcess } = await import(
+      "@/lib/casting-indiv-draft-job"
+    );
+    const { jobId } = await createIndivDraftJob({
+      userId: fitJob.userId,
+      talentId,
+      items: [
+        {
+          missionId: brand.groupKey,
+          talentId,
+          brandName: brand.brandName || "Marque",
+        },
+      ],
+    });
+    kickIndivDraftJobProcess(jobId);
+    return;
+  }
+
+  const targetIds = (brand.targetIds || [])
+    .map((id) => String(id).trim())
+    .filter(Boolean);
+  const talentIds = autoPickTalentIdsFromFitResult(brand.result, 8);
+  if (targetIds.length === 0 || talentIds.length === 0) return;
+
+  const already = await prisma.castingOutreachDraftItem.findFirst({
+    where: {
+      groupKey: brand.groupKey,
+      status: { in: ["pending", "running", "done"] },
+      job: {
+        userId: fitJob.userId,
+        market,
+        status: { in: ["pending", "running", "completed"] },
+      },
+    },
+    select: { id: true },
+  });
+  if (already) return;
+
+  const { createOutreachDraftJob, kickOutreachDraftJobProcess } = await import(
+    "@/lib/casting-outreach-draft-job"
+  );
+  const { jobId } = await createOutreachDraftJob({
+    userId: fitJob.userId,
+    market,
+    items: [
+      {
+        groupKey: brand.groupKey,
+        brandName: brand.brandName,
+        company: brand.company,
+        pipeline: brand.pipeline === "BENELUX" ? "BENELUX" : "FR",
+        targetIds,
+        talentIds,
+        brandResearch: (brand.brandResearch || {}) as Record<string, unknown>,
+        rosterFits: parseRosterFitResult(brand.result),
+      },
+    ],
+  });
+  kickOutreachDraftJobProcess(jobId);
+}
+
+/**
  * Après fit outreach (marché non-INDIV) : lance la rédaction serveur
  * si les marques ont des targetIds (stockés à la création du job).
  */
@@ -383,7 +509,7 @@ async function maybeChainOutreachDraftAfterFit(fitJob: {
     },
   });
 
-  const items = doneBrands
+  const candidates = doneBrands
     .map((b) => {
       const targetIds = (b.targetIds || []).map((id) => String(id).trim()).filter(Boolean);
       const talentIds = autoPickTalentIdsFromFitResult(b.result, 8);
@@ -401,17 +527,27 @@ async function maybeChainOutreachDraftAfterFit(fitJob: {
     })
     .filter((it): it is NonNullable<typeof it> => Boolean(it));
 
-  if (items.length === 0) return;
+  if (candidates.length === 0) return;
 
-  const activeDraft = await prisma.castingOutreachDraftJob.findFirst({
-    where: {
-      userId: fitJob.userId,
-      market,
-      status: { in: ["pending", "running"] },
-    },
-    select: { id: true },
-  });
-  if (activeDraft) return;
+  // Skip marques déjà en file / rédigées (rédaction incrémentale en parallèle).
+  const alreadyKeys = new Set(
+    (
+      await prisma.castingOutreachDraftItem.findMany({
+        where: {
+          groupKey: { in: candidates.map((c) => c.groupKey) },
+          status: { in: ["pending", "running", "done"] },
+          job: {
+            userId: fitJob.userId,
+            market,
+            status: { in: ["pending", "running", "completed"] },
+          },
+        },
+        select: { groupKey: true },
+      })
+    ).map((r) => r.groupKey)
+  );
+  const items = candidates.filter((c) => !alreadyKeys.has(c.groupKey));
+  if (items.length === 0) return;
 
   const { createOutreachDraftJob, kickOutreachDraftJobProcess } = await import(
     "@/lib/casting-outreach-draft-job"
@@ -453,18 +589,24 @@ async function maybeChainIndivDraftAfterFit(fitJob: {
     .filter(Boolean);
   if (missionIds.length === 0) return;
 
-  // Déjà un job rédaction actif pour ce talent → le worker s’en occupe.
-  const activeDraft = await prisma.castingIndivDraftJob.findFirst({
-    where: {
-      userId: fitJob.userId,
-      talentId,
-      status: { in: ["pending", "running"] },
-    },
-    select: { id: true },
-  });
-  if (activeDraft) return;
+  // Skip missions déjà rédigées / envoyées / déjà en file rédaction.
+  const alreadyMissionIds = new Set(
+    (
+      await prisma.castingIndivDraftItem.findMany({
+        where: {
+          missionId: { in: missionIds },
+          status: { in: ["pending", "running", "done"] },
+          job: {
+            userId: fitJob.userId,
+            talentId,
+            status: { in: ["pending", "running", "completed"] },
+          },
+        },
+        select: { missionId: true },
+      })
+    ).map((r) => r.missionId)
+  );
 
-  // Skip missions déjà rédigées / envoyées.
   const missions = await prisma.contactMission.findMany({
     where: { id: { in: missionIds } },
     select: {
@@ -480,6 +622,7 @@ async function maybeChainIndivDraftAfterFit(fitJob: {
   const byId = new Map(missions.map((m) => [m.id, m]));
   const items = missionIds
     .map((missionId) => {
+      if (alreadyMissionIds.has(missionId)) return null;
       const m = byId.get(missionId);
       if (!m) return null;
       if (m.sentAt || m.stage === "SENT") return null;

@@ -924,7 +924,7 @@ export default function OutreachCastingWizard({
             if (hasDraft || autoWriteDoneKeysRef.current.has(b.groupKey)) {
               continue;
             }
-            // File serveur (indiv OU outreach) — survit à la fermeture / VPS.
+            // File serveur dès que le fit marque est OK (pas attendre la fin du lot).
             if (!serverDraftQueuedRef.current.has(b.groupKey)) {
               const picks = lockedTalentId
                 ? [lockedTalentId]
@@ -943,6 +943,11 @@ export default function OutreachCastingWizard({
                 );
               } catch {
                 /* ignore */
+              }
+              if (lockedTalentId) {
+                startIndivServerDraftRef.current([b.groupKey]);
+              } else {
+                startOutreachServerDraftRef.current([b.groupKey]);
               }
             }
           }
@@ -3483,8 +3488,17 @@ export default function OutreachCastingWizard({
                     onClick={() => void runWriteCurrentBrand()}
                     disabled={
                       Boolean(writingOneKey) ||
-                      Boolean(fitRunning) ||
-                      Boolean(serverDraftRunning) ||
+                      // Fit du lot en cours OK si CETTE marque a déjà son fit.
+                      (Boolean(fitRunning) &&
+                        !(lockedTalentId
+                          ? Boolean(
+                              fitByBrand[current.groupKey]?.[lockedTalentId]
+                            )
+                          : Object.keys(fitByBrand[current.groupKey] || {})
+                              .length > 0)) ||
+                      (Boolean(serverDraftRunning) &&
+                        !readyKeys.includes(current.groupKey) &&
+                        serverDraftQueuedRef.current.has(current.groupKey)) ||
                       (isIndivMode &&
                         Boolean(lockedTalentId) &&
                         !fitByBrand[current.groupKey]?.[lockedTalentId || ""] &&
@@ -3497,7 +3511,9 @@ export default function OutreachCastingWizard({
                       lockedTalentId &&
                       !fitByBrand[current.groupKey]?.[lockedTalentId]
                         ? "Fit casting obligatoire d’abord"
-                        : "Rédige cette marque tout de suite, sans attendre la fin du batch"
+                        : readyKeys.includes(current.groupKey)
+                          ? "Ouvre le contrôle / envoi"
+                          : "Rédige cette marque tout de suite (même si le lot fit continue)"
                     }
                   >
                     {writingOneKey === current.groupKey ? (
