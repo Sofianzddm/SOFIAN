@@ -2056,16 +2056,30 @@ export default function OutreachPage() {
                 : hasEnglish
                 ? "en"
                 : "fr";
+            const readyToReview = group.targets.some(
+              (t) =>
+                Boolean((t.draftSubject || "").trim()) &&
+                Boolean((t.draftBodyHtml || "").trim()) &&
+                !t.scheduledSendAt
+            );
             return (
               <div
                 key={group.groupKey}
                 className="rounded-xl border bg-white overflow-hidden"
-                style={{ borderColor: "#E5E0DA" }}
+                style={{
+                  borderColor: readyToReview ? "#C8F285" : "#E5E0DA",
+                  boxShadow: readyToReview
+                    ? "inset 3px 0 0 0 #C8F285"
+                    : undefined,
+                }}
               >
                 {/* En-tête marque : un seul mail pour tous ses contacts */}
                 <div
                   className="px-4 py-3 flex flex-wrap items-center gap-3 border-b"
-                  style={{ backgroundColor: "#FBF8F4", borderColor: "#F0EBE4" }}
+                  style={{
+                    backgroundColor: readyToReview ? "#F7FCF0" : "#FBF8F4",
+                    borderColor: "#F0EBE4",
+                  }}
                 >
                   <div className="flex-1 min-w-[180px] flex items-center gap-1.5">
                     <a
@@ -2085,6 +2099,16 @@ export default function OutreachPage() {
                       {group.company}
                       <ExternalLink className="w-3 h-3 text-gray-400" />
                     </a>
+                    {readyToReview && (
+                      <span
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide"
+                        style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
+                        title="Brouillon casting prêt — ouvre le composer pour contrôler et envoyer"
+                      >
+                        <CheckCircle2 className="w-3 h-3" />
+                        Prêt à contrôler
+                      </span>
+                    )}
                     {isBothView && (
                       <span
                         className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
@@ -2153,16 +2177,30 @@ export default function OutreachPage() {
                       onClick={() => setComposerGroup(group)}
                       disabled={groupBusy}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-                      style={{ backgroundColor: LICORICE }}
+                      style={{
+                        backgroundColor: readyToReview ? "#4D6B15" : LICORICE,
+                      }}
                       title={
-                        group.targets.length > 1
-                          ? "Un seul mail rédigé, envoyé individuellement à chaque contact"
-                          : undefined
+                        readyToReview
+                          ? "Contrôler le brouillon casting puis envoyer"
+                          : group.targets.length > 1
+                            ? "Un seul mail rédigé, envoyé individuellement à chaque contact"
+                            : undefined
                       }
                     >
-                      <Send className="w-3.5 h-3.5" />
-                      {activeTab === "TO_CONTACT" ? "Rédiger le mail" : "Nouveau mail"}
-                      {group.targets.length > 1 && ` (${group.targets.length})`}
+                      {readyToReview ? (
+                        <Eye className="w-3.5 h-3.5" />
+                      ) : (
+                        <Send className="w-3.5 h-3.5" />
+                      )}
+                      {readyToReview
+                        ? "Contrôler"
+                        : activeTab === "TO_CONTACT"
+                          ? "Rédiger le mail"
+                          : "Nouveau mail"}
+                      {!readyToReview &&
+                        group.targets.length > 1 &&
+                        ` (${group.targets.length})`}
                     </button>
                   )}
                   {isAdmin && (
