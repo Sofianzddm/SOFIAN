@@ -247,6 +247,24 @@ export default function OutreachCastingWizard({
   /** Rédaction d’une seule marque (sans bloquer le batch casting). */
   const [writingOneKey, setWritingOneKey] = useState<string | null>(null);
   const writeOneAbortRef = useRef<AbortController | null>(null);
+  /** Dès qu’un fit marque est done → même pipeline rédaction (talent-research + generate-email). */
+  const [autoWriteAfterFit, setAutoWriteAfterFit] = useState(true);
+  const [autoWriteQueueLen, setAutoWriteQueueLen] = useState(0);
+  const [autoWriteCurrent, setAutoWriteCurrent] = useState("");
+  const autoWriteAfterFitRef = useRef(true);
+  const autoWriteQueueRef = useRef<
+    Array<{ groupKey: string; talentIds: string[] }>
+  >([]);
+  const autoWriteBusyRef = useRef(false);
+  const autoWriteDoneKeysRef = useRef<Set<string>>(new Set());
+  const drainAutoWriteRef = useRef<() => void>(() => {});
+  const enqueueAutoWriteRef = useRef<(groupKey: string, talentIds: string[]) => void>(
+    () => {}
+  );
+
+  useEffect(() => {
+    autoWriteAfterFitRef.current = autoWriteAfterFit;
+  }, [autoWriteAfterFit]);
 
   const brandCache = useMemo(
     () => loadOutreachBrandResearchCacheMarkets(viewCacheMarkets),
@@ -289,7 +307,12 @@ export default function OutreachCastingWizard({
     setExpandedFitId(null);
     setWritingOneKey(null);
     setFitJobId(null);
+    setAutoWriteQueueLen(0);
+    setAutoWriteCurrent("");
     appliedFitBrandsRef.current = new Set();
+    autoWriteQueueRef.current = [];
+    autoWriteBusyRef.current = false;
+    autoWriteDoneKeysRef.current = new Set();
     if (fitPollRef.current) {
       clearInterval(fitPollRef.current);
       fitPollRef.current = null;
@@ -653,7 +676,12 @@ export default function OutreachCastingWizard({
 
         for (const b of data.brands || []) {
           if (b.status === "done" && Array.isArray(b.talents) && b.talents.length) {
+            const already = appliedFitBrandsRef.current.has(b.groupKey);
             applyJobBrandResult(b.groupKey, b.brandName, b.company, b.talents);
+            if (!already) {
+              const picks = autoPickRecommended(b.talents, 8);
+              enqueueAutoWriteRef.current(b.groupKey, picks);
+            }
           }
         }
 
@@ -675,9 +703,13 @@ export default function OutreachCastingWizard({
             onFlash?.(
               fail > 0 && ok === 0 ? "error" : "success",
               ok > 0
-                ? `Casting analysé sur le serveur · ${ok} marque${ok > 1 ? "s" : ""}${
+                ? `Casting analysé · ${ok} marque${ok > 1 ? "s" : ""}${
                     fail ? ` · ${fail} échec(s)` : ""
-                  }. Vérifie les OUI puis rédige.`
+                  }${
+                    autoWriteAfterFitRef.current
+                      ? " · rédaction auto en file (même qualité)."
+                      : ". Vérifie les OUI puis rédige."
+                  }`
                 : "Analyse casting échouée — réessaie."
             );
           }
@@ -868,11 +900,16 @@ export default function OutreachCastingWizard({
   const writeBrandDraft = useCallback(
     async (
       brand: OutreachCastingBrand,
-      signal: AbortSignal
+      signal: AbortSignal,
+      talentIdsOverride?: string[]
     ): Promise<{ needsNego: boolean; subject: string; bodyHtml: string }> => {
       const pitch =
         pitchOverride[brand.groupKey] || defaultPitchBrand(brand);
-      const talentIds = (selectedByBrand[brand.groupKey] || []).slice(0, 8);
+      const talentIds = (
+        talentIdsOverride?.length
+          ? talentIdsOverride
+          : selectedByBrand[brand.groupKey] || []
+      ).slice(0, 8);
       if (talentIds.length === 0) {
         throw new Error("Aucun talent sélectionné");
       }
@@ -1079,6 +1116,124 @@ export default function OutreachCastingWizard({
       onSaveDraft,
     ]
   );
+
+  /** File série : même writeBrandDraft que le bouton manuel (qualité identique). */
+  const drainAutoWriteQueue = useCallback(async () => {
+    if (autoWriteBusyRef.current) return;
+    autoWriteBusyRef.current = true;
+    try {
+      while (autoWriteQueueRef.current.length > 0) {
+        if (!autoWriteAfterFitRef.current) {
+          autoWriteQueueRef.current = [];
+          setAutoWriteQueueLen(0);
+          setAutoWriteCurrent("");
+          break;
+        }
+        const next = autoWriteQueueRef.current.shift()!;
+        setAutoWriteQueueLen(autoWriteQueueRef.current.length);
+        const brand = brandsWithCache.find((b) => b.groupKey === next.groupKey);
+        if (!brand || skipped.has(next.groupKey)) continue;
+        if (autoWriteDoneKeysRef.current.has(next.groupKey)) continue;
+        if (readyKeys.includes(next.groupKey)) {
+          autoWriteDoneKeysRef.current.add(next.groupKey);
+          continue;
+        }
+        const hasDraft = brand.targets.some(
+          (t) =>
+            (t.draftSubject || "").trim() && (t.draftBodyHtml || "").trim()
+        );
+        if (hasDraft) {
+          autoWriteDoneKeysRef.current.add(next.groupKey);
+          setReadyKeys((prev) =>
+            prev.includes(next.groupKey) ? prev : [...prev, next.groupKey]
+          );
+          continue;
+        }
+
+        const ac = new AbortController();
+        writeOneAbortRef.current = ac;
+        setWritingOneKey(next.groupKey);
+        setAutoWriteCurrent(brand.company);
+        try {
+          const { needsNego } = await writeBrandDraft(
+            brand,
+            ac.signal,
+            next.talentIds
+          );
+          if (ac.signal.aborted) break;
+          autoWriteDoneKeysRef.current.add(next.groupKey);
+          setReadyKeys((prev) =>
+            prev.includes(next.groupKey) ? prev : [...prev, next.groupKey]
+          );
+          if (needsNego) {
+            setNegoReviewKeys((prev) =>
+              prev.includes(next.groupKey) ? prev : [...prev, next.groupKey]
+            );
+          }
+          onDraftsWritten?.();
+        } catch (e) {
+          if (ac.signal.aborted) break;
+          console.error(
+            `[outreach-casting] auto-write ${brand.company}:`,
+            e
+          );
+          onFlash?.(
+            "error",
+            e instanceof Error
+              ? `Rédaction auto ${brand.company} : ${e.message}`
+              : `Rédaction auto impossible (${brand.company}).`
+          );
+        } finally {
+          if (writeOneAbortRef.current === ac) {
+            setWritingOneKey(null);
+          }
+          setAutoWriteCurrent("");
+        }
+      }
+    } finally {
+      autoWriteBusyRef.current = false;
+      setAutoWriteQueueLen(autoWriteQueueRef.current.length);
+      if (autoWriteQueueRef.current.length > 0) {
+        void drainAutoWriteRef.current();
+      }
+    }
+  }, [
+    brandsWithCache,
+    skipped,
+    readyKeys,
+    writeBrandDraft,
+    onDraftsWritten,
+    onFlash,
+  ]);
+
+  useEffect(() => {
+    drainAutoWriteRef.current = () => {
+      void drainAutoWriteQueue();
+    };
+  }, [drainAutoWriteQueue]);
+
+  const enqueueAutoWrite = useCallback(
+    (groupKey: string, talentIds: string[]) => {
+      if (!autoWriteAfterFitRef.current) return;
+      if (!talentIds.length) return;
+      if (autoWriteDoneKeysRef.current.has(groupKey)) return;
+      if (skipped.has(groupKey)) return;
+      if (
+        autoWriteQueueRef.current.some((q) => q.groupKey === groupKey) ||
+        writingOneKey === groupKey
+      ) {
+        return;
+      }
+      autoWriteQueueRef.current.push({ groupKey, talentIds });
+      setAutoWriteQueueLen(autoWriteQueueRef.current.length);
+      void drainAutoWriteRef.current();
+    },
+    [skipped, writingOneKey]
+  );
+
+  useEffect(() => {
+    enqueueAutoWriteRef.current = enqueueAutoWrite;
+  }, [enqueueAutoWrite]);
 
   /** Rédige la marque courante tout de suite (batch casting peut continuer). */
   const runWriteCurrentBrand = useCallback(async () => {
@@ -1756,52 +1911,88 @@ export default function OutreachCastingWizard({
                 Passer
               </button>
               <div className="flex min-w-0 flex-1 flex-col items-center gap-1 px-2">
-                {fitRunning ? (
+                {fitRunning || autoWriteCurrent || autoWriteQueueLen > 0 ? (
                   <>
                     <p className="m-0 text-center text-[11px] text-slate-500">
-                      Serveur · {fitCurrent || "…"} · {fitDone}/{fitTotal}
+                      {fitRunning
+                        ? `Casting · ${fitCurrent || "…"} · ${fitDone}/${fitTotal}`
+                        : "Casting terminé"}
                       {fitFailed > 0
                         ? ` · ${fitFailed} échec${fitFailed > 1 ? "s" : ""}`
                         : ""}
-                      {" · "}tu peux quitter la page
+                      {autoWriteAfterFit
+                        ? autoWriteCurrent
+                          ? ` · rédaction ${autoWriteCurrent}`
+                          : autoWriteQueueLen > 0
+                            ? ` · file rédaction ${autoWriteQueueLen}`
+                            : " · auto-rédaction ON"
+                        : ""}
+                      {fitRunning ? " · tu peux quitter" : ""}
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => void cancelFitJob()}
-                      className="rounded-lg border px-3 py-1.5 text-xs font-medium"
-                      style={{ borderColor: "#E5E0DA", color: LICORICE }}
-                    >
-                      Arrêter
-                    </button>
+                    <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={autoWriteAfterFit}
+                        onChange={(e) => {
+                          const on = e.target.checked;
+                          setAutoWriteAfterFit(on);
+                          if (!on) {
+                            autoWriteQueueRef.current = [];
+                            setAutoWriteQueueLen(0);
+                          }
+                        }}
+                      />
+                      Rédiger auto après fit (même pipeline)
+                    </label>
+                    {fitRunning ? (
+                      <button
+                        type="button"
+                        onClick={() => void cancelFitJob()}
+                        className="rounded-lg border px-3 py-1.5 text-xs font-medium"
+                        style={{ borderColor: "#E5E0DA", color: LICORICE }}
+                      >
+                        Arrêter casting
+                      </button>
+                    ) : null}
                   </>
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => void runRosterFitBatch()}
-                    disabled={
-                      !current ||
-                      talents.length === 0 ||
-                      brandsWithCache.length === 0 ||
-                      Boolean(writingOneKey)
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40"
-                    style={{
-                      borderColor: OLD_ROSE,
-                      color: LICORICE,
-                      background: "#FDF6F4",
-                    }}
-                    title="Juge chaque talent OUI/NON vs le brief marque, pour toutes les marques"
-                  >
-                    <Sparkles className="h-4 w-4" style={{ color: OLD_ROSE }} />
-                    {brandsMissingFit.length > 0 &&
-                    Object.keys(fitByBrand).length > 0
-                      ? `Analyser le casting (${brandsMissingFit.length})`
-                      : Object.keys(fitByBrand).length >=
-                          brandsWithCache.filter((b) => !skipped.has(b.groupKey))
-                            .length && brandsWithCache.length > 0
-                        ? "Relancer l’analyse casting"
-                        : "Analyser le casting"}
-                  </button>
+                  <div className="flex flex-col items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void runRosterFitBatch()}
+                      disabled={
+                        !current ||
+                        talents.length === 0 ||
+                        brandsWithCache.length === 0 ||
+                        Boolean(writingOneKey)
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40"
+                      style={{
+                        borderColor: OLD_ROSE,
+                        color: LICORICE,
+                        background: "#FDF6F4",
+                      }}
+                      title="Juge chaque talent OUI/NON vs le brief marque, pour toutes les marques"
+                    >
+                      <Sparkles className="h-4 w-4" style={{ color: OLD_ROSE }} />
+                      {brandsMissingFit.length > 0 &&
+                      Object.keys(fitByBrand).length > 0
+                        ? `Analyser le casting (${brandsMissingFit.length})`
+                        : Object.keys(fitByBrand).length >=
+                            brandsWithCache.filter((b) => !skipped.has(b.groupKey))
+                              .length && brandsWithCache.length > 0
+                          ? "Relancer l’analyse casting"
+                          : "Analyser le casting"}
+                    </button>
+                    <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-600">
+                      <input
+                        type="checkbox"
+                        checked={autoWriteAfterFit}
+                        onChange={(e) => setAutoWriteAfterFit(e.target.checked)}
+                      />
+                      Puis rédiger auto (même qualité)
+                    </label>
+                  </div>
                 )}
               </div>
               <div className="flex flex-wrap gap-2">
