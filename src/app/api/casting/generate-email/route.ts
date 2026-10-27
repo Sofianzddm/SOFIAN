@@ -121,8 +121,9 @@ export interface GenerateEmailBody {
   /**
    * Marché ciblé. Sur "BENELUX", l'IA doit préciser que Glow Up Agence est une
    * agence française qui développe le Benelux avec des créateurs benelux.
+   * "BOTH" = contact FR+BE (talents des deux marchés) → framing France, pas BE-only.
    */
-  market?: "FR" | "BENELUX";
+  market?: "FR" | "BENELUX" | "BOTH";
   /** Pays de référence pour la dispo des nouveautés ("BE" = marque Unique BE). */
   availabilityFocus?: "FR" | "BE";
   brandName: string;

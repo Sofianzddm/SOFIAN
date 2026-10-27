@@ -2670,11 +2670,14 @@ export default function OutreachPage() {
         useHubspot={false}
         enableTalentResearch
         market={
-          composerGroup?.targets[0]?.pipeline === "BENELUX"
-            ? "BENELUX"
-            : composerGroup?.targets[0]?.pipeline === "FR"
-              ? "FR"
-              : market
+          // FR+BE : un seul mail avec talents des deux marchés (jamais filtré BE-only).
+          composerGroup?.targets.some((t) => t.alsoInSiblingMarket)
+            ? "BOTH"
+            : composerGroup?.targets[0]?.pipeline === "BENELUX"
+              ? "BENELUX"
+              : composerGroup?.targets[0]?.pipeline === "FR"
+                ? "FR"
+                : market
         }
         availabilityFocus={
           composerGroup &&

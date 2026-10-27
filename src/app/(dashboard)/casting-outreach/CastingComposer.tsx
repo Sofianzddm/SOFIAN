@@ -278,10 +278,11 @@ export interface CastingComposerProps {
   brandColumn?: "todo" | "progress" | "ready" | null;
   useHubspot?: boolean;
   /**
-   * Marché ciblé. Sur "BENELUX", la génération IA précise que Glow Up Agence est
-   * une agence française qui développe le Benelux avec des créateurs benelux.
+   * Marché ciblé. Sur "BENELUX", la colonne ne propose que les créateurs belges
+   * et la génération IA précise que Glow Up développe le Benelux.
+   * Sur "BOTH" (contacts FR+BE), tous les talents sont proposés (FR + BE).
    */
-  market?: "FR" | "BENELUX";
+  market?: "FR" | "BENELUX" | "BOTH";
   /**
    * Pays de référence pour vérifier la dispo des nouveautés dans l'analyse marque
    * et la rédaction : "BE" pour une marque Unique BE (Belgique, sinon Europe),
@@ -2281,11 +2282,18 @@ export default function CastingComposer({
                     : "Talent du projet"
                   : market === "BENELUX"
                     ? "Créateurs belges"
-                    : "Sélectionner les talents"}
+                    : market === "BOTH"
+                      ? "Talents FR + BE"
+                      : "Sélectionner les talents"}
               </h3>
               {!isTalentLocked && market === "BENELUX" && (
                 <p className="text-[11px] mb-2 opacity-70" style={{ color: LICORICE }}>
                   Uniquement les talents dont le pays est Belgique.
+                </p>
+              )}
+              {!isTalentLocked && market === "BOTH" && (
+                <p className="text-[11px] mb-2 opacity-70" style={{ color: LICORICE }}>
+                  Contact FR + BE : tu peux proposer tous tes talents (France et Belgique).
                 </p>
               )}
               {talentsError && (
