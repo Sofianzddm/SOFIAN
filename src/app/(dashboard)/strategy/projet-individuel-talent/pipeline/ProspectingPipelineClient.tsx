@@ -2162,8 +2162,8 @@ export function ProspectingPipelineClient() {
               if (!topTalentId) {
                 setError(
                   preferredId
-                    ? "Aucune marque de ce talent dans l’onglet batch — change d’onglet ou le filtre."
-                    : "Aucune mission avec talent pour le wizard."
+                    ? "Aucune carte « À rédiger » pour ce talent."
+                    : "Aucune carte « À rédiger » pour ouvrir le wizard."
                 );
                 return;
               }
@@ -2172,7 +2172,7 @@ export function ProspectingPipelineClient() {
               );
               if (forTalent.length === 0) {
                 setError(
-                  "Aucune marque de ce talent dans le lot — vérifie le filtre talent."
+                  "Aucune carte « À rédiger » pour ce talent — vérifie le filtre."
                 );
                 return;
               }

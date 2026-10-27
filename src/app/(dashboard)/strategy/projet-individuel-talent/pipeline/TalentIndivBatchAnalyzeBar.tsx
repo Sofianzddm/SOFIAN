@@ -630,15 +630,48 @@ export function TalentIndivBatchAnalyzeBar({
     [periodList, batchSize]
   );
 
-  /** Lot wizard : respecte le talent filtré dans le pipeline (sinon 1er lot multi). */
+  /**
+   * Lot wizard = cartes « À rédiger » (TO_DRAFT) du talent, pas le lot
+   * « depuis le 19 » (sinon 5 alors que l’onglet en affiche 33).
+   * Sans filtre talent : talent le plus chargé en À rédiger (mono-talent).
+   */
   const wizardChunk = useMemo(() => {
-    const size = Math.max(1, batchSize);
+    const source = allOpenMissions ?? missions;
+    const byKey = new Map<string, MissionLite>();
+    for (const m of source) {
+      if (!m.talentId) continue;
+      if (m.sentAt || m.stage === "SENT") continue;
+      if (m.awaitingContactsCompletion) continue;
+      if (m.stage !== "TO_DRAFT") continue;
+      if (hasCompleteDraft(m)) continue;
+      const name = brandLabel(m);
+      if (!name) continue;
+      const key = `${m.talentId}:${brandResearchKey(name)}`;
+      if (!byKey.has(key)) byKey.set(key, m);
+    }
+    const draftable = Array.from(byKey.values());
     const tid = String(preferTalentId || "").trim();
-    if (!tid) return nextChunk;
-    return periodList
-      .filter((m) => String(m.talentId || "") === tid)
-      .slice(0, size);
-  }, [preferTalentId, periodList, batchSize, nextChunk]);
+    if (tid) {
+      return draftable.filter((m) => String(m.talentId || "") === tid);
+    }
+    const counts = new Map<string, number>();
+    for (const m of draftable) {
+      const id = String(m.talentId || "");
+      if (!id) continue;
+      counts.set(id, (counts.get(id) || 0) + 1);
+    }
+    let topId = "";
+    let topN = 0;
+    for (const [id, n] of counts) {
+      if (n > topN) {
+        topId = id;
+        topN = n;
+      }
+    }
+    if (!topId) return [];
+    return draftable.filter((m) => String(m.talentId || "") === topId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preferTalentId, allOpenMissions, missions]);
 
   const talentCountInPeriod = useMemo(
     () => new Set(periodList.map((m) => m.talentId).filter(Boolean)).size,
@@ -2018,8 +2051,8 @@ export function TalentIndivBatchAnalyzeBar({
                   onClick={() => onOpenCastingWizard(wizardChunk)}
                   title={
                     preferTalentId
-                      ? "Wizard 1 talent (filtre UI) × N marques + aperçu mail"
-                      : "Même wizard que Casting Outreach : filtre un talent, ou le talent le plus présent du lot"
+                      ? "Toutes les cartes « À rédiger » du talent filtré"
+                      : "Ouvre le talent avec le plus de cartes « À rédiger » (filtre un talent pour un lot ciblé)"
                   }
                 >
                   Wizard casting ({wizardChunk.length})
