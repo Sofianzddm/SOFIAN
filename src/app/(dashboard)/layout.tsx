@@ -79,7 +79,13 @@ export default function DashboardLayout({
         (/^\/collaborations\/[^/]+$/.test(p) &&
           p !== "/collaborations/new" &&
           p !== "/collaborations/rattrapage-marques");
-      if (p && !p.startsWith("/talents") && !p.startsWith("/rh") && !isCollabOk) {
+      if (
+        p &&
+        !p.startsWith("/talents") &&
+        !p.startsWith("/rh") &&
+        !p.startsWith("/kit/") &&
+        !isCollabOk
+      ) {
         router.replace("/talents");
       }
     }

@@ -263,7 +263,7 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // Assistante TM : Talents + Collaborations (liste/fiche) + RH salarié
+  // Assistante TM : Talents + Kit Media + Collaborations (liste/fiche) + RH salarié
   // Collabs : pas de new / edit / facturer / contrat — stats + uploads via API
   if (effectiveRole === "ASSISTANTE_TM") {
     const isCollabListPath = pathname === "/collaborations";
@@ -277,6 +277,8 @@ export async function proxy(request: NextRequest) {
       pathname === "/talents" ||
       pathname.startsWith("/talents/") ||
       pathname.startsWith("/api/talents") ||
+      pathname.startsWith("/kit/") ||
+      pathname.startsWith("/api/kit/") ||
       pathname.startsWith("/api/upload/") ||
       pathname === "/api/users" ||
       pathname === "/rh" ||

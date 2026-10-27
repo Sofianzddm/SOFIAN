@@ -786,17 +786,17 @@ export default function TalentDetailPage() {
           </Link>
           
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <Link
+              href={`/kit/${talentSlug(talent.prenom, talent.nom)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
+              title="Ouvrir le Kit Media public dans un nouvel onglet"
+            >
+              <Share2 className="w-5 h-5" />
+            </Link>
             {!isAssistanteTm && (
               <>
-                <Link
-                  href={`/kit/${talentSlug(talent.prenom, talent.nom)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white/90 hover:bg-white/20 transition-all hover:scale-105"
-                  title="Ouvrir le Kit Media public dans un nouvel onglet"
-                >
-                  <Share2 className="w-5 h-5" />
-                </Link>
                 <Link
                   href={`/tarifs/${talentSlug(talent.prenom, talent.nom)}`}
                   target="_blank"
