@@ -17,10 +17,10 @@ import { appBaseUrl, internalJobHeaders } from "@/lib/internal-job-auth";
 export const maxDuration = 300;
 
 const staleOrPendingWhere = (staleBefore: Date) => ({
-  status: { in: ["pending", "running"] as const },
+  status: { in: ["pending", "running"] },
   OR: [
-    { status: "pending" as const },
-    { status: "running" as const, updatedAt: { lt: staleBefore } },
+    { status: "pending" },
+    { status: "running", updatedAt: { lt: staleBefore } },
   ],
 });
 
