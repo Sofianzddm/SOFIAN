@@ -594,6 +594,7 @@ export async function processOutreachScheduledSends(
       company: true,
       marqueId: true,
       createdById: true,
+      scheduledSendAt: true,
       scheduledSubject: true,
       scheduledBodyHtml: true,
       scheduledById: true,
@@ -622,22 +623,21 @@ export async function processOutreachScheduledSends(
           },
         })
         .catch(() => null);
+      failed += 1;
       continue;
     }
 
-    // executeOutreachSend consomme et remet à zéro le brouillon, mais pas les
-    // champs scheduled* : on les vide d'abord pour ne jamais renvoyer en boucle.
-    await prisma.outreachTarget
-      .update({
-        where: { id: t.id },
-        data: {
-          scheduledSendAt: null,
-          scheduledSubject: null,
-          scheduledBodyHtml: null,
-          scheduledById: null,
-        },
-      })
-      .catch(() => null);
+    // Claim atomique : évite un double envoi si cron + flush UI passent
+    // en parallèle. On garde subject/body pour pouvoir restaurer si Gmail
+    // échoue (avant, on vidait tout avant l'envoi → mail « perdu »).
+    const claimed = await prisma.outreachTarget.updateMany({
+      where: {
+        id: t.id,
+        scheduledSendAt: { not: null, lte: now },
+      },
+      data: { scheduledSendAt: null },
+    });
+    if (claimed.count === 0) continue;
 
     const result = await executeOutreachSend(t.id, {
       subject,
@@ -648,10 +648,31 @@ export async function processOutreachScheduledSends(
 
     if (result.ok) {
       sent += 1;
+      await prisma.outreachTarget
+        .update({
+          where: { id: t.id },
+          data: {
+            scheduledSubject: null,
+            scheduledBodyHtml: null,
+            scheduledById: null,
+          },
+        })
+        .catch(() => null);
       continue;
     }
 
     failed += 1;
+    await prisma.outreachTarget
+      .update({
+        where: { id: t.id },
+        data: {
+          scheduledSendAt: t.scheduledSendAt,
+          scheduledSubject: subject,
+          scheduledBodyHtml: bodyHtml,
+          scheduledById: t.scheduledById,
+        },
+      })
+      .catch(() => null);
     await prisma.notification
       .create({
         data: {

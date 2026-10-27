@@ -385,6 +385,7 @@ export async function processBeneluxScheduledSends(
       lastname: true,
       companyName: true,
       createdById: true,
+      scheduledSendAt: true,
       scheduledSubject: true,
       scheduledBodyHtml: true,
       scheduledById: true,
@@ -412,20 +413,18 @@ export async function processBeneluxScheduledSends(
           },
         })
         .catch(() => null);
+      failed += 1;
       continue;
     }
 
-    await prisma.beneluxOutreachTarget
-      .update({
-        where: { id: t.id },
-        data: {
-          scheduledSendAt: null,
-          scheduledSubject: null,
-          scheduledBodyHtml: null,
-          scheduledById: null,
-        },
-      })
-      .catch(() => null);
+    const claimed = await prisma.beneluxOutreachTarget.updateMany({
+      where: {
+        id: t.id,
+        scheduledSendAt: { not: null, lte: now },
+      },
+      data: { scheduledSendAt: null },
+    });
+    if (claimed.count === 0) continue;
 
     const result = await executeBeneluxOutreachSend(t.id, {
       subject,
@@ -436,10 +435,31 @@ export async function processBeneluxScheduledSends(
 
     if (result.ok) {
       sent += 1;
+      await prisma.beneluxOutreachTarget
+        .update({
+          where: { id: t.id },
+          data: {
+            scheduledSubject: null,
+            scheduledBodyHtml: null,
+            scheduledById: null,
+          },
+        })
+        .catch(() => null);
       continue;
     }
 
     failed += 1;
+    await prisma.beneluxOutreachTarget
+      .update({
+        where: { id: t.id },
+        data: {
+          scheduledSendAt: t.scheduledSendAt,
+          scheduledSubject: subject,
+          scheduledBodyHtml: bodyHtml,
+          scheduledById: t.scheduledById,
+        },
+      })
+      .catch(() => null);
     await prisma.notification
       .create({
         data: {

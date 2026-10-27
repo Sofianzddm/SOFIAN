@@ -53,9 +53,10 @@ export async function GET(request: NextRequest) {
 
   const now = new Date();
 
-  // Envois programmés (« à une heure précise ») : traités à chaque passage du
-  // cron (toutes les 15 min), y compris le week-end si l'utilisateur a choisi
-  // une échéance qui y tombe — avant le garde-fou week-end des relances auto.
+  // Envois programmés (« à une heure précise » / étalement anti-spam) : traités
+  // à chaque passage du cron (toutes les 5 min), y compris le week-end si
+  // l'utilisateur a choisi une échéance qui y tombe — avant le garde-fou
+  // week-end des relances auto.
   const scheduled = await processOutreachScheduledSends(now);
 
   if (!isBusinessDay(now)) {

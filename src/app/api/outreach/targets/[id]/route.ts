@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { markContactContactedFromApp } from "@/lib/hubspot";
 import { findOrCreateMarque, ensureMarqueContact } from "@/lib/marque-resolver";
+import { executeOutreachSend } from "@/lib/outreach-send";
 
 /**
  * GET    → fiche client + historique complet des touches
@@ -11,6 +12,7 @@ import { findOrCreateMarque, ensureMarqueContact } from "@/lib/marque-resolver";
  *            reprendre la relance auto J+3 du dernier mail (le compteur 45j continue)
  *          { action: "draft", subject, bodyHtml } : enregistrer le brouillon
  *          { action: "edit", firstname, lastname, email, company } : éditer le client
+ *          { action: "send-scheduled-now" } : envoyer tout de suite un mail programmé
  * DELETE → suppression (ADMIN uniquement, p.ex. ajout par erreur)
  */
 
@@ -276,6 +278,52 @@ export async function PATCH(
             : { relanceCancelledAt: null, relanceCancelledById: null },
       });
       return NextResponse.json({ ok: true });
+    }
+
+    if (body.action === "send-scheduled-now") {
+      const subject = (target.scheduledSubject || "").trim();
+      const bodyHtml = (target.scheduledBodyHtml || "").trim();
+      if (!target.scheduledSendAt || !subject || !bodyHtml) {
+        return NextResponse.json(
+          { error: "Aucun envoi programmé prêt pour ce contact." },
+          { status: 409 }
+        );
+      }
+
+      // On consomme la programmation avant l'envoi pour éviter un double départ
+      // si le cron passe en parallèle.
+      await prisma.outreachTarget.update({
+        where: { id },
+        data: {
+          scheduledSendAt: null,
+          scheduledSubject: null,
+          scheduledBodyHtml: null,
+          scheduledById: null,
+        },
+      });
+
+      const result = await executeOutreachSend(id, {
+        subject,
+        bodyHtml,
+        sentById: target.scheduledById || session.user.id,
+        force: true,
+      });
+      if (!result.ok) {
+        // Restaure la programmation pour ne pas perdre le mail.
+        await prisma.outreachTarget
+          .update({
+            where: { id },
+            data: {
+              scheduledSendAt: target.scheduledSendAt,
+              scheduledSubject: subject,
+              scheduledBodyHtml: bodyHtml,
+              scheduledById: target.scheduledById,
+            },
+          })
+          .catch(() => null);
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      return NextResponse.json({ ok: true, messageId: result.messageId });
     }
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });

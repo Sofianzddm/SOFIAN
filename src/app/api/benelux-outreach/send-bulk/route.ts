@@ -4,6 +4,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import {
   executeBeneluxOutreachSend,
   executeBeneluxOutreachSchedule,
+  processBeneluxScheduledSends,
 } from "@/lib/benelux-outreach-send";
 import {
   computeAgencyStaggeredTimes,
@@ -283,11 +284,36 @@ async function runBulkSchedule(
 
   scheduledDates.sort((a, b) => a.getTime() - b.getTime());
 
+  // Même logique que l'outreach FR : flush des créneaux proches pour que le
+  // 1er mail parte dans la requête (le cron ne passe que toutes les 5 min).
+  let sentNow = 0;
+  if (!scheduledStart && scheduled > 0) {
+    onProgress({
+      type: "progress",
+      done,
+      total,
+      phase: "sending",
+      label: "Envoi des créneaux immédiats…",
+    });
+    const flush = await processBeneluxScheduledSends(
+      new Date(Date.now() + 90_000),
+      targets.length
+    );
+    sentNow = flush.sent;
+    scheduled = Math.max(0, scheduled - flush.sent);
+  }
+
+  const remainingDates =
+    sentNow > 0
+      ? scheduledDates.filter((d) => d.getTime() > Date.now() + 90_000)
+      : scheduledDates;
+
   return {
-    sent: 0,
+    sent: sentNow,
     scheduled,
-    firstScheduledAt: scheduledDates[0]?.toISOString() ?? null,
-    lastScheduledAt: scheduledDates[scheduledDates.length - 1]?.toISOString() ?? null,
+    firstScheduledAt: remainingDates[0]?.toISOString() ?? null,
+    lastScheduledAt:
+      remainingDates[remainingDates.length - 1]?.toISOString() ?? null,
     failed,
     needsConfirmation,
     translated,

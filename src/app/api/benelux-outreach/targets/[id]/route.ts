@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
+import { executeBeneluxOutreachSend } from "@/lib/benelux-outreach-send";
 
 /**
  * GET    → fiche prospect BENELUX + historique complet des touches
@@ -254,6 +255,49 @@ export async function PATCH(
             : { relanceCancelledAt: null, relanceCancelledById: null },
       });
       return NextResponse.json({ ok: true });
+    }
+
+    if (body.action === "send-scheduled-now") {
+      const subject = (target.scheduledSubject || "").trim();
+      const bodyHtml = (target.scheduledBodyHtml || "").trim();
+      if (!target.scheduledSendAt || !subject || !bodyHtml) {
+        return NextResponse.json(
+          { error: "Aucun envoi programmé prêt pour ce prospect." },
+          { status: 409 }
+        );
+      }
+
+      await prisma.beneluxOutreachTarget.update({
+        where: { id },
+        data: {
+          scheduledSendAt: null,
+          scheduledSubject: null,
+          scheduledBodyHtml: null,
+          scheduledById: null,
+        },
+      });
+
+      const result = await executeBeneluxOutreachSend(id, {
+        subject,
+        bodyHtml,
+        sentById: target.scheduledById || session.user.id,
+        force: true,
+      });
+      if (!result.ok) {
+        await prisma.beneluxOutreachTarget
+          .update({
+            where: { id },
+            data: {
+              scheduledSendAt: target.scheduledSendAt,
+              scheduledSubject: subject,
+              scheduledBodyHtml: bodyHtml,
+              scheduledById: target.scheduledById,
+            },
+          })
+          .catch(() => null);
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      return NextResponse.json({ ok: true, messageId: result.messageId });
     }
 
     return NextResponse.json({ error: "Action inconnue." }, { status: 400 });

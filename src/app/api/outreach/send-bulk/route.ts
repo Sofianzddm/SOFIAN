@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
-import { executeOutreachSend, executeOutreachSchedule } from "@/lib/outreach-send";
+import {
+  executeOutreachSend,
+  executeOutreachSchedule,
+  processOutreachScheduledSends,
+} from "@/lib/outreach-send";
 import {
   computeAgencyStaggeredTimes,
   computeAgencyStaggeredTimesFrom,
@@ -313,11 +317,36 @@ async function runBulkSchedule(
 
   scheduledDates.sort((a, b) => a.getTime() - b.getTime());
 
+  // Étalement « maintenant » : le 1er créneau est ~+1 min, mais le cron ne
+  // passe que toutes les 5 min. On flush ici les échéances proches pour que
+  // le premier mail parte dans la même requête (sinon l'utilisateur voit
+  // « Programmé 16:47 » alors que rien ne part avant le prochain cron).
+  let sentNow = 0;
+  if (!scheduledStart && scheduled > 0) {
+    onProgress({
+      type: "progress",
+      done,
+      total,
+      phase: "sending",
+      label: "Envoi des créneaux immédiats…",
+    });
+    const flushCutoff = new Date(Date.now() + 90_000);
+    const flush = await processOutreachScheduledSends(flushCutoff, targets.length);
+    sentNow = flush.sent;
+    scheduled = Math.max(0, scheduled - flush.sent);
+  }
+
+  const remainingDates =
+    sentNow > 0
+      ? scheduledDates.filter((d) => d.getTime() > Date.now() + 90_000)
+      : scheduledDates;
+
   return {
-    sent: 0,
+    sent: sentNow,
     scheduled,
-    firstScheduledAt: scheduledDates[0]?.toISOString() ?? null,
-    lastScheduledAt: scheduledDates[scheduledDates.length - 1]?.toISOString() ?? null,
+    firstScheduledAt: remainingDates[0]?.toISOString() ?? null,
+    lastScheduledAt:
+      remainingDates[remainingDates.length - 1]?.toISOString() ?? null,
     failed,
     needsConfirmation,
     hubspotSynced: 0,
