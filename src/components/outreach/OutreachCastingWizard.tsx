@@ -312,6 +312,8 @@ export default function OutreachCastingWizard({
   const pendingServerDraftKeysRef = useRef<Set<string>>(new Set());
   /** Déjà envoyés (ou en cours d’envoi) au job rédaction serveur. */
   const serverDraftQueuedRef = useRef<Set<string>>(new Set());
+  /** Dernier `completed` pour lequel on a rafraîchi la file « Prêt à contrôler ». */
+  const serverDraftNotifiedCompletedRef = useRef(0);
   const serverDraftStartingRef = useRef(false);
   const startIndivServerDraftRef = useRef<(keys?: string[]) => void>(() => {});
   const startOutreachServerDraftRef = useRef<(keys?: string[]) => void>(() => {});
@@ -409,6 +411,7 @@ export default function OutreachCastingWizard({
     autoWriteDoneKeysRef.current = new Set();
     pendingServerDraftKeysRef.current = new Set();
     serverDraftQueuedRef.current = new Set();
+    serverDraftNotifiedCompletedRef.current = 0;
     serverDraftStartingRef.current = false;
     if (fitPollRef.current) {
       clearInterval(fitPollRef.current);
@@ -1780,6 +1783,11 @@ export default function OutreachCastingWizard({
             return next;
           });
         }
+        const completedNow = Number(data.completed || 0);
+        if (completedNow > serverDraftNotifiedCompletedRef.current) {
+          serverDraftNotifiedCompletedRef.current = completedNow;
+          onDraftsWritten?.();
+        }
 
         const terminal = ["completed", "failed", "cancelled"].includes(
           String(data.status || "")
@@ -1802,7 +1810,7 @@ export default function OutreachCastingWizard({
               : ok > 0
                 ? `Mails rédigés serveur · ${ok}${
                     fail ? ` · ${fail} échec(s)` : ""
-                  }. Contrôle dans « Prêt à envoyer ».`
+                  }. Contrôle dans « Prêt à contrôler ».`
                 : "Rédaction serveur échouée — réessaie."
           );
           // Enchaîne s’il reste des marques fittées en attente.
@@ -2057,6 +2065,13 @@ export default function OutreachCastingWizard({
             return next;
           });
         }
+        // Rafraîchit la file Outreach au fur et à mesure (badge « Prêt à contrôler »)
+        // sans attendre la fin du job VPS.
+        const completedNow = Number(data.completed || 0);
+        if (completedNow > serverDraftNotifiedCompletedRef.current) {
+          serverDraftNotifiedCompletedRef.current = completedNow;
+          onDraftsWritten?.();
+        }
 
         const terminal = ["completed", "failed", "cancelled"].includes(
           String(data.status || "")
@@ -2079,7 +2094,7 @@ export default function OutreachCastingWizard({
               : ok > 0
                 ? `Mails rédigés serveur · ${ok}${
                     fail ? ` · ${fail} échec(s)` : ""
-                  }. Contrôle dans « Prêt à envoyer ».`
+                  }. Contrôle dans « Prêt à contrôler ».`
                 : "Rédaction serveur échouée — réessaie."
           );
           const leftover = Array.from(pendingServerDraftKeysRef.current).filter(

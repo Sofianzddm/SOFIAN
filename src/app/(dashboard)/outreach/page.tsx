@@ -740,6 +740,24 @@ export default function OutreachPage() {
     return () => window.clearInterval(id);
   }, []);
 
+  // Brouillons casting rédigés en arrière-plan (VPS) : sans refresh, le badge
+  // « Prêt à contrôler » n’apparaît pas tant que la page garde l’ancien state.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadTargets();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadTargets();
+    }, 60_000);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      window.clearInterval(id);
+    };
+  }, [loadTargets]);
+
   /** Évite de spammer /flush-scheduled à chaque re-render de la liste. */
   const flushInFlightRef = useRef(false);
   const lastFlushAtRef = useRef(0);
@@ -3126,7 +3144,12 @@ export default function OutreachPage() {
         market={batchCacheMarket}
         readBothMarkets={marketView === "BOTH"}
         brands={castingBrands}
-        onClose={() => setShowCastingWizard(false)}
+        onClose={() => {
+          setShowCastingWizard(false);
+          // Les rédactions serveur (VPS) continuent après fermeture :
+          // on recharge pour afficher « Prêt à contrôler ».
+          void loadTargets();
+        }}
         onFlash={(kind, message) => flash(kind, message)}
         onSaveDraft={async (brand, subject, bodyHtml) => {
           // Map vers les Target complets de la file (pipeline + sibling FR+BE).
