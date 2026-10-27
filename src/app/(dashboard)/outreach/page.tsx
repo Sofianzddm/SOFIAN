@@ -62,6 +62,9 @@ import {
   loadOutreachTalentResearchCacheMarkets,
   lookupOutreachBrandCache,
   outreachCacheMarketsForContact,
+  type OutreachCachedBrandResearch,
+  type OutreachCachedLeynaExchange,
+  type OutreachCachedTalentResearchItem,
 } from "@/lib/outreach-clients-batch-cache";
 
 const LICORICE = "#1A1110";
@@ -79,6 +82,55 @@ const RELANCE2_CATCHUP_SINCE = new Date("2026-09-25T00:00:00+02:00");
 function relance2Eligible(relance1SentAt: string | null | undefined): boolean {
   if (!relance1SentAt) return false;
   return new Date(relance1SentAt).getTime() >= RELANCE2_CATCHUP_SINCE.getTime();
+}
+
+/** Libellé badge d'envoi programmé (heure Europe/Paris). */
+function formatParisSendAt(
+  iso: string,
+  nowMs: number = Date.now()
+): { short: string; full: string; overdue: boolean } {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return { short: "Programmé", full: "Envoi programmé", overdue: false };
+  }
+  const parisDay = (value: Date) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Paris",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(value);
+  const time = d.toLocaleTimeString("fr-FR", {
+    timeZone: "Europe/Paris",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const whenLabel = d.toLocaleString("fr-FR", {
+    timeZone: "Europe/Paris",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const overdue = d.getTime() <= nowMs;
+  if (overdue) {
+    return {
+      short: `En attente d'envoi (prévu ${time})`,
+      full: `Échéance ${whenLabel} dépassée — départ au prochain passage auto (toutes les 5 min), ou clique « Envoyer maintenant ».`,
+      overdue: true,
+    };
+  }
+  const full = `Envoi prévu le ${whenLabel} (heure FR)`;
+  if (parisDay(d) === parisDay(new Date(nowMs))) {
+    return { short: `Part à ${time}`, full, overdue: false };
+  }
+  const dayLabel = d.toLocaleDateString("fr-FR", {
+    timeZone: "Europe/Paris",
+    day: "numeric",
+    month: "short",
+  });
+  return { short: `Part le ${dayLabel} à ${time}`, full, overdue: false };
 }
 
 type Market = "FR" | "BENELUX";
@@ -155,6 +207,13 @@ type Target = {
   status: TargetStatus;
   draftSubject: string | null;
   draftBodyHtml: string | null;
+  castingResearchSnapshot?: {
+    brandName?: string;
+    brandResearch?: OutreachCachedBrandResearch | null;
+    talentResearch?: OutreachCachedTalentResearchItem[] | null;
+    leynaExchange?: OutreachCachedLeynaExchange | null;
+    savedAt?: string;
+  } | null;
   cycleCount: number;
   lastSentAt: string | null;
   nextRecontactAt: string | null;
@@ -474,6 +533,8 @@ export default function OutreachPage() {
   const [expandedTouches, setExpandedTouches] = useState<Touch[]>([]);
   const [expandedLoading, setExpandedLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  /** Tick pour rafraîchir les badges « Part à / En attente d'envoi ». */
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [checkingBounces, setCheckingBounces] = useState(false);
   // Progression de l'envoi groupé (traduction + envoi), affichée en overlay
   // quand plusieurs contacts sont concernés.
@@ -673,6 +734,82 @@ export default function OutreachPage() {
       loadSenderAccounts();
     }
   }, [sessionStatus, role, marketView, loadTargets, loadPendingContacts, loadSenderAccounts]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  /** Évite de spammer /flush-scheduled à chaque re-render de la liste. */
+  const flushInFlightRef = useRef(false);
+  const lastFlushAtRef = useRef(0);
+
+  /**
+   * Filet anti-cron : dès qu'un mail programmé est en retard, on flush via
+   * l'API session (pas besoin d'attendre Vercel). Sans ça, un badge
+   * « Programmé 16:47 » peut rester bloqué si le cron rate son passage.
+   */
+  const flushOverdueScheduled = useCallback(async () => {
+    const overdue = targets.some(
+      (t) =>
+        t.scheduledSendAt &&
+        new Date(t.scheduledSendAt).getTime() <= Date.now()
+    );
+    if (!overdue) return;
+    if (flushInFlightRef.current) return;
+    if (Date.now() - lastFlushAtRef.current < 45_000) return;
+    flushInFlightRef.current = true;
+    lastFlushAtRef.current = Date.now();
+    try {
+      const pipelines = new Set<"FR" | "BENELUX">();
+      for (const t of targets) {
+        if (
+          t.scheduledSendAt &&
+          new Date(t.scheduledSendAt).getTime() <= Date.now()
+        ) {
+          pipelines.add(t.pipeline || "FR");
+        }
+      }
+      const results = await Promise.all(
+        [...pipelines].map(async (pipe) => {
+          const res = await fetch(
+            `${pipe === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach"}/flush-scheduled`,
+            { method: "POST" }
+          );
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(
+              typeof data.error === "string" ? data.error : "Flush impossible"
+            );
+          }
+          return data as { sent?: number; failed?: number };
+        })
+      );
+      const sent = results.reduce((n, r) => n + (r.sent || 0), 0);
+      const failed = results.reduce((n, r) => n + (r.failed || 0), 0);
+      if (sent > 0) {
+        flash(
+          "success",
+          `${sent} mail${sent > 1 ? "s" : ""} programmé${sent > 1 ? "s" : ""} envoyé${sent > 1 ? "s" : ""} maintenant.`
+        );
+        await loadTargets();
+      } else if (failed > 0) {
+        flash(
+          "error",
+          `${failed} envoi${failed > 1 ? "s" : ""} programmé${failed > 1 ? "s" : ""} en échec — vois les notifs.`
+        );
+        await loadTargets();
+      }
+    } catch (e) {
+      console.warn("[outreach] flush-scheduled:", e);
+    } finally {
+      flushInFlightRef.current = false;
+    }
+  }, [targets, flash, loadTargets]);
+
+  useEffect(() => {
+    void flushOverdueScheduled();
+  }, [flushOverdueScheduled]);
 
   const counts = useMemo(() => {
     const c: Record<TargetStatus, number> = {
@@ -990,6 +1127,46 @@ export default function OutreachPage() {
     });
   }, [composerGroup, marketView, batchCacheMarket]);
 
+  // Snapshot serveur → cache navigateur (Marque OK / Leyna OK à la réouverture).
+  useEffect(() => {
+    if (!composerGroup) return;
+    const snap = composerGroup.targets.find(
+      (t) => t.castingResearchSnapshot
+    )?.castingResearchSnapshot;
+    if (!snap) return;
+    const brandKey =
+      snap.brandName ||
+      composerResearchBrandName ||
+      composerGroup.company ||
+      "";
+    if (!brandKey) return;
+    if (snap.brandResearch) {
+      cacheOutreachBrandResearchMarkets(
+        composerCacheMarkets,
+        brandKey,
+        snap.brandResearch
+      );
+    }
+    if (Array.isArray(snap.talentResearch) && snap.talentResearch.length) {
+      cacheOutreachTalentResearchMarkets(
+        composerCacheMarkets,
+        brandKey,
+        snap.talentResearch
+      );
+    }
+    if (snap.leynaExchange) {
+      cacheOutreachLeynaExchangeMarkets(
+        composerCacheMarkets,
+        brandKey,
+        snap.leynaExchange
+      );
+    }
+  }, [
+    composerGroup,
+    composerResearchBrandName,
+    composerCacheMarkets,
+  ]);
+
   const toggleExpand = useCallback(
     async (target: Target) => {
       if (expandedId === target.id) {
@@ -1031,6 +1208,39 @@ export default function OutreachPage() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Erreur");
         flash("success", action === "stop" ? "Client sorti du cycle." : "Client remis dans le cycle.");
+        await loadTargets();
+      } catch (e) {
+        flash("error", e instanceof Error ? e.message : "Erreur");
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [flash, loadTargets]
+  );
+
+  /** Envoie immédiatement un mail déjà programmé (sans attendre le cron). */
+  const handleSendScheduledNow = useCallback(
+    async (target: Target) => {
+      if (
+        !window.confirm(
+          `Envoyer maintenant le mail programmé à ${target.firstname} (${target.email}) ?`
+        )
+      ) {
+        return;
+      }
+      setActionBusy(target.id);
+      try {
+        const res = await fetch(
+          outreachApiForPipeline(target.pipeline, `/targets/${target.id}`),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "send-scheduled-now" }),
+          }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Erreur");
+        flash("success", `Mail envoyé à ${target.email}.`);
         await loadTargets();
       } catch (e) {
         flash("error", e instanceof Error ? e.message : "Erreur");
@@ -2062,22 +2272,46 @@ export default function OutreachPage() {
                 Boolean((t.draftBodyHtml || "").trim()) &&
                 !t.scheduledSendAt
             );
+            const scheduledAts = group.targets
+              .map((t) => t.scheduledSendAt)
+              .filter((v): v is string => Boolean(v))
+              .map((v) => new Date(v).getTime())
+              .filter((t) => !Number.isNaN(t))
+              .sort((a, b) => a - b);
+            const groupFirstScheduledAt =
+              scheduledAts.length > 0
+                ? new Date(scheduledAts[0]!).toISOString()
+                : null;
+            const groupLastScheduledAt =
+              scheduledAts.length > 1
+                ? new Date(scheduledAts[scheduledAts.length - 1]!).toISOString()
+                : null;
             return (
               <div
                 key={group.groupKey}
                 className="rounded-xl border bg-white overflow-hidden"
                 style={{
-                  borderColor: readyToReview ? "#C8F285" : "#E5E0DA",
+                  borderColor: readyToReview
+                    ? "#C8F285"
+                    : groupFirstScheduledAt
+                      ? "#C8E6A0"
+                      : "#E5E0DA",
                   boxShadow: readyToReview
                     ? "inset 3px 0 0 0 #C8F285"
-                    : undefined,
+                    : groupFirstScheduledAt
+                      ? "inset 3px 0 0 0 #8BC34A"
+                      : undefined,
                 }}
               >
                 {/* En-tête marque : un seul mail pour tous ses contacts */}
                 <div
                   className="px-4 py-3 flex flex-wrap items-center gap-3 border-b"
                   style={{
-                    backgroundColor: readyToReview ? "#F7FCF0" : "#FBF8F4",
+                    backgroundColor: readyToReview
+                      ? "#F7FCF0"
+                      : groupFirstScheduledAt
+                        ? "#F3FAE8"
+                        : "#FBF8F4",
                     borderColor: "#F0EBE4",
                   }}
                 >
@@ -2099,6 +2333,31 @@ export default function OutreachPage() {
                       {group.company}
                       <ExternalLink className="w-3 h-3 text-gray-400" />
                     </a>
+                    {groupFirstScheduledAt && (() => {
+                      const first = formatParisSendAt(groupFirstScheduledAt, nowTick);
+                      const last = groupLastScheduledAt
+                        ? formatParisSendAt(groupLastScheduledAt, nowTick)
+                        : null;
+                      return (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide"
+                          style={{
+                            backgroundColor: first.overdue ? "#FEF3C7" : "#EAF7D6",
+                            color: first.overdue ? "#92400E" : "#3F6212",
+                          }}
+                          title={
+                            last
+                              ? `${first.full} → ${last.short}`
+                              : first.full
+                          }
+                        >
+                          <Clock className="w-3 h-3" />
+                          {last && !first.overdue && !last.overdue
+                            ? `${first.short} → ${last.short.replace(/^Part (à|le) /, "")}`
+                            : first.short}
+                        </span>
+                      );
+                    })()}
                     {readyToReview && (
                       <span
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide"
@@ -2337,23 +2596,27 @@ export default function OutreachPage() {
                               Brouillon
                             </span>
                           )}
-                          {target.scheduledSendAt && (
-                            <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium"
-                              style={{ backgroundColor: "#EAF7D6", color: "#4D6B15" }}
-                              title={`Envoi programmé le ${new Date(target.scheduledSendAt).toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "long", timeStyle: "short" })} (heure FR)`}
-                            >
-                              <Clock className="w-3 h-3" />
-                              Programmé{" "}
-                              {new Date(target.scheduledSendAt).toLocaleString("fr-FR", {
-                                timeZone: "Europe/Paris",
-                                day: "numeric",
-                                month: "short",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </span>
-                          )}
+                          {target.scheduledSendAt && (() => {
+                            const label = formatParisSendAt(
+                              target.scheduledSendAt,
+                              nowTick
+                            );
+                            return (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold"
+                                style={{
+                                  backgroundColor: label.overdue
+                                    ? "#FEF3C7"
+                                    : "#EAF7D6",
+                                  color: label.overdue ? "#92400E" : "#3F6212",
+                                }}
+                                title={label.full}
+                              >
+                                <Clock className="w-3 h-3" />
+                                {label.short}
+                              </span>
+                            );
+                          })()}
                           {target.status === "WAITING" && days !== null && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: "#FFF7E8", color: "#8A6D1A" }}>
                               <Clock className="w-3 h-3" />
@@ -2538,6 +2801,18 @@ export default function OutreachPage() {
                               ) : (
                                 <PauseCircle className="w-4 h-4" />
                               )}
+                            </button>
+                          )}
+                          {target.scheduledSendAt && (
+                            <button
+                              onClick={() => void handleSendScheduledNow(target)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                              style={{ backgroundColor: "#3F6212" }}
+                              title="Envoie immédiatement le mail programmé, sans attendre le prochain passage auto"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              Envoyer maintenant
                             </button>
                           )}
                           {canCompose && (
@@ -2934,26 +3209,36 @@ export default function OutreachPage() {
             ? "en"
             : "fr"
         }
-        initialBrandResearch={
-          composerGroup
-            ? lookupOutreachBrandCache(
-                loadOutreachBrandResearchCacheMarkets(composerCacheMarkets),
-                composerResearchBrandName,
-                composerGroup.company,
-                ...composerCoveredBrands
-              )
-            : null
-        }
-        initialTalentResearch={
-          composerGroup
-            ? lookupOutreachBrandCache(
-                loadOutreachTalentResearchCacheMarkets(composerCacheMarkets),
-                composerResearchBrandName,
-                composerGroup.company,
-                ...composerCoveredBrands
-              )
-            : null
-        }
+        initialBrandResearch={(() => {
+          if (!composerGroup) return null;
+          const snap = composerGroup.targets.find(
+            (t) => t.castingResearchSnapshot?.brandResearch
+          )?.castingResearchSnapshot;
+          if (snap?.brandResearch) return snap.brandResearch;
+          return lookupOutreachBrandCache(
+            loadOutreachBrandResearchCacheMarkets(composerCacheMarkets),
+            composerResearchBrandName,
+            composerGroup.company,
+            ...composerCoveredBrands
+          );
+        })()}
+        initialTalentResearch={(() => {
+          if (!composerGroup) return null;
+          const snap = composerGroup.targets.find(
+            (t) =>
+              Array.isArray(t.castingResearchSnapshot?.talentResearch) &&
+              (t.castingResearchSnapshot?.talentResearch?.length || 0) > 0
+          )?.castingResearchSnapshot;
+          if (Array.isArray(snap?.talentResearch) && snap.talentResearch.length) {
+            return snap.talentResearch;
+          }
+          return lookupOutreachBrandCache(
+            loadOutreachTalentResearchCacheMarkets(composerCacheMarkets),
+            composerResearchBrandName,
+            composerGroup.company,
+            ...composerCoveredBrands
+          );
+        })()}
         initialSelectedTalentIds={
           composerGroup
             ? lookupOutreachBrandCache(
@@ -2964,16 +3249,19 @@ export default function OutreachPage() {
               )
             : null
         }
-        initialLeynaExchange={
-          composerGroup
-            ? lookupOutreachBrandCache(
-                loadOutreachLeynaExchangeCacheMarkets(composerCacheMarkets),
-                composerResearchBrandName,
-                composerGroup.company,
-                ...composerCoveredBrands
-              )
-            : null
-        }
+        initialLeynaExchange={(() => {
+          if (!composerGroup) return null;
+          const snap = composerGroup.targets.find(
+            (t) => t.castingResearchSnapshot?.leynaExchange
+          )?.castingResearchSnapshot;
+          if (snap?.leynaExchange) return snap.leynaExchange;
+          return lookupOutreachBrandCache(
+            loadOutreachLeynaExchangeCacheMarkets(composerCacheMarkets),
+            composerResearchBrandName,
+            composerGroup.company,
+            ...composerCoveredBrands
+          );
+        })()}
         onBrandResearchCached={(brandName, research) => {
           // Uniquement sous la marque pitchée — pas sous le nom d’agence.
           // FR+BE : écrit les deux caches pour retrouver l’analyse partout.

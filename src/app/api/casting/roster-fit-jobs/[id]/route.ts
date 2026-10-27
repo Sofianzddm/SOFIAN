@@ -59,6 +59,8 @@ export async function GET(
         error: b.error,
         sortOrder: b.sortOrder,
         finishedAt: b.finishedAt,
+        brandResearch:
+          b.status === "done" ? b.brandResearch : undefined,
         talents:
           b.status === "done" ? parseRosterFitResult(b.result) : undefined,
       })),

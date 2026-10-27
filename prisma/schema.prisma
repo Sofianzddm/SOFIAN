@@ -443,6 +443,7 @@ model User {
 
   castingRosterFitJobs CastingRosterFitJob[]
   castingIndivDraftJobs CastingIndivDraftJob[]
+  castingOutreachDraftJobs CastingOutreachDraftJob[]
 
   @@map("users")
 }
@@ -3351,6 +3352,8 @@ model ContactMission {
   draftEmailSubject    String?                    @db.Text
   draftEmailBody       String?                    @db.Text
   draftLanguage        String?
+  /// Snapshot analyses casting (marque / talent / Leyna) pour réouvrir le composer.
+  castingResearchSnapshot Json?
   clientLanguage       String?
   clientContacts       Json?
   deadlineAt           DateTime?
@@ -4030,6 +4033,8 @@ model OutreachTarget {
   // Brouillon en cours de rédaction (composer), avant envoi du cycle
   draftSubject  String? @db.Text
   draftBodyHtml String? @db.Text
+  /// Snapshot analyses casting (marque / talent / Leyna) pour réouvrir le composer.
+  castingResearchSnapshot Json?
 
   cycleCount      Int       @default(0) // nombre de mails de cycle envoyés
   lastSentAt      DateTime? // dernier envoi de cycle
@@ -4439,6 +4444,8 @@ model BeneluxOutreachTarget {
 
   draftSubject  String? @db.Text
   draftBodyHtml String? @db.Text
+  /// Snapshot analyses casting (marque / talent / Leyna) pour réouvrir le composer.
+  castingResearchSnapshot Json?
 
   cycleCount      Int       @default(0)
   lastSentAt      DateTime?
@@ -5617,6 +5624,10 @@ model CastingRosterFitBrand {
   company   String?
   /// Brief marque (JSON BrandResearch)
   brandResearch Json
+  /// Cibles outreach (pour enchaîner la rédaction serveur sans navigateur).
+  targetIds String[] @default([])
+  /// FR | BENELUX — pipeline des cibles.
+  pipeline  String?
   sortOrder Int    @default(0)
   /// pending | running | done | failed | skipped
   status String  @default("pending")
@@ -5685,6 +5696,71 @@ model CastingIndivDraftItem {
   @@unique([jobId, missionId])
   @@index([jobId, status, sortOrder])
   @@map("casting_indiv_draft_items")
+}
+
+/// Job serveur rédaction Casting Outreach (marque → talent → Leyna → mail) — VPS.
+model CastingOutreachDraftJob {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// pending | running | completed | failed | cancelled
+  status String @default("pending")
+  market String @default("FR") // FR | BENELUX | BOTH
+
+  totalBrands      Int     @default(0)
+  completed        Int     @default(0)
+  failed           Int     @default(0)
+  currentBrandName String?
+  cancelRequested  Boolean @default(false)
+  error            String? @db.Text
+
+  items CastingOutreachDraftItem[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([userId, status])
+  @@index([status, updatedAt])
+  @@index([userId, market, status])
+  @@map("casting_outreach_draft_jobs")
+}
+
+model CastingOutreachDraftItem {
+  id    String                   @id @default(cuid())
+  jobId String
+  job   CastingOutreachDraftJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  groupKey  String
+  brandName String
+  company   String?
+  /// FR | BENELUX
+  pipeline  String  @default("FR")
+  sortOrder Int     @default(0)
+
+  targetIds  String[] @default([])
+  talentIds  String[] @default([])
+  /// Brief marque (JSON)
+  brandResearch Json
+  /// Fits casting optionnels (JSON) pour angles
+  rosterFits    Json?
+
+  /// pending | running | done | failed | skipped
+  status String  @default("pending")
+  error  String? @db.Text
+  draftSubject  String? @db.Text
+  draftBodyHtml String? @db.Text
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([jobId, groupKey])
+  @@index([jobId, status, sortOrder])
+  @@map("casting_outreach_draft_items")
 }
 
 /// Journal d'activité plateforme (lecture réservée Sofian — pas dans le menu).

@@ -5,7 +5,7 @@ import {
   kickRosterFitJobProcess,
   type CreateRosterFitJobBrandInput,
 } from "@/lib/casting-roster-fit-job";
-import { hasBrandResearchBrief, normalizeBrandResearch } from "@/lib/casting-roster-fit-core";
+import { normalizeBrandResearch } from "@/lib/casting-roster-fit-core";
 import prisma from "@/lib/prisma";
 
 export const maxDuration = 60;
@@ -94,20 +94,25 @@ export async function POST(request: NextRequest) {
       const groupKey = String(b.groupKey || "").trim();
       const brandName = String(b.brandName || "").trim();
       const research = normalizeBrandResearch(b.brandResearch);
-      if (!groupKey || !brandName || !hasBrandResearchBrief(research)) continue;
+      // Brief optionnel : le worker fait l’analyse marque si manquant (indiv / VPS).
+      if (!groupKey || !brandName) continue;
+      const targetIds = Array.isArray(b.targetIds)
+        ? b.targetIds.map((id: unknown) => String(id || "").trim()).filter(Boolean)
+        : [];
       brands.push({
         groupKey,
         brandName,
         company: b.company ? String(b.company) : null,
         brandResearch: research,
+        targetIds,
+        pipeline: b.pipeline === "BENELUX" ? "BENELUX" : b.pipeline === "FR" ? "FR" : null,
       });
     }
 
     if (talentIds.length === 0 || brands.length === 0) {
       return NextResponse.json(
         {
-          error:
-            "talentIds et brands (avec brandResearch) sont requis.",
+          error: "talentIds et brands sont requis.",
         },
         { status: 400 }
       );

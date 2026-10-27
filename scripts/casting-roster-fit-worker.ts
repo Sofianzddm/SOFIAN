@@ -14,6 +14,7 @@
 import prisma from "../src/lib/prisma";
 import { processRosterFitJobTick } from "../src/lib/casting-roster-fit-job";
 import { processIndivDraftJobTick } from "../src/lib/casting-indiv-draft-job";
+import { processOutreachDraftJobTick } from "../src/lib/casting-outreach-draft-job";
 
 const POLL_IDLE_MS = Number(process.env.CASTING_FIT_POLL_MS || 5000);
 const STUCK_BRAND_MS = Number(process.env.CASTING_FIT_STUCK_MS || 8 * 60 * 1000);
@@ -96,7 +97,27 @@ async function loopOnce(): Promise<number> {
       })
     : [];
 
-  if (rosterJobs.length === 0 && indivJobs.length === 0) return 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const outreachJob = (prisma as any).castingOutreachDraftJob;
+  const outreachJobs: { id: string }[] = outreachJob?.findMany
+    ? await outreachJob.findMany({
+        where: {
+          status: { in: ["pending", "running"] },
+          cancelRequested: false,
+        },
+        orderBy: { createdAt: "asc" },
+        take: MAX_PARALLEL_JOBS,
+        select: { id: true },
+      })
+    : [];
+
+  if (
+    rosterJobs.length === 0 &&
+    indivJobs.length === 0 &&
+    outreachJobs.length === 0
+  ) {
+    return 0;
+  }
 
   const results = await Promise.all([
     ...rosterJobs.map(async (j) => {
@@ -113,13 +134,20 @@ async function loopOnce(): Promise<number> {
       );
       return tick.processed;
     }),
+    ...outreachJobs.map(async (j) => {
+      const tick = await processOutreachDraftJobTick(j.id, 1);
+      console.log(
+        `[casting-fit-worker] outreach-draft job=${j.id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
+      );
+      return tick.processed;
+    }),
   ]);
   return results.reduce((a, b) => a + b, 0);
 }
 
 async function main() {
   console.log(
-    `[casting-fit-worker] start · idle=${POLL_IDLE_MS}ms · stuck=${STUCK_BRAND_MS}ms · roster+indiv`
+    `[casting-fit-worker] start · idle=${POLL_IDLE_MS}ms · stuck=${STUCK_BRAND_MS}ms · roster+indiv+outreach-draft`
   );
   if (!process.env.DATABASE_URL?.trim()) {
     throw new Error("DATABASE_URL manquante");

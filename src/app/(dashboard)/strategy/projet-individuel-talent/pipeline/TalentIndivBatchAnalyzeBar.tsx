@@ -311,6 +311,12 @@ type Props = {
   /** Tous les talents pipeline (batch multi-talents). */
   talents: TalentLite[];
   missions: MissionLite[];
+  /**
+   * Talent sélectionné dans le filtre UI du pipeline.
+   * Le wizard casting le respecte (1 talent verrouillé) même si le lot
+   * serveur reste multi-talents.
+   */
+  preferTalentId?: string | null;
   /** Contacts saisis dans le formulaire mais pas encore « Enregistrer ». */
   draftContactsByMissionId?: Record<string, DraftContact[]>;
   canRun: boolean;
@@ -323,6 +329,8 @@ type Props = {
     stage: "DRAFTED_FOR_VALIDATION" | "TO_DRAFT";
     label: string;
   } | null) => void;
+  /** Ouvre le wizard casting (même visuel Outreach) pour 1 talent × N marques. */
+  onOpenCastingWizard?: (missions: MissionLite[]) => void;
 };
 
 /**
@@ -332,12 +340,14 @@ type Props = {
 export function TalentIndivBatchAnalyzeBar({
   talents,
   missions,
+  preferTalentId = null,
   draftContactsByMissionId,
   canRun,
   onChanged,
   setError,
   setSuccess,
   onFocusMissions,
+  onOpenCastingWizard,
 }: Props) {
   const talentById = useMemo(() => {
     const map = new Map<string, TalentLite>();
@@ -619,6 +629,16 @@ export function TalentIndivBatchAnalyzeBar({
     () => periodList.slice(0, Math.max(1, batchSize)),
     [periodList, batchSize]
   );
+
+  /** Lot wizard : respecte le talent filtré dans le pipeline (sinon 1er lot multi). */
+  const wizardChunk = useMemo(() => {
+    const size = Math.max(1, batchSize);
+    const tid = String(preferTalentId || "").trim();
+    if (!tid) return nextChunk;
+    return periodList
+      .filter((m) => String(m.talentId || "") === tid)
+      .slice(0, size);
+  }, [preferTalentId, periodList, batchSize, nextChunk]);
 
   const talentCountInPeriod = useMemo(
     () => new Set(periodList.map((m) => m.talentId).filter(Boolean)).size,
@@ -1989,6 +2009,22 @@ export function TalentIndivBatchAnalyzeBar({
             </button>
           ) : (
             <>
+              {onOpenCastingWizard ? (
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  style={{ background: "#C08B8B" }}
+                  disabled={!canRun || wizardChunk.length === 0}
+                  onClick={() => onOpenCastingWizard(wizardChunk)}
+                  title={
+                    preferTalentId
+                      ? "Wizard 1 talent (filtre UI) × N marques + aperçu mail"
+                      : "Même wizard que Casting Outreach : filtre un talent, ou le talent le plus présent du lot"
+                  }
+                >
+                  Wizard casting ({wizardChunk.length})
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={btnPrimary}

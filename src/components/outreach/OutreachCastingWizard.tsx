@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { isBelgianPays } from "@/lib/pays";
 import {
+  cacheOutreachBrandResearchMarkets,
   cacheOutreachRosterFitMarkets,
   cacheOutreachSelectedTalentsMarkets,
   cacheOutreachTalentResearchMarkets,
@@ -29,6 +30,17 @@ import {
   type OutreachCachedRosterFitItem,
   type OutreachCachedTalentResearchItem,
 } from "@/lib/outreach-clients-batch-cache";
+import {
+  cacheIndivBrandResearch,
+  cacheIndivTalentResearch,
+  loadIndivBrandResearchCache,
+  loadIndivLeynaExchangeCache,
+  loadIndivTalentResearchCache,
+  lookupIndivBrandCache,
+  type IndivCachedBrandResearch,
+  type IndivCachedLeynaExchange,
+  type IndivCachedTalentResearchItem,
+} from "@/lib/indiv-talent-batch-cache";
 
 /** Enrichit talent-research avec l’angle casting (roster-fit) pour la rédaction. */
 function mergeCastingAnglesIntoTalentResearch(
@@ -110,8 +122,23 @@ type Props = {
     groupKey: string,
     draft?: { subject: string; bodyHtml: string }
   ) => void;
+  /**
+   * Envoi direct depuis l’aperçu mail (indiv : schedule-send).
+   * Si absent → seul « Contrôler » reste.
+   */
+  onSendBrand?: (
+    groupKey: string,
+    draft: { subject: string; bodyHtml: string }
+  ) => Promise<void>;
   /** Après rédaction batch réussie — parent peut recharger les targets. */
   onDraftsWritten?: () => void;
+  /**
+   * Mode pipeline indiv : 1 talent verrouillé × N marques.
+   * Utilise les caches indiv + sélection auto de ce talent.
+   */
+  lockedTalentId?: string | null;
+  /** Libellé header (ex. « Casting indiv · Tatiana »). */
+  wizardTitle?: string;
 };
 
 type Phase = "casting" | "writing" | "review";
@@ -198,8 +225,12 @@ export default function OutreachCastingWizard({
   onFlash,
   onSaveDraft,
   onReviewBrand,
+  onSendBrand,
   onDraftsWritten,
+  lockedTalentId = null,
+  wizardTitle,
 }: Props) {
+  const isIndivMode = Boolean(lockedTalentId);
   const viewCacheMarkets = useMemo(
     (): Array<"FR" | "BENELUX"> =>
       readBothMarkets ? ["FR", "BENELUX"] : [market],
@@ -228,6 +259,10 @@ export default function OutreachCastingWizard({
   const [writeFailed, setWriteFailed] = useState(0);
   const [readyKeys, setReadyKeys] = useState<string[]>([]);
   const [negoReviewKeys, setNegoReviewKeys] = useState<string[]>([]);
+  /** Aperçu mail dans le wizard (outreach + indiv). */
+  const [localDrafts, setLocalDrafts] = useState<
+    Record<string, { subject: string; bodyHtml: string }>
+  >({});
   const abortRef = useRef<AbortController | null>(null);
 
   /** Fits casting IA indexés par groupKey → talentId */
@@ -247,10 +282,22 @@ export default function OutreachCastingWizard({
   /** Rédaction d’une seule marque (sans bloquer le batch casting). */
   const [writingOneKey, setWritingOneKey] = useState<string | null>(null);
   const writeOneAbortRef = useRef<AbortController | null>(null);
-  /** Dès qu’un fit marque est done → même pipeline rédaction (talent-research + generate-email). */
+  const [sendingKey, setSendingKey] = useState<string | null>(null);
+  const [sentKeys, setSentKeys] = useState<string[]>([]);
+  /** Dès qu’un fit marque est done → rédaction (client outreach / serveur indiv). */
   const [autoWriteAfterFit, setAutoWriteAfterFit] = useState(true);
   const [autoWriteQueueLen, setAutoWriteQueueLen] = useState(0);
   const [autoWriteCurrent, setAutoWriteCurrent] = useState("");
+  /** Invalide le cache marque indiv après analyse inline (clic → fit). */
+  const [indivCacheTick, setIndivCacheTick] = useState(0);
+  const [brandPrepCurrent, setBrandPrepCurrent] = useState("");
+  /** Indiv : rédaction via CastingIndivDraftJob (survit à la fermeture). */
+  const [serverDraftRunning, setServerDraftRunning] = useState(false);
+  const [serverDraftJobId, setServerDraftJobId] = useState<string | null>(null);
+  const [serverDraftDone, setServerDraftDone] = useState(0);
+  const [serverDraftTotal, setServerDraftTotal] = useState(0);
+  const [serverDraftFailed, setServerDraftFailed] = useState(0);
+  const [serverDraftCurrent, setServerDraftCurrent] = useState("");
   const autoWriteAfterFitRef = useRef(true);
   const autoWriteQueueRef = useRef<
     Array<{ groupKey: string; talentIds: string[] }>
@@ -261,6 +308,37 @@ export default function OutreachCastingWizard({
   const enqueueAutoWriteRef = useRef<(groupKey: string, talentIds: string[]) => void>(
     () => {}
   );
+  const serverDraftPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pendingServerDraftKeysRef = useRef<Set<string>>(new Set());
+  /** Déjà envoyés (ou en cours d’envoi) au job rédaction serveur. */
+  const serverDraftQueuedRef = useRef<Set<string>>(new Set());
+  const serverDraftStartingRef = useRef(false);
+  const startIndivServerDraftRef = useRef<(keys?: string[]) => void>(() => {});
+  const startOutreachServerDraftRef = useRef<(keys?: string[]) => void>(() => {});
+  const readyKeysRef = useRef<string[]>([]);
+  const localDraftsRef = useRef(localDrafts);
+  const fitByBrandRef = useRef(fitByBrand);
+  const selectedByBrandRef = useRef(selectedByBrand);
+  useEffect(() => {
+    fitByBrandRef.current = fitByBrand;
+  }, [fitByBrand]);
+  useEffect(() => {
+    selectedByBrandRef.current = selectedByBrand;
+  }, [selectedByBrand]);
+
+  useEffect(() => {
+    readyKeysRef.current = readyKeys;
+  }, [readyKeys]);
+  useEffect(() => {
+    localDraftsRef.current = localDrafts;
+  }, [localDrafts]);
+
+  /** Marché fit isolé en indiv pour ne pas collisionner avec Outreach FR. */
+  const fitMarketKey = lockedTalentId
+    ? `INDIV:${lockedTalentId}`
+    : readBothMarkets
+      ? "BOTH"
+      : market;
 
   useEffect(() => {
     autoWriteAfterFitRef.current = autoWriteAfterFit;
@@ -275,17 +353,25 @@ export default function OutreachCastingWizard({
     [viewCacheMarkets, open, brands]
   );
 
-  const brandsWithCache = useMemo(
+  const indivBrandCache = useMemo(
     () =>
-      brands.filter((b) => {
-        const names = pitchNamesForBrand(b);
-        return (
-          names.length > 0 &&
-          names.some((n) => hasOutreachBrandCacheEntry(brandCache, n, b.company))
-        );
-      }),
-    [brands, brandCache]
+      lockedTalentId ? loadIndivBrandResearchCache(lockedTalentId) : {},
+    [lockedTalentId, open, brands, indivCacheTick]
   );
+
+  const brandsWithCache = useMemo(() => {
+    if (isIndivMode) {
+      // Indiv : toutes les marques du lot (brief optionnel — sinon message vide).
+      return brands.filter((b) => pitchNamesForBrand(b).length > 0);
+    }
+    return brands.filter((b) => {
+      const names = pitchNamesForBrand(b);
+      return (
+        names.length > 0 &&
+        names.some((n) => hasOutreachBrandCacheEntry(brandCache, n, b.company))
+      );
+    });
+  }, [brands, brandCache, isIndivMode]);
 
   // Init sélection + skips à l’ouverture.
   useEffect(() => {
@@ -306,20 +392,38 @@ export default function OutreachCastingWizard({
     setFitFailed(0);
     setExpandedFitId(null);
     setWritingOneKey(null);
+    setSendingKey(null);
+    setSentKeys([]);
     setFitJobId(null);
     setAutoWriteQueueLen(0);
     setAutoWriteCurrent("");
+    setServerDraftRunning(false);
+    setServerDraftJobId(null);
+    setServerDraftDone(0);
+    setServerDraftTotal(0);
+    setServerDraftFailed(0);
+    setServerDraftCurrent("");
     appliedFitBrandsRef.current = new Set();
     autoWriteQueueRef.current = [];
     autoWriteBusyRef.current = false;
     autoWriteDoneKeysRef.current = new Set();
+    pendingServerDraftKeysRef.current = new Set();
+    serverDraftQueuedRef.current = new Set();
+    serverDraftStartingRef.current = false;
     if (fitPollRef.current) {
       clearInterval(fitPollRef.current);
       fitPollRef.current = null;
     }
+    if (serverDraftPollRef.current) {
+      clearInterval(serverDraftPollRef.current);
+      serverDraftPollRef.current = null;
+    }
     writeOneAbortRef.current?.abort();
 
-    const skip = loadSkipSet(market, readBothMarkets);
+    const skip = loadSkipSet(
+      isIndivMode ? `indiv:${lockedTalentId}` : market,
+      isIndivMode ? false : readBothMarkets
+    );
     setSkipped(skip);
 
     const selectedCache =
@@ -331,12 +435,34 @@ export default function OutreachCastingWizard({
       string,
       Record<string, OutreachCachedRosterFitItem>
     > = {};
+    const nextDrafts: Record<string, { subject: string; bodyHtml: string }> =
+      {};
+    const nextReady: string[] = [];
     for (const b of brands) {
       const pitch = defaultPitchBrand(b);
-      const ids =
-        lookupOutreachBrandCache(selectedCache, pitch, b.company, ...(b.coveredBrands || [])) ||
-        [];
-      if (ids.length > 0) nextSel[b.groupKey] = ids;
+      const existing = b.targets.find(
+        (t) =>
+          (t.draftSubject || "").trim() && (t.draftBodyHtml || "").trim()
+      );
+      if (existing) {
+        nextDrafts[b.groupKey] = {
+          subject: String(existing.draftSubject || "").trim(),
+          bodyHtml: String(existing.draftBodyHtml || "").trim(),
+        };
+        nextReady.push(b.groupKey);
+      }
+      if (lockedTalentId) {
+        nextSel[b.groupKey] = [lockedTalentId];
+      } else {
+        const ids =
+          lookupOutreachBrandCache(
+            selectedCache,
+            pitch,
+            b.company,
+            ...(b.coveredBrands || [])
+          ) || [];
+        if (ids.length > 0) nextSel[b.groupKey] = ids;
+      }
       const fits =
         lookupOutreachBrandCache(
           rosterFitCache,
@@ -354,20 +480,14 @@ export default function OutreachCastingWizard({
     }
     setSelectedByBrand(nextSel);
     setFitByBrand(nextFit);
-    setReadyKeys(
-      brands
-        .filter((b) =>
-          b.targets.some(
-            (t) =>
-              (t.draftSubject || "").trim() && (t.draftBodyHtml || "").trim()
-          )
-        )
-        .map((b) => b.groupKey)
-    );
+    setLocalDrafts(nextDrafts);
+    setReadyKeys(nextReady);
 
-    // Reprendre à la première marque non skip / sans sélection.
+    // Reprendre à la première marque non skip / sans sélection (outreach)
+    // ou sans brouillon (indiv — talent déjà sélectionné).
     const startIdx = brandsWithCache.findIndex((b) => {
       if (skip.has(b.groupKey)) return false;
+      if (lockedTalentId) return !nextDrafts[b.groupKey];
       const sel = nextSel[b.groupKey] || [];
       return sel.length === 0;
     });
@@ -441,13 +561,27 @@ export default function OutreachCastingWizard({
 
   const currentBrief = useMemo((): OutreachCachedBrandResearch | null => {
     if (!current || !currentPitch) return null;
+    if (lockedTalentId) {
+      const indiv = lookupIndivBrandCache(
+        indivBrandCache,
+        currentPitch,
+        current.company,
+        ...(current.coveredBrands || [])
+      ) as IndivCachedBrandResearch | null;
+      return indiv;
+    }
     return lookupOutreachBrandCache(
       brandCache,
       currentPitch,
       current.company,
       ...(current.coveredBrands || [])
     );
-  }, [current, currentPitch, brandCache]);
+  }, [current, currentPitch, brandCache, lockedTalentId, indivBrandCache]);
+
+  const currentDraft = useMemo(() => {
+    if (!current) return null;
+    return localDrafts[current.groupKey] || null;
+  }, [current, localDrafts]);
 
   const currentSelected = useMemo(() => {
     if (!current) return new Set<string>();
@@ -461,10 +595,24 @@ export default function OutreachCastingWizard({
         done += 1;
         continue;
       }
+      // Indiv : talent déjà verrouillé → on compte les mails rédigés.
+      if (isIndivMode) {
+        if (localDrafts[b.groupKey] || readyKeys.includes(b.groupKey)) {
+          done += 1;
+        }
+        continue;
+      }
       if ((selectedByBrand[b.groupKey] || []).length > 0) done += 1;
     }
     return { done, total: brandsWithCache.length };
-  }, [brandsWithCache, skipped, selectedByBrand]);
+  }, [
+    brandsWithCache,
+    skipped,
+    selectedByBrand,
+    isIndivMode,
+    localDrafts,
+    readyKeys,
+  ]);
 
   const writableBrands = useMemo(
     () =>
@@ -476,9 +624,16 @@ export default function OutreachCastingWizard({
     [brandsWithCache, skipped, selectedByBrand]
   );
 
+  // Outreach : toutes les marques ont une sélection. Indiv : talent déjà verrouillé.
   const allCastingDone =
     brandsWithCache.length > 0 &&
-    castingProgress.done >= brandsWithCache.length;
+    (isIndivMode
+      ? brandsWithCache.every(
+          (b) =>
+            skipped.has(b.groupKey) ||
+            (selectedByBrand[b.groupKey] || []).length > 0
+        )
+      : castingProgress.done >= brandsWithCache.length);
 
   const persistSelection = useCallback(
     (brand: OutreachCastingBrand, pitch: string, ids: string[]) => {
@@ -494,6 +649,8 @@ export default function OutreachCastingWizard({
   const toggleTalent = useCallback(
     (talentId: string) => {
       if (!current) return;
+      // Mode indiv : talent figé.
+      if (lockedTalentId) return;
       setSelectedByBrand((prev) => {
         const cur = new Set(prev[current.groupKey] || []);
         if (cur.has(talentId)) cur.delete(talentId);
@@ -506,7 +663,7 @@ export default function OutreachCastingWizard({
         return { ...prev, [current.groupKey]: ids };
       });
     },
-    [current, currentPitch, persistSelection]
+    [current, currentPitch, persistSelection, lockedTalentId]
   );
 
   const goNext = useCallback(() => {
@@ -572,9 +729,12 @@ export default function OutreachCastingWizard({
   }, [current, fitByBrand]);
 
   const sortedTalents = useMemo(() => {
+    const base = lockedTalentId
+      ? talents.filter((t) => t.id === lockedTalentId)
+      : talents;
     const hasFits = Object.keys(currentFits).length > 0;
-    if (!hasFits) return talents;
-    return [...talents].sort((a, b) => {
+    if (!hasFits) return base;
+    return [...base].sort((a, b) => {
       const fa = currentFits[a.id];
       const fb = currentFits[b.id];
       const ra = fa?.recommended ? 1 : 0;
@@ -582,7 +742,50 @@ export default function OutreachCastingWizard({
       if (ra !== rb) return rb - ra;
       return (fb?.fitScore || 0) - (fa?.fitScore || 0);
     });
-  }, [talents, currentFits]);
+  }, [talents, currentFits, lockedTalentId]);
+
+  // Indiv : si le talent n’est pas dans le presskit marché, on le charge à part.
+  useEffect(() => {
+    if (!open || !lockedTalentId) return;
+    if (talents.some((t) => t.id === lockedTalentId)) return;
+    let cancelled = false;
+    fetch(`/api/talents/${encodeURIComponent(lockedTalentId)}`, {
+      credentials: "include",
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        const t = data.talent || data;
+        if (!t?.id || cancelled) return;
+        const stats = t.stats || {};
+        const niches = Array.isArray(t.niches)
+          ? t.niches.map((n: unknown) => String(n || "").trim()).filter(Boolean)
+          : [];
+        setTalents((prev) => {
+          if (prev.some((x) => x.id === lockedTalentId)) return prev;
+          return [
+            {
+              id: String(t.id),
+              prenom: String(t.prenom || ""),
+              nom: String(t.nom || ""),
+              photo: t.photoUrl || t.photo || null,
+              pays: t.pays || null,
+              niches,
+              instagram: t.instagram || null,
+              igFollowers: Number(stats.igFollowers || 0) || 0,
+              igEngagement: Number(stats.igEngagement || 0) || 0,
+              ttFollowers: Number(stats.ttFollowers || 0) || 0,
+              ttEngagement: Number(stats.ttEngagement || 0) || 0,
+            },
+            ...prev,
+          ];
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open, lockedTalentId, talents]);
 
   const brandsMissingFit = useMemo(() => {
     return brandsWithCache.filter((b) => {
@@ -597,7 +800,8 @@ export default function OutreachCastingWizard({
       groupKey: string,
       brandName: string,
       company: string | null | undefined,
-      list: OutreachCachedRosterFitItem[]
+      list: OutreachCachedRosterFitItem[],
+      brandResearch?: OutreachCachedBrandResearch | null
     ) => {
       if (appliedFitBrandsRef.current.has(groupKey)) return;
       appliedFitBrandsRef.current.add(groupKey);
@@ -612,6 +816,29 @@ export default function OutreachCastingWizard({
           brand?.alsoInSiblingMarket || readBothMarkets,
       });
       cacheOutreachRosterFitMarkets(markets, pitch, list);
+      if (
+        brandResearch &&
+        (brandResearch.newProducts ||
+          brandResearch.brandPositioning ||
+          brandResearch.influenceStrategy ||
+          brandResearch.recentCampaigns ||
+          brandResearch.availabilityFrEu)
+      ) {
+        if (lockedTalentId) {
+          cacheIndivBrandResearch(
+            lockedTalentId,
+            pitch || company || brandName,
+            brandResearch as IndivCachedBrandResearch
+          );
+          setIndivCacheTick((n) => n + 1);
+        } else {
+          cacheOutreachBrandResearchMarkets(
+            markets,
+            pitch || company || brandName,
+            brandResearch
+          );
+        }
+      }
 
       const map: Record<string, OutreachCachedRosterFitItem> = {};
       for (const f of list) {
@@ -621,6 +848,11 @@ export default function OutreachCastingWizard({
 
       if (brand) {
         setSelectedByBrand((prev) => {
+          if (lockedTalentId) {
+            const picks = [lockedTalentId];
+            persistSelection(brand, pitch, picks);
+            return { ...prev, [groupKey]: picks };
+          }
           const existing = prev[groupKey] || [];
           if (existing.length > 0) return prev;
           const picks = autoPickRecommended(list, 8);
@@ -636,6 +868,7 @@ export default function OutreachCastingWizard({
       market,
       readBothMarkets,
       persistSelection,
+      lockedTalentId,
     ]
   );
 
@@ -663,6 +896,7 @@ export default function OutreachCastingWizard({
             brandName: string;
             company?: string | null;
             status: string;
+            brandResearch?: OutreachCachedBrandResearch | null;
             talents?: OutreachCachedRosterFitItem[];
           }>;
           error?: string;
@@ -676,11 +910,40 @@ export default function OutreachCastingWizard({
 
         for (const b of data.brands || []) {
           if (b.status === "done" && Array.isArray(b.talents) && b.talents.length) {
-            const already = appliedFitBrandsRef.current.has(b.groupKey);
-            applyJobBrandResult(b.groupKey, b.brandName, b.company, b.talents);
-            if (!already) {
-              const picks = autoPickRecommended(b.talents, 8);
-              enqueueAutoWriteRef.current(b.groupKey, picks);
+            applyJobBrandResult(
+              b.groupKey,
+              b.brandName,
+              b.company,
+              b.talents,
+              b.brandResearch
+            );
+            if (!autoWriteAfterFitRef.current) continue;
+            const hasDraft =
+              Boolean(localDraftsRef.current[b.groupKey]) ||
+              readyKeysRef.current.includes(b.groupKey);
+            if (hasDraft || autoWriteDoneKeysRef.current.has(b.groupKey)) {
+              continue;
+            }
+            // File serveur (indiv OU outreach) — survit à la fermeture / VPS.
+            if (!serverDraftQueuedRef.current.has(b.groupKey)) {
+              const picks = lockedTalentId
+                ? [lockedTalentId]
+                : autoPickRecommended(b.talents, 8);
+              if (picks.length === 0) continue;
+              pendingServerDraftKeysRef.current.add(b.groupKey);
+              try {
+                const storageKey = lockedTalentId
+                  ? `casting-indiv-pending-draft:${lockedTalentId}`
+                  : `casting-outreach-pending-draft:${fitMarketKey}`;
+                sessionStorage.setItem(
+                  storageKey,
+                  JSON.stringify(
+                    Array.from(pendingServerDraftKeysRef.current)
+                  )
+                );
+              } catch {
+                /* ignore */
+              }
             }
           }
         }
@@ -700,25 +963,59 @@ export default function OutreachCastingWizard({
               `Analyse casting arrêtée (${ok} OK${fail ? `, ${fail} échec(s)` : ""}).`
             );
           } else {
+            if (autoWriteAfterFitRef.current) {
+              for (const b of data.brands || []) {
+                if (b.status !== "done" || !Array.isArray(b.talents)) continue;
+                const hasDraft =
+                  Boolean(localDraftsRef.current[b.groupKey]) ||
+                  readyKeysRef.current.includes(b.groupKey);
+                if (
+                  hasDraft ||
+                  autoWriteDoneKeysRef.current.has(b.groupKey) ||
+                  serverDraftQueuedRef.current.has(b.groupKey)
+                ) {
+                  continue;
+                }
+                const picks = lockedTalentId
+                  ? [lockedTalentId]
+                  : autoPickRecommended(b.talents, 8);
+                if (picks.length === 0) continue;
+                pendingServerDraftKeysRef.current.add(b.groupKey);
+              }
+            }
+            const pendingDraft = pendingServerDraftKeysRef.current.size;
             onFlash?.(
               fail > 0 && ok === 0 ? "error" : "success",
               ok > 0
                 ? `Casting analysé · ${ok} marque${ok > 1 ? "s" : ""}${
                     fail ? ` · ${fail} échec(s)` : ""
                   }${
-                    autoWriteAfterFitRef.current
-                      ? " · rédaction auto en file (même qualité)."
-                      : ". Vérifie les OUI puis rédige."
+                    autoWriteAfterFitRef.current && pendingDraft > 0
+                      ? " · rédaction serveur lancée (tu peux quitter)."
+                      : autoWriteAfterFitRef.current
+                        ? " · aucun OUI casting → pas de rédaction auto."
+                        : ". Vérifie les OUI puis rédige."
                   }`
                 : "Analyse casting échouée — réessaie."
             );
+            if (autoWriteAfterFitRef.current && pendingDraft > 0) {
+              if (lockedTalentId) {
+                startIndivServerDraftRef.current(
+                  Array.from(pendingServerDraftKeysRef.current)
+                );
+              } else {
+                startOutreachServerDraftRef.current(
+                  Array.from(pendingServerDraftKeysRef.current)
+                );
+              }
+            }
           }
         }
       } catch (e) {
         console.error("[outreach-casting] poll job:", e);
       }
     },
-    [applyJobBrandResult, stopFitPoll, onFlash]
+    [applyJobBrandResult, stopFitPoll, onFlash, lockedTalentId, fitMarketKey]
   );
 
   const startFitPoll = useCallback(
@@ -734,11 +1031,11 @@ export default function OutreachCastingWizard({
     [stopFitPoll, pollFitJob]
   );
 
-  // Reprend le job actif de CE marché (FR / BENELUX / BOTH) — les autres jobs restent en parallèle.
+  // Reprend le job fit actif (FR / BENELUX / BOTH / INDIV:talentId).
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    const marketKey = readBothMarkets ? "BOTH" : market;
+    const marketKey = fitMarketKey;
     void (async () => {
       try {
         const res = await fetch(
@@ -787,7 +1084,9 @@ export default function OutreachCastingWizard({
         startFitPoll(match.id);
         onFlash?.(
           "success",
-          `Job casting ${marketKey} repris — d’autres marchés peuvent tourner en parallèle.`
+          lockedTalentId
+            ? "Job casting indiv repris — tu peux quitter, la rédaction serveur suivra."
+            : `Job casting ${marketKey} repris — d’autres marchés peuvent tourner en parallèle.`
         );
       } catch {
         /* ignore */
@@ -796,7 +1095,7 @@ export default function OutreachCastingWizard({
     return () => {
       cancelled = true;
     };
-  }, [open, market, readBothMarkets]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open / market
+  }, [open, fitMarketKey, lockedTalentId]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open / market
 
   useEffect(() => {
     return () => {
@@ -839,53 +1138,95 @@ export default function OutreachCastingWizard({
       return;
     }
 
-    const talentIds = talents.map((t) => t.id).filter(Boolean).slice(0, 30);
-    const payloadBrands: Array<{
-      groupKey: string;
-      brandName: string;
-      company: string;
-      brandResearch: OutreachCachedBrandResearch;
-    }> = [];
-
-    for (const brand of targets) {
-      const pitch =
-        pitchOverride[brand.groupKey] || defaultPitchBrand(brand);
-      const brief = lookupOutreachBrandCache(
-        brandCache,
-        pitch,
-        brand.company,
-        ...(brand.coveredBrands || [])
-      );
-      if (!brief) continue;
-      payloadBrands.push({
-        groupKey: brand.groupKey,
-        brandName: pitch || brand.company,
-        company: brand.company,
-        brandResearch: brief,
-      });
-    }
-
-    if (payloadBrands.length === 0) {
-      onFlash?.("error", "Aucun brief marque en cache pour lancer le job.");
-      return;
-    }
+    const talentIds = (
+      lockedTalentId
+        ? [lockedTalentId]
+        : talents.map((t) => t.id).filter(Boolean)
+    ).slice(0, 30);
 
     appliedFitBrandsRef.current = new Set(
       Object.keys(fitByBrand).filter((k) => Object.keys(fitByBrand[k] || {}).length > 0)
     );
     setFitRunning(true);
     setFitDone(0);
-    setFitTotal(payloadBrands.length);
+    setFitTotal(targets.length);
     setFitFailed(0);
-    setFitCurrent(payloadBrands[0]?.brandName || "");
+    setFitCurrent(targets[0]?.company || "");
+    setBrandPrepCurrent("");
 
     try {
+      // Brief optionnel : worker fait analyse marque si manquant (survit / VPS).
+      const liveIndivCache = lockedTalentId
+        ? loadIndivBrandResearchCache(lockedTalentId)
+        : {};
+      const emptyBrief: OutreachCachedBrandResearch = {
+        recentCampaigns: "",
+        newProducts: "",
+        availabilityFrEu: "",
+        brandPositioning: "",
+        influenceStrategy: "",
+      };
+
+      const payloadBrands: Array<{
+        groupKey: string;
+        brandName: string;
+        company: string;
+        brandResearch: OutreachCachedBrandResearch;
+        targetIds?: string[];
+        pipeline?: "FR" | "BENELUX";
+      }> = [];
+
+      for (const brand of targets) {
+        const pitch =
+          pitchOverride[brand.groupKey] || defaultPitchBrand(brand);
+        const brief = lockedTalentId
+          ? ((lookupIndivBrandCache(
+              liveIndivCache,
+              pitch,
+              brand.company,
+              ...(brand.coveredBrands || [])
+            ) as OutreachCachedBrandResearch | null) || emptyBrief)
+          : lookupOutreachBrandCache(
+              brandCache,
+              pitch,
+              brand.company,
+              ...(brand.coveredBrands || [])
+            );
+        // Outreach : brief encore requis côté UI (analyse marque pipeline).
+        // Indiv : emptyBrief OK → serveur fait marque + fit.
+        if (!brief) continue;
+        payloadBrands.push({
+          groupKey: brand.groupKey,
+          brandName: pitch || brand.company,
+          company: brand.company,
+          brandResearch: brief,
+          ...(lockedTalentId
+            ? {}
+            : {
+                targetIds: brand.targets.map((t) => t.id).filter(Boolean),
+                pipeline:
+                  brand.pipeline === "BENELUX" ? "BENELUX" : ("FR" as const),
+              }),
+        });
+      }
+
+      if (payloadBrands.length === 0) {
+        throw new Error(
+          lockedTalentId
+            ? "Aucune marque à analyser pour ce lot."
+            : "Aucun brief marque en cache pour lancer le job."
+        );
+      }
+
+      setFitTotal(payloadBrands.length);
+      setFitCurrent(payloadBrands[0]?.brandName || "");
+
       const res = await fetch("/api/casting/roster-fit-jobs", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          market: readBothMarkets ? "BOTH" : market,
+          market: fitMarketKey,
           talentIds,
           brands: payloadBrands,
         }),
@@ -905,11 +1246,14 @@ export default function OutreachCastingWizard({
       onFlash?.(
         "success",
         data.message ||
-          `Job lancé (${n} actif${n > 1 ? "s" : ""} en parallèle) — tu peux fermer / ouvrir un autre marché.`
+          (lockedTalentId
+            ? `Fit casting lancé — marque + fit serveur (tu peux quitter).`
+            : `Fit casting lancé (${n} actif${n > 1 ? "s" : ""} en parallèle).`)
       );
       startFitPoll(data.jobId);
     } catch (e) {
       setFitRunning(false);
+      setBrandPrepCurrent("");
       onFlash?.(
         "error",
         e instanceof Error ? e.message : "Lancement job impossible."
@@ -925,10 +1269,10 @@ export default function OutreachCastingWizard({
     pitchOverride,
     brandCache,
     fitByBrand,
-    market,
-    readBothMarkets,
+    fitMarketKey,
     startFitPoll,
     onFlash,
+    lockedTalentId,
   ]);
 
   const writeBrandDraft = useCallback(
@@ -947,6 +1291,14 @@ export default function OutreachCastingWizard({
       if (talentIds.length === 0) {
         throw new Error("Aucun talent sélectionné");
       }
+      if (isIndivMode && lockedTalentId) {
+        const fit = fitByBrand[brand.groupKey]?.[lockedTalentId];
+        if (!fit) {
+          throw new Error(
+            "Fit casting obligatoire — lance « Analyser le casting »."
+          );
+        }
+      }
 
       const markets = outreachCacheMarketsForContact({
         pipeline: brand.pipeline || market,
@@ -957,13 +1309,24 @@ export default function OutreachCastingWizard({
         viewCacheMarkets
       );
 
-      let talentResearch =
-        lookupOutreachBrandCache(
-          talentCacheLive,
-          pitch,
-          brand.company,
-          ...(brand.coveredBrands || [])
-        ) || null;
+      let talentResearch: OutreachCachedTalentResearchItem[] | null = null;
+      if (lockedTalentId) {
+        talentResearch =
+          (lookupIndivBrandCache(
+            loadIndivTalentResearchCache(lockedTalentId),
+            pitch,
+            brand.company,
+            ...(brand.coveredBrands || [])
+          ) as IndivCachedTalentResearchItem[] | null) || null;
+      } else {
+        talentResearch =
+          lookupOutreachBrandCache(
+            talentCacheLive,
+            pitch,
+            brand.company,
+            ...(brand.coveredBrands || [])
+          ) || null;
+      }
       const cachedIds = new Set(
         (talentResearch || []).map((t) => t.talentId).filter(Boolean)
       );
@@ -990,26 +1353,48 @@ export default function OutreachCastingWizard({
         }
         const list = Array.isArray(trData.talents) ? trData.talents : [];
         talentResearch = list as OutreachCachedTalentResearchItem[];
-        cacheOutreachTalentResearchMarkets(markets, pitch, talentResearch);
-        cacheOutreachSelectedTalentsMarkets(markets, pitch, talentIds);
+        if (lockedTalentId) {
+          cacheIndivTalentResearch(lockedTalentId, pitch, list);
+        } else {
+          cacheOutreachTalentResearchMarkets(markets, pitch, talentResearch);
+          cacheOutreachSelectedTalentsMarkets(markets, pitch, talentIds);
+        }
       }
 
-      const brandResearch = lookupOutreachBrandCache(
-        brandCache,
-        pitch,
-        brand.company,
-        ...(brand.coveredBrands || [])
-      );
+      const brandResearch = lockedTalentId
+        ? (lookupIndivBrandCache(
+            loadIndivBrandResearchCache(lockedTalentId),
+            pitch,
+            brand.company,
+            ...(brand.coveredBrands || [])
+          ) as OutreachCachedBrandResearch | null)
+        : lookupOutreachBrandCache(
+            brandCache,
+            pitch,
+            brand.company,
+            ...(brand.coveredBrands || [])
+          );
       if (!brandResearch) {
-        throw new Error("Analyse marque manquante — relance le batch marques.");
+        throw new Error(
+          isIndivMode
+            ? "Analyse marque manquante — lance « Marques » dans la barre batch."
+            : "Analyse marque manquante — relance le batch marques."
+        );
       }
 
-      const leyna = lookupOutreachBrandCache(
-        leynaCache,
-        pitch,
-        brand.company,
-        ...(brand.coveredBrands || [])
-      ) as OutreachCachedLeynaExchange | null;
+      const leyna = lockedTalentId
+        ? (lookupIndivBrandCache(
+            loadIndivLeynaExchangeCache(lockedTalentId),
+            pitch,
+            brand.company,
+            ...(brand.coveredBrands || [])
+          ) as IndivCachedLeynaExchange | null)
+        : (lookupOutreachBrandCache(
+            leynaCache,
+            pitch,
+            brand.company,
+            ...(brand.coveredBrands || [])
+          ) as OutreachCachedLeynaExchange | null);
 
       // Angles casting (Oui/Non) → injectés dans la rédaction, sans remplacer talent-research.
       const rosterFits =
@@ -1135,6 +1520,10 @@ export default function OutreachCastingWizard({
       }
 
       await onSaveDraft(brand, subject, bodyHtml);
+      setLocalDrafts((prev) => ({
+        ...prev,
+        [brand.groupKey]: { subject, bodyHtml },
+      }));
       return { needsNego, subject, bodyHtml };
     },
     [
@@ -1148,6 +1537,8 @@ export default function OutreachCastingWizard({
       fitByBrand,
       talents,
       onSaveDraft,
+      lockedTalentId,
+      isIndivMode,
     ]
   );
 
@@ -1251,6 +1642,8 @@ export default function OutreachCastingWizard({
       if (!autoWriteAfterFitRef.current) return;
       if (!talentIds.length) return;
       if (autoWriteDoneKeysRef.current.has(groupKey)) return;
+      if (readyKeysRef.current.includes(groupKey)) return;
+      if (localDraftsRef.current[groupKey]) return;
       if (skipped.has(groupKey)) return;
       if (
         autoWriteQueueRef.current.some((q) => q.groupKey === groupKey) ||
@@ -1269,6 +1662,704 @@ export default function OutreachCastingWizard({
     enqueueAutoWriteRef.current = enqueueAutoWrite;
   }, [enqueueAutoWrite]);
 
+  const stopServerDraftPoll = useCallback(() => {
+    if (serverDraftPollRef.current) {
+      clearInterval(serverDraftPollRef.current);
+      serverDraftPollRef.current = null;
+    }
+  }, []);
+
+  const pollIndivServerDraft = useCallback(
+    async (jobId: string) => {
+      try {
+        const res = await fetch(`/api/casting/indiv-draft-jobs/${jobId}`, {
+          credentials: "include",
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          status?: string;
+          completed?: number;
+          failed?: number;
+          totalMissions?: number;
+          currentBrandName?: string | null;
+          items?: Array<{
+            missionId: string;
+            status: string;
+            draftSubject?: string | null;
+            draftBodyHtml?: string | null;
+          }>;
+        };
+        if (!res.ok) return;
+
+        setServerDraftDone(
+          Number(data.completed || 0) + Number(data.failed || 0)
+        );
+        setServerDraftFailed(Number(data.failed || 0));
+        setServerDraftTotal(Number(data.totalMissions || 0));
+        setServerDraftCurrent(data.currentBrandName || "");
+        setAutoWriteCurrent(data.currentBrandName || "");
+        setAutoWriteQueueLen(
+          Math.max(
+            0,
+            Number(data.totalMissions || 0) -
+              Number(data.completed || 0) -
+              Number(data.failed || 0)
+          )
+        );
+
+        const doneItems = (data.items || []).filter((it) => it.status === "done");
+        if (doneItems.length > 0) {
+          setReadyKeys((prev) => {
+            const next = new Set(prev);
+            for (const it of doneItems) next.add(it.missionId);
+            return Array.from(next);
+          });
+          setLocalDrafts((prev) => {
+            const next = { ...prev };
+            for (const it of doneItems) {
+              const subject = String(it.draftSubject || "").trim();
+              const bodyHtml = String(it.draftBodyHtml || "").trim();
+              if (subject && bodyHtml) {
+                next[it.missionId] = { subject, bodyHtml };
+              }
+              autoWriteDoneKeysRef.current.add(it.missionId);
+              pendingServerDraftKeysRef.current.delete(it.missionId);
+            }
+            return next;
+          });
+        }
+
+        const terminal = ["completed", "failed", "cancelled"].includes(
+          String(data.status || "")
+        );
+        if (terminal) {
+          stopServerDraftPoll();
+          setServerDraftRunning(false);
+          setServerDraftJobId(null);
+          setAutoWriteCurrent("");
+          setAutoWriteQueueLen(0);
+          const ok = Number(data.completed || 0);
+          const fail = Number(data.failed || 0);
+          onDraftsWritten?.();
+          onFlash?.(
+            data.status === "cancelled" || (ok === 0 && fail > 0)
+              ? "error"
+              : "success",
+            data.status === "cancelled"
+              ? `Rédaction serveur arrêtée (${ok} OK${fail ? `, ${fail} échec(s)` : ""}).`
+              : ok > 0
+                ? `Mails rédigés serveur · ${ok}${
+                    fail ? ` · ${fail} échec(s)` : ""
+                  }. Contrôle dans « Prêt à envoyer ».`
+                : "Rédaction serveur échouée — réessaie."
+          );
+          // Enchaîne s’il reste des marques fittées en attente.
+          const leftover = Array.from(pendingServerDraftKeysRef.current).filter(
+            (k) =>
+              !autoWriteDoneKeysRef.current.has(k) &&
+              !readyKeysRef.current.includes(k) &&
+              !serverDraftQueuedRef.current.has(k)
+          );
+          if (leftover.length > 0 && autoWriteAfterFitRef.current) {
+            startIndivServerDraftRef.current(leftover);
+          }
+        }
+      } catch (e) {
+        console.error("[outreach-casting] poll indiv draft:", e);
+      }
+    },
+    [stopServerDraftPoll, onDraftsWritten, onFlash]
+  );
+
+  const startIndivServerDraft = useCallback(
+    async (keys?: string[]) => {
+      if (!lockedTalentId || serverDraftStartingRef.current) return;
+      const source =
+        keys && keys.length > 0
+          ? keys
+          : Array.from(pendingServerDraftKeysRef.current);
+      const missionIds = [
+        ...new Set(
+          source.filter((k) => {
+            if (!k) return false;
+            if (autoWriteDoneKeysRef.current.has(k)) return false;
+            if (readyKeysRef.current.includes(k)) return false;
+            if (localDraftsRef.current[k]) return false;
+            if (serverDraftQueuedRef.current.has(k)) return false;
+            return true;
+          })
+        ),
+      ];
+      if (missionIds.length === 0) return;
+      if (serverDraftJobId && serverDraftRunning) {
+        for (const k of missionIds) pendingServerDraftKeysRef.current.add(k);
+        return;
+      }
+
+      serverDraftStartingRef.current = true;
+      for (const k of missionIds) serverDraftQueuedRef.current.add(k);
+      try {
+        // Job déjà chaîné par le worker fit → on poll, pas de doublon.
+        const existingRes = await fetch(
+          `/api/casting/indiv-draft-jobs?talentId=${encodeURIComponent(lockedTalentId)}`,
+          { credentials: "include" }
+        );
+        const existing = (await existingRes.json().catch(() => ({}))) as {
+          active?: {
+            id: string;
+            status: string;
+            totalMissions?: number;
+            completed?: number;
+            failed?: number;
+            currentBrandName?: string | null;
+          } | null;
+        };
+        if (
+          existingRes.ok &&
+          existing.active?.id &&
+          ["pending", "running"].includes(existing.active.status)
+        ) {
+          for (const k of missionIds) {
+            pendingServerDraftKeysRef.current.delete(k);
+          }
+          setServerDraftJobId(existing.active.id);
+          setServerDraftRunning(true);
+          setServerDraftTotal(Number(existing.active.totalMissions || 0));
+          setServerDraftDone(
+            Number(existing.active.completed || 0) +
+              Number(existing.active.failed || 0)
+          );
+          setServerDraftFailed(Number(existing.active.failed || 0));
+          setServerDraftCurrent(existing.active.currentBrandName || "");
+          setAutoWriteCurrent(existing.active.currentBrandName || "");
+          onFlash?.(
+            "success",
+            "Rédaction serveur déjà en cours (enchaînée après le fit)."
+          );
+          stopServerDraftPoll();
+          void pollIndivServerDraft(existing.active.id);
+          serverDraftPollRef.current = setInterval(() => {
+            void pollIndivServerDraft(existing.active!.id);
+          }, 3000);
+          return;
+        }
+
+        const items = missionIds.map((missionId) => {
+          const brand = brandsWithCache.find((b) => b.groupKey === missionId);
+          const pitch = brand
+            ? pitchOverride[brand.groupKey] || defaultPitchBrand(brand)
+            : "";
+          return {
+            missionId,
+            talentId: lockedTalentId,
+            brandName: pitch || brand?.company || "Marque",
+          };
+        });
+        const res = await fetch("/api/casting/indiv-draft-jobs", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            talentId: lockedTalentId,
+            items,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          jobId?: string;
+          totalMissions?: number;
+          message?: string;
+          error?: string;
+        };
+        if (!res.ok || !data.jobId) {
+          throw new Error(
+            typeof data.error === "string"
+              ? data.error
+              : "Impossible de lancer la rédaction serveur"
+          );
+        }
+        for (const k of missionIds) {
+          pendingServerDraftKeysRef.current.delete(k);
+        }
+        try {
+          const rest = Array.from(pendingServerDraftKeysRef.current);
+          if (rest.length === 0) {
+            sessionStorage.removeItem(
+              `casting-indiv-pending-draft:${lockedTalentId}`
+            );
+          } else {
+            sessionStorage.setItem(
+              `casting-indiv-pending-draft:${lockedTalentId}`,
+              JSON.stringify(rest)
+            );
+          }
+        } catch {
+          /* ignore */
+        }
+        setServerDraftJobId(data.jobId);
+        setServerDraftRunning(true);
+        setServerDraftDone(0);
+        setServerDraftFailed(0);
+        setServerDraftTotal(Number(data.totalMissions || items.length));
+        setServerDraftCurrent(items[0]?.brandName || "");
+        setAutoWriteCurrent(items[0]?.brandName || "");
+        setAutoWriteQueueLen(items.length);
+        onFlash?.(
+          "success",
+          data.message ||
+            `Rédaction serveur (${items.length}) — tu peux quitter la page.`
+        );
+        stopServerDraftPoll();
+        void pollIndivServerDraft(data.jobId);
+        serverDraftPollRef.current = setInterval(() => {
+          void pollIndivServerDraft(data.jobId!);
+        }, 3000);
+      } catch (e) {
+        for (const k of missionIds) serverDraftQueuedRef.current.delete(k);
+        setServerDraftRunning(false);
+        setServerDraftJobId(null);
+        onFlash?.(
+          "error",
+          `${e instanceof Error ? e.message : "Rédaction serveur impossible."} — bascule rédaction navigateur.`
+        );
+        // Fallback : même qualité client si le job serveur refuse.
+        for (const k of missionIds) {
+          enqueueAutoWriteRef.current(k, [lockedTalentId]);
+        }
+      } finally {
+        serverDraftStartingRef.current = false;
+      }
+    },
+    [
+      lockedTalentId,
+      serverDraftJobId,
+      serverDraftRunning,
+      brandsWithCache,
+      pitchOverride,
+      stopServerDraftPoll,
+      pollIndivServerDraft,
+      onFlash,
+    ]
+  );
+
+  useEffect(() => {
+    startIndivServerDraftRef.current = (keys?: string[]) => {
+      void startIndivServerDraft(keys);
+    };
+  }, [startIndivServerDraft]);
+
+  const pollOutreachServerDraft = useCallback(
+    async (jobId: string) => {
+      try {
+        const res = await fetch(`/api/casting/outreach-draft-jobs/${jobId}`, {
+          credentials: "include",
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          status?: string;
+          completed?: number;
+          failed?: number;
+          totalBrands?: number;
+          currentBrandName?: string | null;
+          items?: Array<{
+            groupKey: string;
+            status: string;
+            draftSubject?: string | null;
+            draftBodyHtml?: string | null;
+          }>;
+        };
+        if (!res.ok) return;
+
+        setServerDraftDone(
+          Number(data.completed || 0) + Number(data.failed || 0)
+        );
+        setServerDraftFailed(Number(data.failed || 0));
+        setServerDraftTotal(Number(data.totalBrands || 0));
+        setServerDraftCurrent(data.currentBrandName || "");
+        setAutoWriteCurrent(data.currentBrandName || "");
+        setAutoWriteQueueLen(
+          Math.max(
+            0,
+            Number(data.totalBrands || 0) -
+              Number(data.completed || 0) -
+              Number(data.failed || 0)
+          )
+        );
+
+        const doneItems = (data.items || []).filter((it) => it.status === "done");
+        if (doneItems.length > 0) {
+          setReadyKeys((prev) => {
+            const next = new Set(prev);
+            for (const it of doneItems) next.add(it.groupKey);
+            return Array.from(next);
+          });
+          setLocalDrafts((prev) => {
+            const next = { ...prev };
+            for (const it of doneItems) {
+              const subject = String(it.draftSubject || "").trim();
+              const bodyHtml = String(it.draftBodyHtml || "").trim();
+              if (subject && bodyHtml) {
+                next[it.groupKey] = { subject, bodyHtml };
+              }
+              autoWriteDoneKeysRef.current.add(it.groupKey);
+              pendingServerDraftKeysRef.current.delete(it.groupKey);
+            }
+            return next;
+          });
+        }
+
+        const terminal = ["completed", "failed", "cancelled"].includes(
+          String(data.status || "")
+        );
+        if (terminal) {
+          stopServerDraftPoll();
+          setServerDraftRunning(false);
+          setServerDraftJobId(null);
+          setAutoWriteCurrent("");
+          setAutoWriteQueueLen(0);
+          const ok = Number(data.completed || 0);
+          const fail = Number(data.failed || 0);
+          onDraftsWritten?.();
+          onFlash?.(
+            data.status === "cancelled" || (ok === 0 && fail > 0)
+              ? "error"
+              : "success",
+            data.status === "cancelled"
+              ? `Rédaction serveur arrêtée (${ok} OK${fail ? `, ${fail} échec(s)` : ""}).`
+              : ok > 0
+                ? `Mails rédigés serveur · ${ok}${
+                    fail ? ` · ${fail} échec(s)` : ""
+                  }. Contrôle dans « Prêt à envoyer ».`
+                : "Rédaction serveur échouée — réessaie."
+          );
+          const leftover = Array.from(pendingServerDraftKeysRef.current).filter(
+            (k) =>
+              !autoWriteDoneKeysRef.current.has(k) &&
+              !readyKeysRef.current.includes(k) &&
+              !serverDraftQueuedRef.current.has(k)
+          );
+          if (leftover.length > 0 && autoWriteAfterFitRef.current) {
+            startOutreachServerDraftRef.current(leftover);
+          }
+        }
+      } catch (e) {
+        console.error("[outreach-casting] poll outreach draft:", e);
+      }
+    },
+    [stopServerDraftPoll, onDraftsWritten, onFlash]
+  );
+
+  const startOutreachServerDraft = useCallback(
+    async (keys?: string[]) => {
+      if (lockedTalentId || serverDraftStartingRef.current) return;
+      const source =
+        keys && keys.length > 0
+          ? keys
+          : Array.from(pendingServerDraftKeysRef.current);
+      const groupKeys = [
+        ...new Set(
+          source.filter((k) => {
+            if (!k) return false;
+            if (autoWriteDoneKeysRef.current.has(k)) return false;
+            if (readyKeysRef.current.includes(k)) return false;
+            if (localDraftsRef.current[k]) return false;
+            if (serverDraftQueuedRef.current.has(k)) return false;
+            return true;
+          })
+        ),
+      ];
+      if (groupKeys.length === 0) return;
+      if (serverDraftJobId && serverDraftRunning) {
+        for (const k of groupKeys) pendingServerDraftKeysRef.current.add(k);
+        return;
+      }
+
+      serverDraftStartingRef.current = true;
+      for (const k of groupKeys) serverDraftQueuedRef.current.add(k);
+      try {
+        const liveBrandCache = loadOutreachBrandResearchCacheMarkets(
+          viewCacheMarkets
+        );
+        const items = groupKeys
+          .map((groupKey) => {
+            const brand = brandsWithCache.find((b) => b.groupKey === groupKey);
+            if (!brand) return null;
+            const pitch =
+              pitchOverride[brand.groupKey] || defaultPitchBrand(brand);
+            const talentIds = (
+              selectedByBrandRef.current[groupKey] ||
+              Object.keys(fitByBrandRef.current[groupKey] || {})
+            ).slice(0, 8);
+            const targetIds = brand.targets.map((t) => t.id).filter(Boolean);
+            const brandResearch =
+              lookupOutreachBrandCache(
+                liveBrandCache,
+                pitch,
+                brand.company,
+                ...(brand.coveredBrands || [])
+              ) || {
+                recentCampaigns: "",
+                newProducts: "",
+                availabilityFrEu: "",
+                brandPositioning: "",
+                influenceStrategy: "",
+              };
+            if (talentIds.length === 0 || targetIds.length === 0) {
+              return null;
+            }
+            const fitsMap = fitByBrandRef.current[groupKey] || {};
+            const rosterFits = talentIds
+              .map((id) => fitsMap[id])
+              .filter(Boolean);
+            return {
+              groupKey,
+              brandName: pitch || brand.company,
+              company: brand.company,
+              pipeline: brand.pipeline === "BENELUX" ? "BENELUX" : "FR",
+              targetIds,
+              talentIds,
+              brandResearch,
+              rosterFits,
+            };
+          })
+          .filter((it): it is NonNullable<typeof it> => Boolean(it));
+
+        if (items.length === 0) {
+          throw new Error(
+            "Impossible de lancer la rédaction (brief / talents / cibles manquants)."
+          );
+        }
+
+        const res = await fetch("/api/casting/outreach-draft-jobs", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            market: fitMarketKey,
+            items,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          jobId?: string;
+          totalBrands?: number;
+          message?: string;
+          error?: string;
+        };
+        if (!res.ok || !data.jobId) {
+          throw new Error(
+            typeof data.error === "string"
+              ? data.error
+              : "Impossible de lancer la rédaction serveur"
+          );
+        }
+        for (const it of items) {
+          pendingServerDraftKeysRef.current.delete(it.groupKey);
+        }
+        try {
+          const rest = Array.from(pendingServerDraftKeysRef.current);
+          const storageKey = `casting-outreach-pending-draft:${fitMarketKey}`;
+          if (rest.length === 0) {
+            sessionStorage.removeItem(storageKey);
+          } else {
+            sessionStorage.setItem(storageKey, JSON.stringify(rest));
+          }
+        } catch {
+          /* ignore */
+        }
+        setServerDraftJobId(data.jobId);
+        setServerDraftRunning(true);
+        setServerDraftDone(0);
+        setServerDraftFailed(0);
+        setServerDraftTotal(Number(data.totalBrands || items.length));
+        setServerDraftCurrent(items[0]?.brandName || "");
+        setAutoWriteCurrent(items[0]?.brandName || "");
+        setAutoWriteQueueLen(items.length);
+        onFlash?.(
+          "success",
+          data.message ||
+            `Rédaction serveur (${items.length}) — tu peux quitter la page.`
+        );
+        stopServerDraftPoll();
+        void pollOutreachServerDraft(data.jobId);
+        serverDraftPollRef.current = setInterval(() => {
+          void pollOutreachServerDraft(data.jobId!);
+        }, 3000);
+      } catch (e) {
+        for (const k of groupKeys) serverDraftQueuedRef.current.delete(k);
+        setServerDraftRunning(false);
+        setServerDraftJobId(null);
+        onFlash?.(
+          "error",
+          `${e instanceof Error ? e.message : "Rédaction serveur impossible."} — bascule rédaction navigateur.`
+        );
+        for (const k of groupKeys) {
+          const ids = (
+            selectedByBrandRef.current[k] ||
+            Object.keys(fitByBrandRef.current[k] || {})
+          ).slice(0, 8);
+          if (ids.length > 0) enqueueAutoWriteRef.current(k, ids);
+        }
+      } finally {
+        serverDraftStartingRef.current = false;
+      }
+    },
+    [
+      lockedTalentId,
+      serverDraftJobId,
+      serverDraftRunning,
+      brandsWithCache,
+      pitchOverride,
+      viewCacheMarkets,
+      fitMarketKey,
+      stopServerDraftPoll,
+      pollOutreachServerDraft,
+      onFlash,
+    ]
+  );
+
+  useEffect(() => {
+    startOutreachServerDraftRef.current = (keys?: string[]) => {
+      void startOutreachServerDraft(keys);
+    };
+  }, [startOutreachServerDraft]);
+
+  // Reprend un job rédaction indiv actif (même après fermeture).
+  useEffect(() => {
+    if (!open || !lockedTalentId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/casting/indiv-draft-jobs?talentId=${encodeURIComponent(lockedTalentId)}`,
+          { credentials: "include" }
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          active?: {
+            id: string;
+            status: string;
+            totalMissions?: number;
+            completed?: number;
+            failed?: number;
+            currentBrandName?: string | null;
+          } | null;
+        };
+        if (cancelled) return;
+        if (res.ok && data.active?.id && ["pending", "running"].includes(data.active.status)) {
+          setServerDraftJobId(data.active.id);
+          setServerDraftRunning(true);
+          setServerDraftTotal(Number(data.active.totalMissions || 0));
+          setServerDraftDone(
+            Number(data.active.completed || 0) + Number(data.active.failed || 0)
+          );
+          setServerDraftFailed(Number(data.active.failed || 0));
+          setServerDraftCurrent(data.active.currentBrandName || "");
+          setAutoWriteCurrent(data.active.currentBrandName || "");
+          stopServerDraftPoll();
+          void pollIndivServerDraft(data.active.id);
+          serverDraftPollRef.current = setInterval(() => {
+            void pollIndivServerDraft(data.active!.id);
+          }, 3000);
+          onFlash?.(
+            "success",
+            "Rédaction serveur reprise — tu peux quitter, ça continue."
+          );
+          return;
+        }
+        // Fit fini hors écran : relance la rédaction depuis le pending session.
+        if (!autoWriteAfterFitRef.current) return;
+        let pending: string[] = [];
+        try {
+          const raw = sessionStorage.getItem(
+            `casting-indiv-pending-draft:${lockedTalentId}`
+          );
+          if (raw) pending = JSON.parse(raw) as string[];
+        } catch {
+          pending = [];
+        }
+        if (!Array.isArray(pending) || pending.length === 0) return;
+        pendingServerDraftKeysRef.current = new Set(pending.filter(Boolean));
+        startIndivServerDraftRef.current(pending.filter(Boolean));
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, lockedTalentId]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open
+
+  // Reprend un job rédaction outreach actif (même après fermeture).
+  useEffect(() => {
+    if (!open || lockedTalentId) return;
+    let cancelled = false;
+    const marketKey = fitMarketKey;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/casting/outreach-draft-jobs?market=${encodeURIComponent(marketKey)}`,
+          { credentials: "include" }
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          active?: {
+            id: string;
+            status: string;
+            totalBrands?: number;
+            completed?: number;
+            failed?: number;
+            currentBrandName?: string | null;
+          } | null;
+        };
+        if (cancelled) return;
+        if (
+          res.ok &&
+          data.active?.id &&
+          ["pending", "running"].includes(data.active.status)
+        ) {
+          setServerDraftJobId(data.active.id);
+          setServerDraftRunning(true);
+          setServerDraftTotal(Number(data.active.totalBrands || 0));
+          setServerDraftDone(
+            Number(data.active.completed || 0) + Number(data.active.failed || 0)
+          );
+          setServerDraftFailed(Number(data.active.failed || 0));
+          setServerDraftCurrent(data.active.currentBrandName || "");
+          setAutoWriteCurrent(data.active.currentBrandName || "");
+          stopServerDraftPoll();
+          void pollOutreachServerDraft(data.active.id);
+          serverDraftPollRef.current = setInterval(() => {
+            void pollOutreachServerDraft(data.active!.id);
+          }, 3000);
+          onFlash?.(
+            "success",
+            "Rédaction serveur reprise — tu peux quitter, ça continue."
+          );
+          return;
+        }
+        if (!autoWriteAfterFitRef.current) return;
+        let pending: string[] = [];
+        try {
+          const raw = sessionStorage.getItem(
+            `casting-outreach-pending-draft:${marketKey}`
+          );
+          if (raw) pending = JSON.parse(raw) as string[];
+        } catch {
+          pending = [];
+        }
+        if (!Array.isArray(pending) || pending.length === 0) return;
+        pendingServerDraftKeysRef.current = new Set(pending.filter(Boolean));
+        startOutreachServerDraftRef.current(pending.filter(Boolean));
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, lockedTalentId, fitMarketKey]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open
+
+  useEffect(() => {
+    return () => {
+      stopServerDraftPoll();
+    };
+  }, [stopServerDraftPoll]);
+
   /** Rédige la marque courante tout de suite (batch casting peut continuer). */
   const runWriteCurrentBrand = useCallback(async () => {
     if (!current || writingOneKey || phase === "writing") return;
@@ -1277,17 +2368,34 @@ export default function OutreachCastingWizard({
       onFlash?.("error", "Sélectionne au moins un talent.");
       return;
     }
+    if (isIndivMode && lockedTalentId) {
+      const fit = fitByBrand[current.groupKey]?.[lockedTalentId];
+      if (!fit) {
+        onFlash?.(
+          "error",
+          "Fit casting obligatoire — clique « Analyser le casting »."
+        );
+        return;
+      }
+    }
 
-    // Déjà rédigé avec vrai brouillon → ouvre le composer.
-    const existingDraft = current.targets.find(
-      (t) =>
-        (t.draftSubject || "").trim() && (t.draftBodyHtml || "").trim()
-    );
-    if (readyKeys.includes(current.groupKey) && existingDraft) {
-      onReviewBrand(current.groupKey, {
-        subject: String(existingDraft.draftSubject || "").trim(),
-        bodyHtml: String(existingDraft.draftBodyHtml || "").trim(),
-      });
+    // Déjà rédigé → ouvre le composer pour contrôler / envoyer.
+    const existing =
+      localDrafts[current.groupKey] ||
+      (() => {
+        const t = current.targets.find(
+          (x) =>
+            (x.draftSubject || "").trim() && (x.draftBodyHtml || "").trim()
+        );
+        return t
+          ? {
+              subject: String(t.draftSubject || "").trim(),
+              bodyHtml: String(t.draftBodyHtml || "").trim(),
+            }
+          : null;
+      })();
+    if (readyKeys.includes(current.groupKey) && existing) {
+      onReviewBrand(current.groupKey, existing);
       return;
     }
 
@@ -1313,10 +2421,9 @@ export default function OutreachCastingWizard({
       onDraftsWritten?.();
       onFlash?.(
         "success",
-        `Mail rédigé pour ${current.company}. Contrôle et envoie.`
+        `Mail rédigé pour ${current.company} — aperçu ci-dessous.`
       );
-      // Passe le draft explicitement (visibleGroups pas encore à jour).
-      onReviewBrand(current.groupKey, { subject, bodyHtml });
+      // Reste dans le wizard pour voir le mail (pas d’ouverture auto du composer).
     } catch (e) {
       if (ac.signal.aborted) return;
       console.error(`[outreach-casting] write-one ${current.company}:`, e);
@@ -1335,10 +2442,14 @@ export default function OutreachCastingWizard({
     phase,
     selectedByBrand,
     readyKeys,
+    localDrafts,
     writeBrandDraft,
     onDraftsWritten,
     onFlash,
     onReviewBrand,
+    isIndivMode,
+    lockedTalentId,
+    fitByBrand,
   ]);
 
   const runWriteBatch = useCallback(async () => {
@@ -1450,11 +2561,14 @@ export default function OutreachCastingWizard({
               className="m-0 text-sm font-semibold"
               style={{ fontFamily: "Spectral, serif", color: LICORICE }}
             >
-              Casting Outreach
+              {wizardTitle ||
+                (isIndivMode ? "Casting indiv" : "Casting Outreach")}
             </p>
             <p className="m-0 text-[11px] text-slate-500">
               {phase === "casting"
-                ? `Sélection talents · ${castingProgress.done}/${castingProgress.total} marques`
+                ? isIndivMode
+                  ? `1 talent × marques · ${castingProgress.done}/${castingProgress.total}`
+                  : `Sélection talents · ${castingProgress.done}/${castingProgress.total} marques`
                 : phase === "writing"
                   ? `Rédaction · ${writeCurrent || "…"}`
                   : `Contrôle · ${readyKeys.length} prêt${readyKeys.length > 1 ? "s" : ""}`}
@@ -1476,14 +2590,23 @@ export default function OutreachCastingWizard({
             {brandsWithCache.map((b, i) => {
               const sel = (selectedByBrand[b.groupKey] || []).length;
               const isSkip = skipped.has(b.groupKey);
-              const isDone = isSkip || sel > 0;
+              const hasDraft =
+                Boolean(localDrafts[b.groupKey]) ||
+                readyKeys.includes(b.groupKey);
+              const isDone = isIndivMode
+                ? isSkip || hasDraft
+                : isSkip || sel > 0;
               const isCurrent = i === index;
               return (
                 <button
                   key={b.groupKey}
                   type="button"
                   onClick={() => setIndex(i)}
-                  title={b.company}
+                  title={
+                    hasDraft
+                      ? `${b.company} · mail prêt`
+                      : b.company
+                  }
                   className="h-2 w-6 shrink-0 rounded-full transition"
                   style={{
                     background: isCurrent
@@ -1502,7 +2625,9 @@ export default function OutreachCastingWizard({
         <div className="min-h-0 flex-1 overflow-y-auto">
           {brandsWithCache.length === 0 ? (
             <div className="p-8 text-center text-sm text-slate-500">
-              Analyse d’abord les marques (barre du dessus), puis relance le casting.
+              {isIndivMode
+                ? "Aucune marque dans ce lot."
+                : "Analyse d’abord les marques (barre du dessus), puis relance le casting."}
             </div>
           ) : phase === "casting" && current ? (
             <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -1615,8 +2740,110 @@ export default function OutreachCastingWizard({
                     .map((t) =>
                       `${t.firstname} ${t.lastname || ""}`.trim() || t.email
                     )
-                    .join(" · ")}
+                    .join(" · ") || "—"}
                 </div>
+
+                {currentDraft ? (
+                  <section
+                    className="rounded-xl border bg-white p-3"
+                    style={{ borderColor: TEA_GREEN }}
+                  >
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <p
+                        className="m-0 text-[11px] font-semibold uppercase tracking-wide"
+                        style={{ color: "#3f6212" }}
+                      >
+                        {sentKeys.includes(current.groupKey)
+                          ? "Mail envoyé / programmé"
+                          : "Mail rédigé"}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onReviewBrand(current.groupKey, currentDraft)
+                          }
+                          className="rounded-lg border px-2.5 py-1 text-xs font-medium"
+                          style={{ borderColor: "#E5E0DA", color: LICORICE }}
+                        >
+                          Contrôler
+                        </button>
+                        {onSendBrand &&
+                        !sentKeys.includes(current.groupKey) ? (
+                          <button
+                            type="button"
+                            disabled={sendingKey === current.groupKey}
+                            onClick={() => {
+                              void (async () => {
+                                setSendingKey(current.groupKey);
+                                try {
+                                  await onSendBrand(
+                                    current.groupKey,
+                                    currentDraft
+                                  );
+                                  setSentKeys((prev) =>
+                                    prev.includes(current.groupKey)
+                                      ? prev
+                                      : [...prev, current.groupKey]
+                                  );
+                                  onFlash?.(
+                                    "success",
+                                    `Envoi programmé · ${current.company}`
+                                  );
+                                } catch (e) {
+                                  onFlash?.(
+                                    "error",
+                                    e instanceof Error
+                                      ? e.message
+                                      : "Envoi impossible."
+                                  );
+                                } finally {
+                                  setSendingKey(null);
+                                }
+                              })();
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-40"
+                            style={{ background: LICORICE }}
+                          >
+                            {sendingKey === current.groupKey ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Envoi…
+                              </>
+                            ) : (
+                              "Envoyer"
+                            )}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <p
+                      className="m-0 mb-2 text-sm font-semibold"
+                      style={{ color: LICORICE }}
+                    >
+                      {currentDraft.subject}
+                    </p>
+                    <div
+                      className="max-h-56 overflow-y-auto rounded-lg border bg-[#FBF8F4] p-3 text-[12px] leading-relaxed prose prose-sm max-w-none"
+                      style={{ borderColor: "#E5E0DA", color: LICORICE }}
+                      dangerouslySetInnerHTML={{
+                        __html: currentDraft.bodyHtml,
+                      }}
+                    />
+                  </section>
+                ) : writingOneKey === current.groupKey ||
+                  (autoWriteCurrent &&
+                    current.company === autoWriteCurrent) ||
+                  (serverDraftRunning &&
+                    serverDraftCurrent === current.company) ? (
+                  <div
+                    className="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs"
+                    style={{ borderColor: "#E5E0DA", color: OLD_ROSE }}
+                  >
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Rédaction du mail en cours…
+                  </div>
+                ) : null}
               </div>
 
               {/* Talents */}
@@ -1626,14 +2853,22 @@ export default function OutreachCastingWizard({
                     className="m-0 text-sm font-semibold"
                     style={{ color: LICORICE }}
                   >
-                    {talentMarket === "BOTH"
-                      ? "Talents FR + BE"
-                      : talentMarket === "BENELUX"
-                        ? "Créateurs belges"
-                        : "Sélectionner les talents"}
+                    {isIndivMode
+                      ? "Talent (verrouillé)"
+                      : talentMarket === "BOTH"
+                        ? "Talents FR + BE"
+                        : talentMarket === "BENELUX"
+                          ? "Créateurs belges"
+                          : "Sélectionner les talents"}
                   </p>
                   <span className="text-[11px] text-slate-500">
-                    {currentSelected.size}/8
+                    {isIndivMode
+                      ? currentFits[lockedTalentId || ""]?.recommended
+                        ? "Oui"
+                        : currentFits[lockedTalentId || ""]
+                          ? "Non"
+                          : "Fit…"
+                      : `${currentSelected.size}/8`}
                   </span>
                 </div>
                 {talentsError && (
@@ -1830,28 +3065,134 @@ export default function OutreachCastingWizard({
             </div>
           ) : (
             <div className="space-y-3 p-4">
-              <p className="m-0 text-sm" style={{ color: LICORICE }}>
-                {writableBrands.length} marque
-                {writableBrands.length > 1 ? "s" : ""} avec talents ·{" "}
-                {readyKeys.length} brouillon
-                {readyKeys.length > 1 ? "s" : ""} prêt
-                {readyKeys.length > 1 ? "s" : ""}
-                {negoReviewKeys.length > 0
-                  ? ` · ${negoReviewKeys.length} avec revue négo (suite prudente)`
-                  : ""}
-              </p>
+              {(() => {
+                const pendingWrite = writableBrands.filter(
+                  (b) => !readyKeys.includes(b.groupKey)
+                ).length;
+                const pipelineBusy =
+                  fitRunning ||
+                  serverDraftRunning ||
+                  Boolean(brandPrepCurrent) ||
+                  Boolean(autoWriteCurrent) ||
+                  autoWriteQueueLen > 0 ||
+                  Boolean(writingOneKey);
+                const doneN = readyKeys.length;
+                const totalN = Math.max(
+                  writableBrands.length,
+                  serverDraftTotal,
+                  1
+                );
+                const reviewPct = Math.min(
+                  100,
+                  Math.round(
+                    (Math.max(doneN, serverDraftDone) / totalN) * 100
+                  )
+                );
+                const statusLine = brandPrepCurrent
+                  ? `Analyse marque · ${brandPrepCurrent}`
+                  : fitRunning
+                    ? `Fit casting · ${fitCurrent || "…"} · ${fitDone}/${fitTotal}`
+                    : serverDraftRunning
+                      ? `Rédaction serveur · ${serverDraftCurrent || "…"} · ${serverDraftDone}/${serverDraftTotal} · tu peux quitter`
+                      : writingOneKey || autoWriteCurrent
+                        ? `Rédaction · ${
+                            autoWriteCurrent ||
+                            brandsWithCache.find(
+                              (x) => x.groupKey === writingOneKey
+                            )?.company ||
+                            "…"
+                          }`
+                        : autoWriteQueueLen > 0
+                          ? `File rédaction · ${autoWriteQueueLen} restante${autoWriteQueueLen > 1 ? "s" : ""}`
+                          : pendingWrite > 0
+                            ? `${pendingWrite} en attente de rédaction`
+                            : "Tout est prêt";
+                return (
+                  <>
+                    <div
+                      className="rounded-xl border bg-white p-3"
+                      style={{ borderColor: "#E5E0DA" }}
+                    >
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <p
+                          className="m-0 inline-flex items-center gap-2 text-sm font-medium"
+                          style={{ color: LICORICE }}
+                        >
+                          {pipelineBusy ? (
+                            <Loader2
+                              className="h-4 w-4 shrink-0 animate-spin"
+                              style={{ color: OLD_ROSE }}
+                            />
+                          ) : null}
+                          {statusLine}
+                        </p>
+                        <span className="text-[11px] text-slate-500">
+                          {doneN}/{totalN} prêt
+                          {doneN > 1 ? "s" : ""} · {reviewPct}%
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${pipelineBusy && reviewPct === 0 ? 8 : reviewPct}%`,
+                            background: pipelineBusy ? OLD_ROSE : TEA_GREEN,
+                          }}
+                        />
+                      </div>
+                      {fitRunning || autoWriteQueueLen > 0 || autoWriteCurrent ? (
+                        <p className="m-0 mt-2 text-[11px] text-slate-500">
+                          {fitRunning
+                            ? `Fit ${fitDone}/${Math.max(fitTotal, 1)}`
+                            : null}
+                          {fitRunning &&
+                          (autoWriteCurrent || autoWriteQueueLen > 0)
+                            ? " · "
+                            : null}
+                          {autoWriteCurrent
+                            ? `En cours : ${autoWriteCurrent}`
+                            : autoWriteQueueLen > 0
+                              ? `File : ${autoWriteQueueLen}`
+                              : null}
+                        </p>
+                      ) : null}
+                    </div>
+                    <p className="m-0 text-sm" style={{ color: LICORICE }}>
+                      {writableBrands.length} marque
+                      {writableBrands.length > 1 ? "s" : ""} avec talents ·{" "}
+                      {readyKeys.length} brouillon
+                      {readyKeys.length > 1 ? "s" : ""} prêt
+                      {readyKeys.length > 1 ? "s" : ""}
+                      {negoReviewKeys.length > 0
+                        ? ` · ${negoReviewKeys.length} avec revue négo (suite prudente)`
+                        : ""}
+                    </p>
+                  </>
+                );
+              })()}
               <ul className="m-0 space-y-2 p-0 list-none">
                 {brandsWithCache.map((b) => {
                   const isSkip = skipped.has(b.groupKey);
                   const sel = selectedByBrand[b.groupKey] || [];
                   const ready = readyKeys.includes(b.groupKey);
                   const draftSubject =
-                    b.targets.find((t) => t.draftSubject)?.draftSubject || "";
+                    localDrafts[b.groupKey]?.subject ||
+                    b.targets.find((t) => t.draftSubject)?.draftSubject ||
+                    "";
+                  const isWritingNow =
+                    writingOneKey === b.groupKey ||
+                    autoWriteCurrent === b.company ||
+                    (serverDraftRunning &&
+                      serverDraftCurrent === b.company);
+                  const hasFit = Object.keys(fitByBrand[b.groupKey] || {}).length > 0;
+                  const waitingFit = fitRunning && !hasFit && !ready && !isSkip;
                   return (
                     <li
                       key={b.groupKey}
                       className="flex flex-wrap items-center gap-2 rounded-xl border bg-white px-3 py-2.5"
-                      style={{ borderColor: "#E5E0DA" }}
+                      style={{
+                        borderColor: isWritingNow ? OLD_ROSE : "#E5E0DA",
+                      }}
                     >
                       <div className="min-w-0 flex-1">
                         <p
@@ -1903,17 +3244,107 @@ export default function OutreachCastingWizard({
                           Choisir talents
                         </button>
                       ) : ready ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onReviewBrand(b.groupKey);
-                            onClose();
-                          }}
-                          className="rounded-lg px-2.5 py-1 text-xs font-semibold text-white"
-                          style={{ background: LICORICE }}
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const d = localDrafts[b.groupKey];
+                              const idx = brandsWithCache.findIndex(
+                                (x) => x.groupKey === b.groupKey
+                              );
+                              if (idx >= 0) {
+                                setIndex(idx);
+                                setPhase("casting");
+                              } else {
+                                onReviewBrand(
+                                  b.groupKey,
+                                  d
+                                    ? {
+                                        subject: d.subject,
+                                        bodyHtml: d.bodyHtml,
+                                      }
+                                    : undefined
+                                );
+                              }
+                            }}
+                            className="rounded-lg border px-2.5 py-1 text-xs font-medium"
+                            style={{
+                              borderColor: "#E5E0DA",
+                              color: LICORICE,
+                            }}
+                          >
+                            Voir le mail
+                          </button>
+                          {onSendBrand &&
+                          localDrafts[b.groupKey] &&
+                          !sentKeys.includes(b.groupKey) ? (
+                            <button
+                              type="button"
+                              disabled={sendingKey === b.groupKey}
+                              onClick={() => {
+                                const d = localDrafts[b.groupKey];
+                                if (!d) return;
+                                void (async () => {
+                                  setSendingKey(b.groupKey);
+                                  try {
+                                    await onSendBrand(b.groupKey, d);
+                                    setSentKeys((prev) =>
+                                      prev.includes(b.groupKey)
+                                        ? prev
+                                        : [...prev, b.groupKey]
+                                    );
+                                    onFlash?.(
+                                      "success",
+                                      `Envoi programmé · ${b.company}`
+                                    );
+                                  } catch (e) {
+                                    onFlash?.(
+                                      "error",
+                                      e instanceof Error
+                                        ? e.message
+                                        : "Envoi impossible."
+                                    );
+                                  } finally {
+                                    setSendingKey(null);
+                                  }
+                                })();
+                              }}
+                              className="rounded-lg px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-40"
+                              style={{ background: LICORICE }}
+                            >
+                              {sendingKey === b.groupKey
+                                ? "Envoi…"
+                                : "Envoyer"}
+                            </button>
+                          ) : sentKeys.includes(b.groupKey) ? (
+                            <span className="text-[11px] text-emerald-700">
+                              Programmé
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : isWritingNow ? (
+                        <span
+                          className="inline-flex items-center gap-1.5 text-[11px] font-medium"
+                          style={{ color: OLD_ROSE }}
                         >
-                          Contrôler / envoyer
-                        </button>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Rédaction…
+                        </span>
+                      ) : waitingFit ? (
+                        <span
+                          className="inline-flex items-center gap-1.5 text-[11px] font-medium"
+                          style={{ color: OLD_ROSE }}
+                        >
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Fit…
+                        </span>
+                      ) : autoWriteQueueLen > 0 ||
+                        fitRunning ||
+                        serverDraftRunning ? (
+                        <span className="text-[11px] text-slate-400">
+                          Dans la file
+                          {serverDraftRunning ? " serveur" : ""}
+                        </span>
                       ) : (
                         <span className="text-[11px] text-slate-400">
                           En attente rédaction
@@ -1945,23 +3376,35 @@ export default function OutreachCastingWizard({
                 Passer
               </button>
               <div className="flex min-w-0 flex-1 flex-col items-center gap-1 px-2">
-                {fitRunning || autoWriteCurrent || autoWriteQueueLen > 0 ? (
+                {fitRunning ||
+                serverDraftRunning ||
+                autoWriteCurrent ||
+                autoWriteQueueLen > 0 ? (
                   <>
                     <p className="m-0 text-center text-[11px] text-slate-500">
                       {fitRunning
-                        ? `Casting · ${fitCurrent || "…"} · ${fitDone}/${fitTotal}`
-                        : "Casting terminé"}
+                        ? brandPrepCurrent
+                          ? `Analyse marque · ${brandPrepCurrent}`
+                          : `Casting · ${fitCurrent || "…"} · ${fitDone}/${fitTotal}`
+                        : serverDraftRunning
+                          ? `Rédaction serveur · ${serverDraftCurrent || "…"} · ${serverDraftDone}/${serverDraftTotal}`
+                          : "Casting terminé"}
                       {fitFailed > 0
                         ? ` · ${fitFailed} échec${fitFailed > 1 ? "s" : ""}`
                         : ""}
-                      {autoWriteAfterFit
+                      {serverDraftFailed > 0
+                        ? ` · ${serverDraftFailed} rédac. échec`
+                        : ""}
+                      {!serverDraftRunning && autoWriteAfterFit
                         ? autoWriteCurrent
                           ? ` · rédaction ${autoWriteCurrent}`
                           : autoWriteQueueLen > 0
                             ? ` · file rédaction ${autoWriteQueueLen}`
                             : " · auto-rédaction ON"
                         : ""}
-                      {fitRunning ? " · tu peux quitter" : ""}
+                      {(fitRunning && !brandPrepCurrent) || serverDraftRunning
+                        ? " · tu peux quitter"
+                        : ""}
                     </p>
                     <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-600">
                       <input
@@ -1976,7 +3419,9 @@ export default function OutreachCastingWizard({
                           }
                         }}
                       />
-                      Rédiger auto après fit (même pipeline)
+                      {isIndivMode
+                        ? "Marque + fit + Leyna + mails serveur (tu peux quitter)"
+                        : "Rédiger auto après fit (serveur, tu peux quitter)"}
                     </label>
                     {fitRunning ? (
                       <button
@@ -2024,7 +3469,9 @@ export default function OutreachCastingWizard({
                         checked={autoWriteAfterFit}
                         onChange={(e) => setAutoWriteAfterFit(e.target.checked)}
                       />
-                      Puis rédiger auto (même qualité)
+                      {isIndivMode
+                        ? "Marque + fit + Leyna + mails serveur (tu peux quitter)"
+                        : "Puis rédiger auto serveur (tu peux quitter)"}
                     </label>
                   </div>
                 )}
@@ -2034,10 +3481,24 @@ export default function OutreachCastingWizard({
                   <button
                     type="button"
                     onClick={() => void runWriteCurrentBrand()}
-                    disabled={Boolean(writingOneKey)}
+                    disabled={
+                      Boolean(writingOneKey) ||
+                      Boolean(fitRunning) ||
+                      Boolean(serverDraftRunning) ||
+                      (isIndivMode &&
+                        Boolean(lockedTalentId) &&
+                        !fitByBrand[current.groupKey]?.[lockedTalentId || ""] &&
+                        !readyKeys.includes(current.groupKey))
+                    }
                     className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
                     style={{ background: OLD_ROSE }}
-                    title="Rédige cette marque tout de suite, sans attendre la fin du batch"
+                    title={
+                      isIndivMode &&
+                      lockedTalentId &&
+                      !fitByBrand[current.groupKey]?.[lockedTalentId]
+                        ? "Fit casting obligatoire d’abord"
+                        : "Rédige cette marque tout de suite, sans attendre la fin du batch"
+                    }
                   >
                     {writingOneKey === current.groupKey ? (
                       <>

@@ -375,6 +375,14 @@ async function processOneMissionItem(itemId: string): Promise<{
     return { ok: false, brandName, error: "Brouillon vide" };
   }
 
+  const castingResearchSnapshot = {
+    brandName,
+    brandResearch,
+    talentResearch,
+    leynaExchange: leyna,
+    savedAt: new Date().toISOString(),
+  };
+
   await prisma.contactMission.update({
     where: { id: mission.id },
     data: {
@@ -383,6 +391,7 @@ async function processOneMissionItem(itemId: string): Promise<{
       draftEmailSubject: subject,
       draftEmailBody: body,
       draftLanguage: genLanguage,
+      castingResearchSnapshot,
       ...(contacts.length > 0
         ? {
             clientContacts: contacts.map((c) => ({

@@ -246,6 +246,29 @@ function toParisDatetimeLocal(date: Date): string {
   return `${m.year}-${m.month}-${m.day}T${hour}:${m.minute}`;
 }
 
+/** Affiche un datetime-local Paris (« 2026-10-27T17:00 ») en libellé FR lisible. */
+function formatParisDatetimeLocalLabel(value: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec((value || "").trim());
+  if (!m) return null;
+  const months = [
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "novembre",
+    "décembre",
+  ];
+  const day = Number(m[3]);
+  const monthLabel = months[Number(m[2]) - 1] || m[2];
+  return `${day} ${monthLabel} à ${m[4]}:${m[5]}`;
+}
+
 type BrandResearchState = {
   recentCampaigns: string;
   newProducts: string;
@@ -2959,6 +2982,14 @@ export default function CastingComposer({
                       className="w-full rounded-xl border px-3 py-2 text-sm"
                       style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 45%, transparent)`, color: LICORICE }}
                     />
+                    {formatParisDatetimeLocalLabel(scheduledAt) && (
+                      <p
+                        className="mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                        style={{ backgroundColor: "#EAF7D6", color: "#3F6212" }}
+                      >
+                        Part le {formatParisDatetimeLocalLabel(scheduledAt)} (heure FR)
+                      </p>
+                    )}
                     <p className="text-[11px] opacity-70 mt-1" style={{ color: LICORICE }}>
                       Les mails sont légèrement étalés (~1/min) à partir de cette heure.
                     </p>

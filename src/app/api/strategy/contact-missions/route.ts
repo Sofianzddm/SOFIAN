@@ -271,6 +271,7 @@ export async function GET(request: NextRequest) {
             draftEmailSubject: m.draftEmailSubject ?? null,
             draftEmailBody: m.draftEmailBody ?? null,
             draftLanguage: m.draftLanguage ?? null,
+            castingResearchSnapshot: m.castingResearchSnapshot ?? null,
             clientLanguage: m.clientLanguage ?? null,
             clientContacts: m.clientContacts ?? null,
             deadlineAt: m.deadlineAt,

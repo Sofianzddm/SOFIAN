@@ -4,8 +4,14 @@
  */
 import prisma from "@/lib/prisma";
 import {
+  appBaseUrl,
+  internalJobHeaders,
+} from "@/lib/internal-job-auth";
+import {
+  hasBrandResearchBrief,
   normalizeBrandResearch,
   runRosterFitForBrand,
+  type BrandResearchInput,
   type RosterFitItem,
 } from "@/lib/casting-roster-fit-core";
 
@@ -14,6 +20,9 @@ export type CreateRosterFitJobBrandInput = {
   brandName: string;
   company?: string | null;
   brandResearch: unknown;
+  /** Outreach : ids cibles pour enchaîner la rédaction serveur. */
+  targetIds?: string[];
+  pipeline?: "FR" | "BENELUX" | null;
 };
 
 export async function createRosterFitJob(args: {
@@ -31,6 +40,12 @@ export async function createRosterFitJob(args: {
       brandName: String(b.brandName || "").trim(),
       company: b.company ? String(b.company).trim() : null,
       brandResearch: normalizeBrandResearch(b.brandResearch),
+      targetIds: Array.from(
+        new Set(
+          (b.targetIds || []).map((id) => String(id || "").trim()).filter(Boolean)
+        )
+      ),
+      pipeline: b.pipeline === "BENELUX" ? "BENELUX" : b.pipeline === "FR" ? "FR" : null,
       sortOrder: i,
     }))
     .filter((b) => b.groupKey && b.brandName);
@@ -52,6 +67,8 @@ export async function createRosterFitJob(args: {
           brandName: b.brandName,
           company: b.company,
           brandResearch: b.brandResearch as object,
+          targetIds: b.targetIds,
+          pipeline: b.pipeline,
           sortOrder: b.sortOrder,
           status: "pending",
         })),
@@ -95,6 +112,7 @@ export async function getRosterFitJobForUser(jobId: string, userId: string) {
           status: true,
           error: true,
           result: true,
+          brandResearch: true,
           sortOrder: true,
           finishedAt: true,
         },
@@ -197,7 +215,38 @@ export async function processRosterFitJobTick(
     });
 
     try {
-      const research = normalizeBrandResearch(next.brandResearch);
+      let research = normalizeBrandResearch(next.brandResearch);
+      // Brief manquant → analyse marque serveur (survit à la fermeture / VPS).
+      if (!hasBrandResearchBrief(research)) {
+        const url = `${appBaseUrl()}/api/casting/brand-research`;
+        const brRes = await fetch(url, {
+          method: "POST",
+          headers: internalJobHeaders(),
+          body: JSON.stringify({
+            brandName: next.brandName,
+            availabilityFocus:
+              String(job.market || "").includes("BENELUX") &&
+              job.market !== "BOTH"
+                ? "BE"
+                : "FR",
+          }),
+        });
+        const brData = (await brRes.json().catch(() => ({}))) as BrandResearchInput & {
+          error?: string;
+        };
+        if (!brRes.ok || brData.error) {
+          throw new Error(
+            brData.error ||
+              `Analyse marque impossible (HTTP ${brRes.status})`
+          );
+        }
+        research = normalizeBrandResearch(brData);
+        await prisma.castingRosterFitBrand.update({
+          where: { id: next.id },
+          data: { brandResearch: research as object },
+        });
+      }
+
       const talents = await runRosterFitForBrand({
         brandName: next.brandName,
         brandResearch: research,
@@ -210,6 +259,7 @@ export async function processRosterFitJobTick(
           result: talents as object[],
           finishedAt: new Date(),
           error: null,
+          brandResearch: research as object,
         },
       });
       await prisma.castingRosterFitJob.update({
@@ -261,6 +311,21 @@ export async function processRosterFitJobTick(
             : null,
       },
     });
+    // Enchaîne rédaction serveur (marque + Leyna + mail) sans navigateur.
+    if (status === "completed" && finalJob) {
+      void maybeChainIndivDraftAfterFit(finalJob).catch((e) => {
+        console.warn(
+          `[roster-fit-job] chain indiv draft after ${jobId}:`,
+          e
+        );
+      });
+      void maybeChainOutreachDraftAfterFit(finalJob).catch((e) => {
+        console.warn(
+          `[roster-fit-job] chain outreach draft after ${jobId}:`,
+          e
+        );
+      });
+    }
     return {
       processed,
       done: true,
@@ -275,6 +340,178 @@ export async function processRosterFitJobTick(
     status: "running",
     currentBrandName: lastBrand,
   };
+}
+
+function autoPickTalentIdsFromFitResult(
+  result: unknown,
+  limit = 8
+): string[] {
+  const list = parseRosterFitResult(result);
+  const recommended = list
+    .filter((t) => t.recommended)
+    .sort((a, b) => (b.fitScore || 0) - (a.fitScore || 0));
+  const pool = recommended.length > 0 ? recommended : list;
+  return pool
+    .map((t) => String(t.talentId || "").trim())
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+/**
+ * Après fit outreach (marché non-INDIV) : lance la rédaction serveur
+ * si les marques ont des targetIds (stockés à la création du job).
+ */
+async function maybeChainOutreachDraftAfterFit(fitJob: {
+  id: string;
+  userId: string;
+  market: string;
+}): Promise<void> {
+  const market = String(fitJob.market || "");
+  if (market.startsWith("INDIV:")) return;
+
+  const doneBrands = await prisma.castingRosterFitBrand.findMany({
+    where: { jobId: fitJob.id, status: "done" },
+    orderBy: { sortOrder: "asc" },
+    select: {
+      groupKey: true,
+      brandName: true,
+      company: true,
+      pipeline: true,
+      targetIds: true,
+      brandResearch: true,
+      result: true,
+    },
+  });
+
+  const items = doneBrands
+    .map((b) => {
+      const targetIds = (b.targetIds || []).map((id) => String(id).trim()).filter(Boolean);
+      const talentIds = autoPickTalentIdsFromFitResult(b.result, 8);
+      if (targetIds.length === 0 || talentIds.length === 0) return null;
+      return {
+        groupKey: b.groupKey,
+        brandName: b.brandName,
+        company: b.company,
+        pipeline: (b.pipeline === "BENELUX" ? "BENELUX" : "FR") as "FR" | "BENELUX",
+        targetIds,
+        talentIds,
+        brandResearch: (b.brandResearch || {}) as Record<string, unknown>,
+        rosterFits: parseRosterFitResult(b.result),
+      };
+    })
+    .filter((it): it is NonNullable<typeof it> => Boolean(it));
+
+  if (items.length === 0) return;
+
+  const activeDraft = await prisma.castingOutreachDraftJob.findFirst({
+    where: {
+      userId: fitJob.userId,
+      market,
+      status: { in: ["pending", "running"] },
+    },
+    select: { id: true },
+  });
+  if (activeDraft) return;
+
+  const { createOutreachDraftJob, kickOutreachDraftJobProcess } = await import(
+    "@/lib/casting-outreach-draft-job"
+  );
+  const { jobId } = await createOutreachDraftJob({
+    userId: fitJob.userId,
+    market,
+    items,
+  });
+  kickOutreachDraftJobProcess(jobId);
+  console.log(
+    `[roster-fit-job] chained outreach draft ${jobId} (${items.length} brands) after fit ${fitJob.id}`
+  );
+}
+
+/**
+ * Après fit indiv (`market = INDIV:talentId`) : lance la rédaction serveur
+ * (analyse marque + Leyna + mail) même si le navigateur est fermé.
+ */
+async function maybeChainIndivDraftAfterFit(fitJob: {
+  id: string;
+  userId: string;
+  market: string;
+}): Promise<void> {
+  const market = String(fitJob.market || "");
+  if (!market.startsWith("INDIV:")) return;
+  const talentId = market.slice("INDIV:".length).trim();
+  if (!talentId) return;
+
+  const doneBrands = await prisma.castingRosterFitBrand.findMany({
+    where: { jobId: fitJob.id, status: "done" },
+    orderBy: { sortOrder: "asc" },
+    select: { groupKey: true, brandName: true, result: true },
+  });
+  if (doneBrands.length === 0) return;
+
+  const missionIds = doneBrands
+    .map((b) => String(b.groupKey || "").trim())
+    .filter(Boolean);
+  if (missionIds.length === 0) return;
+
+  // Déjà un job rédaction actif pour ce talent → le worker s’en occupe.
+  const activeDraft = await prisma.castingIndivDraftJob.findFirst({
+    where: {
+      userId: fitJob.userId,
+      talentId,
+      status: { in: ["pending", "running"] },
+    },
+    select: { id: true },
+  });
+  if (activeDraft) return;
+
+  // Skip missions déjà rédigées / envoyées.
+  const missions = await prisma.contactMission.findMany({
+    where: { id: { in: missionIds } },
+    select: {
+      id: true,
+      stage: true,
+      draftEmailSubject: true,
+      draftEmailBody: true,
+      sentAt: true,
+      marque: { select: { nom: true } },
+      targetBrand: true,
+    },
+  });
+  const byId = new Map(missions.map((m) => [m.id, m]));
+  const items = missionIds
+    .map((missionId) => {
+      const m = byId.get(missionId);
+      if (!m) return null;
+      if (m.sentAt || m.stage === "SENT") return null;
+      if (
+        m.stage === "DRAFTED_FOR_VALIDATION" &&
+        m.draftEmailSubject &&
+        m.draftEmailBody
+      ) {
+        return null;
+      }
+      const brandRow = doneBrands.find((b) => b.groupKey === missionId);
+      const brandName =
+        (m.marque?.nom || m.targetBrand || brandRow?.brandName || "Marque").trim() ||
+        "Marque";
+      return { missionId, talentId, brandName };
+    })
+    .filter((it): it is NonNullable<typeof it> => Boolean(it));
+
+  if (items.length === 0) return;
+
+  const { createIndivDraftJob, kickIndivDraftJobProcess } = await import(
+    "@/lib/casting-indiv-draft-job"
+  );
+  const { jobId } = await createIndivDraftJob({
+    userId: fitJob.userId,
+    talentId,
+    items,
+  });
+  kickIndivDraftJobProcess(jobId);
+  console.log(
+    `[roster-fit-job] chained indiv draft ${jobId} (${items.length} missions) after fit ${fitJob.id}`
+  );
 }
 
 /**

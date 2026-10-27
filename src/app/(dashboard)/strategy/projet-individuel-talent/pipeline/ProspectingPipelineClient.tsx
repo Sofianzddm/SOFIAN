@@ -4,6 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2, Pencil, Check, X, Clock, Feather, Sparkles, Send, Inbox, MessageCircle, Handshake, Trophy, XCircle, ShieldAlert, Layers, UserPlus, Database, ScanSearch, ExternalLink, Trash2, Plus } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
+import OutreachCastingWizard, {
+  type OutreachCastingBrand,
+} from "@/components/outreach/OutreachCastingWizard";
 import { AdminAddBrandsPanel } from "./AdminAddBrandsPanel";
 import { TalentIndivBatchAnalyzeBar } from "./TalentIndivBatchAnalyzeBar";
 import { businessDaysAfter, hasBusinessDaysElapsed } from "@/lib/business-days";
@@ -16,6 +19,9 @@ import {
   loadIndivLeynaExchangeCache,
   loadIndivTalentResearchCache,
   lookupIndivBrandCache,
+  type IndivCachedBrandResearch,
+  type IndivCachedLeynaExchange,
+  type IndivCachedTalentResearchItem,
 } from "@/lib/indiv-talent-batch-cache";
 
 type Role = "STRATEGY_PLANNER" | "CASTING_MANAGER" | "HEAD_OF_SALES" | "HEAD_OF" | "ADMIN";
@@ -52,6 +58,14 @@ type Mission = {
   draftEmailSubject?: string | null;
   draftEmailBody?: string | null;
   draftLanguage?: "fr" | "en" | null;
+  /** Snapshot serveur (marque / talent / Leyna) après rédaction job. */
+  castingResearchSnapshot?: {
+    brandName?: string;
+    brandResearch?: IndivCachedBrandResearch | null;
+    talentResearch?: IndivCachedTalentResearchItem[] | null;
+    leynaExchange?: IndivCachedLeynaExchange | null;
+    savedAt?: string;
+  } | null;
   clientLanguage?: "FR" | "EN" | null;
   clientContacts?: Array<{ firstname?: string; lastname?: string; email?: string; role?: string }> | null;
   scheduledSendAt?: string | null;
@@ -458,6 +472,14 @@ export function ProspectingPipelineClient() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerContact, setComposerContact] = useState<any>(null);
   const [composerTalentId, setComposerTalentId] = useState<string | null>(null);
+  const [castingWizardOpen, setCastingWizardOpen] = useState(false);
+  const [castingWizardTalentId, setCastingWizardTalentId] = useState<
+    string | null
+  >(null);
+  const [castingWizardTalentName, setCastingWizardTalentName] = useState("");
+  const [castingWizardBrands, setCastingWizardBrands] = useState<
+    OutreachCastingBrand[]
+  >([]);
   const [contactFormByMission, setContactFormByMission] = useState<
     Record<string, { open: boolean; contacts: ContactDraft[] }>
   >({});
@@ -1645,6 +1667,21 @@ export function ProspectingPipelineClient() {
         },
       });
       setComposerTalentId(m.talentId || null);
+      // Recolle le snapshot serveur dans le cache navigateur (Marque OK / Leyna OK).
+      const snap = m.castingResearchSnapshot;
+      const brandKey =
+        snap?.brandName || brandDisplayName(m) || m.targetBrand || "";
+      if (m.talentId && brandKey && snap) {
+        if (snap.brandResearch) {
+          cacheIndivBrandResearch(m.talentId, brandKey, snap.brandResearch);
+        }
+        if (Array.isArray(snap.talentResearch) && snap.talentResearch.length) {
+          cacheIndivTalentResearch(m.talentId, brandKey, snap.talentResearch);
+        }
+        if (snap.leynaExchange) {
+          cacheIndivLeynaExchange(m.talentId, brandKey, snap.leynaExchange);
+        }
+      }
       setComposerOpen(true);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
@@ -1948,6 +1985,9 @@ export function ProspectingPipelineClient() {
           <TalentIndivBatchAnalyzeBar
             talents={talents}
             missions={missions}
+            preferTalentId={
+              selectedTalentId !== ALL_TALENTS ? selectedTalentId : null
+            }
             draftContactsByMissionId={Object.fromEntries(
               Object.entries(contactFormByMission).map(([id, form]) => [
                 id,
@@ -1974,6 +2014,93 @@ export function ProspectingPipelineClient() {
               if (payload.stage === "DRAFTED_FOR_VALIDATION") {
                 setReadySubTab("cards");
               }
+            }}
+            onOpenCastingWizard={(scope) => {
+              const preferredId =
+                selectedTalentId !== ALL_TALENTS
+                  ? String(selectedTalentId || "").trim()
+                  : "";
+              const counts = new Map<string, number>();
+              for (const m of scope) {
+                const tid = String(m.talentId || "").trim();
+                if (!tid) continue;
+                counts.set(tid, (counts.get(tid) || 0) + 1);
+              }
+              let topTalentId = preferredId;
+              if (!topTalentId) {
+                let topN = 0;
+                for (const [tid, n] of counts) {
+                  if (n > topN) {
+                    topTalentId = tid;
+                    topN = n;
+                  }
+                }
+              }
+              if (!topTalentId) {
+                setError(
+                  preferredId
+                    ? "Aucune marque de ce talent dans l’onglet batch — change d’onglet ou le filtre."
+                    : "Aucune mission avec talent pour le wizard."
+                );
+                return;
+              }
+              const forTalent = scope.filter(
+                (m) => String(m.talentId || "") === topTalentId
+              );
+              if (forTalent.length === 0) {
+                setError(
+                  "Aucune marque de ce talent dans le lot — vérifie le filtre talent."
+                );
+                return;
+              }
+              const talentOpt = talents.find((t) => t.id === topTalentId);
+              const talentName =
+                talentOpt?.name ||
+                forTalent[0]?.talentName ||
+                forTalent[0]?.creatorName ||
+                "Talent";
+              if (!preferredId && counts.size > 1) {
+                setSuccess(
+                  `Wizard ouvert pour ${talentName} (${forTalent.length} marques). Filtre un talent pour un lot mono-talent.`
+                );
+              } else {
+                setSuccess(
+                  `Wizard ouvert pour ${talentName} (${forTalent.length} marques).`
+                );
+              }
+              setCastingWizardTalentId(topTalentId);
+              setCastingWizardTalentName(talentName);
+              setCastingWizardBrands(
+                forTalent.map((m) => {
+                  const brand = (m.marqueNom || m.targetBrand || "").trim();
+                  const contacts = Array.isArray(m.clientContacts)
+                    ? m.clientContacts
+                    : [];
+                  return {
+                    groupKey: m.id,
+                    company: brand || "Marque",
+                    emails: contacts
+                      .map((c) => String(c?.email || "").trim())
+                      .filter((e) => e.includes("@")),
+                    pipeline: "FR" as const,
+                    targets: [
+                      {
+                        id: m.id,
+                        firstname: String(contacts[0]?.firstname || "").trim(),
+                        lastname: String(contacts[0]?.lastname || "").trim(),
+                        email: String(contacts[0]?.email || "").trim(),
+                        language:
+                          m.clientLanguage === "EN" || m.draftLanguage === "en"
+                            ? "en"
+                            : "fr",
+                        draftSubject: m.draftEmailSubject || null,
+                        draftBodyHtml: m.draftEmailBody || null,
+                      },
+                    ],
+                  };
+                })
+              );
+              setCastingWizardOpen(true);
             }}
           />
         )}
@@ -3716,6 +3843,167 @@ export function ProspectingPipelineClient() {
         </div>
       )}
 
+      <OutreachCastingWizard
+        open={castingWizardOpen}
+        market="FR"
+        brands={castingWizardBrands}
+        lockedTalentId={castingWizardTalentId}
+        wizardTitle={
+          castingWizardTalentName
+            ? `Casting indiv · ${castingWizardTalentName}`
+            : "Casting indiv"
+        }
+        onClose={() => {
+          setCastingWizardOpen(false);
+          setCastingWizardBrands([]);
+          setCastingWizardTalentId(null);
+          setCastingWizardTalentName("");
+        }}
+        onFlash={(kind, message) => {
+          if (kind === "error") setError(message);
+          else setSuccess(message);
+        }}
+        onSaveDraft={async (brand, subject, bodyHtml) => {
+          await patchMission(brand.groupKey, {
+            stage: "DRAFTED_FOR_VALIDATION",
+            status: "EMAIL_DRAFTED",
+            draftEmailSubject: subject,
+            draftEmailBody: bodyHtml,
+          });
+          setCastingWizardBrands((prev) =>
+            prev.map((b) =>
+              b.groupKey === brand.groupKey
+                ? {
+                    ...b,
+                    targets: b.targets.map((t) => ({
+                      ...t,
+                      draftSubject: subject,
+                      draftBodyHtml: bodyHtml,
+                    })),
+                  }
+                : b
+            )
+          );
+        }}
+        onReviewBrand={(groupKey, draft) => {
+          const m = missions.find((x) => x.id === groupKey);
+          if (!m) {
+            setError("Mission introuvable — recharge la page.");
+            return;
+          }
+          const withDraft: Mission = {
+            ...m,
+            draftEmailSubject: draft?.subject || m.draftEmailSubject,
+            draftEmailBody: draft?.bodyHtml || m.draftEmailBody,
+          };
+          setCastingWizardOpen(false);
+          void openComposer(withDraft);
+        }}
+        onSendBrand={async (groupKey, draft) => {
+          const m = missions.find((x) => x.id === groupKey);
+          if (!m) {
+            throw new Error("Mission introuvable — recharge la page.");
+          }
+          const subject = (draft.subject || "").trim();
+          const bodyHtml = (draft.bodyHtml || "").trim();
+          if (
+            subject !== (m.draftEmailSubject || "").trim() ||
+            bodyHtml !== (m.draftEmailBody || "").trim()
+          ) {
+            await patchMission(groupKey, {
+              stage: "DRAFTED_FOR_VALIDATION",
+              status: "EMAIL_DRAFTED",
+              draftEmailSubject: subject,
+              draftEmailBody: bodyHtml,
+            });
+          }
+          const res = await fetch(
+            `/api/strategy/contact-missions/${groupKey}/schedule-send`,
+            {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({}),
+            }
+          );
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            if (data?.canForce) {
+              const confirmed = window.confirm(
+                `${m.creatorName} → ${brandDisplayName(m)}\n\n${
+                  data.error || "Contact déjà contacté récemment."
+                }\n\nProjet urgent — envoyer quand même ?`
+              );
+              if (!confirmed) {
+                throw new Error("Envoi annulé.");
+              }
+              const reason = window.prompt(
+                "Motif urgent (min. 5 caractères) :",
+                ""
+              );
+              if (!reason || reason.trim().length < 5) {
+                throw new Error("Motif urgent trop court.");
+              }
+              const res2 = await fetch(
+                `/api/strategy/contact-missions/${groupKey}/schedule-send`,
+                {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    force: true,
+                    forceReason: reason.trim(),
+                  }),
+                }
+              );
+              const data2 = await res2.json().catch(() => ({}));
+              if (!res2.ok) {
+                throw new Error(
+                  typeof data2.error === "string"
+                    ? data2.error
+                    : "Planification impossible."
+                );
+              }
+              const scheduledAt2 = data2.scheduledSendAt
+                ? new Date(data2.scheduledSendAt).getTime()
+                : Date.now() + 30000;
+              setScheduledSends((prev) => [
+                ...prev.filter((s) => s.missionId !== groupKey),
+                {
+                  missionId: groupKey,
+                  brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
+                  scheduledAt: scheduledAt2,
+                },
+              ]);
+              await loadMissions();
+              return;
+            }
+            throw new Error(
+              typeof data.error === "string"
+                ? data.error
+                : "Planification impossible."
+            );
+          }
+          const scheduledAt = data.scheduledSendAt
+            ? new Date(data.scheduledSendAt).getTime()
+            : Date.now() + 30000;
+          setScheduledSends((prev) => [
+            ...prev.filter((s) => s.missionId !== groupKey),
+            {
+              missionId: groupKey,
+              brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
+              scheduledAt,
+            },
+          ]);
+          await loadMissions();
+        }}
+        onDraftsWritten={async () => {
+          await loadMissions();
+          setActiveStageTab("DRAFTED_FOR_VALIDATION");
+          setReadySubTab("cards");
+        }}
+      />
+
       <CastingComposer
         open={composerOpen}
         contact={composerContact}
@@ -3725,33 +4013,44 @@ export function ProspectingPipelineClient() {
         readyLabel="Prêt à envoyer"
         enableTalentResearch
         lockedTalentId={composerTalentId}
-        initialBrandResearch={
-          composerTalentId
-            ? lookupIndivBrandCache(
-                loadIndivBrandResearchCache(composerTalentId),
-                composerContact?.company,
-                composerContact?.missionBrief?.targetBrand
-              )
-            : null
-        }
-        initialTalentResearch={
-          composerTalentId
-            ? lookupIndivBrandCache(
-                loadIndivTalentResearchCache(composerTalentId),
-                composerContact?.company,
-                composerContact?.missionBrief?.targetBrand
-              )
-            : null
-        }
-        initialLeynaExchange={
-          composerTalentId
-            ? lookupIndivBrandCache(
-                loadIndivLeynaExchangeCache(composerTalentId),
-                composerContact?.company,
-                composerContact?.missionBrief?.targetBrand
-              )
-            : null
-        }
+        initialBrandResearch={(() => {
+          const snap = missions.find(
+            (x) => x.id === composerContact?.missionBrief?.id
+          )?.castingResearchSnapshot;
+          if (snap?.brandResearch) return snap.brandResearch;
+          if (!composerTalentId) return null;
+          return lookupIndivBrandCache(
+            loadIndivBrandResearchCache(composerTalentId),
+            composerContact?.company,
+            composerContact?.missionBrief?.targetBrand
+          );
+        })()}
+        initialTalentResearch={(() => {
+          const snap = missions.find(
+            (x) => x.id === composerContact?.missionBrief?.id
+          )?.castingResearchSnapshot;
+          if (Array.isArray(snap?.talentResearch) && snap.talentResearch.length) {
+            return snap.talentResearch;
+          }
+          if (!composerTalentId) return null;
+          return lookupIndivBrandCache(
+            loadIndivTalentResearchCache(composerTalentId),
+            composerContact?.company,
+            composerContact?.missionBrief?.targetBrand
+          );
+        })()}
+        initialLeynaExchange={(() => {
+          const snap = missions.find(
+            (x) => x.id === composerContact?.missionBrief?.id
+          )?.castingResearchSnapshot;
+          if (snap?.leynaExchange) return snap.leynaExchange;
+          if (!composerTalentId) return null;
+          return lookupIndivBrandCache(
+            loadIndivLeynaExchangeCache(composerTalentId),
+            composerContact?.company,
+            composerContact?.missionBrief?.targetBrand
+          );
+        })()}
         onBrandResearchCached={(brandName, research) => {
           if (!composerTalentId) return;
           cacheIndivBrandResearch(composerTalentId, brandName, research);
