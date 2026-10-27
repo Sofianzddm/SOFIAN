@@ -57,11 +57,10 @@ CASTING_FIT_EXTERNAL_WORKER=1
 
 → l’app crée le job en DB et **laisse le VPS worker le consommer**.
 
-Le cron `/api/cron/casting-roster-fit` (toutes les 2 min) reste un filet pour :
+Le cron `/api/cron/casting-roster-fit` (toutes les 2 min) ne gère **que** le fit roster coincé.
 
-- roster-fit coincés
-- rédaction outreach coincée
-- rédaction indiv coincée
+Les **rédactions** outreach + indiv sont **uniquement** consommées par ce worker pm2
+(`CASTING_FIT_EXTERNAL_WORKER=1` côté Vercel).
 
 ## Ops
 
