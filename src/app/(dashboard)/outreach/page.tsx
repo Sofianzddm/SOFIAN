@@ -48,13 +48,14 @@ import InboundExchangeBadge, {
 } from "@/components/outreach/InboundExchangeBadge";
 import OutreachClientsBatchAnalyzeBar from "@/components/outreach/OutreachClientsBatchAnalyzeBar";
 import {
-  cacheOutreachBrandResearch,
-  cacheOutreachLeynaExchange,
-  cacheOutreachTalentResearch,
-  loadOutreachBrandResearchCache,
-  loadOutreachLeynaExchangeCache,
-  loadOutreachTalentResearchCache,
+  cacheOutreachBrandResearchMarkets,
+  cacheOutreachLeynaExchangeMarkets,
+  cacheOutreachTalentResearchMarkets,
+  loadOutreachBrandResearchCacheMarkets,
+  loadOutreachLeynaExchangeCacheMarkets,
+  loadOutreachTalentResearchCacheMarkets,
   lookupOutreachBrandCache,
+  outreachCacheMarketsForContact,
 } from "@/lib/outreach-clients-batch-cache";
 
 const LICORICE = "#1A1110";
@@ -838,9 +839,9 @@ export default function OutreachPage() {
     return groups;
   }, [visibleTargets, pendingContacts, activeTab, searchTerm, sortBy, marketView]);
 
-  /** Marques À contacter avec emails — cibles de la barre « Analyser toutes les marques ». */
+  /** Marques de la file active (À contacter / À recontacter) pour le batch analyse. */
   const batchBrandGroups = useMemo(() => {
-    if (activeTab !== "TO_CONTACT") return [];
+    if (activeTab !== "TO_CONTACT" && activeTab !== "TO_RECONTACT") return [];
     return visibleGroups
       .filter((g) => g.targets.length > 0)
       .map((g) => {
@@ -884,8 +885,27 @@ export default function OutreachPage() {
     return composerGroup.company;
   }, [composerGroup, composerCoveredBrands]);
 
-  const composerCacheMarket: Market =
-    composerGroup?.targets[0]?.pipeline === "BENELUX" ? "BENELUX" : market;
+  /**
+   * Marché stable pour la barre batch (ne suit PAS le composer — sinon ouvrir
+   * un contact BE en vue FR+BE basculait le décompte sur le cache BENELUX vide).
+   */
+  const batchCacheMarket: Market =
+    marketView === "BENELUX" ? "BENELUX" : "FR";
+
+  /** Marchés cache pour le groupe ouvert (FR+BE → FR∪BE). */
+  const composerCacheMarkets = useMemo((): Array<"FR" | "BENELUX"> => {
+    if (!composerGroup?.targets[0]) {
+      return marketView === "BOTH"
+        ? ["FR", "BENELUX"]
+        : [batchCacheMarket];
+    }
+    const t0 = composerGroup.targets[0];
+    return outreachCacheMarketsForContact({
+      pipeline: t0.pipeline === "BENELUX" ? "BENELUX" : "FR",
+      alsoInSiblingMarket:
+        Boolean(t0.alsoInSiblingMarket) || marketView === "BOTH",
+    });
+  }, [composerGroup, marketView, batchCacheMarket]);
 
   const toggleExpand = useCallback(
     async (target: Target) => {
@@ -1861,10 +1881,16 @@ export default function OutreachPage() {
         </div>
       </div>
 
-      {activeTab === "TO_CONTACT" && !loading && batchBrandGroups.length > 0 && (
+      {(activeTab === "TO_CONTACT" || activeTab === "TO_RECONTACT") &&
+        !loading &&
+        batchBrandGroups.length > 0 && (
         <OutreachClientsBatchAnalyzeBar
-          market={market}
+          market={batchCacheMarket}
+          readBothMarkets={marketView === "BOTH"}
           brands={batchBrandGroups}
+          fileLabel={
+            activeTab === "TO_RECONTACT" ? "À recontacter" : "À contacter"
+          }
           onFlash={(kind, message) => flash(kind, message)}
         />
       )}
@@ -2701,7 +2727,7 @@ export default function OutreachPage() {
         initialBrandResearch={
           composerGroup && composerResearchBrandName
             ? lookupOutreachBrandCache(
-                loadOutreachBrandResearchCache(composerCacheMarket),
+                loadOutreachBrandResearchCacheMarkets(composerCacheMarkets),
                 composerResearchBrandName
               )
             : null
@@ -2709,7 +2735,7 @@ export default function OutreachPage() {
         initialTalentResearch={
           composerGroup && composerResearchBrandName
             ? lookupOutreachBrandCache(
-                loadOutreachTalentResearchCache(composerCacheMarket),
+                loadOutreachTalentResearchCacheMarkets(composerCacheMarkets),
                 composerResearchBrandName
               )
             : null
@@ -2717,20 +2743,33 @@ export default function OutreachPage() {
         initialLeynaExchange={
           composerGroup && composerResearchBrandName
             ? lookupOutreachBrandCache(
-                loadOutreachLeynaExchangeCache(composerCacheMarket),
+                loadOutreachLeynaExchangeCacheMarkets(composerCacheMarkets),
                 composerResearchBrandName
               )
             : null
         }
         onBrandResearchCached={(brandName, research) => {
           // Uniquement sous la marque pitchée — pas sous le nom d’agence.
-          cacheOutreachBrandResearch(composerCacheMarket, brandName, research);
+          // FR+BE : écrit les deux caches pour retrouver l’analyse partout.
+          cacheOutreachBrandResearchMarkets(
+            composerCacheMarkets,
+            brandName,
+            research
+          );
         }}
         onTalentResearchCached={(brandName, research) => {
-          cacheOutreachTalentResearch(composerCacheMarket, brandName, research);
+          cacheOutreachTalentResearchMarkets(
+            composerCacheMarkets,
+            brandName,
+            research
+          );
         }}
         onLeynaExchangeCached={(brandName, research) => {
-          cacheOutreachLeynaExchange(composerCacheMarket, brandName, research);
+          cacheOutreachLeynaExchangeMarkets(
+            composerCacheMarkets,
+            brandName,
+            research
+          );
         }}
         onClose={() => setComposerGroup(null)}
         onSaved={handleComposerSaved}

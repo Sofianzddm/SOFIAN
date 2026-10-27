@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  cacheOutreachBrandResearch,
+  cacheOutreachBrandResearchMarkets,
   hasOutreachBrandCacheEntry,
-  loadOutreachBrandResearchCache,
+  loadOutreachBrandResearchCacheMarkets,
+  outreachCacheMarketsForContact,
   type OutreachCachedBrandResearch,
 } from "@/lib/outreach-clients-batch-cache";
 
@@ -19,7 +20,19 @@ export type OutreachBatchBrandGroup = {
 };
 
 type Props = {
+  /**
+   * Marché de la vue (Unique FR / Unique BE).
+   * En vue FR+BE le parent passe "FR" + `readBothMarkets` pour ne pas
+   * perdre le cache écrit côté Benelux (ou l’inverse).
+   */
   market: "FR" | "BENELUX";
+  /**
+   * Vue FR+BE : lit/écrit FR et BENELUX pour chaque marque (un seul mail,
+   * analyses partagées quel que soit le pipeline primaire).
+   */
+  readBothMarkets?: boolean;
+  /** Libellé de la file (À contacter / À recontacter) pour le texte d’aide. */
+  fileLabel?: string;
   brands: OutreachBatchBrandGroup[];
   onFlash?: (kind: "success" | "error", message: string) => void;
 };
@@ -64,6 +77,8 @@ async function mapPool<T>(
  */
 export default function OutreachClientsBatchAnalyzeBar({
   market,
+  readBothMarkets = false,
+  fileLabel = "À contacter",
   brands,
   onFlash,
 }: Props) {
@@ -75,8 +90,15 @@ export default function OutreachClientsBatchAnalyzeBar({
   const [failed, setFailed] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
 
+  /** Marchés à fusionner pour le décompte / pending (vue FR+BE → FR∪BE). */
+  const viewCacheMarkets = useMemo(
+    (): Array<"FR" | "BENELUX"> =>
+      readBothMarkets ? ["FR", "BENELUX"] : [market],
+    [readBothMarkets, market]
+  );
+
   const refreshCacheCount = useCallback(() => {
-    const cache = loadOutreachBrandResearchCache(market);
+    const cache = loadOutreachBrandResearchCacheMarkets(viewCacheMarkets);
     let n = 0;
     for (const g of brands) {
       const pitches = pitchBrandsForGroup(g);
@@ -88,7 +110,7 @@ export default function OutreachClientsBatchAnalyzeBar({
       }
     }
     setBrandCacheCount(n);
-  }, [market, brands]);
+  }, [viewCacheMarkets, brands]);
 
   useEffect(() => {
     refreshCacheCount();
@@ -96,7 +118,7 @@ export default function OutreachClientsBatchAnalyzeBar({
 
   /** Marques pitchées encore sans cache (1 entrée = 1 marque, pas le groupe). */
   const pendingPitches = useMemo(() => {
-    const cache = loadOutreachBrandResearchCache(market);
+    const cache = loadOutreachBrandResearchCacheMarkets(viewCacheMarkets);
     const out: Array<{ brandName: string; pipeline?: "FR" | "BENELUX"; alsoInSiblingMarket?: boolean }> =
       [];
     const seen = new Set<string>();
@@ -109,13 +131,13 @@ export default function OutreachClientsBatchAnalyzeBar({
           out.push({
             brandName,
             pipeline: g.pipeline,
-            alsoInSiblingMarket: g.alsoInSiblingMarket,
+            alsoInSiblingMarket: g.alsoInSiblingMarket || readBothMarkets,
           });
         }
       }
     }
     return out;
-  }, [brands, market, brandCacheCount]);
+  }, [brands, viewCacheMarkets, brandCacheCount, readBothMarkets]);
 
   async function runBatchBrandResearch() {
     if (running) return;
@@ -168,8 +190,14 @@ export default function OutreachClientsBatchAnalyzeBar({
       }
       // Cache uniquement sous la marque pitchée — jamais sous le nom d’agence
       // (évite de réutiliser une analyse Kiko pour une autre marque Nice Work).
-      cacheOutreachBrandResearch(
-        market,
+      // FR+BE : écrit FR et BENELUX pour que le composer retrouve l’analyse
+      // quel que soit le pipeline primaire.
+      const markets = outreachCacheMarketsForContact({
+        pipeline: t.pipeline || market,
+        alsoInSiblingMarket: t.alsoInSiblingMarket || readBothMarkets,
+      });
+      cacheOutreachBrandResearchMarkets(
+        markets,
         brandName,
         data as OutreachCachedBrandResearch
       );
@@ -237,7 +265,7 @@ export default function OutreachClientsBatchAnalyzeBar({
           <p className="m-0 text-xs leading-snug text-slate-500">
             {running
               ? `Analyse marques · ${current || "…"}`
-              : `Prépare l’étape 1 : analyser les marques À contacter (${brandCacheCount}/${brands.length} en cache). Ensuite, marque par marque : sélection talents → analyse → boîte Leyna.`}
+              : `Prépare l’étape 1 : analyser les marques ${fileLabel} (${brandCacheCount}/${brands.length} en cache). Ensuite, marque par marque : sélection talents → analyse → boîte Leyna.`}
           </p>
           {running && (
             <div className="mt-2.5">

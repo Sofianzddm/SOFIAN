@@ -128,9 +128,40 @@ export function hasOutreachBrandCacheEntry(
   return lookupOutreachBrandCache(cache, ...names) != null;
 }
 
+/** Marchés à lire/écrire pour un contact (FR+BE → les deux caches). */
+export function outreachCacheMarketsForContact(opts: {
+  pipeline?: "FR" | "BENELUX" | null;
+  alsoInSiblingMarket?: boolean;
+}): Array<"FR" | "BENELUX"> {
+  if (opts.alsoInSiblingMarket) return ["FR", "BENELUX"];
+  return [opts.pipeline === "BENELUX" ? "BENELUX" : "FR"];
+}
+
+/** Fusionne plusieurs caches marché (premier trouvé gagne par clé). */
+export function mergeOutreachCaches<T>(
+  caches: Array<Record<string, T>>
+): Record<string, T> {
+  const out: Record<string, T> = {};
+  for (const c of caches) {
+    for (const [k, v] of Object.entries(c)) {
+      if (out[k] == null) out[k] = v;
+    }
+  }
+  return out;
+}
+
 export function loadOutreachBrandResearchCache(market: "FR" | "BENELUX") {
   return loadJsonCache<OutreachCachedBrandResearch>(
     `po-brand-research:${outreachClientsCacheScope(market)}`
+  );
+}
+
+/** Charge et fusionne le cache marque sur un ou plusieurs marchés. */
+export function loadOutreachBrandResearchCacheMarkets(
+  markets: Array<"FR" | "BENELUX">
+) {
+  return mergeOutreachCaches(
+    markets.map((m) => loadOutreachBrandResearchCache(m))
   );
 }
 
@@ -150,6 +181,14 @@ export function loadOutreachTalentResearchCache(market: "FR" | "BENELUX") {
   );
 }
 
+export function loadOutreachTalentResearchCacheMarkets(
+  markets: Array<"FR" | "BENELUX">
+) {
+  return mergeOutreachCaches(
+    markets.map((m) => loadOutreachTalentResearchCache(m))
+  );
+}
+
 export function saveOutreachTalentResearchCache(
   market: "FR" | "BENELUX",
   cache: Record<string, OutreachCachedTalentResearchItem[]>
@@ -163,6 +202,14 @@ export function saveOutreachTalentResearchCache(
 export function loadOutreachLeynaExchangeCache(market: "FR" | "BENELUX") {
   return loadJsonCache<OutreachCachedLeynaExchange>(
     `po-leyna-exchange:v6:${outreachClientsCacheScope(market)}`
+  );
+}
+
+export function loadOutreachLeynaExchangeCacheMarkets(
+  markets: Array<"FR" | "BENELUX">
+) {
+  return mergeOutreachCaches(
+    markets.map((m) => loadOutreachLeynaExchangeCache(m))
   );
 }
 
@@ -187,6 +234,15 @@ export function cacheOutreachBrandResearch(
   saveOutreachBrandResearchCache(market, { ...prev, [key]: data });
 }
 
+/** Écrit l’analyse marque dans tous les marchés listés (ex. FR+BE). */
+export function cacheOutreachBrandResearchMarkets(
+  markets: Array<"FR" | "BENELUX">,
+  brandName: string,
+  data: OutreachCachedBrandResearch
+) {
+  for (const m of markets) cacheOutreachBrandResearch(m, brandName, data);
+}
+
 export function cacheOutreachTalentResearch(
   market: "FR" | "BENELUX",
   brandName: string,
@@ -198,6 +254,14 @@ export function cacheOutreachTalentResearch(
   saveOutreachTalentResearchCache(market, { ...prev, [key]: list });
 }
 
+export function cacheOutreachTalentResearchMarkets(
+  markets: Array<"FR" | "BENELUX">,
+  brandName: string,
+  list: OutreachCachedTalentResearchItem[]
+) {
+  for (const m of markets) cacheOutreachTalentResearch(m, brandName, list);
+}
+
 export function cacheOutreachLeynaExchange(
   market: "FR" | "BENELUX",
   brandName: string,
@@ -207,6 +271,14 @@ export function cacheOutreachLeynaExchange(
   if (!key) return;
   const prev = loadOutreachLeynaExchangeCache(market);
   saveOutreachLeynaExchangeCache(market, { ...prev, [key]: data });
+}
+
+export function cacheOutreachLeynaExchangeMarkets(
+  markets: Array<"FR" | "BENELUX">,
+  brandName: string,
+  data: OutreachCachedLeynaExchange
+) {
+  for (const m of markets) cacheOutreachLeynaExchange(m, brandName, data);
 }
 
 export { brandResearchKey };
