@@ -65,6 +65,31 @@ async function recoverStuck() {
       "[casting-fit-worker] castingIndivDraftItem absent du Prisma Client — resync schema + `pnpm exec prisma generate` + restart pm2."
     );
   }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const outreachItem = (prisma as any).castingOutreachDraftItem;
+  if (outreachItem?.updateMany) {
+    const stuckOutreach = await outreachItem.updateMany({
+      where: {
+        status: "running",
+        startedAt: { lt: cutoff },
+      },
+      data: {
+        status: "pending",
+        error: "Recovered stuck running outreach draft item (worker)",
+        startedAt: null,
+      },
+    });
+    if (stuckOutreach.count > 0) {
+      console.warn(
+        `[casting-fit-worker] recovered ${stuckOutreach.count} stuck outreach draft item(s)`
+      );
+    }
+  } else {
+    console.warn(
+      "[casting-fit-worker] castingOutreachDraftItem absent du Prisma Client — resync schema + `pnpm exec prisma generate` + restart pm2."
+    );
+  }
 }
 
 /** Cap soft : jobs actifs, traités en parallèle (1 item / job / tick). */

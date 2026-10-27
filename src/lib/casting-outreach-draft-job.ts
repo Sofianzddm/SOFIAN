@@ -638,7 +638,17 @@ export function kickOutreachDraftJobProcess(jobId: string): void {
     return;
   }
   if (process.env.VERCEL) {
-    kickOutreachDraftJobHttp(jobId);
+    // `after()` survit à la réponse HTTP ; un `void fetch` est souvent tué
+    // avant d’atteindre /process → jobs coincés en pending 0/N.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { after } = require("next/server") as typeof import("next/server");
+      after(() => {
+        kickOutreachDraftJobHttp(jobId);
+      });
+    } catch {
+      kickOutreachDraftJobHttp(jobId);
+    }
     return;
   }
   setTimeout(() => {

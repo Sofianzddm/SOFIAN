@@ -267,21 +267,24 @@ export async function processRosterFitJobTick(
         data: { completed: { increment: 1 } },
       });
       processed += 1;
-      // Rédaction dès que la marque est fittée (pas attendre la fin du lot).
-      void maybeChainDraftAfterBrandDone(job, {
-        groupKey: next.groupKey,
-        brandName: next.brandName,
-        company: next.company,
-        pipeline: next.pipeline,
-        targetIds: next.targetIds || [],
-        brandResearch: research,
-        result: talents,
-      }).catch((e) => {
+      // Await obligatoire : un `void` est tué dès la fin du tick serverless Vercel,
+      // donc aucun Casting*DraftJob n’était créé après le fit.
+      try {
+        await maybeChainDraftAfterBrandDone(job, {
+          groupKey: next.groupKey,
+          brandName: next.brandName,
+          company: next.company,
+          pipeline: next.pipeline,
+          targetIds: next.targetIds || [],
+          brandResearch: research,
+          result: talents,
+        });
+      } catch (e) {
         console.warn(
           `[roster-fit-job] chain draft after brand ${next.brandName}:`,
           e
         );
-      });
+      }
     } catch (e) {
       const msg =
         e instanceof Error ? e.message.slice(0, 500) : "Erreur analyse casting";
@@ -327,19 +330,24 @@ export async function processRosterFitJobTick(
       },
     });
     // Enchaîne rédaction serveur (marque + Leyna + mail) sans navigateur.
+    // Await : sinon le cron/serverless coupe avant createOutreachDraftJob.
     if (status === "completed" && finalJob) {
-      void maybeChainIndivDraftAfterFit(finalJob).catch((e) => {
+      try {
+        await maybeChainIndivDraftAfterFit(finalJob);
+      } catch (e) {
         console.warn(
           `[roster-fit-job] chain indiv draft after ${jobId}:`,
           e
         );
-      });
-      void maybeChainOutreachDraftAfterFit(finalJob).catch((e) => {
+      }
+      try {
+        await maybeChainOutreachDraftAfterFit(finalJob);
+      } catch (e) {
         console.warn(
           `[roster-fit-job] chain outreach draft after ${jobId}:`,
           e
         );
-      });
+      }
     }
     return {
       processed,
@@ -705,9 +713,17 @@ export function kickRosterFitJobProcess(jobId: string): void {
   if (process.env.CASTING_FIT_EXTERNAL_WORKER === "1") {
     return;
   }
-  // Vercel : une seule requête = un tick HTTP ; le process route se re-kick.
+  // Vercel : `after()` pour que le re-kick survive à la fin de la réponse.
   if (process.env.VERCEL) {
-    kickRosterFitJobHttp(jobId);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { after } = require("next/server") as typeof import("next/server");
+      after(() => {
+        kickRosterFitJobHttp(jobId);
+      });
+    } catch {
+      kickRosterFitJobHttp(jobId);
+    }
     return;
   }
   // VPS / local : chaîne in-process (survit à la fermeture de page).

@@ -1,7 +1,12 @@
-# Worker casting roster-fit (VPS)
+# Worker casting (VPS) — fit + rédaction serveur
 
-Fait tourner l’analyse casting **en continu** sur le VPS (même DB Neon que Vercel).  
-Tu quittes la page → le job avance sans timeout serverless.
+Fait tourner en continu sur le VPS (même DB Neon que Vercel) :
+
+1. **Roster fit** (analyse casting marque / talent)
+2. **Rédaction outreach** (`CastingOutreachDraftJob`)
+3. **Rédaction pipeline indiv** (`CastingIndivDraftJob`)
+
+Tu quittes la page → les jobs avancent sans timeout serverless.
 
 ## Prérequis
 
@@ -19,7 +24,7 @@ Créer `/opt/glowup-casting-worker/.env` (ou `.env` à la racine du clone) :
 ```bash
 DATABASE_URL="postgresql://…neon…"   # même que Vercel
 XAI_API_KEY="…"                      # même que Vercel
-APP_URL="https://app.glowupagence.fr"  # requis pour jobs indiv (brand/talent/email)
+APP_URL="https://app.glowupagence.fr"  # requis (brand/talent/email)
 CRON_SECRET="…"                      # même que Vercel (auth appels internes)
 CASTING_FIT_POLL_MS=5000             # optionnel
 ```
@@ -44,15 +49,19 @@ pm2 startup
 
 ## Côté Vercel
 
-Ajouter :
+**Obligatoire** (valeur exacte `1`, pas vide) :
 
 ```
 CASTING_FIT_EXTERNAL_WORKER=1
 ```
 
-→ l’app crée le job en DB et **laisse le VPS worker le consommer** (plus de dépendance aux ticks serverless).
+→ l’app crée le job en DB et **laisse le VPS worker le consommer**.
 
-Le cron `/api/cron/casting-roster-fit` reste un filet si le worker est down.
+Le cron `/api/cron/casting-roster-fit` (toutes les 2 min) reste un filet pour :
+
+- roster-fit coincés
+- rédaction outreach coincée
+- rédaction indiv coincée
 
 ## Ops
 
@@ -62,7 +71,7 @@ pm2 logs casting-roster-fit-worker
 pm2 restart casting-roster-fit-worker
 ```
 
-Jobs **parallèles illimités** (FR / BENELUX / BOTH / onglets) : le worker prend jusqu’à `CASTING_FIT_MAX_PARALLEL` (défaut 40) jobs actifs et avance **1 marque / job** en parallèle à chaque tick.
+Jobs parallèles : jusqu’à `CASTING_FIT_MAX_PARALLEL` (défaut 40) jobs actifs, **1 marque / job** par tick.
 
 ## Upgrade
 
@@ -73,3 +82,5 @@ pnpm install --frozen-lockfile
 pnpm exec prisma generate
 pm2 restart casting-roster-fit-worker
 ```
+
+Sans ce restart après un pull qui ajoute outreach/indiv draft, les rédactions restent en `pending` à 0/N.
