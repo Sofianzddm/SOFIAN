@@ -1108,26 +1108,6 @@ export default function OutreachCastingWizard({
     };
   }, [stopFitPoll]);
 
-  const cancelFitJob = useCallback(async () => {
-    if (!fitJobId) {
-      stopFitPoll();
-      setFitRunning(false);
-      return;
-    }
-    try {
-      await fetch(`/api/casting/roster-fit-jobs/${fitJobId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-    } catch {
-      /* ignore */
-    }
-    stopFitPoll();
-    setFitRunning(false);
-    setFitJobId(null);
-    onFlash?.("error", "Arrêt demandé — le serveur s’arrête à la marque en cours.");
-  }, [fitJobId, stopFitPoll, onFlash]);
-
   const runRosterFitBatch = useCallback(async () => {
     if (fitRunning || phase !== "casting") return;
     if (talents.length === 0) {
@@ -1673,6 +1653,74 @@ export default function OutreachCastingWizard({
       serverDraftPollRef.current = null;
     }
   }, []);
+
+  const cancelFitJob = useCallback(async () => {
+    // Stop fit + rédaction serveur (sinon Arrêter laisse les mails continuer).
+    pendingServerDraftKeysRef.current = new Set();
+    serverDraftQueuedRef.current = new Set();
+    serverDraftStartingRef.current = false;
+    autoWriteQueueRef.current = [];
+    setAutoWriteQueueLen(0);
+    setAutoWriteCurrent("");
+    try {
+      if (lockedTalentId) {
+        sessionStorage.removeItem(
+          `casting-indiv-pending-draft:${lockedTalentId}`
+        );
+      } else {
+        sessionStorage.removeItem(
+          `casting-outreach-pending-draft:${fitMarketKey}`
+        );
+      }
+    } catch {
+      /* ignore */
+    }
+
+    if (fitJobId) {
+      try {
+        await fetch(`/api/casting/roster-fit-jobs/${fitJobId}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+    stopFitPoll();
+    setFitRunning(false);
+    setFitJobId(null);
+
+    if (serverDraftJobId) {
+      try {
+        const path = lockedTalentId
+          ? `/api/casting/indiv-draft-jobs/${serverDraftJobId}`
+          : `/api/casting/outreach-draft-jobs/${serverDraftJobId}`;
+        await fetch(path, { method: "DELETE", credentials: "include" });
+      } catch {
+        /* ignore */
+      }
+    }
+    stopServerDraftPoll();
+    setServerDraftRunning(false);
+    setServerDraftJobId(null);
+    setServerDraftCurrent("");
+    setServerDraftDone(0);
+    setServerDraftTotal(0);
+    setServerDraftFailed(0);
+
+    onFlash?.(
+      "error",
+      "Arrêt demandé — fit + rédaction serveur stoppés (marque / mail en cours peut finir)."
+    );
+  }, [
+    fitJobId,
+    serverDraftJobId,
+    lockedTalentId,
+    fitMarketKey,
+    stopFitPoll,
+    stopServerDraftPoll,
+    onFlash,
+  ]);
 
   const pollIndivServerDraft = useCallback(
     async (jobId: string) => {
@@ -3428,14 +3476,16 @@ export default function OutreachCastingWizard({
                         ? "Marque + fit + Leyna + mails serveur (tu peux quitter)"
                         : "Rédiger auto après fit (serveur, tu peux quitter)"}
                     </label>
-                    {fitRunning ? (
+                    {fitRunning || serverDraftRunning ? (
                       <button
                         type="button"
                         onClick={() => void cancelFitJob()}
                         className="rounded-lg border px-3 py-1.5 text-xs font-medium"
                         style={{ borderColor: "#E5E0DA", color: LICORICE }}
                       >
-                        Arrêter casting
+                        {serverDraftRunning && !fitRunning
+                          ? "Arrêter rédaction"
+                          : "Arrêter casting"}
                       </button>
                     ) : null}
                   </>
