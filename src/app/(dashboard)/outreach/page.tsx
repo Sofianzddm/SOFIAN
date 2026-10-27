@@ -852,11 +852,19 @@ export default function OutreachPage() {
             g.targets.flatMap((t) => t.coveredBrands || []).map((b) => b.trim()).filter(Boolean)
           )
         );
+        const emails = Array.from(
+          new Set(
+            g.targets
+              .map((t) => (t.email || "").trim().toLowerCase())
+              .filter((e) => e.includes("@"))
+          )
+        );
         const t0 = g.targets[0];
         return {
           groupKey: g.groupKey,
           company: g.company,
           coveredBrands: covered,
+          emails,
           pipeline: (t0?.pipeline === "BENELUX" ? "BENELUX" : "FR") as Market,
           alsoInSiblingMarket: Boolean(t0?.alsoInSiblingMarket),
         };

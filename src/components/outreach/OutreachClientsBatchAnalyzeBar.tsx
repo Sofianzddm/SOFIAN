@@ -3,10 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   cacheOutreachBrandResearchMarkets,
+  cacheOutreachLeynaExchangeMarkets,
   hasOutreachBrandCacheEntry,
   loadOutreachBrandResearchCacheMarkets,
+  loadOutreachLeynaExchangeCacheMarkets,
+  loadOutreachTalentResearchCacheMarkets,
+  lookupOutreachBrandCache,
   outreachCacheMarketsForContact,
   type OutreachCachedBrandResearch,
+  type OutreachCachedLeynaExchange,
 } from "@/lib/outreach-clients-batch-cache";
 
 export type OutreachBatchBrandGroup = {
@@ -14,6 +19,8 @@ export type OutreachBatchBrandGroup = {
   company: string;
   /** Sous-marques couvertes (ex. Dove, Axe) — même logique que CastingComposer. */
   coveredBrands?: string[];
+  /** Emails contacts du groupe (scan Leyna). */
+  emails?: string[];
   /** Pipeline dominant du groupe (pour availabilityFocus). */
   pipeline?: "FR" | "BENELUX";
   alsoInSiblingMarket?: boolean;
@@ -37,6 +44,14 @@ type Props = {
   onFlash?: (kind: "success" | "error", message: string) => void;
 };
 
+type PitchTarget = {
+  brandName: string;
+  company: string;
+  emails: string[];
+  pipeline?: "FR" | "BENELUX";
+  alsoInSiblingMarket?: boolean;
+};
+
 /** Une entrée de recherche = une marque pitchée (jamais un join multi-marques). */
 function pitchBrandsForGroup(g: OutreachBatchBrandGroup): string[] {
   const covered = (g.coveredBrands || [])
@@ -45,6 +60,36 @@ function pitchBrandsForGroup(g: OutreachBatchBrandGroup): string[] {
   if (covered.length > 0) return Array.from(new Set(covered));
   const company = (g.company || "").trim();
   return company ? [company] : [];
+}
+
+function pitchesForBrands(
+  brands: OutreachBatchBrandGroup[],
+  readBothMarkets: boolean
+): PitchTarget[] {
+  const out: PitchTarget[] = [];
+  const seen = new Set<string>();
+  for (const g of brands) {
+    const emails = Array.from(
+      new Set(
+        (g.emails || [])
+          .map((e) => String(e || "").trim().toLowerCase())
+          .filter((e) => e.includes("@"))
+      )
+    );
+    for (const brandName of pitchBrandsForGroup(g)) {
+      const key = brandName.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        brandName,
+        company: (g.company || "").trim(),
+        emails,
+        pipeline: g.pipeline,
+        alsoInSiblingMarket: g.alsoInSiblingMarket || readBothMarkets,
+      });
+    }
+  }
+  return out;
 }
 
 async function mapPool<T>(
@@ -71,9 +116,9 @@ async function mapPool<T>(
 }
 
 /**
- * Prépare l’étape 1 du composer Outreach Clients :
- * analyse toutes les marques « À contacter ».
- * Sélection talents + Leyna restent dans le CastingComposer, marque par marque.
+ * Prépare les étapes 1–2 du composer Outreach Clients :
+ * 1) analyse marques  →  2) scan boîte Leyna.
+ * Sélection / analyse talents restent marque par marque dans le CastingComposer.
  */
 export default function OutreachClientsBatchAnalyzeBar({
   market,
@@ -83,7 +128,10 @@ export default function OutreachClientsBatchAnalyzeBar({
   onFlash,
 }: Props) {
   const [brandCacheCount, setBrandCacheCount] = useState(0);
-  const [running, setRunning] = useState(false);
+  const [leynaCacheCount, setLeynaCacheCount] = useState(0);
+  const [runningKind, setRunningKind] = useState<"brand" | "leyna" | null>(
+    null
+  );
   const [done, setDone] = useState(0);
   const [total, setTotal] = useState(0);
   const [current, setCurrent] = useState("");
@@ -97,47 +145,62 @@ export default function OutreachClientsBatchAnalyzeBar({
     [readBothMarkets, market]
   );
 
+  const allPitches = useMemo(
+    () => pitchesForBrands(brands, readBothMarkets),
+    [brands, readBothMarkets]
+  );
+
   const refreshCacheCount = useCallback(() => {
-    const cache = loadOutreachBrandResearchCacheMarkets(viewCacheMarkets);
-    let n = 0;
+    const brandCache = loadOutreachBrandResearchCacheMarkets(viewCacheMarkets);
+    const leynaCache = loadOutreachLeynaExchangeCacheMarkets(viewCacheMarkets);
+    let brandsOk = 0;
+    let leynaOk = 0;
     for (const g of brands) {
       const pitches = pitchBrandsForGroup(g);
       if (
         pitches.length > 0 &&
-        pitches.every((p) => hasOutreachBrandCacheEntry(cache, p))
+        pitches.every((p) => hasOutreachBrandCacheEntry(brandCache, p))
       ) {
-        n += 1;
+        brandsOk += 1;
+      }
+      if (
+        pitches.length > 0 &&
+        pitches.every((p) => hasOutreachBrandCacheEntry(leynaCache, p))
+      ) {
+        leynaOk += 1;
       }
     }
-    setBrandCacheCount(n);
+    setBrandCacheCount(brandsOk);
+    setLeynaCacheCount(leynaOk);
   }, [viewCacheMarkets, brands]);
 
   useEffect(() => {
     refreshCacheCount();
   }, [refreshCacheCount]);
 
-  /** Marques pitchées encore sans cache (1 entrée = 1 marque, pas le groupe). */
-  const pendingPitches = useMemo(() => {
+  /** Marques pitchées encore sans cache marque. */
+  const pendingBrandPitches = useMemo(() => {
     const cache = loadOutreachBrandResearchCacheMarkets(viewCacheMarkets);
-    const out: Array<{ brandName: string; pipeline?: "FR" | "BENELUX"; alsoInSiblingMarket?: boolean }> =
-      [];
-    const seen = new Set<string>();
-    for (const g of brands) {
-      for (const brandName of pitchBrandsForGroup(g)) {
-        const key = brandName.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        if (!hasOutreachBrandCacheEntry(cache, brandName)) {
-          out.push({
-            brandName,
-            pipeline: g.pipeline,
-            alsoInSiblingMarket: g.alsoInSiblingMarket || readBothMarkets,
-          });
-        }
-      }
-    }
-    return out;
-  }, [brands, viewCacheMarkets, brandCacheCount, readBothMarkets]);
+    return allPitches.filter(
+      (t) => !hasOutreachBrandCacheEntry(cache, t.brandName)
+    );
+  }, [allPitches, viewCacheMarkets, brandCacheCount]);
+
+  /**
+   * Scan Leyna manquant — uniquement pour les marques déjà analysées
+   * (étape 1 avant étape 2).
+   */
+  const pendingLeynaPitches = useMemo(() => {
+    const brandCache = loadOutreachBrandResearchCacheMarkets(viewCacheMarkets);
+    const leynaCache = loadOutreachLeynaExchangeCacheMarkets(viewCacheMarkets);
+    return allPitches.filter(
+      (t) =>
+        hasOutreachBrandCacheEntry(brandCache, t.brandName) &&
+        !hasOutreachBrandCacheEntry(leynaCache, t.brandName)
+    );
+  }, [allPitches, viewCacheMarkets, brandCacheCount, leynaCacheCount]);
+
+  const running = runningKind !== null;
 
   async function runBatchBrandResearch() {
     if (running) return;
@@ -145,11 +208,11 @@ export default function OutreachClientsBatchAnalyzeBar({
       onFlash?.("success", "Aucune marque à analyser.");
       return;
     }
-    const targets = pendingPitches;
+    const targets = pendingBrandPitches;
     if (targets.length === 0) {
       onFlash?.(
         "success",
-        `Toutes les marques sont déjà analysées (${brands.length} groupe${brands.length > 1 ? "s" : ""}).`
+        `Toutes les marques sont déjà analysées (${brands.length} groupe${brands.length > 1 ? "s" : ""}). Tu peux enchaîner sur la boîte Leyna.`
       );
       return;
     }
@@ -157,7 +220,7 @@ export default function OutreachClientsBatchAnalyzeBar({
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
-    setRunning(true);
+    setRunningKind("brand");
     setDone(0);
     setTotal(targets.length);
     setFailed(0);
@@ -166,7 +229,7 @@ export default function OutreachClientsBatchAnalyzeBar({
     let ok = 0;
     let fail = 0;
 
-    const analyzeOne = async (t: (typeof targets)[number]) => {
+    const analyzeOne = async (t: PitchTarget) => {
       const brandName = t.brandName;
       const availabilityFocus: "FR" | "BE" =
         t.pipeline === "BENELUX" && !t.alsoInSiblingMarket ? "BE" : "FR";
@@ -188,10 +251,6 @@ export default function OutreachClientsBatchAnalyzeBar({
             : "Analyse marque impossible"
         );
       }
-      // Cache uniquement sous la marque pitchée — jamais sous le nom d’agence
-      // (évite de réutiliser une analyse Kiko pour une autre marque Nice Work).
-      // FR+BE : écrit FR et BENELUX pour que le composer retrouve l’analyse
-      // quel que soit le pipeline primaire.
       const markets = outreachCacheMarketsForContact({
         pipeline: t.pipeline || market,
         alsoInSiblingMarket: t.alsoInSiblingMarket || readBothMarkets,
@@ -231,23 +290,167 @@ export default function OutreachClientsBatchAnalyzeBar({
       } else {
         onFlash?.(
           "success",
-          `Marques analysées (${ok}). Ouvre « Rédiger le mail » → choisis la marque si besoin → talents → Leyna.`
+          `Marques analysées (${ok}). Enchaîne avec « Analyser boîte Leyna ».`
         );
       }
     } finally {
       if (!ac.signal.aborted) {
-        setRunning(false);
+        setRunningKind(null);
+        setCurrent("");
+      }
+    }
+  }
+
+  async function runBatchLeynaScan() {
+    if (running) return;
+    if (brands.length === 0) {
+      onFlash?.("success", "Aucune marque à scanner.");
+      return;
+    }
+    if (pendingBrandPitches.length > 0) {
+      onFlash?.(
+        "error",
+        `Analyse d’abord les marques (${pendingBrandPitches.length} restante${pendingBrandPitches.length > 1 ? "s" : ""}), puis la boîte Leyna.`
+      );
+      return;
+    }
+    const targets = pendingLeynaPitches;
+    if (targets.length === 0) {
+      onFlash?.(
+        "success",
+        `Boîte Leyna déjà scannée (${leynaCacheCount}/${brands.length}). Ouvre « Rédiger le mail » → talents → rédaction.`
+      );
+      return;
+    }
+
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setRunningKind("leyna");
+    setDone(0);
+    setTotal(targets.length);
+    setFailed(0);
+    setCurrent(targets[0]?.brandName || "");
+
+    const talentCache = loadOutreachTalentResearchCacheMarkets(viewCacheMarkets);
+    let ok = 0;
+    let fail = 0;
+
+    const analyzeOne = async (t: PitchTarget) => {
+      const brandName = t.brandName;
+      const agencyName =
+        t.company && t.company.toLowerCase() !== brandName.toLowerCase()
+          ? t.company
+          : undefined;
+      const talentCached =
+        lookupOutreachBrandCache(talentCache, brandName) || [];
+      const talentNames = talentCached
+        .map((x) => String(x.name || "").trim())
+        .filter(Boolean);
+      const res = await fetch("/api/casting/leyna-exchange-context", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        signal: ac.signal,
+        body: JSON.stringify({
+          recipientEmails: t.emails,
+          brandName,
+          agencyName,
+          talentNames,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : "Scan boîte Leyna impossible"
+        );
+      }
+      const ctx = (data?.context || {
+        hasExchange: false,
+      }) as OutreachCachedLeynaExchange & {
+        hasSentNoReplyOnly?: boolean;
+        scanStatus?: "ok" | "empty" | "failed";
+        fetchedAt?: string | null;
+        promptBlockFr?: string;
+        promptBlockEn?: string;
+      };
+      const markets = outreachCacheMarketsForContact({
+        pipeline: t.pipeline || market,
+        alsoInSiblingMarket: t.alsoInSiblingMarket || readBothMarkets,
+      });
+      cacheOutreachLeynaExchangeMarkets(markets, brandName, {
+        hasExchange: Boolean(ctx.hasExchange),
+        tone: ctx.tone ?? null,
+        bannerLabel: ctx.bannerLabel ?? null,
+        alerts: Array.isArray(ctx.alerts) ? ctx.alerts : [],
+        contacts: Array.isArray(ctx.contacts) ? ctx.contacts : [],
+        ...(ctx.hasSentNoReplyOnly != null
+          ? { hasSentNoReplyOnly: ctx.hasSentNoReplyOnly }
+          : {}),
+        ...(ctx.scanStatus ? { scanStatus: ctx.scanStatus } : {}),
+        ...(ctx.fetchedAt != null ? { fetchedAt: ctx.fetchedAt } : {}),
+        ...(ctx.promptBlockFr != null
+          ? { promptBlockFr: ctx.promptBlockFr }
+          : {}),
+        ...(ctx.promptBlockEn != null
+          ? { promptBlockEn: ctx.promptBlockEn }
+          : {}),
+      } as OutreachCachedLeynaExchange);
+    };
+
+    try {
+      await mapPool(targets, 2, async (t) => {
+        if (ac.signal.aborted) return;
+        setCurrent(t.brandName);
+        try {
+          await analyzeOne(t);
+          ok += 1;
+        } catch (e) {
+          if (ac.signal.aborted) return;
+          fail += 1;
+          console.error(`[outreach-batch] leyna-exchange ${t.brandName}:`, e);
+        } finally {
+          if (!ac.signal.aborted) {
+            setDone((d) => d + 1);
+            setFailed(fail);
+          }
+        }
+      });
+      if (ac.signal.aborted) return;
+      refreshCacheCount();
+      if (fail > 0) {
+        onFlash?.(
+          "error",
+          `Leyna OK ${ok}/${targets.length}. ${fail} en échec — relance le bouton.`
+        );
+      } else {
+        onFlash?.(
+          "success",
+          `Boîte Leyna scannée (${ok}). Ouvre « Rédiger le mail » → talents → rédaction.`
+        );
+      }
+    } finally {
+      if (!ac.signal.aborted) {
+        setRunningKind(null);
         setCurrent("");
       }
     }
   }
 
   function stop() {
+    const kind = runningKind;
     abortRef.current?.abort();
-    setRunning(false);
+    setRunningKind(null);
     setCurrent("");
     refreshCacheCount();
-    onFlash?.("success", "Analyse marques interrompue — cache conservé.");
+    onFlash?.(
+      "success",
+      kind === "leyna"
+        ? "Scan Leyna interrompu — cache conservé."
+        : "Analyse marques interrompue — cache conservé."
+    );
   }
 
   const btnBase =
@@ -258,21 +461,30 @@ export default function OutreachClientsBatchAnalyzeBar({
   const pct =
     total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
 
+  const brandsDone =
+    brandCacheCount >= brands.length && brands.length > 0;
+  const leynaDone =
+    leynaCacheCount >= brands.length && brands.length > 0;
+
   return (
     <div className="mb-4 w-full rounded-xl border border-slate-200 bg-white p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="m-0 text-xs leading-snug text-slate-500">
-            {running
-              ? `Analyse marques · ${current || "…"}`
-              : `Prépare l’étape 1 : analyser les marques ${fileLabel} (${brandCacheCount}/${brands.length} en cache). Ensuite, marque par marque : sélection talents → analyse → boîte Leyna.`}
+            {runningKind === "brand"
+              ? `Étape 1 · Analyse marques · ${current || "…"}`
+              : runningKind === "leyna"
+                ? `Étape 2 · Boîte Leyna · ${current || "…"}`
+                : `Étape 1 : marques ${fileLabel} (${brandCacheCount}/${brands.length}) → étape 2 : boîte Leyna (${leynaCacheCount}/${brands.length}). Ensuite, marque par marque : talents → rédaction.`}
           </p>
           {running && (
             <div className="mt-2.5">
               <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
                 <span>
-                  Marques {done}/{total}
-                  {failed > 0 ? ` · ${failed} échec${failed > 1 ? "s" : ""}` : ""}
+                  {runningKind === "leyna" ? "Leyna" : "Marques"} {done}/{total}
+                  {failed > 0
+                    ? ` · ${failed} échec${failed > 1 ? "s" : ""}`
+                    : ""}
                 </span>
                 <span>{pct}%</span>
               </div>
@@ -297,29 +509,58 @@ export default function OutreachClientsBatchAnalyzeBar({
               Arrêter
             </button>
           ) : (
-            <button
-              type="button"
-              className={btnPrimary}
-              style={{ background: "#0f172a" }}
-              disabled={brands.length === 0}
-              onClick={() => void runBatchBrandResearch()}
-              title="Analyse toutes les marques pas encore en cache"
-            >
-              {pendingPitches.length > 0 && brandCacheCount > 0 ? (
-                <>Analyser les marques restantes ({pendingPitches.length})</>
-              ) : brandCacheCount >= brands.length && brands.length > 0 ? (
-                <>Marques déjà analysées ({brands.length})</>
-              ) : (
-                <>
-                  Analyser toutes les marques
-                  {pendingPitches.length > 0
-                    ? ` (${pendingPitches.length})`
-                    : brands.length > 0
-                      ? ` (${brands.length})`
+            <>
+              <button
+                type="button"
+                className={btnPrimary}
+                style={{ background: "#0f172a" }}
+                disabled={brands.length === 0}
+                onClick={() => void runBatchBrandResearch()}
+                title="Étape 1 — analyse toutes les marques pas encore en cache"
+              >
+                {pendingBrandPitches.length > 0 && brandCacheCount > 0 ? (
+                  <>Analyser les marques restantes ({pendingBrandPitches.length})</>
+                ) : brandsDone ? (
+                  <>1. Marques OK ({brands.length})</>
+                ) : (
+                  <>
+                    1. Analyser les marques
+                    {pendingBrandPitches.length > 0
+                      ? ` (${pendingBrandPitches.length})`
+                      : brands.length > 0
+                        ? ` (${brands.length})`
+                        : ""}
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                className={btnPrimary}
+                style={{
+                  background: brandsDone ? "#0f172a" : "#94a3b8",
+                }}
+                disabled={brands.length === 0 || !brandsDone}
+                onClick={() => void runBatchLeynaScan()}
+                title={
+                  brandsDone
+                    ? "Étape 2 — scan historique Leyna pour les marques analysées"
+                    : "D’abord terminer l’analyse des marques"
+                }
+              >
+                {pendingLeynaPitches.length > 0 && leynaCacheCount > 0 ? (
+                  <>Analyser Leyna restantes ({pendingLeynaPitches.length})</>
+                ) : leynaDone ? (
+                  <>2. Leyna OK ({brands.length})</>
+                ) : (
+                  <>
+                    2. Analyser boîte Leyna
+                    {brandsDone && pendingLeynaPitches.length > 0
+                      ? ` (${pendingLeynaPitches.length})`
                       : ""}
-                </>
-              )}
-            </button>
+                  </>
+                )}
+              </button>
+            </>
           )}
         </div>
       </div>
