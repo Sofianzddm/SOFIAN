@@ -1373,9 +1373,9 @@ export default function CastingComposer({
       if (list.length > 0) {
         onTalentResearchCached?.(researchBrandName.trim(), list);
       }
-      // Nouvelle analyse talent → historique Leyna à relancer (étape dédiée).
-      setLeynaExchange(null);
-      setLeynaExchangeChecked(false);
+      // Ne plus wipe Leyna : le scan boîte (marque + emails) reste valide après
+      // l’analyse créateurs. Sinon le batch « Analyser boîte Leyna » / un scan
+      // manuel était perdu dès qu’on analysait les talents.
       setPrepBriefConfirmed(false);
     } catch (e: unknown) {
       setTalentResearch(null);

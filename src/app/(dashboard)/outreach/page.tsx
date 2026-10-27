@@ -2735,34 +2735,42 @@ export default function OutreachPage() {
             : "fr"
         }
         initialBrandResearch={
-          composerGroup && composerResearchBrandName
+          composerGroup
             ? lookupOutreachBrandCache(
                 loadOutreachBrandResearchCacheMarkets(composerCacheMarkets),
-                composerResearchBrandName
+                composerResearchBrandName,
+                composerGroup.company,
+                ...composerCoveredBrands
               )
             : null
         }
         initialTalentResearch={
-          composerGroup && composerResearchBrandName
+          composerGroup
             ? lookupOutreachBrandCache(
                 loadOutreachTalentResearchCacheMarkets(composerCacheMarkets),
-                composerResearchBrandName
+                composerResearchBrandName,
+                composerGroup.company,
+                ...composerCoveredBrands
               )
             : null
         }
         initialSelectedTalentIds={
-          composerGroup && composerResearchBrandName
+          composerGroup
             ? lookupOutreachBrandCache(
                 loadOutreachSelectedTalentsCacheMarkets(composerCacheMarkets),
-                composerResearchBrandName
+                composerResearchBrandName,
+                composerGroup.company,
+                ...composerCoveredBrands
               )
             : null
         }
         initialLeynaExchange={
-          composerGroup && composerResearchBrandName
+          composerGroup
             ? lookupOutreachBrandCache(
                 loadOutreachLeynaExchangeCacheMarkets(composerCacheMarkets),
-                composerResearchBrandName
+                composerResearchBrandName,
+                composerGroup.company,
+                ...composerCoveredBrands
               )
             : null
         }
