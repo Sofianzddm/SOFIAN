@@ -40,20 +40,28 @@ async function recoverStuck() {
       `[casting-fit-worker] recovered ${stuckBrands.count} stuck roster brand(s)`
     );
   }
-  const stuckItems = await prisma.castingIndivDraftItem.updateMany({
-    where: {
-      status: "running",
-      startedAt: { lt: cutoff },
-    },
-    data: {
-      status: "pending",
-      error: "Recovered stuck running indiv item (worker)",
-      startedAt: null,
-    },
-  });
-  if (stuckItems.count > 0) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const indivItem = (prisma as any).castingIndivDraftItem;
+  if (indivItem?.updateMany) {
+    const stuckItems = await indivItem.updateMany({
+      where: {
+        status: "running",
+        startedAt: { lt: cutoff },
+      },
+      data: {
+        status: "pending",
+        error: "Recovered stuck running indiv item (worker)",
+        startedAt: null,
+      },
+    });
+    if (stuckItems.count > 0) {
+      console.warn(
+        `[casting-fit-worker] recovered ${stuckItems.count} stuck indiv item(s)`
+      );
+    }
+  } else {
     console.warn(
-      `[casting-fit-worker] recovered ${stuckItems.count} stuck indiv item(s)`
+      "[casting-fit-worker] castingIndivDraftItem absent du Prisma Client — resync schema + `pnpm exec prisma generate` + restart pm2."
     );
   }
 }
@@ -64,26 +72,29 @@ const MAX_PARALLEL_JOBS = Number(process.env.CASTING_FIT_MAX_PARALLEL || 40);
 async function loopOnce(): Promise<number> {
   await recoverStuck();
 
-  const [rosterJobs, indivJobs] = await Promise.all([
-    prisma.castingRosterFitJob.findMany({
-      where: {
-        status: { in: ["pending", "running"] },
-        cancelRequested: false,
-      },
-      orderBy: { createdAt: "asc" },
-      take: MAX_PARALLEL_JOBS,
-      select: { id: true },
-    }),
-    prisma.castingIndivDraftJob.findMany({
-      where: {
-        status: { in: ["pending", "running"] },
-        cancelRequested: false,
-      },
-      orderBy: { createdAt: "asc" },
-      take: MAX_PARALLEL_JOBS,
-      select: { id: true },
-    }),
-  ]);
+  const rosterJobs = await prisma.castingRosterFitJob.findMany({
+    where: {
+      status: { in: ["pending", "running"] },
+      cancelRequested: false,
+    },
+    orderBy: { createdAt: "asc" },
+    take: MAX_PARALLEL_JOBS,
+    select: { id: true },
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const indivJob = (prisma as any).castingIndivDraftJob;
+  const indivJobs: { id: string }[] = indivJob?.findMany
+    ? await indivJob.findMany({
+        where: {
+          status: { in: ["pending", "running"] },
+          cancelRequested: false,
+        },
+        orderBy: { createdAt: "asc" },
+        take: MAX_PARALLEL_JOBS,
+        select: { id: true },
+      })
+    : [];
 
   if (rosterJobs.length === 0 && indivJobs.length === 0) return 0;
 

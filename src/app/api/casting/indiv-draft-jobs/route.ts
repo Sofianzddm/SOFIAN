@@ -110,17 +110,22 @@ export async function POST(request: NextRequest) {
     });
     const byId = new Map(missions.map((m) => [m.id, m]));
 
-    const items = missionIds
-      .map((id: string) => {
-        const m = byId.get(id);
-        if (!m || m.sentAt || m.stage === "SENT") return null;
-        return {
+    type DraftItem = {
+      missionId: string;
+      talentId: string;
+      brandName: string;
+    };
+    const items: DraftItem[] = missionIds.flatMap((id: string) => {
+      const m = byId.get(id);
+      if (!m || m.sentAt || m.stage === "SENT") return [];
+      return [
+        {
           missionId: m.id,
           talentId: m.talentId,
           brandName: (m.marque?.nom || m.targetBrand || "").trim() || "Marque",
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => Boolean(x));
+        },
+      ];
+    });
 
     if (items.length === 0) {
       return NextResponse.json(
