@@ -30,22 +30,21 @@ export async function GET(request: NextRequest) {
         ],
       },
       orderBy: { createdAt: "asc" },
-      take: 3,
+      take: 20,
       select: { id: true },
     });
 
-    const results: Array<{ jobId: string; processed: number; done: boolean }> =
-      [];
-
-    for (const j of jobs) {
-      const tick = await processRosterFitJobTick(j.id, 1);
-      results.push({
-        jobId: j.id,
-        processed: tick.processed,
-        done: tick.done,
-      });
-      if (!tick.done) kickRosterFitJobProcess(j.id);
-    }
+    const results = await Promise.all(
+      jobs.map(async (j) => {
+        const tick = await processRosterFitJobTick(j.id, 1);
+        if (!tick.done) kickRosterFitJobProcess(j.id);
+        return {
+          jobId: j.id,
+          processed: tick.processed,
+          done: tick.done,
+        };
+      })
+    );
 
     return NextResponse.json({ ok: true, jobs: results.length, results });
   } catch (e) {

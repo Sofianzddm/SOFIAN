@@ -60,6 +60,8 @@ pm2 logs casting-roster-fit-worker
 pm2 restart casting-roster-fit-worker
 ```
 
+Jobs **parallèles illimités** (FR / BENELUX / BOTH / onglets) : le worker prend jusqu’à `CASTING_FIT_MAX_PARALLEL` (défaut 40) jobs actifs et avance **1 marque / job** en parallèle à chaque tick.
+
 ## Upgrade
 
 ```bash

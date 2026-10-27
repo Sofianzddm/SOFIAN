@@ -41,6 +41,9 @@ async function recoverStuckBrands() {
   }
 }
 
+/** Cap soft : tous les jobs actifs, traités en parallèle (1 marque / job / tick). */
+const MAX_PARALLEL_JOBS = Number(process.env.CASTING_FIT_MAX_PARALLEL || 40);
+
 async function pickJobIds(): Promise<string[]> {
   const jobs = await prisma.castingRosterFitJob.findMany({
     where: {
@@ -48,7 +51,7 @@ async function pickJobIds(): Promise<string[]> {
       cancelRequested: false,
     },
     orderBy: { createdAt: "asc" },
-    take: 5,
+    take: MAX_PARALLEL_JOBS,
     select: { id: true },
   });
   return jobs.map((j) => j.id);
@@ -59,15 +62,16 @@ async function loopOnce(): Promise<number> {
   const ids = await pickJobIds();
   if (ids.length === 0) return 0;
 
-  let processed = 0;
-  for (const id of ids) {
-    const tick = await processRosterFitJobTick(id, 1);
-    processed += tick.processed;
-    console.log(
-      `[casting-fit-worker] job=${id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
-    );
-  }
-  return processed;
+  const results = await Promise.all(
+    ids.map(async (id) => {
+      const tick = await processRosterFitJobTick(id, 1);
+      console.log(
+        `[casting-fit-worker] job=${id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
+      );
+      return tick.processed;
+    })
+  );
+  return results.reduce((a, b) => a + b, 0);
 }
 
 async function main() {

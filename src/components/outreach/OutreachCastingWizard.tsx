@@ -734,30 +734,60 @@ export default function OutreachCastingWizard({
     [stopFitPoll, pollFitJob]
   );
 
-  // Reprend un job serveur actif à l’ouverture du wizard.
+  // Reprend le job actif de CE marché (FR / BENELUX / BOTH) — les autres jobs restent en parallèle.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    const marketKey = readBothMarkets ? "BOTH" : market;
     void (async () => {
       try {
-        const res = await fetch("/api/casting/roster-fit-jobs", {
-          credentials: "include",
-        });
-        const data = (await res.json().catch(() => ({}))) as {
-          active?: { id: string; status: string; totalBrands?: number; completed?: number; failed?: number; currentBrandName?: string | null } | null;
-        };
-        if (cancelled || !res.ok || !data.active?.id) return;
-        if (!["pending", "running"].includes(data.active.status)) return;
-        setFitTotal(Number(data.active.totalBrands || 0));
-        setFitDone(
-          Number(data.active.completed || 0) + Number(data.active.failed || 0)
+        const res = await fetch(
+          `/api/casting/roster-fit-jobs?market=${encodeURIComponent(marketKey)}`,
+          { credentials: "include" }
         );
-        setFitFailed(Number(data.active.failed || 0));
-        setFitCurrent(data.active.currentBrandName || "");
-        startFitPoll(data.active.id);
+        const data = (await res.json().catch(() => ({}))) as {
+          active?: {
+            id: string;
+            status: string;
+            market?: string;
+            totalBrands?: number;
+            completed?: number;
+            failed?: number;
+            currentBrandName?: string | null;
+          } | null;
+          jobs?: Array<{
+            id: string;
+            status: string;
+            market?: string;
+            totalBrands?: number;
+            completed?: number;
+            failed?: number;
+            currentBrandName?: string | null;
+          }>;
+        };
+        if (cancelled || !res.ok) return;
+        const match =
+          (data.jobs || []).find(
+            (j) =>
+              j.market === marketKey &&
+              ["pending", "running"].includes(j.status)
+          ) ||
+          (data.active &&
+          data.active.market === marketKey &&
+          ["pending", "running"].includes(data.active.status)
+            ? data.active
+            : null);
+        if (!match?.id) return;
+        setFitTotal(Number(match.totalBrands || 0));
+        setFitDone(
+          Number(match.completed || 0) + Number(match.failed || 0)
+        );
+        setFitFailed(Number(match.failed || 0));
+        setFitCurrent(match.currentBrandName || "");
+        startFitPoll(match.id);
         onFlash?.(
           "success",
-          "Job casting serveur repris — tu peux quitter la page, ça continue."
+          `Job casting ${marketKey} repris — d’autres marchés peuvent tourner en parallèle.`
         );
       } catch {
         /* ignore */
@@ -766,7 +796,7 @@ export default function OutreachCastingWizard({
     return () => {
       cancelled = true;
     };
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open
+  }, [open, market, readBothMarkets]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open / market
 
   useEffect(() => {
     return () => {
@@ -862,16 +892,20 @@ export default function OutreachCastingWizard({
       });
       const data = (await res.json().catch(() => ({}))) as {
         jobId?: string;
+        parallelActive?: number;
         error?: string;
+        message?: string;
       };
       if (!res.ok || !data.jobId) {
         throw new Error(
           typeof data.error === "string" ? data.error : "Impossible de lancer le job"
         );
       }
+      const n = Number(data.parallelActive || 1);
       onFlash?.(
         "success",
-        "Job lancé sur le serveur — tu peux fermer la page, ça continue."
+        data.message ||
+          `Job lancé (${n} actif${n > 1 ? "s" : ""} en parallèle) — tu peux fermer / ouvrir un autre marché.`
       );
       startFitPoll(data.jobId);
     } catch (e) {
