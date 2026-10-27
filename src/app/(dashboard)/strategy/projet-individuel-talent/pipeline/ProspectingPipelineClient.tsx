@@ -851,6 +851,68 @@ export function ProspectingPipelineClient() {
     }
   }
 
+  /**
+   * Prêt à envoyer → À rédiger (wizard) : efface le brouillon pour pouvoir
+   * relancer le casting / job serveur sur ces marques.
+   */
+  async function sendBackToWizard(list: Mission[]) {
+    const targets = list.filter((m) => m.stage === "DRAFTED_FOR_VALIDATION");
+    if (targets.length === 0) {
+      setError("Aucune carte « Prêt à envoyer » à renvoyer au wizard.");
+      return;
+    }
+    const talentHint =
+      selectedTalentId !== ALL_TALENTS && selectedTalent
+        ? ` pour ${selectedTalent.name}`
+        : "";
+    if (
+      !window.confirm(
+        `Repasser ${targets.length} carte${targets.length > 1 ? "s" : ""}${talentHint} en « À rédiger » (wizard) ?\n\nLes brouillons seront effacés — tu pourras relancer le wizard / lot serveur.`
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setSuccess(null);
+    setBulkScheduling(true);
+    let ok = 0;
+    let fail = 0;
+    try {
+      // Pas de loadMissions à chaque carte (trop lent) — un reload à la fin.
+      const results = await Promise.all(
+        targets.map(async (m) => {
+          const res = await fetch("/api/strategy/contact-missions", {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              missionId: m.id,
+              stage: "TO_DRAFT",
+              status: "READY_FOR_CASTING",
+              draftEmailSubject: "",
+              draftEmailBody: "",
+            }),
+          });
+          return res.ok;
+        })
+      );
+      ok = results.filter(Boolean).length;
+      fail = results.length - ok;
+      await loadMissions();
+      setActiveStageTab("TO_DRAFT");
+      setBatchFocus(null);
+      setSuccess(
+        fail > 0
+          ? `${ok} carte(s) renvoyée(s) au wizard · ${fail} échec(s).`
+          : `${ok} carte${ok > 1 ? "s" : ""} repassée${ok > 1 ? "s" : ""} en wizard (À rédiger).`
+      );
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Retour wizard impossible.");
+    } finally {
+      setBulkScheduling(false);
+    }
+  }
+
   async function deleteMission(m: Mission) {
     const label = `${m.creatorName} → ${brandDisplayName(m)}`;
     if (
@@ -2529,15 +2591,50 @@ export function ProspectingPipelineClient() {
                   </p>
                 </div>
               </div>
-              <span
-                className="rounded-full px-3 py-1 text-sm font-semibold"
-                style={{
-                  background: isCastingManager ? OLD_LACE : "#f1f5f9",
-                  color: isCastingManager ? LICORICE : "#0f172a",
-                }}
-              >
-                {missionsForStage(stage).length}
-              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                {stage === "DRAFTED_FOR_VALIDATION" &&
+                  (role === "CASTING_MANAGER" ||
+                    role === "ADMIN" ||
+                    role === "HEAD_OF" ||
+                    role === "STRATEGY_PLANNER") &&
+                  missionsForStage(stage).length > 0 && (
+                    <button
+                      type="button"
+                      disabled={
+                        bulkScheduling ||
+                        updatingId !== null ||
+                        selectedTalentId === ALL_TALENTS
+                      }
+                      onClick={() =>
+                        void sendBackToWizard(missionsForStage(stage))
+                      }
+                      className="rounded-lg px-3 py-1.5 text-sm font-semibold disabled:opacity-50"
+                      style={{
+                        border: `1px solid ${OLD_ROSE}`,
+                        backgroundColor: OLD_LACE,
+                        color: LICORICE,
+                      }}
+                      title={
+                        selectedTalentId === ALL_TALENTS
+                          ? "Filtre d’abord un talent (ex. Maé Brun) pour renvoyer ses cartes au wizard"
+                          : `Repasse les ${missionsForStage(stage).length} cartes « Prêt à envoyer » de ${selectedTalent?.name || "ce talent"} en À rédiger (wizard)`
+                      }
+                    >
+                      {bulkScheduling
+                        ? "Retour wizard…"
+                        : `Repasser en wizard (${missionsForStage(stage).length})`}
+                    </button>
+                  )}
+                <span
+                  className="rounded-full px-3 py-1 text-sm font-semibold"
+                  style={{
+                    background: isCastingManager ? OLD_LACE : "#f1f5f9",
+                    color: isCastingManager ? LICORICE : "#0f172a",
+                  }}
+                >
+                  {missionsForStage(stage).length}
+                </span>
+              </div>
             </div>
 
             {stage === "DRAFTED_FOR_VALIDATION" && canUseReadyTab && (
@@ -3171,19 +3268,31 @@ export function ProspectingPipelineClient() {
                       </button>
                     )}
                     {role === "CASTING_MANAGER" && stage === "DRAFTED_FOR_VALIDATION" && (
-                      <button
-                        type="button"
-                        disabled={updatingId === m.id}
-                        onClick={() => void openComposer(m)}
-                        className="rounded px-2 py-1 text-xs"
-                        style={
-                          isCastingManager
-                            ? { border: `1px solid ${OLD_ROSE}`, backgroundColor: OLD_LACE, color: LICORICE }
-                            : { border: "1px solid #D1D5DB" }
-                        }
-                      >
-                        {updatingId === m.id ? "Ouverture..." : "Revoir le mail"}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          disabled={updatingId === m.id}
+                          onClick={() => void openComposer(m)}
+                          className="rounded px-2 py-1 text-xs"
+                          style={
+                            isCastingManager
+                              ? { border: `1px solid ${OLD_ROSE}`, backgroundColor: OLD_LACE, color: LICORICE }
+                              : { border: "1px solid #D1D5DB" }
+                          }
+                        >
+                          {updatingId === m.id ? "Ouverture..." : "Revoir le mail"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={updatingId === m.id || bulkScheduling}
+                          onClick={() => void sendBackToWizard([m])}
+                          className="rounded px-2 py-1 text-xs"
+                          style={{ border: "1px solid #D1D5DB", color: LICORICE }}
+                          title="Efface le brouillon et remet la carte en À rédiger (wizard)"
+                        >
+                          → Wizard
+                        </button>
+                      </>
                     )}
                     {(role === "ADMIN" || role === "HEAD_OF" || role === "STRATEGY_PLANNER") &&
                       (stage === "TO_DRAFT" ||
