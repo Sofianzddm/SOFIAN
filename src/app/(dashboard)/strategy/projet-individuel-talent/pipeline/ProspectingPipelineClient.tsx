@@ -95,6 +95,29 @@ type ScheduledSend = {
   scheduledAt: number;
 };
 
+/** Date réelle de rédaction (snapshot serveur) sinon dernière màj carte. */
+function missionDraftWrittenAt(m: Mission): Date | null {
+  const hasDraft =
+    Boolean(String(m.draftEmailSubject || "").trim()) &&
+    Boolean(String(m.draftEmailBody || "").trim());
+  if (!hasDraft) return null;
+  const snap = m.castingResearchSnapshot?.savedAt;
+  const raw = snap || m.updatedAt || null;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatDraftWrittenBadge(d: Date): string {
+  return `Rédigé le ${d.toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+}
+
 type ContactDraft = { firstname: string; lastname: string; email: string; role: string };
 
 type SearchedContact = {
@@ -736,6 +759,25 @@ export function ProspectingPipelineClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTalentId, role]);
 
+  // Même fix que Casting Outreach : les jobs VPS mettent à jour la DB hors UI —
+  // sans refresh, badges « Rédigé le … » / colonnes restent périmés.
+  useEffect(() => {
+    const refreshDrafts = () => {
+      if (document.visibilityState === "visible") {
+        void loadMissions().catch(() => {});
+      }
+    };
+    window.addEventListener("focus", refreshDrafts);
+    document.addEventListener("visibilitychange", refreshDrafts);
+    const id = window.setInterval(refreshDrafts, 60_000);
+    return () => {
+      window.removeEventListener("focus", refreshDrafts);
+      document.removeEventListener("visibilitychange", refreshDrafts);
+      window.clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTalentId, role]);
+
   useEffect(() => {
     if (!canUseReadyTab) return;
     void loadReadyToSend();
@@ -898,6 +940,25 @@ export function ProspectingPipelineClient() {
       );
       ok = results.filter(Boolean).length;
       fail = results.length - ok;
+      const okIds = new Set(
+        targets.filter((_, i) => results[i]).map((m) => m.id)
+      );
+      // Optimistic : la carte quitte « Prêt à envoyer » sans attendre le GET.
+      setMissions((prev) =>
+        prev.map((m) =>
+          okIds.has(m.id)
+            ? {
+                ...m,
+                stage: "TO_DRAFT",
+                status: "READY_FOR_CASTING",
+                draftEmailSubject: null,
+                draftEmailBody: null,
+                castingResearchSnapshot: null,
+                updatedAt: new Date().toISOString(),
+              }
+            : m
+        )
+      );
       await loadMissions();
       setActiveStageTab("TO_DRAFT");
       setBatchFocus(null);
@@ -3122,6 +3183,30 @@ export function ProspectingPipelineClient() {
                   <p className="text-xs" style={isCastingManager ? { color: OLD_ROSE } : { color: "#6B7280" }}>
                     Talent: {m.talentName || "Non renseigné"}
                   </p>
+                  {(() => {
+                    const writtenAt = missionDraftWrittenAt(m);
+                    if (!writtenAt) return null;
+                    if (
+                      stage !== "DRAFTED_FOR_VALIDATION" &&
+                      stage !== "TO_DRAFT" &&
+                      stage !== "TO_SEND"
+                    ) {
+                      return null;
+                    }
+                    return (
+                      <p
+                        className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                        style={{
+                          backgroundColor: isCastingManager ? TEA_GREEN : "#EAF7D6",
+                          color: LICORICE,
+                        }}
+                        title={writtenAt.toLocaleString("fr-FR")}
+                      >
+                        <Pencil className="h-3 w-3 opacity-80" />
+                        {formatDraftWrittenBadge(writtenAt)}
+                      </p>
+                    );
+                  })()}
                   {reminderDue && (
                     <p className="mt-1 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
                       Rappel 3 jours ouvrés : relance client à faire
@@ -3967,6 +4052,8 @@ export function ProspectingPipelineClient() {
           setCastingWizardBrands([]);
           setCastingWizardTalentId(null);
           setCastingWizardTalentName("");
+          // Rédactions VPS peuvent avoir avancé hors UI → sync badges / colonnes.
+          void loadMissions();
         }}
         onFlash={(kind, message) => {
           if (kind === "error") setError(message);
@@ -3979,6 +4066,26 @@ export function ProspectingPipelineClient() {
             draftEmailSubject: subject,
             draftEmailBody: bodyHtml,
           });
+          // Optimistic : badge « Rédigé le … » + colonne Prêt à envoyer sans attendre.
+          const nowIso = new Date().toISOString();
+          setMissions((prev) =>
+            prev.map((m) =>
+              m.id === brand.groupKey
+                ? {
+                    ...m,
+                    stage: "DRAFTED_FOR_VALIDATION",
+                    status: "EMAIL_DRAFTED",
+                    draftEmailSubject: subject,
+                    draftEmailBody: bodyHtml,
+                    updatedAt: nowIso,
+                    castingResearchSnapshot: {
+                      ...(m.castingResearchSnapshot || {}),
+                      savedAt: nowIso,
+                    },
+                  }
+                : m
+            )
+          );
           setCastingWizardBrands((prev) =>
             prev.map((b) =>
               b.groupKey === brand.groupKey
@@ -4110,6 +4217,7 @@ export function ProspectingPipelineClient() {
           await loadMissions();
           setActiveStageTab("DRAFTED_FOR_VALIDATION");
           setReadySubTab("cards");
+          setBatchFocus(null);
         }}
       />
 
