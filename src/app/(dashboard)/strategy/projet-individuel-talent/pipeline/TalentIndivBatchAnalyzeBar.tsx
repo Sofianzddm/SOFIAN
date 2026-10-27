@@ -1522,9 +1522,11 @@ export function TalentIndivBatchAnalyzeBar({
       });
 
       if (prepBrief.needsNegotiationReview) {
-        throw new Error(
-          `[carte ${t.name} × ${brandName}] REVUE NÉGO — ${prepBrief.negotiationReviewReason}`
+        const negoMsg = `REVUE NÉGO — ${prepBrief.negotiationReviewReason}`;
+        await patchMissionDraft(m.id, { draftFailureReason: negoMsg }).catch(
+          () => {}
         );
+        throw new Error(`[carte ${t.name} × ${brandName}] ${negoMsg}`);
       }
 
       const res = await fetch("/api/casting/generate-email", {
@@ -1605,6 +1607,12 @@ export function TalentIndivBatchAnalyzeBar({
           failed += 1;
           failedMissions.push(m);
           console.error(`Indiv batch draft ${brandName}:`, e);
+          const raw = e instanceof Error ? e.message : "Échec rédaction";
+          // Enlève le préfixe « [carte …] » pour le badge carte.
+          const reason = raw.replace(/^\[carte[^\]]*\]\s*/i, "").trim() || raw;
+          await patchMissionDraft(m.id, {
+            draftFailureReason: reason.slice(0, 600),
+          }).catch(() => {});
         } finally {
           if (!ac.signal.aborted) {
             done += 1;

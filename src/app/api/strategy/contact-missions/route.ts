@@ -581,6 +581,8 @@ export async function PATCH(request: NextRequest) {
       clientLanguage?: string | null;
       clientContacts?: unknown;
       draftPrepBrief?: unknown;
+      /** Motif si rédaction auto bloquée (ex. REVUE NÉGO) — stocké dans castingResearchSnapshot. */
+      draftFailureReason?: string | null;
     };
     const missionId = String(body.missionId || "").trim();
     const nextTargetBrand =
@@ -624,7 +626,8 @@ export async function PATCH(request: NextRequest) {
       !clientContextProvided &&
       !brandProvided &&
       !marqueIdProvided &&
-      body.draftPrepBrief === undefined
+      body.draftPrepBrief === undefined &&
+      body.draftFailureReason === undefined
     ) {
       return NextResponse.json({ error: "Aucune mise à jour fournie." }, { status: 400 });
     }
@@ -672,10 +675,35 @@ export async function PATCH(request: NextRequest) {
 
     const currentMission = await contactMissionModel.findUnique({
       where: { id: missionId },
-      select: { id: true, creatorName: true, targetBrand: true, marqueId: true },
+      select: {
+        id: true,
+        creatorName: true,
+        targetBrand: true,
+        marqueId: true,
+        castingResearchSnapshot: true,
+      },
     });
     if (!currentMission) {
       return NextResponse.json({ error: "Mission introuvable." }, { status: 404 });
+    }
+
+    let castingResearchSnapshotPatch:
+      | Record<string, unknown>
+      | undefined;
+    if (body.draftFailureReason !== undefined) {
+      const prev =
+        currentMission.castingResearchSnapshot &&
+        typeof currentMission.castingResearchSnapshot === "object" &&
+        !Array.isArray(currentMission.castingResearchSnapshot)
+          ? (currentMission.castingResearchSnapshot as Record<string, unknown>)
+          : {};
+      const reason = String(body.draftFailureReason || "").trim().slice(0, 600);
+      castingResearchSnapshotPatch = {
+        ...prev,
+        draftFailure: reason
+          ? { reason, at: new Date().toISOString() }
+          : null,
+      };
     }
 
     // Vague Strategy en cours → Casting ne peut ni rédiger ni avancer l'envoi.
@@ -816,6 +844,9 @@ export async function PATCH(request: NextRequest) {
         ...(body.draftLanguage !== undefined ? { draftLanguage } : {}),
         ...(body.clientLanguage !== undefined ? { clientLanguage: clientLanguage || null } : {}),
         ...(body.clientContacts !== undefined ? { clientContacts: body.clientContacts ?? null } : {}),
+        ...(castingResearchSnapshotPatch
+          ? { castingResearchSnapshot: castingResearchSnapshotPatch }
+          : {}),
       },
     });
 

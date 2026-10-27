@@ -112,6 +112,42 @@ type TalentResearchItem = {
   sourcesUsed?: string;
 };
 
+/** Note sur la carte pipeline pourquoi la rédaction auto a sauté / échoué. */
+async function noteMissionDraftFailure(
+  missionId: string,
+  reason: string
+): Promise<void> {
+  const mid = String(missionId || "").trim();
+  const msg = String(reason || "").trim().slice(0, 600);
+  if (!mid || !msg) return;
+  try {
+    const row = await prisma.contactMission.findUnique({
+      where: { id: mid },
+      select: { castingResearchSnapshot: true },
+    });
+    const prev =
+      row?.castingResearchSnapshot &&
+      typeof row.castingResearchSnapshot === "object" &&
+      !Array.isArray(row.castingResearchSnapshot)
+        ? (row.castingResearchSnapshot as Record<string, unknown>)
+        : {};
+    await prisma.contactMission.update({
+      where: { id: mid },
+      data: {
+        castingResearchSnapshot: {
+          ...prev,
+          draftFailure: {
+            reason: msg,
+            at: new Date().toISOString(),
+          },
+        },
+      },
+    });
+  } catch (e) {
+    console.warn(`[indiv-draft-job] noteMissionDraftFailure ${mid}:`, e);
+  }
+}
+
 async function processOneMissionItem(itemId: string): Promise<{
   ok: boolean;
   brandName: string;
@@ -381,6 +417,8 @@ async function processOneMissionItem(itemId: string): Promise<{
     talentResearch,
     leynaExchange: leyna,
     savedAt: new Date().toISOString(),
+    // Succès → efface l’éventuel motif d’échec précédent.
+    draftFailure: null,
   };
 
   await prisma.contactMission.update({
@@ -518,13 +556,15 @@ export async function processIndivDraftJobTick(
           data: { completed: { increment: 1 } },
         });
       } else {
+        const errMsg = result.error || "Échec";
+        await noteMissionDraftFailure(next.missionId, errMsg);
         await prisma.castingIndivDraftItem.update({
           where: { id: next.id },
           data: {
             status: "failed",
             finishedAt: new Date(),
             brandName: result.brandName,
-            error: result.error || "Échec",
+            error: errMsg,
           },
         });
         await prisma.castingIndivDraftJob.update({
@@ -536,6 +576,7 @@ export async function processIndivDraftJobTick(
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Erreur process";
       console.error(`[indiv-draft-job] ${jobId} / ${next.brandName}:`, e);
+      await noteMissionDraftFailure(next.missionId, msg);
       await prisma.castingIndivDraftItem.update({
         where: { id: next.id },
         data: {

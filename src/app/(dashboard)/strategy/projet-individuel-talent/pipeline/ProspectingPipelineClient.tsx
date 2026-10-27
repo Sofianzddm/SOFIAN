@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2, Pencil, Check, X, Clock, Feather, Sparkles, Send, Inbox, MessageCircle, Handshake, Trophy, XCircle, ShieldAlert, Layers, UserPlus, Database, ScanSearch, ExternalLink, Trash2, Plus } from "lucide-react";
+import { Loader2, RefreshCw, Mail, BellOff, BellRing, CheckCircle2, Pencil, Check, X, Clock, Feather, Sparkles, Send, Inbox, MessageCircle, Handshake, Trophy, XCircle, ShieldAlert, Layers, UserPlus, Database, ScanSearch, ExternalLink, Trash2, Plus, AlertTriangle } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
 import OutreachCastingWizard, {
   type OutreachCastingBrand,
@@ -65,6 +65,8 @@ type Mission = {
     talentResearch?: IndivCachedTalentResearchItem[] | null;
     leynaExchange?: IndivCachedLeynaExchange | null;
     savedAt?: string;
+    /** Motif si la rédaction auto a échoué / été bloquée (ex. REVUE NÉGO). */
+    draftFailure?: { reason?: string; at?: string } | null;
   } | null;
   clientLanguage?: "FR" | "EN" | null;
   clientContacts?: Array<{ firstname?: string; lastname?: string; email?: string; role?: string }> | null;
@@ -3204,6 +3206,39 @@ export function ProspectingPipelineClient() {
                       >
                         <Pencil className="h-3 w-3 opacity-80" />
                         {formatDraftWrittenBadge(writtenAt)}
+                      </p>
+                    );
+                  })()}
+                  {(() => {
+                    const fail = m.castingResearchSnapshot?.draftFailure;
+                    const reason = String(fail?.reason || "").trim();
+                    if (!reason) return null;
+                    if (
+                      stage !== "TO_DRAFT" &&
+                      stage !== "STRATEGY_DEFINED" &&
+                      stage !== "DRAFTED_FOR_VALIDATION"
+                    ) {
+                      return null;
+                    }
+                    // Brouillon OK → le motif d’échec n’a plus lieu d’être affiché.
+                    if (missionDraftWrittenAt(m)) return null;
+                    const short =
+                      reason.length > 90 ? `${reason.slice(0, 87)}…` : reason;
+                    return (
+                      <p
+                        className="mt-1 inline-flex max-w-full items-start gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                        style={{
+                          backgroundColor: "#FEF3C7",
+                          color: "#92400E",
+                        }}
+                        title={
+                          fail?.at
+                            ? `${reason}\n${new Date(fail.at).toLocaleString("fr-FR")}`
+                            : reason
+                        }
+                      >
+                        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 opacity-80" />
+                        <span className="min-w-0 break-words">{short}</span>
                       </p>
                     );
                   })()}
