@@ -227,3 +227,46 @@ export function ensureTalentExtralinksInHtml(
   if (merged.length === 0) return html;
   return upgradeTalentLinksInHtml(html, merged);
 }
+
+/**
+ * Retire un talent du corps HTML (lien IG, strong, nom en clair) et les
+ * blocs liste/paragraphe qui ne contiennent plus que ce talent.
+ * Utilisé quand l’utilisateur le retire de la sélection composer.
+ */
+export function removeTalentFromEmailHtml(
+  html: string,
+  talent: TalentLinkInput
+): string {
+  if (!html) return html;
+  const label = talentDisplayName(talent);
+  if (!label || label === "Talent") return html;
+  const esc = escapeRegex(label);
+  const igUrl = talentInstagramUrl(talent);
+  let out = html;
+
+  if (igUrl) {
+    const escUrl = escapeRegex(igUrl);
+    out = out.replace(
+      new RegExp(
+        `<a\\b[^>]*href\\s*=\\s*["']${escUrl}[^"']*["'][^>]*>[\\s\\S]*?<\\/a>`,
+        "gi"
+      ),
+      ""
+    );
+  }
+  out = out.replace(
+    new RegExp(`<a\\b[^>]*>\\s*(?:<strong>)?\\s*${esc}\\s*(?:<\\/strong>)?\\s*<\\/a>`, "gi"),
+    ""
+  );
+  out = out.replace(new RegExp(`<strong>\\s*${esc}\\s*<\\/strong>`, "gi"), "");
+  out = out.replace(
+    new RegExp(`(^|[^\\wÀ-ÿ])(${esc})(?=[^\\wÀ-ÿ]|$)`, "gi"),
+    "$1"
+  );
+
+  // <li> / <p> devenus vides après retrait du lien talent.
+  out = out.replace(/<li>\s*(?:&nbsp;|\u00a0|<br\s*\/?>|\s)*<\/li>/gi, "");
+  out = out.replace(/<p>\s*(?:&nbsp;|\u00a0|<br\s*\/?>|\s)*<\/p>/gi, "");
+  out = out.replace(/ {2,}/g, " ");
+  return trimEmailHtmlEdges(out);
+}

@@ -24,6 +24,7 @@ import {
   talentToTiptapNode,
   upgradeTalentLinksInHtml,
   ensureTalentExtralinksInHtml,
+  removeTalentFromEmailHtml,
 } from "@/lib/talent-email-links";
 import {
   normalizeEditorHtmlForEmail,
@@ -376,8 +377,8 @@ export interface CastingComposerProps {
   ) => void;
   /**
    * Ids talents pré-sélectionnés (cache outreach) — restaurés à l’ouverture
-   * si pas de lockedTalentIds. Priorité plus basse que les ids de
-   * `initialTalentResearch` (analyse déjà faite).
+   * si pas de lockedTalentIds. Si présent (même vide), prime sur les ids de
+   * `initialTalentResearch` : un talent retiré par l’utilisateur ne revient pas.
    */
   initialSelectedTalentIds?: string[] | null;
   /** Remonte la sélection talents au parent pour le cache local. */
@@ -984,8 +985,24 @@ export default function CastingComposer({
     [lastField, editor]
   );
 
+  // Identité de session (contenu) : un nouveau objet `contact` parent à chaque
+  // loadTargets (poll wizard ~3s / focus) ne doit pas réinit sélection + corps.
+  const composerSessionKey = useMemo(() => {
+    if (!open || !contact) return "";
+    const ids = (contact.contacts || [])
+      .map((c) => String(c.id || "").trim())
+      .filter(Boolean)
+      .sort()
+      .join("|");
+    const company = String(contact.company || "").trim();
+    const missionId = contact.missionBrief?.id
+      ? String(contact.missionBrief.id)
+      : "";
+    return `${company}::${ids}::${missionId}::${lockedTalentIdsKey}`;
+  }, [open, contact, lockedTalentIdsKey]);
+
   useEffect(() => {
-    if (!open || !contact || !editor) return;
+    if (!composerSessionKey || !contact || !editor) return;
     const sub = (contact.initialSubject ?? "").trim();
     const bodyRaw = (contact.initialBodyHtml ?? "").trim();
     const hasHubspotDraft = sub.length > 0 || bodyRaw.length > 0;
@@ -1018,10 +1035,10 @@ export default function CastingComposer({
       ? null
       : initialTalentResearch ?? null;
     setBrandResearch(multiCovered ? null : initialBrandResearch ?? null);
-    setTalentResearch(cachedTalentResearch);
-    // Restaure la sélection : ids de l’analyse cache (prioritaire), sinon sélection cache.
+    // Sélection utilisateur (cache) prime sur l’analyse : talent retiré → ne revient pas.
     if (lockedTalentIdsKey) {
       setSelectedIds(new Set(lockedTalentIdsKey.split("|").filter(Boolean)));
+      setTalentResearch(cachedTalentResearch);
       prevSelectedTalentKeyRef.current = lockedTalentIdsKey
         .split("|")
         .filter(Boolean)
@@ -1034,8 +1051,19 @@ export default function CastingComposer({
       const fromSelection = (initialSelectedTalentIds || [])
         .map((id) => String(id || "").trim())
         .filter(Boolean);
-      const restoreIds = fromResearch.length > 0 ? fromResearch : fromSelection;
+      const hasSelectionCache = initialSelectedTalentIds != null;
+      const restoreIds = hasSelectionCache ? fromSelection : fromResearch;
       setSelectedIds(new Set(restoreIds));
+      // Aligne l’analyse sur la sélection restaurée (évite un wipe + réinjection).
+      if (cachedTalentResearch && hasSelectionCache) {
+        const idSet = new Set(restoreIds);
+        const filtered = cachedTalentResearch.filter((t) =>
+          idSet.has(String(t.talentId || "").trim())
+        );
+        setTalentResearch(filtered.length > 0 ? filtered : null);
+      } else {
+        setTalentResearch(cachedTalentResearch);
+      }
       // Clé déjà posée → évite que l’effet « changement talent » wipe l’analyse.
       prevSelectedTalentKeyRef.current = [...restoreIds].sort().join(",");
     }
@@ -1063,10 +1091,10 @@ export default function CastingComposer({
     }
     setEditorEmpty(!editor.getText().trim());
     setBodyTick((n) => n + 1);
-    // Ne pas dépendre de effectiveLockedTalentIds / initialBrandResearch :
-    // nouvelles refs parent réinitialisaient sujet/corps pendant la frappe.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- initialBrandResearch snapshot à l’open
-  }, [open, contact, editor, defaultLanguage, lockedTalentIdsKey]);
+    // Snapshot caches / brouillon à l’ouverture de session seulement —
+    // pas à chaque nouvelle ref `contact` (poll outreach / wizard).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- session key = identité
+  }, [composerSessionKey, editor, defaultLanguage]);
 
   // Sync sélection talents si le lock change sans remonter le brouillon.
   useEffect(() => {
@@ -1912,11 +1940,31 @@ export default function CastingComposer({
   };
 
   const removeTalent = (id: string) => {
+    const removed = talents.find((t) => t.id === id);
     setSelectedIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
       persistSelectedTalents(next);
       return next;
+    });
+    // Retire aussi du corps du mail — sinon le talent reste injecté à l’envoi
+    // même après croix, et un refresh ne doit jamais le réinjecter.
+    if (removed && editor) {
+      const nextHtml = removeTalentFromEmailHtml(editor.getHTML(), {
+        prenom: removed.prenom,
+        nom: removed.nom,
+        instagram: removed.instagram,
+      });
+      editor.commands.setContent(normalizeEditorHtmlForEmail(nextHtml) || "<p></p>");
+      setEditorEmpty(!editor.getText().trim());
+      setBodyTick((n) => n + 1);
+    }
+    setTalentResearch((prev) => {
+      if (!prev) return prev;
+      const next = prev.filter((t) => String(t.talentId || "").trim() !== id);
+      const brand = researchBrandName.trim();
+      if (brand) onTalentResearchCached?.(brand, next);
+      return next.length > 0 ? next : null;
     });
   };
 
