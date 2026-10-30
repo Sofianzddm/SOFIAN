@@ -115,6 +115,9 @@ export default function NegociationDetailPage() {
   const [validating, setValidating] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [newComment, setNewComment] = useState("");
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editCommentContent, setEditCommentContent] = useState("");
+  const [savingComment, setSavingComment] = useState(false);
   const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
   const [showRefusModal, setShowRefusModal] = useState(false);
   const [showValiderModal, setShowValiderModal] = useState(false);
@@ -200,16 +203,34 @@ export default function NegociationDetailPage() {
       .replace(/style="(\s*;?\s*)*"/gi, "");
   };
 
+  const richHtmlToDbContent = (html: string): string => {
+    return sanitizeRichContent(
+      html.replace(
+        /<span[^>]*data-id="([^"]+)"[^>]*data-label="([^"]+)"[^>]*>.*?<\/span>/g,
+        "@[$1]"
+      )
+    );
+  };
+
+  const dbContentToEditorHtml = (
+    content: string,
+    users: MentionableUser[]
+  ): string => {
+    if (!content) return "";
+    return content.replace(/@\[([^\]]+)\]/g, (_match, userId) => {
+      const user = users.find((u) => u.id === userId);
+      const name = user
+        ? `${user.firstName} ${user.lastName}`
+        : "quelqu'un";
+      return `<span class="mention" data-id="${userId}" data-label="${name}">@${name}</span>`;
+    });
+  };
+
   const handleComment = async () => {
     if (!newComment.trim()) return;
     setCommenting(true);
     try {
-      const contenuPourDB = sanitizeRichContent(
-        newComment.replace(
-          /<span[^>]*data-id="([^"]+)"[^>]*data-label="([^"]+)"[^>]*>.*?<\/span>/g,
-          "@[$1]"
-        )
-      );
+      const contenuPourDB = richHtmlToDbContent(newComment);
       const res = await fetch(`/api/negociations/${params.id}/commentaires`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -221,6 +242,41 @@ export default function NegociationDetailPage() {
       }
     } finally {
       setCommenting(false);
+    }
+  };
+
+  const startEditComment = (c: { id: string; contenu: string }) => {
+    setEditingCommentId(c.id);
+    setEditCommentContent(dbContentToEditorHtml(c.contenu, mentionableUsers));
+  };
+
+  const cancelEditComment = () => {
+    setEditingCommentId(null);
+    setEditCommentContent("");
+  };
+
+  const handleSaveComment = async () => {
+    if (!editingCommentId || !editCommentContent.trim()) return;
+    setSavingComment(true);
+    try {
+      const contenuPourDB = richHtmlToDbContent(editCommentContent);
+      const res = await fetch(
+        `/api/negociations/${params.id}/commentaires/${editingCommentId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contenu: contenuPourDB }),
+        }
+      );
+      if (res.ok) {
+        cancelEditComment();
+        fetchNego();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.message || "Erreur lors de la modification");
+      }
+    } finally {
+      setSavingComment(false);
     }
   };
 
@@ -910,6 +966,8 @@ export default function NegociationDetailPage() {
                 nego.commentaires.map((c) => {
                   const isMe = c.user.id === session?.user?.id;
                   const isHead = c.user.role === "HEAD_OF" || c.user.role === "HEAD_OF_INFLUENCE" || c.user.role === "ADMIN";
+                  const canEditComment = isMe || isAdmin || isHeadOf;
+                  const isEditing = editingCommentId === c.id;
                   return (
                     <div key={c.id} className={`flex gap-3 ${isMe ? "flex-row-reverse" : ""}`}>
                       <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
@@ -917,29 +975,77 @@ export default function NegociationDetailPage() {
                       }`}>
                         {c.user.prenom.charAt(0)}
                       </div>
-                      <div className={`max-w-[75%] ${isMe ? "text-right" : ""}`}>
-                        <div
-                          className={`inline-block rounded-xl px-4 py-2.5 ${
-                            isMe
-                              ? "bg-slate-900 text-white"
-                              : isHead
-                              ? "bg-slate-100 text-slate-900"
-                              : "bg-slate-50 text-slate-900"
-                          }`}
-                        >
-                          <div
-                            className="message-content text-sm leading-relaxed prose prose-sm max-w-none"
-                            dangerouslySetInnerHTML={{
-                              __html: resolveMentionsToHtml(
-                                c.contenu,
-                                mentionableUsers
-                              ),
-                            }}
-                          />
-                        </div>
-                        <p className="mt-1 text-xs text-slate-400">
-                          {c.user.prenom} · {new Date(c.createdAt).toLocaleDateString("fr-FR")} à {new Date(c.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
-                        </p>
+                      <div className={`${isEditing ? "w-full max-w-full" : "max-w-[75%]"} ${isMe && !isEditing ? "text-right" : ""}`}>
+                        {isEditing ? (
+                          <div className="space-y-2 text-left">
+                            <RichTextEditor
+                              value={editCommentContent}
+                              onChange={setEditCommentContent}
+                              placeholder="Modifier le message..."
+                              users={mentionableUsers.map((u) => ({
+                                id: u.id,
+                                name: `${u.firstName} ${u.lastName}`,
+                              }))}
+                            />
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={cancelEditComment}
+                                disabled={savingComment}
+                                className="rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                              >
+                                Annuler
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleSaveComment}
+                                disabled={savingComment || !editCommentContent.trim()}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+                              >
+                                {savingComment ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                                Enregistrer
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div
+                              className={`inline-block rounded-xl px-4 py-2.5 ${
+                                isMe
+                                  ? "bg-slate-900 text-white"
+                                  : isHead
+                                  ? "bg-slate-100 text-slate-900"
+                                  : "bg-slate-50 text-slate-900"
+                              }`}
+                            >
+                              <div
+                                className="message-content text-sm leading-relaxed prose prose-sm max-w-none"
+                                dangerouslySetInnerHTML={{
+                                  __html: resolveMentionsToHtml(
+                                    c.contenu,
+                                    mentionableUsers
+                                  ),
+                                }}
+                              />
+                            </div>
+                            <div className={`mt-1 flex items-center gap-2 text-xs text-slate-400 ${isMe ? "justify-end" : ""}`}>
+                              <span>
+                                {c.user.prenom} · {new Date(c.createdAt).toLocaleDateString("fr-FR")} à {new Date(c.createdAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                              </span>
+                              {canEditComment && (
+                                <button
+                                  type="button"
+                                  onClick={() => startEditComment(c)}
+                                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                  title="Modifier"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                  Modifier
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   );
