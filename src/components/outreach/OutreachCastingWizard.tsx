@@ -320,6 +320,9 @@ export default function OutreachCastingWizard({
   const localDraftsRef = useRef(localDrafts);
   const fitByBrandRef = useRef(fitByBrand);
   const selectedByBrandRef = useRef(selectedByBrand);
+  /** Outreach : un seul auto-lancement d’analyse par ouverture du wizard. */
+  const autoStartFitRef = useRef(false);
+  const runRosterFitBatchRef = useRef<() => void>(() => {});
   useEffect(() => {
     fitByBrandRef.current = fitByBrand;
   }, [fitByBrand]);
@@ -371,7 +374,10 @@ export default function OutreachCastingWizard({
 
   // Init sélection + skips à l’ouverture.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      autoStartFitRef.current = false;
+      return;
+    }
     setPhase("casting");
     setIndex(0);
     setWriteDone(0);
@@ -1116,7 +1122,7 @@ export default function OutreachCastingWizard({
         ? brandsMissingFit
         : brandsWithCache.filter((b) => !skipped.has(b.groupKey));
     if (targets.length === 0) {
-      onFlash?.("error", "Aucune marque à analyser (brief manquant ou tout skip).");
+      onFlash?.("error", "Aucune marque à analyser (tout déjà fait ou skip).");
       return;
     }
 
@@ -1248,6 +1254,43 @@ export default function OutreachCastingWizard({
     startFitPoll,
     onFlash,
     lockedTalentId,
+  ]);
+
+  useEffect(() => {
+    runRosterFitBatchRef.current = () => {
+      void runRosterFitBatch();
+    };
+  }, [runRosterFitBatch]);
+
+  /**
+   * Outreach : à l’ouverture du wizard, lance l’analyse dès que la roster
+   * est prête (sauf si un job fit/draft est déjà repris).
+   */
+  useEffect(() => {
+    if (!open || lockedTalentId) return;
+    if (autoStartFitRef.current) return;
+    if (loadingTalents || talents.length === 0) return;
+    if (brandsWithCache.length === 0) return;
+    if (fitRunning || fitJobId || serverDraftRunning) return;
+    if (brandsMissingFit.length === 0) return;
+
+    const timer = window.setTimeout(() => {
+      if (autoStartFitRef.current) return;
+      if (fitJobId || fitRunning || serverDraftRunning) return;
+      autoStartFitRef.current = true;
+      runRosterFitBatchRef.current();
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [
+    open,
+    lockedTalentId,
+    loadingTalents,
+    talents.length,
+    brandsWithCache.length,
+    brandsMissingFit.length,
+    fitRunning,
+    fitJobId,
+    serverDraftRunning,
   ]);
 
   const writeBrandDraft = useCallback(
@@ -2601,7 +2644,12 @@ export default function OutreachCastingWizard({
       : 0;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-stretch justify-center bg-black/45 p-0 sm:p-4">
+    <div
+      className="fixed inset-0 z-[120] flex items-stretch justify-center bg-black/50 p-0 sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={wizardTitle || (isIndivMode ? "Casting indiv" : "Wizard casting Outreach")}
+    >
       <div
         className="flex h-full w-full max-w-6xl flex-col overflow-hidden bg-[#FBF8F4] shadow-2xl sm:h-[min(92vh,900px)] sm:rounded-2xl"
         style={{ border: `1px solid ${OLD_ROSE}44` }}
@@ -2617,7 +2665,7 @@ export default function OutreachCastingWizard({
               style={{ fontFamily: "Spectral, serif", color: LICORICE }}
             >
               {wizardTitle ||
-                (isIndivMode ? "Casting indiv" : "Casting Outreach")}
+                (isIndivMode ? "Casting indiv" : "Wizard casting · Outreach")}
             </p>
             <p className="m-0 text-[11px] text-slate-500">
               {phase === "casting"
@@ -2682,7 +2730,7 @@ export default function OutreachCastingWizard({
             <div className="p-8 text-center text-sm text-slate-500">
               {isIndivMode
                 ? "Aucune marque dans ce lot."
-                : "Analyse d’abord les marques (barre du dessus), puis relance le casting."}
+                : "Aucune marque à caster dans cette file. Recharge la page ou change d’onglet."}
             </div>
           ) : phase === "casting" && current ? (
             <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">

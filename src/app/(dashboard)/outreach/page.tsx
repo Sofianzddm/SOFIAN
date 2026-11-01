@@ -2196,22 +2196,22 @@ export default function OutreachPage() {
           />
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
             <p className="m-0 text-xs leading-snug text-slate-500">
-              Même flux que Pipeline Casting : un clic → marque + fit + Leyna +
-              mails serveur (enregistrés en base, tu peux quitter).
+              Ouvre le wizard plein écran (comme Pipeline Casting) : marque +
+              fit + Leyna + mails serveur, enregistrés en base.
             </p>
             <button
               type="button"
               disabled={castingBrands.length === 0}
               onClick={() => setShowCastingWizard(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
-              style={{ background: "#0f172a" }}
+              className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ background: OLD_ROSE }}
               title={
                 castingBrands.length === 0
                   ? "Aucune marque dans cette file"
-                  : "Ouvrir le wizard casting (analyse + rédaction serveur)"
+                  : "Ouvrir le wizard casting plein écran"
               }
             >
-              Casting talents
+              Wizard casting
               {castingBrands.length > 0 ? ` (${castingBrands.length})` : ""}
             </button>
           </div>
