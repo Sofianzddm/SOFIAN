@@ -182,11 +182,27 @@ export async function PATCH(
     }
 
     if (body.action === "draft") {
+      const draftSubject = String(body.subject || "").trim() || null;
+      const draftBodyHtml = String(body.bodyHtml || "").trim() || null;
+      const prevSnap =
+        target.castingResearchSnapshot &&
+        typeof target.castingResearchSnapshot === "object" &&
+        !Array.isArray(target.castingResearchSnapshot)
+          ? (target.castingResearchSnapshot as Record<string, unknown>)
+          : {};
       const updated = await prisma.beneluxOutreachTarget.update({
         where: { id },
         data: {
-          draftSubject: String(body.subject || "").trim() || null,
-          draftBodyHtml: String(body.bodyHtml || "").trim() || null,
+          draftSubject,
+          draftBodyHtml,
+          ...(draftSubject && draftBodyHtml
+            ? {
+                castingResearchSnapshot: {
+                  ...prevSnap,
+                  savedAt: new Date().toISOString(),
+                },
+              }
+            : {}),
         },
       });
       return NextResponse.json({ target: updated });

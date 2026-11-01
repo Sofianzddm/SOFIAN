@@ -223,6 +223,7 @@ type Target = {
   hubspotContactId: string | null;
   hubspotSyncedAt: string | null;
   createdAt: string;
+  updatedAt?: string;
   touches: TouchSummary[];
   /** Autres marques (filles) couvertes par ce contact, hors marque principale. */
   coveredBrands?: string[];
@@ -399,6 +400,47 @@ function formatDate(dateStr: string | null): string {
   });
 }
 
+/** Date réelle de rédaction (snapshot serveur) sinon dernière màj cible. */
+function targetDraftWrittenAt(t: Target): Date | null {
+  const hasDraft =
+    Boolean((t.draftSubject || "").trim()) &&
+    Boolean((t.draftBodyHtml || "").trim());
+  if (!hasDraft) return null;
+  const raw = t.castingResearchSnapshot?.savedAt || t.updatedAt || null;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatDraftWrittenBadge(d: Date): string {
+  return `Rédigé le ${d.toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+}
+
+function groupDraftWrittenAt(targets: Target[]): Date | null {
+  let best: Date | null = null;
+  for (const t of targets) {
+    const d = targetDraftWrittenAt(t);
+    if (!d) continue;
+    if (!best || d.getTime() > best.getTime()) best = d;
+  }
+  return best;
+}
+
+type CastingServerProgress = {
+  kind: "fit" | "draft";
+  id: string;
+  done: number;
+  total: number;
+  failed: number;
+  current: string;
+};
+
 /** Date + heure (utile pour la dernière ouverture, à la minute près). */
 function formatDateTime(dateStr: string | null): string {
   if (!dateStr) return "—";
@@ -504,6 +546,9 @@ export default function OutreachPage() {
   OUTREACH_API_BASE = market === "BENELUX" ? "/api/benelux-outreach" : "/api/outreach";
   const isBenelux = market === "BENELUX";
   const isBothView = marketView === "BOTH";
+  /** Marché des jobs casting (aligné sur le wizard). */
+  const castingJobMarket: "FR" | "BENELUX" | "BOTH" =
+    marketView === "BOTH" ? "BOTH" : marketView === "BENELUX" ? "BENELUX" : "FR";
   // Réf lue par les chargements asynchrones : si l'utilisateur bascule de
   // marché pendant qu'un fetch est en cours, la réponse « périmée » de
   // l'ancien marché est ignorée (sinon les clients FR s'affichent en BENELUX).
@@ -521,7 +566,10 @@ export default function OutreachPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCartoModal, setShowCartoModal] = useState(false);
   const [showCastingWizard, setShowCastingWizard] = useState(false);
-  /** Incrémenté après batch marques/Leyna pour rafraîchir le CTA Casting. */
+  /** Job fit / rédaction serveur encore actif après fermeture du wizard. */
+  const [castingServerProgress, setCastingServerProgress] =
+    useState<CastingServerProgress | null>(null);
+  const castingProgressHadJobRef = useRef(false);
   const [pendingContacts, setPendingContacts] = useState<PendingContact[]>([]);
   const [editTarget, setEditTarget] = useState<Target | null>(null);
   // Correction d'erreur de classement : ce « client » est en réalité une agence.
@@ -755,6 +803,103 @@ export default function OutreachPage() {
       window.clearInterval(id);
     };
   }, [loadTargets]);
+
+  /**
+   * Suit les jobs fit / rédaction serveur hors wizard : badge « En cours »
+   * même si Manon a fermé le modal / quitté la page puis revenu.
+   */
+  useEffect(() => {
+    if (activeTab !== "TO_CONTACT" && activeTab !== "TO_RECONTACT") {
+      setCastingServerProgress(null);
+      castingProgressHadJobRef.current = false;
+      return;
+    }
+    let cancelled = false;
+    const marketKey = castingJobMarket;
+
+    const poll = async () => {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const [fitRes, draftRes] = await Promise.all([
+          fetch(
+            `/api/casting/roster-fit-jobs?market=${encodeURIComponent(marketKey)}`,
+            { credentials: "include" }
+          ),
+          fetch(
+            `/api/casting/outreach-draft-jobs?market=${encodeURIComponent(marketKey)}`,
+            { credentials: "include" }
+          ),
+        ]);
+        const fitData = (await fitRes.json().catch(() => ({}))) as {
+          active?: {
+            id: string;
+            status: string;
+            totalBrands?: number;
+            completed?: number;
+            failed?: number;
+            currentBrandName?: string | null;
+          } | null;
+        };
+        const draftData = (await draftRes.json().catch(() => ({}))) as {
+          active?: {
+            id: string;
+            status: string;
+            totalBrands?: number;
+            completed?: number;
+            failed?: number;
+            currentBrandName?: string | null;
+          } | null;
+        };
+        if (cancelled) return;
+
+        const draft = draftData.active;
+        const fit = fitData.active;
+        if (
+          draft &&
+          ["pending", "running"].includes(String(draft.status || ""))
+        ) {
+          castingProgressHadJobRef.current = true;
+          setCastingServerProgress({
+            kind: "draft",
+            id: draft.id,
+            done:
+              Number(draft.completed || 0) + Number(draft.failed || 0),
+            total: Number(draft.totalBrands || 0),
+            failed: Number(draft.failed || 0),
+            current: String(draft.currentBrandName || "").trim(),
+          });
+          return;
+        }
+        if (fit && ["pending", "running"].includes(String(fit.status || ""))) {
+          castingProgressHadJobRef.current = true;
+          setCastingServerProgress({
+            kind: "fit",
+            id: fit.id,
+            done: Number(fit.completed || 0) + Number(fit.failed || 0),
+            total: Number(fit.totalBrands || 0),
+            failed: Number(fit.failed || 0),
+            current: String(fit.currentBrandName || "").trim(),
+          });
+          return;
+        }
+
+        if (castingProgressHadJobRef.current) {
+          castingProgressHadJobRef.current = false;
+          void loadTargets();
+        }
+        setCastingServerProgress(null);
+      } catch {
+        /* ignore poll errors */
+      }
+    };
+
+    void poll();
+    const id = window.setInterval(() => void poll(), 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [activeTab, castingJobMarket, loadTargets]);
 
   /** Évite de spammer /flush-scheduled à chaque re-render de la liste. */
   const flushInFlightRef = useRef(false);
@@ -2194,6 +2339,67 @@ export default function OutreachPage() {
               flash(kind, message);
             }}
           />
+          {castingServerProgress ? (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5"
+              style={{
+                borderColor: `${OLD_ROSE}66`,
+                background: "#FDF6F4",
+              }}
+            >
+              <div className="min-w-0 flex-1">
+                <p
+                  className="m-0 inline-flex items-center gap-1.5 text-xs font-semibold"
+                  style={{ color: LICORICE }}
+                >
+                  <Loader2
+                    className="h-3.5 w-3.5 shrink-0 animate-spin"
+                    style={{ color: OLD_ROSE }}
+                  />
+                  {castingServerProgress.kind === "draft"
+                    ? "Rédaction en cours"
+                    : "Casting en cours"}
+                  <span className="font-normal text-slate-500">
+                    · {castingServerProgress.done}/
+                    {castingServerProgress.total || "…"}
+                    {castingServerProgress.current
+                      ? ` · ${castingServerProgress.current}`
+                      : ""}
+                    {castingServerProgress.failed > 0
+                      ? ` · ${castingServerProgress.failed} échec(s)`
+                      : ""}
+                    {" — tu peux quitter, ça continue"}
+                  </span>
+                </p>
+                {castingServerProgress.total > 0 ? (
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/80">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.round(
+                            (castingServerProgress.done /
+                              castingServerProgress.total) *
+                              100
+                          )
+                        )}%`,
+                        background: OLD_ROSE,
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCastingWizard(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+                style={{ background: OLD_ROSE }}
+              >
+                Rouvrir le wizard
+              </button>
+            </div>
+          ) : null}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
             <p className="m-0 text-xs leading-snug text-slate-500">
               Ouvre le wizard plein écran (comme Pipeline Casting) : marque +
@@ -2362,6 +2568,23 @@ export default function OutreachPage() {
                         Prêt à contrôler
                       </span>
                     )}
+                    {(() => {
+                      const writtenAt = groupDraftWrittenAt(group.targets);
+                      if (!writtenAt) return null;
+                      return (
+                        <span
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                          style={{
+                            backgroundColor: "#EAF7D6",
+                            color: LICORICE,
+                          }}
+                          title={writtenAt.toLocaleString("fr-FR")}
+                        >
+                          <PenLine className="h-3 w-3 opacity-80" />
+                          {formatDraftWrittenBadge(writtenAt)}
+                        </span>
+                      );
+                    })()}
                     {isBothView && (
                       <span
                         className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0"
@@ -3141,10 +3364,20 @@ export default function OutreachPage() {
             touchIds.add(t.id);
             if (t.siblingTargetId) touchIds.add(t.siblingTargetId);
           }
+          const nowIso = new Date().toISOString();
           setTargets((prev) =>
             prev.map((t) =>
               touchIds.has(t.id)
-                ? { ...t, draftSubject: subject, draftBodyHtml: bodyHtml }
+                ? {
+                    ...t,
+                    draftSubject: subject,
+                    draftBodyHtml: bodyHtml,
+                    updatedAt: nowIso,
+                    castingResearchSnapshot: {
+                      ...(t.castingResearchSnapshot || {}),
+                      savedAt: nowIso,
+                    },
+                  }
                 : t
             )
           );
