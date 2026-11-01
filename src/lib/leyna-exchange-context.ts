@@ -86,6 +86,8 @@ export type LeynaExchangeContext = {
   promptBlockEn: string;
   /** ok = scan terminé ; empty = rien trouvé ; failed = erreur technique. */
   scanStatus: LeynaScanStatus;
+  /** Détail technique si scanStatus=failed (OAuth, réseau, 429…). */
+  scanError?: string | null;
   fetchedAt: string;
   /** true s’il n’y a que des envois sans réponse (pas d’échange). */
   hasSentNoReplyOnly: boolean;
@@ -595,7 +597,8 @@ ${excerpt}`,
 }
 
 function emptyContext(
-  scanStatus: LeynaScanStatus = "empty"
+  scanStatus: LeynaScanStatus = "empty",
+  scanError?: string | null
 ): LeynaExchangeContext {
   return {
     hasExchange: false,
@@ -609,6 +612,9 @@ function emptyContext(
     promptBlockFr: "",
     promptBlockEn: "",
     scanStatus,
+    ...(scanStatus === "failed" && scanError
+      ? { scanError: String(scanError).slice(0, 300) }
+      : {}),
     fetchedAt: new Date().toISOString(),
     hasSentNoReplyOnly: false,
   };
@@ -971,16 +977,16 @@ export async function getLeynaExchangeContext(args: {
 
   let gmailAttempts = 0;
   let gmailFailures = 0;
+  let lastGmailError: string | null = null;
   const trackGmail = async <T>(label: string, fn: () => Promise<T>): Promise<T | null> => {
     gmailAttempts += 1;
     try {
       return await fn();
     } catch (e) {
       gmailFailures += 1;
-      console.warn(
-        `[leyna-exchange-context] ${label}:`,
-        e instanceof Error ? e.message : e
-      );
+      lastGmailError =
+        e instanceof Error ? e.message : typeof e === "string" ? e : "Erreur Gmail";
+      console.warn(`[leyna-exchange-context] ${label}:`, lastGmailError);
       return null;
     }
   };
@@ -1228,7 +1234,10 @@ export async function getLeynaExchangeContext(args: {
     if (hits.length === 0) {
       // Toutes les requêtes Gmail ont échoué (OAuth, réseau…) ≠ « aucun historique ».
       if (gmailAttempts > 0 && gmailFailures >= gmailAttempts) {
-        return emptyContext("failed");
+        return emptyContext(
+          "failed",
+          lastGmailError || "Toutes les requêtes Gmail Leyna ont échoué"
+        );
       }
       return emptyContext("empty");
     }
@@ -1354,10 +1363,8 @@ ${detailsFr}
       hasSentNoReplyOnly,
     };
   } catch (e) {
-    console.warn(
-      "[leyna-exchange-context] échec global soft-fail:",
-      e instanceof Error ? e.message : e
-    );
-    return emptyContext("failed");
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[leyna-exchange-context] échec global soft-fail:", msg);
+    return emptyContext("failed", msg);
   }
 }

@@ -101,10 +101,72 @@ export async function createOutreachDraftJob(args: {
     throw new Error("Aucune marque à rédiger (targets / talents manquants).");
   }
 
+  const market = args.market || "FR";
+
+  // Réutilise le job actif du même user/marché : évite N jobs 1-item en
+  // parallèle qui saturent Gmail (Leyna) et font tout échouer.
+  const active = await prisma.castingOutreachDraftJob.findFirst({
+    where: {
+      userId: args.userId,
+      market,
+      status: { in: ["pending", "running"] },
+      cancelRequested: false,
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      totalBrands: true,
+      items: { select: { groupKey: true, status: true, sortOrder: true } },
+    },
+  });
+
+  if (active) {
+    const existingKeys = new Set(
+      active.items
+        .filter((it) => ["pending", "running", "done"].includes(it.status))
+        .map((it) => it.groupKey)
+    );
+    const maxSort = active.items.reduce(
+      (m, it) => Math.max(m, Number(it.sortOrder || 0)),
+      -1
+    );
+    const toAdd = items.filter((it) => !existingKeys.has(it.groupKey));
+    if (toAdd.length === 0) {
+      return { jobId: active.id };
+    }
+    await prisma.$transaction([
+      prisma.castingOutreachDraftItem.createMany({
+        data: toAdd.map((it, i) => ({
+          jobId: active.id,
+          groupKey: it.groupKey,
+          brandName: it.brandName,
+          company: it.company,
+          pipeline: it.pipeline,
+          sortOrder: maxSort + 1 + i,
+          targetIds: it.targetIds,
+          talentIds: it.talentIds,
+          brandResearch: it.brandResearch as object,
+          rosterFits: it.rosterFits as object | undefined,
+          status: "pending",
+        })),
+      }),
+      prisma.castingOutreachDraftJob.update({
+        where: { id: active.id },
+        data: {
+          totalBrands: { increment: toAdd.length },
+          status: "running",
+          finishedAt: null,
+          error: null,
+        },
+      }),
+    ]);
+    return { jobId: active.id };
+  }
+
   const job = await prisma.castingOutreachDraftJob.create({
     data: {
       userId: args.userId,
-      market: args.market || "FR",
+      market,
       status: "pending",
       totalBrands: items.length,
       items: {
@@ -198,6 +260,20 @@ async function processOneOutreachItem(itemId: string): Promise<{
   }
   if (targetIds.length === 0) {
     return { ok: false, brandName, error: "Aucun contact cible" };
+  }
+
+  // Fail-fast OAuth Leyna : sans refresh token valide, inutile d’analyser marque/talents.
+  try {
+    const { getValidAccessToken } = await import("@/lib/gmail");
+    const { LEYNA_FROM_EMAIL } = await import("@/lib/casting-auto-send");
+    await getValidAccessToken(LEYNA_FROM_EMAIL);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : "token Leyna invalide";
+    return {
+      ok: false,
+      brandName,
+      error: `Scan Leyna échoué — pas de rédaction cold (${detail})`,
+    };
   }
 
   const hasBrief = Boolean(
@@ -322,10 +398,13 @@ async function processOneOutreachItem(itemId: string): Promise<{
     ),
   });
   if (leyna.scanStatus === "failed") {
+    const detail = String(leyna.scanError || "").trim();
     return {
       ok: false,
       brandName,
-      error: "Scan Leyna échoué — pas de rédaction cold.",
+      error: detail
+        ? `Scan Leyna échoué — pas de rédaction cold (${detail})`
+        : "Scan Leyna échoué — pas de rédaction cold.",
     };
   }
 

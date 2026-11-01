@@ -293,10 +293,13 @@ async function processOneMissionItem(itemId: string): Promise<{
     );
   }
   if (leyna.scanStatus === "failed") {
+    const detail = String(leyna.scanError || "").trim();
     return {
       ok: false,
       brandName,
-      error: "Scan Leyna échoué — pas de rédaction cold.",
+      error: detail
+        ? `Scan Leyna échoué — pas de rédaction cold (${detail})`
+        : "Scan Leyna échoué — pas de rédaction cold.",
     };
   }
 
