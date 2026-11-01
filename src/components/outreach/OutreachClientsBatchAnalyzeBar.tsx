@@ -472,10 +472,10 @@ export default function OutreachClientsBatchAnalyzeBar({
         <div className="min-w-0 flex-1">
           <p className="m-0 text-xs leading-snug text-slate-500">
             {runningKind === "brand"
-              ? `Étape 1 · Analyse marques · ${current || "…"}`
+              ? `Pré-chauffe · Analyse marques · ${current || "…"}`
               : runningKind === "leyna"
-                ? `Étape 2 · Boîte Leyna · ${current || "…"}`
-                : `Étape 1 : marques ${fileLabel} (${brandCacheCount}/${brands.length}) → étape 2 : boîte Leyna (${leynaCacheCount}/${brands.length}). Ensuite, marque par marque : talents → rédaction.`}
+                ? `Pré-chauffe · Boîte Leyna · ${current || "…"}`
+                : `Optionnel — pré-chauffe cache navigateur pour ${fileLabel} (marques ${brandCacheCount}/${brands.length}, Leyna ${leynaCacheCount}/${brands.length}). Le bouton « Casting talents » enchaîne déjà tout côté serveur.`}
           </p>
           {running && (
             <div className="mt-2.5">

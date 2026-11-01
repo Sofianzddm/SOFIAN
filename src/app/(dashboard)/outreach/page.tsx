@@ -55,7 +55,6 @@ import {
   cacheOutreachLeynaExchangeMarkets,
   cacheOutreachSelectedTalentsMarkets,
   cacheOutreachTalentResearchMarkets,
-  hasOutreachBrandCacheEntry,
   loadOutreachBrandResearchCacheMarkets,
   loadOutreachLeynaExchangeCacheMarkets,
   loadOutreachSelectedTalentsCacheMarkets,
@@ -523,7 +522,6 @@ export default function OutreachPage() {
   const [showCartoModal, setShowCartoModal] = useState(false);
   const [showCastingWizard, setShowCastingWizard] = useState(false);
   /** Incrémenté après batch marques/Leyna pour rafraîchir le CTA Casting. */
-  const [outreachCacheTick, setOutreachCacheTick] = useState(0);
   const [pendingContacts, setPendingContacts] = useState<PendingContact[]>([]);
   const [editTarget, setEditTarget] = useState<Target | null>(null);
   // Correction d'erreur de classement : ce « client » est en réalité une agence.
@@ -1084,27 +1082,6 @@ export default function OutreachPage() {
    */
   const batchCacheMarket: Market =
     marketView === "BENELUX" ? "BENELUX" : "FR";
-
-  /** Au moins 1 marque de la file a une analyse marque en cache → casting dispo. */
-  const castingReadyCount = useMemo(() => {
-    if (castingBrands.length === 0) return 0;
-    const markets: Array<"FR" | "BENELUX"> =
-      marketView === "BOTH" ? ["FR", "BENELUX"] : [batchCacheMarket];
-    const cache = loadOutreachBrandResearchCacheMarkets(markets);
-    let n = 0;
-    for (const b of castingBrands) {
-      const names =
-        (b.coveredBrands || []).length > 0
-          ? b.coveredBrands!
-          : [b.company];
-      if (names.some((name) => hasOutreachBrandCacheEntry(cache, name, b.company))) {
-        n += 1;
-      }
-    }
-    return n;
-    // outreachCacheTick : relecture localStorage après batch marques/Leyna.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- tick volontaire
-  }, [castingBrands, marketView, batchCacheMarket, outreachCacheTick]);
 
   /**
    * Clés de lookup cache = chaque sous-marque séparément (jamais un join).
@@ -2215,28 +2192,27 @@ export default function OutreachPage() {
             }
             onFlash={(kind, message) => {
               flash(kind, message);
-              setOutreachCacheTick((n) => n + 1);
             }}
           />
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
             <p className="m-0 text-xs leading-snug text-slate-500">
-              Étape 3 : casting talents marque par marque (brief cache), puis
-              rédaction batch et contrôle / envoi.
+              Même flux que Pipeline Casting : un clic → marque + fit + Leyna +
+              mails serveur (enregistrés en base, tu peux quitter).
             </p>
             <button
               type="button"
-              disabled={castingReadyCount === 0}
+              disabled={castingBrands.length === 0}
               onClick={() => setShowCastingWizard(true)}
               className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-40"
               style={{ background: "#0f172a" }}
               title={
-                castingReadyCount === 0
-                  ? "Analyse d’abord les marques (étape 1)"
-                  : "Ouvrir le wizard casting"
+                castingBrands.length === 0
+                  ? "Aucune marque dans cette file"
+                  : "Ouvrir le wizard casting (analyse + rédaction serveur)"
               }
             >
               Casting talents
-              {castingReadyCount > 0 ? ` (${castingReadyCount})` : ""}
+              {castingBrands.length > 0 ? ` (${castingBrands.length})` : ""}
             </button>
           </div>
         </div>

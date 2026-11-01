@@ -17,7 +17,6 @@ import {
   cacheOutreachRosterFitMarkets,
   cacheOutreachSelectedTalentsMarkets,
   cacheOutreachTalentResearchMarkets,
-  hasOutreachBrandCacheEntry,
   loadOutreachBrandResearchCacheMarkets,
   loadOutreachLeynaExchangeCacheMarkets,
   loadOutreachRosterFitCacheMarkets,
@@ -361,19 +360,14 @@ export default function OutreachCastingWizard({
     [lockedTalentId, open, brands, indivCacheTick]
   );
 
-  const brandsWithCache = useMemo(() => {
-    if (isIndivMode) {
-      // Indiv : toutes les marques du lot (brief optionnel — sinon message vide).
-      return brands.filter((b) => pitchNamesForBrand(b).length > 0);
-    }
-    return brands.filter((b) => {
-      const names = pitchNamesForBrand(b);
-      return (
-        names.length > 0 &&
-        names.some((n) => hasOutreachBrandCacheEntry(brandCache, n, b.company))
-      );
-    });
-  }, [brands, brandCache, isIndivMode]);
+  /**
+   * Marques du lot wizard. Brief marque optionnel : le worker roster-fit /
+   * outreach-draft le remplit s’il manque (même logique que Pipeline indiv).
+   */
+  const brandsWithCache = useMemo(
+    () => brands.filter((b) => pitchNamesForBrand(b).length > 0),
+    [brands]
+  );
 
   // Init sélection + skips à l’ouverture.
   useEffect(() => {
@@ -1179,10 +1173,9 @@ export default function OutreachCastingWizard({
               pitch,
               brand.company,
               ...(brand.coveredBrands || [])
-            );
-        // Outreach : brief encore requis côté UI (analyse marque pipeline).
-        // Indiv : emptyBrief OK → serveur fait marque + fit.
-        if (!brief) continue;
+            ) || emptyBrief;
+        // Brief vide OK : worker roster-fit fait l’analyse marque, puis le
+        // draft job enchaîne Leyna + rédaction (outreach = indiv).
         payloadBrands.push({
           groupKey: brand.groupKey,
           brandName: pitch || brand.company,
@@ -1199,11 +1192,7 @@ export default function OutreachCastingWizard({
       }
 
       if (payloadBrands.length === 0) {
-        throw new Error(
-          lockedTalentId
-            ? "Aucune marque à analyser pour ce lot."
-            : "Aucun brief marque en cache pour lancer le job."
-        );
+        throw new Error("Aucune marque à analyser pour ce lot.");
       }
 
       setFitTotal(payloadBrands.length);
@@ -1234,9 +1223,7 @@ export default function OutreachCastingWizard({
       onFlash?.(
         "success",
         data.message ||
-          (lockedTalentId
-            ? `Fit casting lancé — marque + fit serveur (tu peux quitter).`
-            : `Fit casting lancé (${n} actif${n > 1 ? "s" : ""} en parallèle).`)
+          `Casting lancé (${n} actif${n > 1 ? "s" : ""}) — marque + fit + Leyna + mails serveur (tu peux quitter, c’est en base).`
       );
       startFitPoll(data.jobId);
     } catch (e) {
@@ -3487,9 +3474,7 @@ export default function OutreachCastingWizard({
                           }
                         }}
                       />
-                      {isIndivMode
-                        ? "Marque + fit + Leyna + mails serveur (tu peux quitter)"
-                        : "Rédiger auto après fit (serveur, tu peux quitter)"}
+                      Marque + fit + Leyna + mails serveur (tu peux quitter)
                     </label>
                     {fitRunning || serverDraftRunning ? (
                       <button
@@ -3521,7 +3506,7 @@ export default function OutreachCastingWizard({
                         color: LICORICE,
                         background: "#FDF6F4",
                       }}
-                      title="Juge chaque talent OUI/NON vs le brief marque, pour toutes les marques"
+                      title="Analyse marque si besoin, puis fit OUI/NON, Leyna et rédaction serveur"
                     >
                       <Sparkles className="h-4 w-4" style={{ color: OLD_ROSE }} />
                       {brandsMissingFit.length > 0 &&
@@ -3539,9 +3524,7 @@ export default function OutreachCastingWizard({
                         checked={autoWriteAfterFit}
                         onChange={(e) => setAutoWriteAfterFit(e.target.checked)}
                       />
-                      {isIndivMode
-                        ? "Marque + fit + Leyna + mails serveur (tu peux quitter)"
-                        : "Puis rédiger auto serveur (tu peux quitter)"}
+                      Marque + fit + Leyna + mails serveur (tu peux quitter)
                     </label>
                   </div>
                 )}
