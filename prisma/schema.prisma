@@ -4951,6 +4951,10 @@ model RhTimesheet {
   /// Lien de signature DocuSeal du collaborateur
   docusealSigningUrl   String?
 
+  /// Rappel RH : soumettre la feuille (non envoyée)
+  lastReminderAt DateTime?
+  reminderCount  Int       @default(0)
+
   days         RhTimesheetDay[]
 
   createdAt DateTime @default(now())

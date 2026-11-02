@@ -28,6 +28,7 @@ const ACTION_LABEL: Record<string, string> = {
   "timesheet.requestSignature": "Signature demandée",
   "timesheet.sign": "Feuille signée",
   "timesheet.monthlySignatures": "Signatures mensuelles",
+  "timesheet.remind": "Rappel feuille non soumise",
   "leave.create": "Absence posée",
   "leave.approve": "Absence validée",
   "leave.refuse": "Absence refusée",

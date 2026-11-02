@@ -139,7 +139,7 @@ export function ManageAdminScreen({
                   <option value="RECUP">Récupération</option>
                   <option value="SS">Maladie</option>
                   <option value="SCHOOL">École</option>
-                  <option value="AUTHORIZED">Absence autorisée</option>
+                  <option value="AUTHORIZED">Autres (décès, naissance…)</option>
                   <option value="UNPAID">Sans solde</option>
                   <option value="RTT">RTT</option>
                 </select>

@@ -8,37 +8,64 @@ import {
 } from "@/lib/rh/auth";
 import {
   listAwaitingSignature,
+  listSignedTimesheets,
   requestMonthlySignatures,
   requestTimesheetSignature,
 } from "@/lib/rh/timesheet";
 import prisma from "@/lib/prisma";
 
-/** Liste des feuilles validées en attente de signature. */
+function mapSignatureRow(t: {
+  id: string;
+  employeeId: string;
+  isoWeek: number;
+  isoYear: number;
+  totalMinutes: number;
+  status: string;
+  signatureRequestedAt: Date | null;
+  signedAt: Date | null;
+  weekStart: Date;
+  pdfUrl: string | null;
+  signedPdfUrl: string | null;
+  docusealSigningUrl: string | null;
+  docusealSubmissionId: string | null;
+  employee: {
+    user: { prenom: string; nom: string; email: string | null };
+  };
+}) {
+  return {
+    id: t.id,
+    employeeId: t.employeeId,
+    name: displayName(t.employee.user),
+    email: t.employee.user.email,
+    isoWeek: t.isoWeek,
+    isoYear: t.isoYear,
+    totalMinutes: t.totalMinutes,
+    signatureRequestedAt: t.signatureRequestedAt?.toISOString() ?? null,
+    signedAt: t.signedAt?.toISOString() ?? null,
+    weekStart: t.weekStart.toISOString().slice(0, 10),
+    pdfUrl: t.pdfUrl ?? null,
+    signedPdfUrl: t.signedPdfUrl ?? null,
+    docusealSigningUrl: t.docusealSigningUrl ?? null,
+    docusealSubmissionId: t.docusealSubmissionId ?? null,
+    status: t.status,
+  };
+}
+
+/** Liste des feuilles en attente de signature + feuilles déjà signées. */
 export async function GET(request: NextRequest) {
   const session = await requireRhSessionFromRequest(request);
   if (!session || !isRhManager(session.employee.rhRole)) {
     return NextResponse.json({ error: "Interdit" }, { status: 403 });
   }
   const hr = isRhHr(session.employee.rhRole);
-  const rows = await listAwaitingSignature(
-    hr ? { hr: true } : { managerId: session.employee.id }
-  );
+  const scope = hr ? { hr: true as const } : { managerId: session.employee.id };
+  const [awaiting, signed] = await Promise.all([
+    listAwaitingSignature(scope),
+    listSignedTimesheets(scope),
+  ]);
   return NextResponse.json({
-    items: rows.map((t) => ({
-      id: t.id,
-      employeeId: t.employeeId,
-      name: displayName(t.employee.user),
-      email: t.employee.user.email,
-      isoWeek: t.isoWeek,
-      isoYear: t.isoYear,
-      totalMinutes: t.totalMinutes,
-      signatureRequestedAt: t.signatureRequestedAt?.toISOString() ?? null,
-      weekStart: t.weekStart.toISOString().slice(0, 10),
-      pdfUrl: t.pdfUrl ?? null,
-      signedPdfUrl: t.signedPdfUrl ?? null,
-      docusealSigningUrl: t.docusealSigningUrl ?? null,
-      docusealSubmissionId: t.docusealSubmissionId ?? null,
-    })),
+    items: awaiting.map(mapSignatureRow),
+    signed: signed.map(mapSignatureRow),
   });
 }
 

@@ -38,6 +38,7 @@ import {
 } from "@/components/rh/people/people-utils";
 import { PlanningGanttScreen } from "@/components/rh/people/screens/PlanningGanttScreen";
 import { ApprovalsInboxScreen } from "@/components/rh/people/screens/ApprovalsInboxScreen";
+import { TimesheetsAdminScreen } from "@/components/rh/people/screens/TimesheetsAdminScreen";
 import { PayrollScreen } from "@/components/rh/people/screens/PayrollScreen";
 import { ManageAdminScreen } from "@/components/rh/people/screens/ManageAdminScreen";
 import {
@@ -96,6 +97,7 @@ function PeopleAppInner() {
     remainingHours: "",
   });
   const [sigItems, setSigItems] = useState<SigItem[]>([]);
+  const [signedItems, setSignedItems] = useState<SigItem[]>([]);
   const [sigLoading, setSigLoading] = useState(false);
 
   useEffect(() => {
@@ -129,6 +131,7 @@ function PeopleAppInner() {
       if (res.ok) {
         const data = await res.json();
         setSigItems(data.items || []);
+        setSignedItems(data.signed || []);
       }
     } finally {
       setSigLoading(false);
@@ -272,6 +275,33 @@ function PeopleAppInner() {
       void loadSignatures();
     } catch (e) {
       flash(e instanceof Error ? e.message : "Erreur lors de l'approbation groupée", "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleApproveSelectedTimesheets(ids: string[]) {
+    const unique = [...new Set(ids.filter(Boolean))];
+    if (!unique.length) return;
+    if (
+      !window.confirm(
+        `Approuver ${unique.length} feuille${unique.length > 1 ? "s" : ""} de temps ?`
+      )
+    )
+      return;
+    setBusy(true);
+    flash("");
+    try {
+      for (const id of unique) await approve(id);
+      flash(
+        `${unique.length} feuille${unique.length > 1 ? "s" : ""} approuvée${unique.length > 1 ? "s" : ""}`
+      );
+      void loadSignatures();
+    } catch (e) {
+      flash(
+        e instanceof Error ? e.message : "Erreur lors de l'approbation groupée",
+        "err"
+      );
     } finally {
       setBusy(false);
     }
@@ -774,107 +804,22 @@ function PeopleAppInner() {
       )}
 
       {screen === "time" && (
-        <div className="rh-screen">
-          <RhPageHero
-            eyebrow="TEMPS"
-            title="Feuilles de temps"
-            subtitle="Valider, puis envoyer en signature électronique au collaborateur."
-            actions={
-              me?.employee.rhRole === "HR" ? (
-                <RhButton
-                  variant="secondary"
-                  disabled={busy}
-                  onClick={() => void handleMonthlySignatures()}
-                >
-                  Envoyer le mois (≈4 feuilles / collab)
-                </RhButton>
-              ) : undefined
-            }
-          />
-          <RhCard>
-            <RhCardHead title="À valider" />
-            {inboxItems.filter((i) => i.kind === "TIMESHEET").length === 0 ? (
-              <div className="p-4 text-[12px]" style={{ color: "#8B95A5" }}>Aucune feuille en attente</div>
-            ) : (
-              inboxItems
-                .filter((i) => i.kind === "TIMESHEET")
-                .map((i) => (
-                  <div key={i.id} className="flex flex-wrap items-center gap-3 px-4 py-3" style={{ borderBottom: "1px solid #15191F" }}>
-                    <RhAvatar initials={i.initials} color={i.color} size={26} />
-                    <div className="flex-1 min-w-[140px]">
-                      <div className="text-[12.5px] font-medium">{i.who}</div>
-                      <div className="rh-mono text-[10px]" style={{ color: "#7E8998" }}>{i.meta} · {i.title}</div>
-                    </div>
-                    <RhButton variant="danger" disabled={busy} onClick={() => void handleRefuse(i.id, i.who)}>Refuser</RhButton>
-                    <RhButton disabled={busy} onClick={() => void handleApprove(i.id, i.who)}>Approuver</RhButton>
-                  </div>
-                ))
-            )}
-          </RhCard>
-          <RhCard>
-            <RhCardHead
-              title="Signature électronique"
-              right={
-                <RhButton
-                  variant="secondary"
-                  disabled={sigLoading}
-                  onClick={() => void loadSignatures()}
-                >
-                  Actualiser
-                </RhButton>
-              }
-            />
-            {sigLoading && !sigItems.length ? (
-              <div className="p-4 text-[12px]" style={{ color: "#8B95A5" }}>Chargement…</div>
-            ) : sigItems.length === 0 ? (
-              <div className="p-4 text-[12px]" style={{ color: "#8B95A5" }}>
-                Aucune feuille validée en attente de signature
-              </div>
-            ) : (
-              sigItems.map((t) => (
-                <div
-                  key={t.id}
-                  className="flex flex-wrap items-center gap-3 px-4 py-3"
-                  style={{ borderBottom: "1px solid #15191F" }}
-                >
-                  <div className="flex-1 min-w-[160px]">
-                    <div className="text-[12.5px] font-medium">{t.name}</div>
-                    <div className="rh-mono text-[10px]" style={{ color: "#7E8998" }}>
-                      S{t.isoWeek} {t.isoYear} · {Math.round(t.totalMinutes / 60)} h
-                      {t.signatureRequestedAt ? " · envoyée" : ""}
-                    </div>
-                  </div>
-                  {(t.pdfUrl || t.signedPdfUrl) && (
-                    <RhButton
-                      variant="secondary"
-                      onClick={() =>
-                        window.open(
-                          t.signedPdfUrl || t.pdfUrl || "",
-                          "_blank",
-                          "noopener"
-                        )
-                      }
-                    >
-                      PDF
-                    </RhButton>
-                  )}
-                  {t.signatureRequestedAt ? (
-                    <RhBadge bg="rgba(70,214,192,.13)" fg="#46D6C0">
-                      DocuSeal · en attente
-                    </RhBadge>
-                  ) : (
-                    <RhButton
-                      disabled={busy}
-                      onClick={() => void handleRequestSignature(t.id, t.name)}
-                    >
-                      Envoyer via DocuSeal
-                    </RhButton>
-                  )}
-                </div>
-              ))
-            )}
-          </RhCard>
-        </div>
+        <TimesheetsAdminScreen
+          pendingItems={inboxItems.filter((i) => i.kind === "TIMESHEET")}
+          sigItems={sigItems}
+          signedItems={signedItems}
+          sigLoading={sigLoading}
+          busy={busy}
+          isHr={me?.employee.rhRole === "HR"}
+          onApprove={handleApprove}
+          onRefuse={handleRefuse}
+          onApproveSelected={handleApproveSelectedTimesheets}
+          onRequestSignature={handleRequestSignature}
+          onMonthlySignatures={handleMonthlySignatures}
+          onRefreshSignatures={() => void loadSignatures()}
+          onOpenFiche={openFiche}
+          onFlash={flash}
+        />
       )}
 
       {screen === "expenses" && (

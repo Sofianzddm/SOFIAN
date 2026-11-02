@@ -135,7 +135,7 @@ export function TeamOfficialCalendar({
           ["CNP", "Sans solde", "#8B95A5"],
           ["Mal", "Maladie", SICK],
           ["Éco", "École", "#B48CF0"],
-          ["Aut", "Autorisée", "#8ED98A"],
+          ["Aut", "Autres", "#8ED98A"],
           ["…", "En attente", "#F2874E"],
           ["Fér", "Férié", "#A78BFA"],
         ] as const);

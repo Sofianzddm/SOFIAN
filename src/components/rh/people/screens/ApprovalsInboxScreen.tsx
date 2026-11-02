@@ -22,6 +22,17 @@ const REQUEST_TYPE_LABEL: Record<string, string> = {
   PAUSE_AMEND: "Pause / avenant",
 };
 
+function isWeekendDate(date: string): boolean {
+  const dow = new Date(date + "T12:00:00").getDay();
+  return dow === 0 || dow === 6;
+}
+
+function weekdayShortFr(date: string): string {
+  return new Date(date + "T12:00:00").toLocaleDateString("fr-FR", {
+    weekday: "short",
+  });
+}
+
 type Props = {
   inboxItems: InboxItem[];
   busy: boolean;
@@ -356,11 +367,26 @@ export function ApprovalsInboxScreen({
                           Record<string, unknown>
                         >
                       )
-                        .filter(
-                          (d) =>
+                        .filter((d) => {
+                          const date = String(d.date || "");
+                          // Toujours afficher samedi / dimanche (même à 0 h)
+                          if (isWeekendDate(date)) return true;
+                          return (
                             Number(d.totalMinutes || 0) > 0 || !!d.absenceKind
+                          );
+                        })
+                        .sort((a, b) =>
+                          String(a.date || "").localeCompare(String(b.date || ""))
                         )
                         .map((d, i) => {
+                          const date = String(d.date || "");
+                          const weekend = isWeekendDate(date);
+                          const worked =
+                            Number(d.totalMinutes || 0) > 0 ||
+                            (Array.isArray(d.slots) &&
+                              (d.slots as Array<{ from?: string; to?: string }>).some(
+                                (s) => s.from && s.to
+                              ));
                           const slots = Array.isArray(d.slots)
                             ? (d.slots as Array<{ from?: string; to?: string }>)
                             : [];
@@ -386,19 +412,39 @@ export function ApprovalsInboxScreen({
                               key={i}
                               className="rounded-[10px] px-3 py-2.5"
                               style={{
-                                background: "rgba(255,255,255,.03)",
-                                border: "1px solid #1B212A",
+                                background: weekend
+                                  ? worked
+                                    ? "rgba(242,135,78,.08)"
+                                    : "rgba(255,255,255,.02)"
+                                  : "rgba(255,255,255,.03)",
+                                border: weekend
+                                  ? worked
+                                    ? "1px solid rgba(242,135,78,.35)"
+                                    : "1px solid #1B212A"
+                                  : "1px solid #1B212A",
                               }}
                             >
                               <div className="flex flex-wrap items-baseline justify-between gap-2 text-[12.5px]">
                                 <span className="font-medium" style={{ color: "#E7ECF2" }}>
-                                  {String(d.date)}
+                                  {weekdayShortFr(date)} {date}
                                   {d.exception ? " · exception" : ""}
                                 </span>
                                 <span className="rh-mono" style={{ color: LIME }}>
-                                  {String(d.totalLabel)}
+                                  {String(d.totalLabel || "0 h 00")}
                                 </span>
                               </div>
+                              {weekend ? (
+                                <div
+                                  className="mt-1 text-[11.5px] font-medium"
+                                  style={{
+                                    color: worked ? "#F2874E" : "#8B95A5",
+                                  }}
+                                >
+                                  {worked
+                                    ? "Week-end · travaillé (récup à la validation)"
+                                    : "Week-end · non travaillé"}
+                                </div>
+                              ) : null}
                               {absenceText ? (
                                 <div
                                   className="mt-1 text-[11.5px]"

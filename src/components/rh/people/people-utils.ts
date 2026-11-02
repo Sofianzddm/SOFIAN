@@ -62,7 +62,7 @@ export const KIND_LABEL: Record<string, string> = {
   SS: "Maladie",
   UNPAID: "Sans solde",
   SCHOOL: "École",
-  AUTHORIZED: "Absence autorisée",
+  AUTHORIZED: "Autres (décès, naissance…)",
 };
 
 /** Codes courts affichés dans le Gantt (à la place des pastilles couleur). */
@@ -199,17 +199,20 @@ export type ForceForm = {
 
 export type SigItem = {
   id: string;
+  employeeId?: string;
   name: string;
   email: string;
   isoWeek: number;
   isoYear: number;
   totalMinutes: number;
   signatureRequestedAt: string | null;
+  signedAt?: string | null;
   weekStart: string;
   pdfUrl: string | null;
   signedPdfUrl: string | null;
   docusealSigningUrl: string | null;
   docusealSubmissionId: string | null;
+  status?: string;
 };
 
 export { CP, LIME, RTT, SICK, TT };

@@ -1,0 +1,2 @@
+ALTER TABLE "rh_timesheets" ADD COLUMN IF NOT EXISTS "lastReminderAt" TIMESTAMP(3);
+ALTER TABLE "rh_timesheets" ADD COLUMN IF NOT EXISTS "reminderCount" INTEGER NOT NULL DEFAULT 0;

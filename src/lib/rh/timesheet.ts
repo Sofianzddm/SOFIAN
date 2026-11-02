@@ -19,7 +19,9 @@ import {
   notifyRhDecision,
   notifyTimesheetWeekend,
   notifyTimesheetSignatureRequest,
+  notifyTimesheetSubmitReminder,
 } from "@/lib/rh/notify";
+import { displayName, initials } from "@/lib/rh/auth";
 import { isFrenchHoliday } from "@/lib/rh/holidays";
 import { getRhSettings } from "@/lib/rh/settings";
 
@@ -935,6 +937,33 @@ export async function listAwaitingSignature(opts?: {
   });
 }
 
+/** Feuilles déjà signées (accès RH / manager). */
+export async function listSignedTimesheets(opts?: {
+  managerId?: string;
+  hr?: boolean;
+  take?: number;
+}) {
+  return prisma.rhTimesheet.findMany({
+    where: {
+      status: "SIGNED",
+      ...(opts?.hr
+        ? {}
+        : opts?.managerId
+          ? { employee: { managerId: opts.managerId } }
+          : {}),
+    },
+    include: {
+      employee: {
+        include: {
+          user: { select: { prenom: true, nom: true, email: true } },
+        },
+      },
+    },
+    orderBy: [{ signedAt: "desc" }, { isoYear: "desc" }, { isoWeek: "desc" }],
+    take: opts?.take ?? 100,
+  });
+}
+
 export async function getTimesheetPdfBuffer(timesheetId: string): Promise<{
   buffer: Buffer;
   filename: string;
@@ -983,4 +1012,168 @@ export async function replyTimesheetPause(params: {
       data: { status: "PENDING", comment: params.reply },
     });
   }
+}
+
+/** Statuts considérés comme « déjà envoyés » (hors rappel RH). */
+const SENT_STATUSES = new Set(["SUBMITTED", "APPROVED", "SIGNED"]);
+
+/** Semaine ISO précédente (par défaut pour les rappels « non envoyées »). */
+export function previousIsoWeekRef(from = new Date()): {
+  isoYear: number;
+  isoWeek: number;
+  weekStart: Date;
+  weekEnd: Date;
+  label: string;
+} {
+  const d = new Date(from);
+  d.setDate(d.getDate() - 7);
+  const info = isoWeekInfo(d);
+  return {
+    ...info,
+    label: `${info.isoYear}-W${String(info.isoWeek).padStart(2, "0")}`,
+  };
+}
+
+/** Ancre Date → lundi de la semaine ISO demandée. */
+export function dateFromIsoWeek(isoYear: number, isoWeek: number): Date {
+  const thu = new Date(Date.UTC(isoYear, 0, 4, 12));
+  const thuDow = thu.getUTCDay() || 7;
+  const monday = new Date(thu);
+  monday.setUTCDate(thu.getUTCDate() - (thuDow - 1) + (isoWeek - 1) * 7);
+  return monday;
+}
+
+/**
+ * Collabs actifs sans feuille soumise pour la semaine (MISSING / DRAFT / PAUSED).
+ * HR = tout ; manager = son équipe.
+ */
+export async function listUnsubmittedTimesheets(opts: {
+  isoYear: number;
+  isoWeek: number;
+  managerId?: string;
+  hr?: boolean;
+}) {
+  const employees = await prisma.rhEmployee.findMany({
+    where: {
+      actif: true,
+      ...(opts.hr
+        ? {}
+        : opts.managerId
+          ? { managerId: opts.managerId }
+          : { id: "__none__" }),
+    },
+    include: {
+      user: {
+        select: { prenom: true, nom: true, email: true },
+      },
+    },
+    orderBy: [{ department: "asc" }, { matricule: "asc" }],
+  });
+
+  const sheets = await prisma.rhTimesheet.findMany({
+    where: {
+      isoYear: opts.isoYear,
+      isoWeek: opts.isoWeek,
+      employeeId: { in: employees.map((e) => e.id) },
+    },
+    select: {
+      id: true,
+      employeeId: true,
+      status: true,
+      totalMinutes: true,
+      lastReminderAt: true,
+      reminderCount: true,
+      updatedAt: true,
+    },
+  });
+  const byEmp = new Map(sheets.map((s) => [s.employeeId, s]));
+
+  const items = employees
+    .map((e) => {
+      const ts = byEmp.get(e.id);
+      if (ts && SENT_STATUSES.has(ts.status)) return null;
+      const status = !ts
+        ? "MISSING"
+        : ts.status === "DRAFT"
+          ? "DRAFT"
+          : ts.status === "PAUSED"
+            ? "PAUSED"
+            : String(ts.status);
+      return {
+        employeeId: e.id,
+        name: displayName(e.user),
+        initials: initials(e.user),
+        color: e.avatarColor,
+        avatarUrl: e.avatarUrl,
+        department: e.department,
+        matricule: e.matricule,
+        email: e.user.email,
+        timesheetId: ts?.id ?? null,
+        status,
+        totalMinutes: ts?.totalMinutes ?? 0,
+        lastReminderAt: ts?.lastReminderAt?.toISOString() ?? null,
+        reminderCount: ts?.reminderCount ?? 0,
+        updatedAt: ts?.updatedAt?.toISOString() ?? null,
+      };
+    })
+    .filter(Boolean);
+
+  return items as NonNullable<(typeof items)[number]>[];
+}
+
+/** Crée la feuille DRAFT si besoin, notifie le salarié, historise le rappel. */
+export async function remindTimesheetSubmit(params: {
+  employeeId: string;
+  isoYear: number;
+  isoWeek: number;
+  actorId: string;
+}) {
+  const emp = await prisma.rhEmployee.findUnique({
+    where: { id: params.employeeId },
+    select: { id: true, weeklyHours: true, actif: true },
+  });
+  if (!emp || !emp.actif) throw new Error("Collaborateur introuvable");
+
+  const weekStart = dateFromIsoWeek(params.isoYear, params.isoWeek);
+  const { timesheet } = await getOrCreateTimesheet(
+    emp.id,
+    weekStart,
+    emp.weeklyHours
+  );
+
+  if (SENT_STATUSES.has(timesheet.status)) {
+    throw new Error("Cette feuille a déjà été envoyée");
+  }
+
+  const updated = await prisma.rhTimesheet.update({
+    where: { id: timesheet.id },
+    data: {
+      lastReminderAt: new Date(),
+      reminderCount: { increment: 1 },
+    },
+  });
+
+  await writeRhAudit({
+    actorId: params.actorId,
+    targetId: emp.id,
+    action: "timesheet.remind",
+    detail: {
+      timesheetId: timesheet.id,
+      isoYear: params.isoYear,
+      isoWeek: params.isoWeek,
+      reminderCount: updated.reminderCount,
+    },
+  });
+
+  await notifyTimesheetSubmitReminder({
+    employeeId: emp.id,
+    isoWeek: params.isoWeek,
+    isoYear: params.isoYear,
+  });
+
+  return {
+    timesheetId: updated.id,
+    lastReminderAt: updated.lastReminderAt?.toISOString() ?? null,
+    reminderCount: updated.reminderCount,
+  };
 }

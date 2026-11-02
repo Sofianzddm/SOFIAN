@@ -376,6 +376,45 @@ export async function notifyTimesheetMonthlySignature(params: {
   }
 }
 
+/** Rappel RH → salarié : feuille de temps non soumise. */
+export async function notifyTimesheetSubmitReminder(params: {
+  employeeId: string;
+  isoWeek: number;
+  isoYear: number;
+}) {
+  try {
+    const emp = await prisma.rhEmployee.findUnique({
+      where: { id: params.employeeId },
+      include: {
+        user: { select: { id: true, email: true, prenom: true, nom: true } },
+      },
+    });
+    if (!emp) return;
+    const espace = `${baseUrl()}/rh/espace?tab=time`;
+    const prenom = emp.user.prenom || "bonjour";
+    const weekLabel = `S${params.isoWeek} ${params.isoYear}`;
+    await notifyUsers([emp.user], {
+      titre: `Rappel · feuille ${weekLabel}`,
+      message: `Ta feuille de temps ${weekLabel} n’a pas encore été envoyée`,
+      lien: espace,
+      subject: `[RH] Rappel — feuille de temps ${weekLabel}`,
+      html: mailShell(
+        "Feuille de temps à envoyer",
+        `<p style="margin:0 0 12px">Bonjour ${escapeHtml(prenom)},</p>
+         <p style="margin:0 0 12px">Petit rappel : ta feuille de temps <strong>${escapeHtml(weekLabel)}</strong> n’a pas encore été soumise.</p>
+         <div style="background:#F5EDE0;border-left:4px solid #C08B8B;border-radius:0 12px 12px 0;padding:12px 16px;font-size:14px;">
+           Ouvre ton espace, complète la semaine si besoin, puis envoie-la pour validation.
+         </div>`,
+        espace,
+        "Ouvrir mon temps",
+        { eyebrow: "Rappel RH" }
+      ),
+    });
+  } catch (e) {
+    console.error("[rh.notify] timesheet remind", e);
+  }
+}
+
 /** Décision → le salarié. */
 export async function notifyRhDecision(params: {
   employeeId: string;

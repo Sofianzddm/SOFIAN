@@ -305,7 +305,7 @@ export async function generateAccountantMonthlyExport(params: {
       { header: "Maladie (j)", key: "ss", width: 10 },
       { header: "CSS (j)", key: "unpaid", width: 8 },
       { header: "École (j)", key: "school", width: 8 },
-      { header: "Abs. autorisée (j)", key: "auth", width: 12 },
+      { header: "Autres abs. (j)", key: "auth", width: 12 },
       { header: "Nb titres-resto", key: "trCount", width: 12 },
       { header: "Retenue TR (€)", key: "trDeduct", width: 12 },
       { header: "NDF à rembourser (€)", key: "ndf", width: 14 },

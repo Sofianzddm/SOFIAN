@@ -398,7 +398,7 @@ export const LEAVE_LABELS: Record<string, string> = {
   SS: "Maladie",
   UNPAID: "Congé sans solde",
   SCHOOL: "École",
-  AUTHORIZED: "Absence autorisée",
+  AUTHORIZED: "Autres (décès, naissance…)",
 };
 
 export const BALANCE_ACCOUNTS = new Set(["CP", "RECUP", "RTT"]);

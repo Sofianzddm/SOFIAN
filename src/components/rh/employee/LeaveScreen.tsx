@@ -185,7 +185,8 @@ export function LeaveScreen() {
     CP: "Congés payés — posables après 1 an d’ancienneté.",
     SS: "Arrêt maladie — calendrier (week-ends inclus si besoin).",
     SCHOOL: "Absence école / formation hors CP.",
-    AUTHORIZED: "Absence autorisée exceptionnelle (sans solde CP).",
+    AUTHORIZED:
+      "Autres absences : décès, naissance, mariage, déménagement… (sans solde CP).",
     UNPAID: "Congé sans solde — n’utilise pas ton compteur CP.",
   };
 
@@ -345,7 +346,7 @@ export function LeaveScreen() {
                     [
                       ["SS", "Maladie"],
                       ["SCHOOL", "École"],
-                      ["AUTHORIZED", "Autorisée"],
+                      ["AUTHORIZED", "Autres"],
                       ["UNPAID", "Sans solde"],
                     ] as const
                   ).map(([id, label]) => {

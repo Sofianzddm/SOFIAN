@@ -77,7 +77,7 @@ export const LEAVE_LEGEND = [
   { label: "Maladie", color: SICK },
   { label: "En attente", color: "#F2874E" },
   { label: "École", color: "#B48CF0" },
-  { label: "Autorisée", color: "#8ED98A" },
+  { label: "Autres", color: "#8ED98A" },
   { label: "Férié", color: "#C4B5FD" },
 ];
 
