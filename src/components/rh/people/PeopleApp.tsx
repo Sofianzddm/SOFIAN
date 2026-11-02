@@ -40,6 +40,37 @@ import { PlanningGanttScreen } from "@/components/rh/people/screens/PlanningGant
 import { ApprovalsInboxScreen } from "@/components/rh/people/screens/ApprovalsInboxScreen";
 import { PayrollScreen } from "@/components/rh/people/screens/PayrollScreen";
 import { ManageAdminScreen } from "@/components/rh/people/screens/ManageAdminScreen";
+import {
+  leaveDaysToMinutes,
+  WORKDAY_MINUTES,
+} from "@/components/rh/lib/calculations";
+
+function daysToHoursInput(days: number): string {
+  const hours = leaveDaysToMinutes(days) / 60;
+  // Évite 1.999999 → affiche proprement (ex. 7, 3.5, 0.25)
+  const rounded = Math.round(hours * 100) / 100;
+  return String(rounded);
+}
+
+function formatHoursLabel(hours: number): string {
+  if (!Number.isFinite(hours)) return "—";
+  const mins = Math.round(hours * 60);
+  if (mins <= 0) return "0 h";
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} h`;
+  return `${h} h ${m}`;
+}
+
+/** Prefill ajustement : période posable si possible, sinon 1ère période du compte. */
+function pickAdjustBalance(
+  balances: EmployeeFiche["balances"],
+  accountCode: string
+) {
+  const bals = balances.filter((b) => b.accountCode === accountCode);
+  return bals.find((b) => Number(b.bookable) > 0) ?? bals[0] ?? null;
+}
 
 function PeopleAppInner() {
   const router = useRouter();
@@ -62,7 +93,7 @@ function PeopleAppInner() {
   const [ficheLoading, setFicheLoading] = useState(false);
   const [adjustForm, setAdjustForm] = useState({
     accountCode: "CP",
-    remaining: "",
+    remainingHours: "",
   });
   const [sigItems, setSigItems] = useState<SigItem[]>([]);
   const [sigLoading, setSigLoading] = useState(false);
@@ -127,12 +158,18 @@ function PeopleAppInner() {
         if (!res.ok) throw new Error(data.error || "Impossible de charger la fiche");
         if (!cancelled) {
           setFiche(data as EmployeeFiche);
-          const firstBal = (data.balances as EmployeeFiche["balances"])?.find(
-            (b) => ["CP", "RTT", "RECUP"].includes(b.accountCode)
-          );
+          const balances = (data.balances as EmployeeFiche["balances"]) || [];
+          const preferredCode =
+            (["CP", "RTT", "RECUP"] as const).find((code) =>
+              balances.some((b) => b.accountCode === code)
+            ) || "CP";
+          const firstBal = pickAdjustBalance(balances, preferredCode);
           setAdjustForm({
-            accountCode: firstBal?.accountCode || "CP",
-            remaining: firstBal != null ? String(firstBal.remaining) : "",
+            accountCode: preferredCode,
+            remainingHours:
+              firstBal != null
+                ? daysToHoursInput(Number(firstBal.remaining))
+                : "",
           });
         }
       } catch (e) {
@@ -314,6 +351,21 @@ function PeopleAppInner() {
       flash(`Écriture ${data.request?.reference} créée`);
       await loadPlanning();
       await refresh();
+      // Si la fiche du collab est ouverte, resync soldes après débit forcé
+      if (selectedEmployeeId && selectedEmployeeId === form.employeeId) {
+        const reload = await fetch(`/api/rh/employees/${selectedEmployeeId}`);
+        if (reload.ok) {
+          const next = (await reload.json()) as EmployeeFiche;
+          setFiche(next);
+          const bal = pickAdjustBalance(next.balances, adjustForm.accountCode);
+          if (bal) {
+            setAdjustForm((prev) => ({
+              ...prev,
+              remainingHours: daysToHoursInput(Number(bal.remaining)),
+            }));
+          }
+        }
+      }
     } catch (e) {
       flash(e instanceof Error ? e.message : "Erreur", "err");
     } finally {
@@ -323,14 +375,21 @@ function PeopleAppInner() {
 
   async function adjustBalance() {
     if (!selectedEmployeeId || !fiche) return;
-    const remaining = Number(adjustForm.remaining);
-    if (Number.isNaN(remaining)) {
-      flash("Solde restant invalide", "err");
+    const remainingHours = Number(adjustForm.remainingHours);
+    if (Number.isNaN(remainingHours) || remainingHours < 0) {
+      flash("Solde en heures invalide", "err");
       return;
     }
+    const currentBal = pickAdjustBalance(fiche.balances, adjustForm.accountCode);
+    const currentHours =
+      currentBal != null
+        ? leaveDaysToMinutes(Number(currentBal.remaining)) / 60
+        : null;
+    const currentLabel =
+      currentHours != null ? formatHoursLabel(currentHours) : "—";
     if (
       !window.confirm(
-        `Ajuster le solde ${adjustForm.accountCode} de ${fiche.employee.name} à ${remaining} j restants ?`
+        `Fixer le solde ${adjustForm.accountCode} de ${fiche.employee.name} à exactement ${formatHoursLabel(remainingHours)} ?\n(aujourd’hui : ${currentLabel} — valeur absolue, pas un +/-)`
       )
     ) {
       return;
@@ -345,14 +404,31 @@ function PeopleAppInner() {
           action: "adjustBalance",
           employeeId: selectedEmployeeId,
           accountCode: adjustForm.accountCode,
-          remaining,
+          remainingHours,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
-      flash(`Solde ${adjustForm.accountCode} ajusté`);
+      const got = Number(data.remainingHours ?? remainingHours);
+      flash(
+        `Solde ${adjustForm.accountCode} fixé à ${formatHoursLabel(got)}${
+          currentHours != null
+            ? ` (avant ${formatHoursLabel(currentHours)})`
+            : ""
+        }`
+      );
       const reload = await fetch(`/api/rh/employees/${selectedEmployeeId}`);
-      if (reload.ok) setFiche((await reload.json()) as EmployeeFiche);
+      if (reload.ok) {
+        const next = (await reload.json()) as EmployeeFiche;
+        setFiche(next);
+        const bal = pickAdjustBalance(next.balances, adjustForm.accountCode);
+        if (bal) {
+          setAdjustForm((prev) => ({
+            ...prev,
+            remainingHours: daysToHoursInput(Number(bal.remaining)),
+          }));
+        }
+      }
       await refresh();
     } catch (e) {
       flash(e instanceof Error ? e.message : "Erreur d'ajustement", "err");
@@ -975,6 +1051,7 @@ function PeopleAppInner() {
                       const sum = fiche.balances
                         .filter((b) => b.accountCode === code)
                         .reduce((s, b) => s + Number(b.bookable || 0), 0);
+                      const hours = leaveDaysToMinutes(sum) / 60;
                       return (
                         <div
                           key={code}
@@ -988,7 +1065,13 @@ function PeopleAppInner() {
                             className="rh-mono text-[15px] font-bold"
                             style={{ color: KIND_COLOR[code] || LIME }}
                           >
-                            {sum.toFixed(1)}
+                            {formatHoursLabel(hours)}
+                          </div>
+                          <div
+                            className="rh-mono text-[10px]"
+                            style={{ color: "#7E8998" }}
+                          >
+                            {sum.toFixed(2).replace(".", ",")} j
                           </div>
                         </div>
                       );
@@ -1489,13 +1572,13 @@ function PeopleAppInner() {
                       value={adjustForm.accountCode}
                       onChange={(e) => {
                         const code = e.target.value;
-                        const bal = fiche.balances.find(
-                          (b) => b.accountCode === code
-                        );
+                        const bal = pickAdjustBalance(fiche.balances, code);
                         setAdjustForm({
                           accountCode: code,
-                          remaining:
-                            bal != null ? String(bal.remaining) : adjustForm.remaining,
+                          remainingHours:
+                            bal != null
+                              ? daysToHoursInput(Number(bal.remaining))
+                              : "",
                         });
                       }}
                     >
@@ -1505,16 +1588,32 @@ function PeopleAppInner() {
                     </select>
                     <input
                       type="number"
-                      step="0.5"
+                      step="0.25"
+                      min="0"
                       className="rh-input w-full"
-                      placeholder="Remaining"
-                      value={adjustForm.remaining}
+                      placeholder={`Heures restantes (journée = ${WORKDAY_MINUTES / 60} h)`}
+                      value={adjustForm.remainingHours}
                       onChange={(e) =>
-                        setAdjustForm({ ...adjustForm, remaining: e.target.value })
+                        setAdjustForm({
+                          ...adjustForm,
+                          remainingHours: e.target.value,
+                        })
                       }
                     />
+                    <div className="text-[11px]" style={{ color: "#7E8998" }}>
+                      Valeur absolue en heures (remplace le solde, pas un +/-)
+                      {adjustForm.remainingHours !== "" &&
+                      !Number.isNaN(Number(adjustForm.remainingHours))
+                        ? ` · ${formatHoursLabel(Number(adjustForm.remainingHours))} (${(
+                            Number(adjustForm.remainingHours) /
+                            (WORKDAY_MINUTES / 60)
+                          )
+                            .toFixed(2)
+                            .replace(".", ",")} j)`
+                        : ` · 1 j = ${WORKDAY_MINUTES / 60} h`}
+                    </div>
                     <RhButton
-                      disabled={busy || adjustForm.remaining === ""}
+                      disabled={busy || adjustForm.remainingHours === ""}
                       onClick={() => void adjustBalance()}
                     >
                       Ajuster le solde

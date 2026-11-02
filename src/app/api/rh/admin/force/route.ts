@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { RhLeaveAccount } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { requireRhHr } from "@/lib/rh/auth";
-import { debitLeaveBalance } from "@/lib/rh/leave";
+import { adjustLeaveBalance, debitLeaveBalance } from "@/lib/rh/leave";
 import { BALANCE_ACCOUNTS } from "@/lib/rh/calculations";
 import { writeRhAudit } from "@/lib/rh/workflow";
 
@@ -166,29 +166,59 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "adjustBalance") {
-      const bal = await prisma.rhLeaveBalance.findFirst({
-        where: {
-          employeeId: target.id,
-          accountCode: body.accountCode,
-        },
-        orderBy: { periodStart: "desc" },
+      const accountCode = body.accountCode as RhLeaveAccount;
+      const hasHours =
+        body.remainingHours != null && body.remainingHours !== "";
+      const hasDays =
+        !hasHours && body.remaining != null && body.remaining !== "";
+      const remainingHours = hasHours ? Number(body.remainingHours) : null;
+      const remainingDays = hasDays ? Number(body.remaining) : null;
+      if (hasHours && !Number.isFinite(remainingHours)) {
+        throw new Error("Solde en heures invalide");
+      }
+      if (hasDays && !Number.isFinite(remainingDays)) {
+        throw new Error("Solde restant invalide");
+      }
+      const accrued =
+        body.accrued != null && body.accrued !== ""
+          ? Number(body.accrued)
+          : null;
+
+      const result = await adjustLeaveBalance({
+        employeeId: target.id,
+        hireDate: target.hireDate,
+        accountCode,
+        remainingHours,
+        remainingDays,
+        accrued,
       });
-      if (!bal) throw new Error("Solde introuvable");
-      await prisma.rhLeaveBalance.update({
-        where: { id: bal.id },
-        data: {
-          accrued: body.accrued ?? bal.accrued,
-          remaining: body.remaining ?? bal.remaining,
-          bookable: body.bookable ?? bal.bookable,
-        },
-      });
+
       await writeRhAudit({
         actorId: session.employee.id,
         targetId: target.id,
         action: "admin.adjustBalance",
-        detail: body,
+        detail: {
+          accountCode,
+          balanceId: result.balance.id,
+          periodStart: result.balance.periodStart,
+          previousRemaining: result.previousRemaining,
+          previousBookable: result.previousBookable,
+          remaining: result.remaining,
+          remainingHours: result.remainingHours,
+          bookable: result.bookable,
+          bookableHours: result.bookableHours,
+          taken: result.taken,
+          accrued: result.accrued,
+        },
       });
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({
+        ok: true,
+        remaining: result.remaining,
+        remainingHours: result.remainingHours,
+        bookable: result.bookable,
+        bookableHours: result.bookableHours,
+        previousRemaining: result.previousRemaining,
+      });
     }
 
     return NextResponse.json({ error: "Action inconnue" }, { status: 400 });

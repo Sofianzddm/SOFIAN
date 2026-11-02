@@ -278,6 +278,129 @@ export async function debitLeaveBalance(params: {
   }
 }
 
+/** Période active d’un compte (évite l’exercice CP futur). */
+async function findActiveLeaveBalance(
+  employeeId: string,
+  accountCode: RhLeaveAccount,
+  today = new Date()
+) {
+  const current = await prisma.rhLeaveBalance.findFirst({
+    where: {
+      employeeId,
+      accountCode,
+      periodStart: { lte: today },
+      periodEnd: { gte: today },
+    },
+    orderBy: { periodStart: "desc" },
+  });
+  if (current) return current;
+  const started = await prisma.rhLeaveBalance.findFirst({
+    where: {
+      employeeId,
+      accountCode,
+      periodStart: { lte: today },
+    },
+    orderBy: { periodStart: "desc" },
+  });
+  if (started) return started;
+  return prisma.rhLeaveBalance.findFirst({
+    where: { employeeId, accountCode },
+    orderBy: { periodStart: "asc" },
+  });
+}
+
+/**
+ * Fixe le solde restant d’un compte (période active) en valeur ABSOLUE.
+ * - n’ajoute aucun crédit d’acquis (accrued inchangé sauf override explicite)
+ * - ne débite pas un delta : remplace remaining/bookable par la valeur demandée
+ * - taken est seulement réaligné : max(0, accrued − remaining)
+ */
+export async function adjustLeaveBalance(params: {
+  employeeId: string;
+  hireDate: Date;
+  accountCode: RhLeaveAccount;
+  remainingHours?: number | null;
+  remainingDays?: number | null;
+  accrued?: number | null;
+}) {
+  if (!BALANCE_ACCOUNTS.has(params.accountCode)) {
+    throw new Error("Compte non ajustable");
+  }
+  const settings = await getRhSettings();
+  const today = new Date();
+  const bal = await findActiveLeaveBalance(
+    params.employeeId,
+    params.accountCode,
+    today
+  );
+  if (!bal) throw new Error("Solde introuvable");
+
+  const workdayMinutes = Math.max(1, settings.workdayMinutes);
+
+  // Conversion canonique minutes ↔ jours (même base que forceLeave / récup)
+  const hoursToDays = (hours: number) => {
+    const minutes = Math.round(hours * 60);
+    return Math.round((minutes / workdayMinutes) * 10000) / 10000;
+  };
+  const daysToHours = (days: number) =>
+    Math.round(((days * workdayMinutes) / 60) * 100) / 100;
+
+  let remaining: number;
+  if (params.remainingHours != null && Number.isFinite(params.remainingHours)) {
+    if (params.remainingHours < 0) throw new Error("Solde en heures invalide");
+    remaining = hoursToDays(params.remainingHours);
+  } else if (
+    params.remainingDays != null &&
+    Number.isFinite(params.remainingDays)
+  ) {
+    if (params.remainingDays < 0) throw new Error("Solde restant invalide");
+    remaining = Math.round(params.remainingDays * 10000) / 10000;
+  } else {
+    throw new Error("Indique le solde cible (heures)");
+  }
+
+  // Accru : jamais auto-crédité. Override seulement si RH l’envoie explicitement.
+  const accrued =
+    params.accrued != null && Number.isFinite(params.accrued)
+      ? Math.round(params.accrued * 10000) / 10000
+      : bal.accrued;
+
+  // Pris = acquis − reste (plancher 0). Pas de delta supplémentaire.
+  const taken = Math.max(
+    0,
+    Math.round((accrued - remaining) * 10000) / 10000
+  );
+
+  // bookable = exactement le reste posable (CP : 0 si ancienneté non atteinte)
+  const bookable =
+    params.accountCode === "CP"
+      ? bookableBalance(
+          remaining,
+          params.hireDate,
+          today,
+          "CP",
+          settings.cpSeniorityYears
+        )
+      : remaining;
+
+  const updated = await prisma.rhLeaveBalance.update({
+    where: { id: bal.id },
+    data: { accrued, taken, remaining, bookable },
+  });
+
+  return {
+    balance: updated,
+    previousRemaining: bal.remaining,
+    previousBookable: bal.bookable,
+    remaining,
+    remainingHours: daysToHours(remaining),
+    bookable,
+    bookableHours: daysToHours(bookable),
+    taken,
+    accrued,
+  };
+}
+
 export async function createLeaveRequest(params: {
   employeeId: string;
   hireDate: Date;
