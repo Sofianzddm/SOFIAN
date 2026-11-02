@@ -50,6 +50,7 @@ export async function PUT(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
+  const employeeId = session.employee.id;
   const body = await request.json();
   const agreement = normalizeRemoteAgreement(session.employee.remoteAgreement);
 
@@ -88,7 +89,7 @@ export async function PUT(request: NextRequest) {
         let bucket = byWeek.get(key);
         if (!bucket) {
           const weeks = await getOfficeWeek({
-            employeeId: session.employee.id,
+            employeeId,
             agreementDays: agreement,
             weekStart: info.weekStart,
             weekCount: 1,
@@ -126,7 +127,7 @@ export async function PUT(request: NextRequest) {
       const plans = [];
       for (const bucket of byWeek.values()) {
         const plan = await proposeRemotePlan({
-          employeeId: session.employee.id,
+          employeeId,
           agreementDays: agreement,
           dates: [...bucket.pending],
           refDate: bucket.ref,
