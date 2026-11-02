@@ -1075,9 +1075,12 @@ function PeopleAppInner() {
                         defaultValue={String(fiche.employee.remoteAgreement ?? 0)}
                         id="fiche-remoteAgreement"
                       >
-                        <option value="0">0 j</option>
-                        <option value="2">2 j</option>
-                        <option value="3">3 j</option>
+                        <option value="0">0 j / sem.</option>
+                        <option value="1">1 j / sem.</option>
+                        <option value="2">2 j / sem.</option>
+                        <option value="3">3 j / sem.</option>
+                        <option value="4">4 j / sem.</option>
+                        <option value="5">5 j / sem.</option>
                       </select>
                     </label>
                     <label className="flex flex-col gap-1">

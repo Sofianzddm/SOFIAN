@@ -5,6 +5,7 @@
 export {
   RH,
   remoteEntitlement,
+  normalizeRemoteAgreement,
   splitOvertime,
   bookableBalance,
   mealVoucherCount,
@@ -35,6 +36,7 @@ export {
   dayNetMinutes,
   hhmmToMinutes,
   minutesToHhmm,
+  type RemoteAgreementDays,
 } from "@/components/rh/lib/calculations";
 
 export {

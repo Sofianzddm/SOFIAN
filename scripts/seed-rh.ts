@@ -15,7 +15,7 @@ type SeedEmp = {
   jobTitle: string;
   department: string;
   avatarColor: string;
-  remoteAgreement: 0 | 2 | 3;
+  remoteAgreement: 0 | 1 | 2 | 3 | 4 | 5;
   rhRole: RhRole;
   hireDate: string;
   managerMatricule?: string;

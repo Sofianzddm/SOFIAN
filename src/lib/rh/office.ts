@@ -54,7 +54,7 @@ export async function compensationDebt(
 
 export async function getOfficeWeek(params: {
   employeeId: string;
-  agreementDays: 0 | 2 | 3;
+  agreementDays: number;
   weekStart: Date;
   weekCount?: number;
 }) {
@@ -178,7 +178,7 @@ export async function setWorkDay(params: {
   employeeId: string;
   date: Date;
   place: RhWorkPlace;
-  agreementDays: 0 | 2 | 3;
+  agreementDays: number;
   /** Exception manager : autorise un TT au-delà de l'article 1.6. */
   allowOverEntitlement?: boolean;
   portion?: "FULL" | "AM" | "PM";
@@ -315,7 +315,7 @@ export async function setWorkDay(params: {
  */
 export async function proposeRemotePlan(params: {
   employeeId: string;
-  agreementDays: 0 | 2 | 3;
+  agreementDays: number;
   /** Jours TT en attente uniquement (pas ceux déjà validés). */
   dates: string[];
   /** Semaine de référence (un des jours ou lundi). */
@@ -451,7 +451,7 @@ export async function proposeRemotePlan(params: {
 export async function applyRemotePlan(params: {
   employeeId: string;
   dates: string[];
-  agreementDays: 0 | 2 | 3;
+  agreementDays: number;
 }) {
   for (const iso of params.dates) {
     await setWorkDay({

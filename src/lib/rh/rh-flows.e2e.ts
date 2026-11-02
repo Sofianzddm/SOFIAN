@@ -343,9 +343,8 @@ async function main() {
     assert(hrCan, "HR doit voir le collab");
 
     // TT art 1.6 via settings
-    const agreement = (emp.remoteAgreement === 2 || emp.remoteAgreement === 3
-      ? emp.remoteAgreement
-      : 2) as 0 | 2 | 3;
+    const { normalizeRemoteAgreement } = await import("@/lib/rh/calculations");
+    const agreement = normalizeRemoteAgreement(emp.remoteAgreement) || 2;
     if (agreement > 0) {
       // Sans absences → droit = agreement
       await upsertRemoteDeclaration({

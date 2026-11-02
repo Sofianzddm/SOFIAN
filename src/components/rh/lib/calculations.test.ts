@@ -52,6 +52,9 @@ export function runRhCalculationTests(): string[] {
   assert(remoteEntitlement(2, 0) === 2, "remote 2/0");
   assert(remoteEntitlement(2, 1) === 1, "remote 2/1");
   assert(remoteEntitlement(0, 0) === 0, "remote 0");
+  assert(remoteEntitlement(1, 0) === 1, "remote 1/0");
+  assert(remoteEntitlement(5, 0) === 5, "remote 5/0");
+  assert(remoteEntitlement(5, 1) === 1, "remote 5/1");
   assert(remoteEntitlement(3, 1, { forOneDay: 2, forZero: 4 }) === 3, "remote custom thresholds");
   assert(remoteEntitlement(3, 2, { forOneDay: 2, forZero: 4 }) === 1, "remote custom 1j");
   assert(remoteEntitlement(3, 4, { forOneDay: 2, forZero: 4 }) === 0, "remote custom 0");

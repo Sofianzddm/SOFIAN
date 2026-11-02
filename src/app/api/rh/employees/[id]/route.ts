@@ -233,14 +233,8 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   const data: Record<string, unknown> = {};
   if (body.weeklyHours != null) data.weeklyHours = Number(body.weeklyHours);
   if (body.remoteAgreement != null) {
-    const n = Number(body.remoteAgreement);
-    if (![0, 2, 3].includes(n)) {
-      return NextResponse.json(
-        { error: "Avenant TT : 0, 2 ou 3 jours" },
-        { status: 400 }
-      );
-    }
-    data.remoteAgreement = n;
+    const { normalizeRemoteAgreement } = await import("@/lib/rh/calculations");
+    data.remoteAgreement = normalizeRemoteAgreement(body.remoteAgreement);
   }
   if (body.healthCover === "ENROLLED" || body.healthCover === "WAIVED") {
     data.healthCover = body.healthCover;

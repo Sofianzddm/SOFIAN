@@ -6,7 +6,7 @@ import { notifyRhRequestCreated } from "@/lib/rh/notify";
 
 export async function getRemoteWeeksForEmployee(
   employeeId: string,
-  agreementDays: 0 | 2 | 3,
+  agreementDays: number,
   fromWeekStart: Date,
   weekCount = 4
 ) {
@@ -65,7 +65,7 @@ export async function getRemoteWeeksForEmployee(
 
 export async function upsertRemoteDeclaration(params: {
   employeeId: string;
-  agreementDays: 0 | 2 | 3;
+  agreementDays: number;
   isoYear: number;
   isoWeek: number;
   weekStart: Date;

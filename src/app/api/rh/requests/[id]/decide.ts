@@ -9,6 +9,7 @@ import { decideTimesheet } from "@/lib/rh/timesheet";
 import { decideExpense } from "@/lib/rh/expenses";
 import { isoWeekInfo, writeRhAudit } from "@/lib/rh/workflow";
 import { notifyRhDecision } from "@/lib/rh/notify";
+import { normalizeRemoteAgreement } from "@/lib/rh/calculations";
 import { applyRemotePlan, setWorkDay } from "@/lib/rh/office";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -96,14 +97,11 @@ async function decide(
           where: { id: req.employeeId },
           select: { remoteAgreement: true },
         });
-        const agreement =
-          emp?.remoteAgreement === 2 || emp?.remoteAgreement === 3
-            ? emp.remoteAgreement
-            : 0;
+        const agreement = normalizeRemoteAgreement(emp?.remoteAgreement);
         await applyRemotePlan({
           employeeId: req.employeeId,
           dates,
-          agreementDays: agreement as 0 | 2 | 3,
+          agreementDays: agreement,
         });
       }
       if (req.type === "REMOTE_EXCEPTION" && approve) {
@@ -137,15 +135,12 @@ async function decide(
             where: { id: req.employeeId },
             select: { remoteAgreement: true },
           });
-          const agreement =
-            emp?.remoteAgreement === 2 || emp?.remoteAgreement === 3
-              ? emp.remoteAgreement
-              : 0;
+          const agreement = normalizeRemoteAgreement(emp?.remoteAgreement);
           await setWorkDay({
             employeeId: req.employeeId,
             date,
             place: "REMOTE",
-            agreementDays: agreement as 0 | 2 | 3,
+            agreementDays: agreement,
             allowOverEntitlement: true,
           });
           await prisma.rhRemoteDeclaration.upsert({

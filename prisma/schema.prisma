@@ -4716,7 +4716,7 @@ model RhEmployee {
   avatarColor    String   @default("#7C8CF8")
   /// Photo de profil (Cloudinary)
   avatarUrl      String?
-  remoteAgreement Int     @default(0) // 0 | 2 | 3
+  remoteAgreement Int     @default(0) // 0–5 j TT / semaine (avenant)
   remoteAddressLine1 String?
   remoteAddressLine2 String?
   remoteCity         String?

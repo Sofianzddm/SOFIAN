@@ -7,21 +7,18 @@ import {
   proposeRemotePlan,
   setWorkDay,
 } from "@/lib/rh/office";
+import { normalizeRemoteAgreement } from "@/lib/rh/calculations";
 import { isoWeekInfo } from "@/lib/rh/workflow";
 import prisma from "@/lib/prisma";
 
 const PLACES = new Set<RhWorkPlace>(["OFFICE", "REMOTE", "TRAVEL", "SITE"]);
-
-function agreementOf(n: number): 0 | 2 | 3 {
-  return n === 2 || n === 3 ? n : 0;
-}
 
 export async function GET(request: NextRequest) {
   const session = await requireRhSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
-  const agreement = agreementOf(session.employee.remoteAgreement);
+  const agreement = normalizeRemoteAgreement(session.employee.remoteAgreement);
   const info = isoWeekInfo(new Date());
   const weeks = await getOfficeWeek({
     employeeId: session.employee.id,
@@ -54,7 +51,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
   const body = await request.json();
-  const agreement = agreementOf(session.employee.remoteAgreement);
+  const agreement = normalizeRemoteAgreement(session.employee.remoteAgreement);
 
   const datesRaw: string[] = Array.isArray(body.dates)
     ? body.dates.map(String)

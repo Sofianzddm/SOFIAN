@@ -11,18 +11,30 @@ export const RH = {
   off: "#1D2530",
 } as const;
 
+/** Jours TT / semaine configurables par avenant (0 = aucun). */
+export type RemoteAgreementDays = 0 | 1 | 2 | 3 | 4 | 5;
+
+/** Normalise un avenant TT saisi (RH) vers 0–5 j / semaine. */
+export function normalizeRemoteAgreement(n: unknown): RemoteAgreementDays {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v) || v <= 0) return 0;
+  if (v >= 5) return 5;
+  return v as RemoteAgreementDays;
+}
+
 /** Article 1.6 — droit télétravail selon absences dans la semaine. */
 export function remoteEntitlement(
-  agreementDays: 0 | 2 | 3,
+  agreementDays: number,
   absenceDaysInWeek: number,
   opts?: { forOneDay?: number; forZero?: number }
 ): number {
-  if (agreementDays === 0) return 0;
+  const agreement = normalizeRemoteAgreement(agreementDays);
+  if (agreement === 0) return 0;
   const forZero = opts?.forZero ?? 3;
   const forOne = opts?.forOneDay ?? 1;
   if (absenceDaysInWeek >= forZero) return 0;
-  if (absenceDaysInWeek >= forOne) return 1;
-  return agreementDays;
+  if (absenceDaysInWeek >= forOne) return Math.min(1, agreement);
+  return agreement;
 }
 
 /**

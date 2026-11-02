@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRhSessionFromRequest } from "@/lib/rh/auth";
+import { normalizeRemoteAgreement } from "@/lib/rh/calculations";
 import {
   getRemoteWeeksForEmployee,
   requestRemoteException,
@@ -12,10 +13,7 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
-  const agreement = (session.employee.remoteAgreement === 2 ||
-  session.employee.remoteAgreement === 3
-    ? session.employee.remoteAgreement
-    : 0) as 0 | 2 | 3;
+  const agreement = normalizeRemoteAgreement(session.employee.remoteAgreement);
   const info = isoWeekInfo(new Date());
   const weeks = await getRemoteWeeksForEmployee(
     session.employee.id,
@@ -52,10 +50,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
   const body = await request.json();
-  const agreement = (session.employee.remoteAgreement === 2 ||
-  session.employee.remoteAgreement === 3
-    ? session.employee.remoteAgreement
-    : 0) as 0 | 2 | 3;
+  const agreement = normalizeRemoteAgreement(session.employee.remoteAgreement);
   try {
     const row = await upsertRemoteDeclaration({
       employeeId: session.employee.id,

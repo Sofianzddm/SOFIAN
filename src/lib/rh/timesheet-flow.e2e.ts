@@ -69,9 +69,8 @@ async function main() {
   });
 
   const settings = await getRhSettings();
-  const agreement = (emp.remoteAgreement === 2 || emp.remoteAgreement === 3
-    ? emp.remoteAgreement
-    : 0) as 0 | 2 | 3;
+  const { normalizeRemoteAgreement } = await import("@/lib/rh/calculations");
+  const agreement = normalizeRemoteAgreement(emp.remoteAgreement);
 
   // 1 · Présence (bureau)
   let presenceDays = 0;
