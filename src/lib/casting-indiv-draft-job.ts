@@ -206,6 +206,7 @@ async function processOneMissionItem(itemId: string): Promise<{
     budgetRange: null,
     dos: mission.dos,
     donts: mission.donts,
+    draftContext: mission.draftContext,
   };
 
   // 1) Brand research

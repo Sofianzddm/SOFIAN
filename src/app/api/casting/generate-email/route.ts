@@ -183,6 +183,7 @@ export interface GenerateEmailBody {
     budgetRange?: string | null;
     dos?: string | null;
     donts?: string | null;
+    draftContext?: string | null;
   } | null;
   /**
    * Emails destinataires cochés — pour chercher un vrai échange Leyna (réponse client).
@@ -242,6 +243,7 @@ export interface GenerateEmailBody {
     budgetRange?: string | null;
     dos?: string | null;
     donts?: string | null;
+    draftContext?: string | null;
   }> | null;
   /**
    * true = un seul projet commun (MULTI) avec N talents.
@@ -493,7 +495,8 @@ export async function POST(request: NextRequest) {
           String(p.objective || "").trim() ||
           String(p.projectTitle || "").trim() ||
           String(p.deliverables || "").trim() ||
-          String(p.creatorName || "").trim())
+          String(p.creatorName || "").trim() ||
+          String(p.draftContext || "").trim())
     );
     const hasProjectBrief = Boolean(
       rawProject &&
@@ -503,7 +506,8 @@ export async function POST(request: NextRequest) {
           String(rawProject.projectTitle || "").trim() ||
           String(rawProject.deliverables || "").trim() ||
           String(rawProject.creatorName || "").trim() ||
-          String(rawProject.projectDescription || "").trim())
+          String(rawProject.projectDescription || "").trim() ||
+          String(rawProject.draftContext || "").trim())
     );
     const projectBrief = hasProjectBrief && rawProject ? rawProject : null;
     const isCondensation = condensationBriefs.length >= 2;
@@ -570,6 +574,7 @@ export async function POST(request: NextRequest) {
         briefLine("Budget", p.budgetRange),
         briefLine("Do's", p.dos),
         briefLine("Don'ts", p.donts),
+        briefLine("Contexte ops (prioritaire)", p.draftContext),
       ]
         .filter(Boolean)
         .join("\n");
@@ -591,6 +596,7 @@ export async function POST(request: NextRequest) {
         briefLine("Budget", p.budgetRange),
         briefLine("Do's", p.dos),
         briefLine("Don'ts", p.donts),
+        briefLine("Ops context (priority)", p.draftContext),
       ]
         .filter(Boolean)
         .join("\n");
@@ -716,6 +722,7 @@ ${[
   briefLine("Objectif", sanitizeObjectiveForPrompt(projectBrief.objective)),
   briefLine("Do's", projectBrief.dos),
   briefLine("Don'ts", projectBrief.donts),
+  briefLine("Contexte ops (prioritaire)", projectBrief.draftContext),
 ]
   .filter(Boolean)
   .join("\n")}
@@ -723,9 +730,10 @@ ${[
 Règles prospection talent :
 - Le mail doit vendre CE talent (fit / collab / opportunité) à « ${brandName} » UNIQUEMENT, pas un roster.
 - MARQUE UNIQUE : tu écris à ${brandName}. N'écris JAMAIS qu'on pitch ce talent à une autre marque / concurrent.
-- Si un Angle recommandé ou une Raison strategy est fourni : construis le pitch AUTOUR de cet angle (c'est le fil conducteur). S'il est absent, déduis un angle concret depuis la recherche créateur × recherche marque.
+- CONTEXTE OPS : s'il est fourni, le mail DOIT s'y adapter (sujet + corps). Ex. « demander le calendrier de l'avent » → le pitch / CTA porte explicitement sur ce sujet. Ce contexte prime sur un pitch générique.
+- Si un Angle recommandé ou une Raison strategy est fourni : construis le pitch AUTOUR de cet angle (c'est le fil conducteur), en intégrant le contexte ops s'il est présent. S'il est absent, déduis un angle concret depuis la recherche créateur × recherche marque.
 - Respecte strictement les Don'ts ; mets en avant les Do's si utiles.
-- Si une RECHERCHE CRÉATEUR est fournie, le fit DOIT en venir (qui c'est / ce qu'il fait / whyRelevant) croisé avec l'angle / la marque.
+- Si une RECHERCHE CRÉATEUR est fournie, le fit DOIT en venir (qui c'est / ce qu'il fait / whyRelevant) croisé avec l'angle / la marque / le contexte ops.
 - Tu peux citer 1 élément concret issu de la recherche marque si ça renforce le fit talent × marque.
 - LONGUEUR : mail scannable, aéré. Accroche courte ; pitch talent avec preuves utiles ; CTA 1 phrase.
 - AUCUNE mention du talentbook / roster / catalogue / book de talents.
@@ -755,6 +763,7 @@ ${[
   briefLine("Budget", projectBrief.budgetRange),
   briefLine("Do's", projectBrief.dos),
   briefLine("Don'ts", projectBrief.donts),
+  briefLine("Contexte ops (prioritaire)", projectBrief.draftContext),
 ]
   .filter(Boolean)
   .join("\n")}
@@ -762,7 +771,8 @@ ${[
 Règles projet :
 - Le mail doit vendre CE projet (opportunité / placement / collab) à la marque destinataire UNIQUEMENT (« ${brandName} »), pas un roster générique.
 - MARQUE UNIQUE : tu écris à ${brandName}. N'écris JAMAIS qu'on développe / pitch le projet avec une autre marque, compagnie ou concurrent (ex. une autre compagnie aérienne). Même si la recherche ou le brief cite d'autres acteurs, le destinataire = ${brandName} seulement.
-- Appuie-toi sur la raison strategy, l'objectif, les livrables et l'angle pour construire le pitch.
+- CONTEXTE OPS : s'il est fourni, le mail DOIT s'y adapter (sujet + corps) — ce contexte prime sur un pitch générique.
+- Appuie-toi sur la raison strategy, l'objectif, les livrables, l'angle et le contexte ops pour construire le pitch.
 - Respecte strictement les Don'ts ; mets en avant les Do's si utiles.
 - Les talents listés dans "Talents disponibles" sont le cœur du projet : présente-les dans ce cadre.
 - Tu peux citer 1 élément concret issu de la recherche marque si ça renforce le fit avec le projet.
@@ -797,6 +807,7 @@ ${[
   briefLine("Objective", sanitizeObjectiveForPrompt(projectBrief.objective)),
   briefLine("Do's", projectBrief.dos),
   briefLine("Don'ts", projectBrief.donts),
+  briefLine("Ops context (priority)", projectBrief.draftContext),
 ]
   .filter(Boolean)
   .join("\n")}
@@ -804,9 +815,10 @@ ${[
 Talent prospecting rules:
 - Sell THIS talent (fit / collab / opportunity) to "${brandName}" ONLY — not a roster.
 - SINGLE BRAND: you are writing to ${brandName}. NEVER pitch this talent to another brand / competitor.
-- If a Recommended angle or Strategy reason is provided: build the pitch AROUND that angle (it is the through-line). If missing, infer a concrete angle from creator research × brand research.
+- OPS CONTEXT: if provided, the email MUST adapt to it (subject + body). E.g. "ask about the advent calendar" → pitch / CTA must explicitly cover that ask. This context overrides a generic pitch.
+- If a Recommended angle or Strategy reason is provided: build the pitch AROUND that angle (it is the through-line), integrating ops context when present. If missing, infer a concrete angle from creator research × brand research.
 - Strictly respect Don'ts; use Do's when helpful.
-- When CREATOR RESEARCH is provided, the fit MUST come from it (who they are / what they do / whyRelevant) crossed with the angle / brand.
+- When CREATOR RESEARCH is provided, the fit MUST come from it (who they are / what they do / whyRelevant) crossed with the angle / brand / ops context.
 - You may cite 1 concrete brand-research detail if it strengthens the talent × brand fit.
 - LENGTH: scannable and airy. Short hook; talent pitch with useful proof; CTA 1 sentence.
 - NEVER mention talentbook / roster / catalog / talent book.
@@ -836,6 +848,7 @@ ${[
   briefLine("Budget", projectBrief.budgetRange),
   briefLine("Do's", projectBrief.dos),
   briefLine("Don'ts", projectBrief.donts),
+  briefLine("Ops context (priority)", projectBrief.draftContext),
 ]
   .filter(Boolean)
   .join("\n")}
@@ -843,7 +856,8 @@ ${[
 Project rules:
 - Sell THIS project (opportunity / placement / collab) to the recipient brand ONLY ("${brandName}"), not a generic roster.
 - SINGLE BRAND: you are writing to ${brandName}. NEVER write that we are developing / pitching the project with another brand, company or competitor (e.g. another airline). Even if research or the brief mentions other players, the recipient is ${brandName} only.
-- Build the pitch from the strategy reason, objective, deliverables and angle.
+- OPS CONTEXT: if provided, the email MUST adapt to it (subject + body) — this overrides a generic pitch.
+- Build the pitch from the strategy reason, objective, deliverables, angle and ops context.
 - Strictly respect Don'ts; use Do's when helpful.
 - Talents in "Available talents" are the core of the project — present them in that frame.
 - You may cite 1 concrete brand-research detail if it strengthens the project fit.

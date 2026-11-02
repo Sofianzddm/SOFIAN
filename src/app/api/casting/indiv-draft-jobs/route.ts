@@ -114,15 +114,26 @@ export async function POST(request: NextRequest) {
       missionId: string;
       talentId: string;
       brandName: string;
+      draftContext?: string | null;
     };
+    const contextByMission = new Map<string, string | null>();
+    for (const raw of rawItems) {
+      const id = String(raw?.missionId || "").trim();
+      if (!id || raw?.draftContext === undefined) continue;
+      contextByMission.set(id, String(raw.draftContext || "").trim() || null);
+    }
+
     const items: DraftItem[] = missionIds.flatMap((id: string) => {
       const m = byId.get(id);
-      if (!m || m.sentAt || m.stage === "SENT") return [];
+      if (!m || !m.talentId || m.sentAt || m.stage === "SENT") return [];
       return [
         {
           missionId: m.id,
           talentId: m.talentId,
           brandName: (m.marque?.nom || m.targetBrand || "").trim() || "Marque",
+          draftContext: contextByMission.has(id)
+            ? contextByMission.get(id)!
+            : undefined,
         },
       ];
     });
@@ -134,10 +145,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Persiste le contexte ops (wizard) avant génération → le mail s'y adapte.
+    await Promise.all(
+      items
+        .filter((it) => it.draftContext !== undefined)
+        .map((it) =>
+          prisma.contactMission.update({
+            where: { id: it.missionId },
+            data: { draftContext: it.draftContext ?? null },
+          })
+        )
+    );
+
     const { jobId } = await createIndivDraftJob({
       userId: session.user.id,
       talentId,
-      items,
+      items: items.map(({ missionId, talentId: tid, brandName }) => ({
+        missionId,
+        talentId: tid,
+        brandName,
+      })),
     });
 
     kickIndivDraftJobProcess(jobId);

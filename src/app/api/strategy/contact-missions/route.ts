@@ -265,6 +265,7 @@ export async function GET(request: NextRequest) {
             objective: m.objective,
             dos: m.dos,
             donts: m.donts,
+            draftContext: m.draftContext ?? null,
             priority: m.priority,
             status: m.status,
             stage: m.stage,
@@ -337,6 +338,7 @@ export async function GET(request: NextRequest) {
         objective: m.objective,
         dos: m.dos,
         donts: m.donts,
+        draftContext: m.draftContext ?? null,
         priority: m.priority,
         status: m.status,
         stage: m.stage,
@@ -376,6 +378,7 @@ export async function POST(request: NextRequest) {
       objective?: string | null;
       dos?: string | null;
       donts?: string | null;
+      draftContext?: string | null;
       priority?: unknown;
       deadlineAt?: string | null;
       /** false = pas de mail « ajouter contacts » (ajout direct par un admin). */
@@ -512,6 +515,7 @@ export async function POST(request: NextRequest) {
         objective: String(body.objective || "").trim() || null,
         dos: String(body.dos || "").trim() || null,
         donts: String(body.donts || "").trim() || null,
+        draftContext: String(body.draftContext || "").trim() || null,
         priority: parseMissionPriority(body.priority),
         // Règle métier: dès que la stratégie est créée, la carte passe immédiatement en "À rédiger".
         stage: "TO_DRAFT",
@@ -581,6 +585,8 @@ export async function PATCH(request: NextRequest) {
       clientLanguage?: string | null;
       clientContacts?: unknown;
       draftPrepBrief?: unknown;
+      /** Contexte ops libre (wizard) — le mail doit s'y adapter. */
+      draftContext?: string | null;
       /** Motif si rédaction auto bloquée (ex. REVUE NÉGO) — stocké dans castingResearchSnapshot. */
       draftFailureReason?: string | null;
     };
@@ -619,6 +625,10 @@ export async function PATCH(request: NextRequest) {
       body.draftLanguage !== undefined;
     const clientContextProvided = body.clientLanguage !== undefined || body.clientContacts !== undefined;
     const brandProvided = nextTargetBrand !== undefined;
+    const draftContextProvided = body.draftContext !== undefined;
+    const nextDraftContext = draftContextProvided
+      ? String(body.draftContext || "").trim() || null
+      : undefined;
     if (
       !statusProvided &&
       !stageProvided &&
@@ -627,7 +637,8 @@ export async function PATCH(request: NextRequest) {
       !brandProvided &&
       !marqueIdProvided &&
       body.draftPrepBrief === undefined &&
-      body.draftFailureReason === undefined
+      body.draftFailureReason === undefined &&
+      !draftContextProvided
     ) {
       return NextResponse.json({ error: "Aucune mise à jour fournie." }, { status: 400 });
     }
@@ -844,6 +855,7 @@ export async function PATCH(request: NextRequest) {
         ...(body.draftLanguage !== undefined ? { draftLanguage } : {}),
         ...(body.clientLanguage !== undefined ? { clientLanguage: clientLanguage || null } : {}),
         ...(body.clientContacts !== undefined ? { clientContacts: body.clientContacts ?? null } : {}),
+        ...(draftContextProvided ? { draftContext: nextDraftContext } : {}),
         ...(castingResearchSnapshotPatch
           ? { castingResearchSnapshot: castingResearchSnapshotPatch }
           : {}),

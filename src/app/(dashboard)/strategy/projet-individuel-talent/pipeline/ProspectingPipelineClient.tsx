@@ -52,6 +52,7 @@ type Mission = {
   objective: string | null;
   dos: string | null;
   donts: string | null;
+  draftContext?: string | null;
   priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   status: "READY_FOR_CASTING" | "EMAIL_DRAFTED" | "APPROVED_BY_SALES" | "SENT" | "RELANCED" | "CANCELLED";
   stage: Stage;
@@ -869,6 +870,7 @@ export function ProspectingPipelineClient() {
       draftLanguage?: "fr" | "en";
       clientLanguage?: "FR" | "EN" | "";
       clientContacts?: Array<{ firstname?: string; lastname?: string; email?: string; role?: string }>;
+      draftContext?: string | null;
     }
   ): Promise<{
     awaitingResolved?: { resolvedCount: number; sourceLabel: string; message: string } | null;
@@ -1785,6 +1787,7 @@ export function ProspectingPipelineClient() {
           objective: m.objective,
           dos: m.dos,
           donts: m.donts,
+          draftContext: m.draftContext || null,
           priority: m.priority,
           status: m.status,
           clientLanguage: m.clientLanguage || null,
@@ -2208,6 +2211,13 @@ export function ProspectingPipelineClient() {
                       .map((c) => String(c?.email || "").trim())
                       .filter((e) => e.includes("@")),
                     pipeline: "FR" as const,
+                    draftContext: m.draftContext || null,
+                    strategyReason: m.strategyReason || null,
+                    recommendedAngle: m.recommendedAngle || null,
+                    objective: m.objective || null,
+                    dos: m.dos || null,
+                    donts: m.donts || null,
+                    creatorName: m.creatorName || talentName,
                     targets: [
                       {
                         id: m.id,

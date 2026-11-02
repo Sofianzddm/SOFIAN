@@ -17,6 +17,8 @@ export type ProjectResearchBrief = {
   budgetRange?: string | null;
   dos?: string | null;
   donts?: string | null;
+  /** Contexte ops libre (wizard) — le mail doit s'y adapter. */
+  draftContext?: string | null;
 };
 
 function line(label: string, value: unknown): string {
@@ -69,6 +71,7 @@ export function formatProjectBriefForPrompt(
     line("Budget", brief.budgetRange),
     line("Do's", brief.dos),
     line("Don'ts", brief.donts),
+    line("Contexte ops (prioritaire)", brief.draftContext),
   ]
     .filter(Boolean)
     .join("\n");
@@ -84,7 +87,8 @@ export function hasUsefulProjectBrief(brief: unknown): brief is ProjectResearchB
       String(b.projectDescription || "").trim() ||
       String(b.deliverables || "").trim() ||
       String(b.creatorName || "").trim() ||
-      String(b.recommendedAngle || "").trim()
+      String(b.recommendedAngle || "").trim() ||
+      String(b.draftContext || "").trim()
   );
 }
 

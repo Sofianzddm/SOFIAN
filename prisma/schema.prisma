@@ -3346,6 +3346,8 @@ model ContactMission {
   objective            String?
   dos                  String?                    @db.Text
   donts                String?                    @db.Text
+  /// Contexte ops libre saisi dans le wizard avant rédaction (ex. calendrier de l'avent).
+  draftContext         String?                    @db.Text
   priority             ContactMissionPriority     @default(MEDIUM)
   status               ContactMissionStatus       @default(READY_FOR_CASTING)
   stage                ContactMissionStage        @default(TO_DRAFT)

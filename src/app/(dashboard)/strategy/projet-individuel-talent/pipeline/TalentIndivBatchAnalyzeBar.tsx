@@ -23,6 +23,7 @@ type MissionLite = {
   objective: string | null;
   dos: string | null;
   donts: string | null;
+  draftContext?: string | null;
   stage: string;
   status?: string;
   draftEmailSubject?: string | null;
@@ -726,6 +727,7 @@ export function TalentIndivBatchAnalyzeBar({
         budgetRange: null,
         dos: m.dos,
         donts: m.donts,
+        draftContext: m.draftContext || null,
       },
     };
   }

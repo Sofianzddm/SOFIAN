@@ -99,6 +99,8 @@ type CastingCompanyRecipients = {
     objective?: string | null;
     dos?: string | null;
     donts?: string | null;
+    /** Contexte ops libre — le mail doit s'y adapter. */
+    draftContext?: string | null;
     priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
     status: "READY_FOR_CASTING" | "EMAIL_DRAFTED" | "APPROVED_BY_SALES" | "SENT" | "CANCELLED";
     /** Stage pipeline (ex. IN_NEGOTIATION → bloque prospection auto). */
@@ -1216,6 +1218,7 @@ export default function CastingComposer({
         budgetRange: mb.budgetRange || null,
         dos: mb.dos || null,
         donts: mb.donts || null,
+        draftContext: mb.draftContext || null,
       },
     };
   }, [
@@ -1811,6 +1814,7 @@ export default function CastingComposer({
                     budgetRange: contact.missionBrief.budgetRange || null,
                     dos: contact.missionBrief.dos || null,
                     donts: contact.missionBrief.donts || null,
+                    draftContext: contact.missionBrief.draftContext || null,
                   },
                 }
             : {}),

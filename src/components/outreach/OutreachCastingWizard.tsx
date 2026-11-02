@@ -9,6 +9,7 @@ import {
   Loader2,
   SkipForward,
   Sparkles,
+  UserPlus,
   X,
 } from "lucide-react";
 import { isBelgianPays } from "@/lib/pays";
@@ -87,6 +88,14 @@ export type OutreachCastingBrand = {
   pipeline?: "FR" | "BENELUX";
   alsoInSiblingMarket?: boolean;
   targets: OutreachCastingTargetRef[];
+  /** Contexte ops libre — le mail généré doit s'y adapter. */
+  draftContext?: string | null;
+  strategyReason?: string | null;
+  recommendedAngle?: string | null;
+  objective?: string | null;
+  dos?: string | null;
+  donts?: string | null;
+  creatorName?: string | null;
 };
 
 type PresskitTalent = {
@@ -132,12 +141,40 @@ type Props = {
   /** Après rédaction batch réussie — parent peut recharger les targets. */
   onDraftsWritten?: () => void;
   /**
+   * Ajoute un contact sur la marque courante (avant rédaction).
+   * Pipeline casting indiv : PATCH clientContacts, sans schedule-send.
+   */
+  onAddContact?: (
+    groupKey: string,
+    contact: {
+      firstname: string;
+      lastname: string;
+      email: string;
+      role?: string;
+    }
+  ) => Promise<void>;
+  /**
    * Mode pipeline indiv : 1 talent verrouillé × N marques.
    * Utilise les caches indiv + sélection auto de ce talent.
    */
   lockedTalentId?: string | null;
   /** Libellé header (ex. « Casting indiv · Tatiana »). */
   wizardTitle?: string;
+};
+
+type WizardContactDraft = {
+  firstname: string;
+  lastname: string;
+  email: string;
+  role: string;
+};
+
+type WizardCrmHit = {
+  id: string;
+  firstname: string;
+  lastname: string;
+  email: string;
+  role: string;
 };
 
 type Phase = "casting" | "writing" | "review";
@@ -226,6 +263,7 @@ export default function OutreachCastingWizard({
   onReviewBrand,
   onSendBrand,
   onDraftsWritten,
+  onAddContact,
   lockedTalentId = null,
   wizardTitle,
 }: Props) {
@@ -245,6 +283,10 @@ export default function OutreachCastingWizard({
   const [pitchOverride, setPitchOverride] = useState<Record<string, string>>(
     {}
   );
+  /** Contexte ops par marque (avant rédaction) — ex. calendrier de l'avent. */
+  const [draftContextByBrand, setDraftContextByBrand] = useState<
+    Record<string, string>
+  >({});
   const [selectedByBrand, setSelectedByBrand] = useState<
     Record<string, string[]>
   >({});
@@ -277,6 +319,19 @@ export default function OutreachCastingWizard({
   /** Job serveur (survit à la fermeture de page). */
   const [fitJobId, setFitJobId] = useState<string | null>(null);
   const fitPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  /** Ajout contact avant rédaction (pipeline casting). */
+  const [contactFormOpen, setContactFormOpen] = useState(false);
+  const [contactDraft, setContactDraft] = useState<WizardContactDraft>({
+    firstname: "",
+    lastname: "",
+    email: "",
+    role: "",
+  });
+  const [contactSaving, setContactSaving] = useState(false);
+  const [crmHits, setCrmHits] = useState<WizardCrmHit[]>([]);
+  const [crmSearching, setCrmSearching] = useState(false);
+  const [crmSearched, setCrmSearched] = useState(false);
   const appliedFitBrandsRef = useRef<Set<string>>(new Set());
   /** Rédaction d’une seule marque (sans bloquer le batch casting). */
   const [writingOneKey, setWritingOneKey] = useState<string | null>(null);
@@ -441,8 +496,11 @@ export default function OutreachCastingWizard({
     const nextDrafts: Record<string, { subject: string; bodyHtml: string }> =
       {};
     const nextReady: string[] = [];
+    const nextContexts: Record<string, string> = {};
     for (const b of brands) {
       const pitch = defaultPitchBrand(b);
+      const seededCtx = String(b.draftContext || "").trim();
+      if (seededCtx) nextContexts[b.groupKey] = seededCtx;
       const existing = b.targets.find(
         (t) =>
           (t.draftSubject || "").trim() && (t.draftBodyHtml || "").trim()
@@ -485,6 +543,7 @@ export default function OutreachCastingWizard({
     setFitByBrand(nextFit);
     setLocalDrafts(nextDrafts);
     setReadyKeys(nextReady);
+    setDraftContextByBrand(nextContexts);
 
     // Reprendre à la première marque non skip / sans sélection (outreach)
     // ou sans brouillon (indiv — talent déjà sélectionné).
@@ -553,6 +612,103 @@ export default function OutreachCastingWizard({
   useEffect(() => {
     setExpandedFitId(null);
   }, [index, current?.groupKey]);
+
+  useEffect(() => {
+    setContactFormOpen(false);
+    setContactDraft({ firstname: "", lastname: "", email: "", role: "" });
+    setCrmHits([]);
+    setCrmSearching(false);
+    setCrmSearched(false);
+    setContactSaving(false);
+  }, [current?.groupKey]);
+
+  const searchWizardCrmContacts = useCallback(async () => {
+    if (!current) return;
+    const brand = (current.company || "").trim();
+    if (!brand) return;
+    setCrmSearching(true);
+    setCrmSearched(false);
+    try {
+      const res = await fetch(
+        `/api/marques/contacts?brand=${encodeURIComponent(brand)}`,
+        { credentials: "include" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : "Recherche contacts impossible."
+        );
+      }
+      const rows = Array.isArray(data.contacts) ? data.contacts : [];
+      setCrmHits(
+        rows.map(
+          (c: {
+            id?: string;
+            firstname?: string;
+            lastname?: string;
+            email?: string;
+            role?: string;
+          }) => ({
+            id: String(c.id || c.email || Math.random()),
+            firstname: String(c.firstname || "").trim(),
+            lastname: String(c.lastname || "").trim(),
+            email: String(c.email || "").trim(),
+            role: String(c.role || "").trim(),
+          })
+        )
+      );
+      setCrmSearched(true);
+    } catch (e) {
+      onFlash?.(
+        "error",
+        e instanceof Error ? e.message : "Recherche contacts impossible."
+      );
+      setCrmHits([]);
+      setCrmSearched(true);
+    } finally {
+      setCrmSearching(false);
+    }
+  }, [current, onFlash]);
+
+  const saveWizardContact = useCallback(async () => {
+    if (!current || !onAddContact) return;
+    const firstname = contactDraft.firstname.trim();
+    const lastname = contactDraft.lastname.trim();
+    const email = contactDraft.email.trim().toLowerCase();
+    const role = contactDraft.role.trim();
+    if (!firstname || !email.includes("@")) {
+      onFlash?.("error", "Prénom et email valides requis.");
+      return;
+    }
+    setContactSaving(true);
+    try {
+      await onAddContact(current.groupKey, {
+        firstname,
+        lastname,
+        email,
+        ...(role ? { role } : {}),
+      });
+      setContactDraft({ firstname: "", lastname: "", email: "", role: "" });
+      setContactFormOpen(false);
+      setCrmHits([]);
+      setCrmSearched(false);
+      onFlash?.(
+        "success",
+        role
+          ? `Contact ajouté · ${firstname}${lastname ? ` ${lastname}` : ""} (${role})`
+          : `Contact ajouté · ${firstname}${lastname ? ` ${lastname}` : ""}`
+      );
+    } catch (e) {
+      onFlash?.(
+        "error",
+        e instanceof Error ? e.message : "Ajout du contact impossible."
+      );
+    } finally {
+      setContactSaving(false);
+    }
+  }, [contactDraft, current, onAddContact, onFlash]);
 
   const currentPitch = useMemo(() => {
     if (!current) return "";
@@ -1475,6 +1631,31 @@ export default function OutreachCastingWizard({
           ? brand.company
           : undefined;
 
+      const draftContext = String(
+        draftContextByBrand[brand.groupKey] ?? brand.draftContext ?? ""
+      ).trim();
+      const projectBrief = isIndivMode
+        ? {
+            talentId: lockedTalentId || null,
+            projectTitle: null,
+            projectDescription: null,
+            creatorName: brand.creatorName || null,
+            targetBrand: pitch,
+            strategyReason: brand.strategyReason || null,
+            recommendedAngle: brand.recommendedAngle || null,
+            objective: brand.objective || null,
+            deliverables: null,
+            angles: null,
+            timeline: null,
+            budgetRange: null,
+            dos: brand.dos || null,
+            donts: brand.donts || null,
+            draftContext: draftContext || null,
+          }
+        : draftContext
+          ? { targetBrand: pitch, draftContext }
+          : undefined;
+
       const genOnce = async (ackNego: boolean) => {
         const res = await fetch("/api/casting/generate-email", {
           method: "POST",
@@ -1495,6 +1676,7 @@ export default function OutreachCastingWizard({
                 ? talentResearchWithAngles
                 : talentResearch || undefined,
             negotiationReviewAcknowledged: ackNego || undefined,
+            projectBrief,
             leynaExchangeCache: leyna
               ? {
                   hasExchange: Boolean(leyna.hasExchange),
@@ -1547,6 +1729,7 @@ export default function OutreachCastingWizard({
     [
       pitchOverride,
       selectedByBrand,
+      draftContextByBrand,
       market,
       readBothMarkets,
       viewCacheMarkets,
@@ -1939,12 +2122,40 @@ export default function OutreachCastingWizard({
           const pitch = brand
             ? pitchOverride[brand.groupKey] || defaultPitchBrand(brand)
             : "";
+          const draftContext = String(
+            draftContextByBrand[missionId] ?? brand?.draftContext ?? ""
+          ).trim();
           return {
             missionId,
             talentId: lockedTalentId,
             brandName: pitch || brand?.company || "Marque",
+            draftContext: draftContext || null,
           };
         });
+        // Persiste le contexte ops avant le job pour que le prompt s'y adapte.
+        await Promise.all(
+          items.map(async (it) => {
+            if (it.draftContext === null && !draftContextByBrand[it.missionId]) {
+              // Rien saisi et rien en DB → pas de PATCH inutile.
+              if (!brandsWithCache.find((b) => b.groupKey === it.missionId)?.draftContext) {
+                return;
+              }
+            }
+            try {
+              await fetch("/api/strategy/contact-missions", {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  missionId: it.missionId,
+                  draftContext: it.draftContext,
+                }),
+              });
+            } catch {
+              /* best-effort : le job relira aussi draftContext du payload */
+            }
+          })
+        );
         const res = await fetch("/api/casting/indiv-draft-jobs", {
           method: "POST",
           credentials: "include",
@@ -2025,6 +2236,7 @@ export default function OutreachCastingWizard({
       serverDraftRunning,
       brandsWithCache,
       pitchOverride,
+      draftContextByBrand,
       stopServerDraftPoll,
       pollIndivServerDraft,
       onFlash,
@@ -2786,6 +2998,38 @@ export default function OutreachCastingWizard({
                     })}
                   </div>
                 )}
+
+                <section
+                  className="rounded-xl border bg-white p-3"
+                  style={{ borderColor: "#E5E0DA" }}
+                >
+                  <label
+                    className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wide"
+                    style={{ color: OLD_ROSE }}
+                    htmlFor={`draft-context-${current.groupKey}`}
+                  >
+                    Contexte pour la rédaction
+                  </label>
+                  <textarea
+                    id={`draft-context-${current.groupKey}`}
+                    rows={2}
+                    value={draftContextByBrand[current.groupKey] || ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setDraftContextByBrand((prev) => ({
+                        ...prev,
+                        [current.groupKey]: v,
+                      }));
+                    }}
+                    placeholder='Ex. « demander le calendrier de l’avent » — le mail s’adaptera'
+                    className="w-full resize-y rounded-lg border bg-[#FBF8F4] px-3 py-2 text-[12px] leading-relaxed outline-none focus:border-slate-400"
+                    style={{ borderColor: "#E5E0DA", color: LICORICE }}
+                  />
+                  <p className="m-0 mt-1.5 text-[10.5px] text-slate-500">
+                    Optionnel. Si rempli, sujet + corps du mail s’alignent sur ce
+                    contexte (prioritaire sur un pitch générique).
+                  </p>
+                </section>
 
                 <section
                   className="rounded-xl border bg-white p-3"
