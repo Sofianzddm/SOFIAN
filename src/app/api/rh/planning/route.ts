@@ -146,9 +146,31 @@ export async function GET(request: NextRequest) {
             ? "SITE"
             : "OFFICE";
     const list = byEmp[w.employeeId] ?? [];
-    const idx = list.findIndex((x) => x.date === key && (x.kind === "TT" || x.kind === "OFFICE" || x.kind === "TRAVEL" || x.kind === "SITE"));
-    if (idx >= 0) list[idx] = { date: key, kind, halfDay: w.half === "AM" || w.half === "PM" };
-    else list.push({ date: key, kind, halfDay: w.half === "AM" || w.half === "PM" });
+    const idx = list.findIndex(
+      (x) =>
+        x.date === key &&
+        (x.kind === "TT" ||
+          x.kind === "OFFICE" ||
+          x.kind === "TRAVEL" ||
+          x.kind === "SITE")
+    );
+    const existing = idx >= 0 ? list[idx] : undefined;
+    // Ne pas écraser un TT encore en validation par un OFFICE déjà en base
+    if (
+      existing?.kind === "TT" &&
+      (existing.status === "PENDING" || existing.status === "PAUSED") &&
+      kind === "OFFICE"
+    ) {
+      continue;
+    }
+    const next = {
+      date: key,
+      kind,
+      halfDay: w.half === "AM" || w.half === "PM",
+      status: kind === "TT" ? "APPROVED" : existing?.status,
+    };
+    if (idx >= 0) list[idx] = next;
+    else list.push(next);
   }
 
   const todayKey = new Date().toISOString().slice(0, 10);

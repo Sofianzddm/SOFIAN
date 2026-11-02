@@ -4,7 +4,12 @@ import { remoteEntitlement } from "@/lib/rh/calculations";
 import { isFrenchHoliday } from "@/lib/rh/holidays";
 import { notifyRhRequestCreated } from "@/lib/rh/notify";
 import { getRhSettings } from "@/lib/rh/settings";
-import { createRhRequest, isoWeekInfo, writeRhAudit } from "@/lib/rh/workflow";
+import {
+  createRhRequest,
+  isoWeekInfo,
+  utcNoonFromYmd,
+  writeRhAudit,
+} from "@/lib/rh/workflow";
 
 export const WORK_PLACES: Array<{
   id: RhWorkPlace;
@@ -24,9 +29,50 @@ export function nextWorkPlace(current: RhWorkPlace | null): RhWorkPlace {
   return order[(i + 1) % order.length] ?? "OFFICE";
 }
 
+/** Jour calendaire → Date UTC minuit (colonnes @db.Date / RhWorkDay). */
 function utcDate(iso: string) {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1));
+}
+
+type RemotePlanPayload = {
+  dates?: string[];
+  isoYear?: number;
+  isoWeek?: number;
+  weekStart?: string;
+  weekEnd?: string;
+};
+
+/**
+ * PENDING REMOTE_PLAN de la semaine ISO.
+ * Match via payload (isoYear/isoWeek) — le filtre dateFrom/dateTo cassait les
+ * TT du lundi (stockés à minuit UTC vs weekStart à midi UTC).
+ * Annule les doublons orphelins (créés quand le lookup échouait).
+ */
+async function findPendingRemotePlan(
+  employeeId: string,
+  isoYear: number,
+  isoWeek: number
+) {
+  const pending = await prisma.rhRequest.findMany({
+    where: {
+      employeeId,
+      type: "REMOTE_PLAN",
+      status: "PENDING",
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  const sameWeek = pending.filter((r) => {
+    const p = r.payload as RemotePlanPayload | null;
+    return p?.isoYear === isoYear && p?.isoWeek === isoWeek;
+  });
+  if (sameWeek.length <= 1) return sameWeek[0] ?? null;
+  const [keep, ...dupes] = sameWeek;
+  await prisma.rhRequest.updateMany({
+    where: { id: { in: dupes.map((d) => d.id) } },
+    data: { status: "CANCELLED" },
+  });
+  return keep ?? null;
 }
 
 /** Jours TT à rendre la semaine suivante (exception compensée). */
@@ -120,20 +166,15 @@ export async function getOfficeWeek(params: {
     );
 
     // TT proposés en attente de validation
-    const pendingReq = await prisma.rhRequest.findFirst({
-      where: {
-        employeeId: params.employeeId,
-        type: "REMOTE_PLAN",
-        status: "PENDING",
-        dateFrom: { lte: info.weekEnd },
-        dateTo: { gte: info.weekStart },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    const pendingReq = await findPendingRemotePlan(
+      params.employeeId,
+      info.isoYear,
+      info.isoWeek
+    );
     const weekStartIso = info.weekStart.toISOString().slice(0, 10);
     const weekEndIso = info.weekEnd.toISOString().slice(0, 10);
     const pendingRemote = (
-      (pendingReq?.payload as { dates?: string[] } | null)?.dates ?? []
+      (pendingReq?.payload as RemotePlanPayload | null)?.dates ?? []
     ).filter((d) => d >= weekStartIso && d <= weekEndIso);
 
     const totalRemoteCount = new Set([
@@ -365,16 +406,12 @@ export async function proposeRemotePlan(params: {
     );
   }
 
-  // Annuler un pending précédent de la même semaine
-  const existing = await prisma.rhRequest.findFirst({
-    where: {
-      employeeId: params.employeeId,
-      type: "REMOTE_PLAN",
-      status: "PENDING",
-      dateFrom: { lte: info.weekEnd },
-      dateTo: { gte: info.weekStart },
-    },
-  });
+  // Annuler / mettre à jour un pending précédent de la même semaine
+  const existing = await findPendingRemotePlan(
+    params.employeeId,
+    info.isoYear,
+    info.isoWeek
+  );
 
   if (unique.length === 0) {
     if (existing) {
@@ -400,6 +437,9 @@ export async function proposeRemotePlan(params: {
     weekStart: info.weekStart.toISOString().slice(0, 10),
     weekEnd: info.weekEnd.toISOString().slice(0, 10),
   };
+  // Midi UTC (comme isoWeekInfo) — minuit cassait le overlap le lundi
+  const dateFrom = utcNoonFromYmd(unique[0]!);
+  const dateTo = utcNoonFromYmd(unique[unique.length - 1]!);
 
   if (existing) {
     const updated = await prisma.rhRequest.update({
@@ -407,8 +447,8 @@ export async function proposeRemotePlan(params: {
       data: {
         title,
         days: unique.length,
-        dateFrom: utcDate(unique[0]!),
-        dateTo: utcDate(unique[unique.length - 1]!),
+        dateFrom,
+        dateTo,
         payload,
       },
     });
@@ -427,8 +467,8 @@ export async function proposeRemotePlan(params: {
     employeeId: params.employeeId,
     title,
     days: unique.length,
-    dateFrom: utcDate(unique[0]!),
-    dateTo: utcDate(unique[unique.length - 1]!),
+    dateFrom,
+    dateTo,
     payload,
     prefix: "TT",
   });

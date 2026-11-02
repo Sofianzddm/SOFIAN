@@ -58,8 +58,13 @@ export async function PUT(request: NextRequest) {
     : body.date
       ? [String(body.date)]
       : [];
+  const weekRefs: string[] = Array.isArray(body.weekRefs)
+    ? body.weekRefs.map(String)
+    : [];
+  /** replace=true → `dates` = pending absolu de la/des semaine(s) (sync fluide UI). */
+  const replacePending = body.replace === true;
 
-  if (datesRaw.length === 0) {
+  if (datesRaw.length === 0 && weekRefs.length === 0) {
     return NextResponse.json({ error: "Aucune date" }, { status: 400 });
   }
 
@@ -75,8 +80,9 @@ export async function PUT(request: NextRequest) {
         string,
         { ref: Date; pending: Set<string>; approvedCount: number }
       >();
-      for (const iso of datesRaw) {
-        const ref = new Date(`${iso.slice(0, 10)}T12:00:00`);
+
+      async function ensureBucket(refIso: string) {
+        const ref = new Date(`${refIso.slice(0, 10)}T12:00:00`);
         const info = isoWeekInfo(ref);
         const key = `${info.isoYear}-W${info.isoWeek}`;
         let bucket = byWeek.get(key);
@@ -95,13 +101,22 @@ export async function PUT(request: NextRequest) {
           );
           bucket = {
             ref,
-            pending: new Set(w?.pendingRemote || []),
+            pending: replacePending
+              ? new Set<string>()
+              : new Set(w?.pendingRemote || []),
             approvedCount: approved.size,
           };
-          // garder approved à part pour filtrer
           (bucket as { approved?: Set<string> }).approved = approved;
           byWeek.set(key, bucket);
         }
+        return bucket;
+      }
+
+      for (const iso of weekRefs) {
+        await ensureBucket(iso);
+      }
+      for (const iso of datesRaw) {
+        const bucket = await ensureBucket(iso);
         const day = iso.slice(0, 10);
         const approved = (bucket as { approved?: Set<string> }).approved;
         if (approved?.has(day)) continue;

@@ -63,6 +63,11 @@ export const KIND_LABEL: Record<string, string> = {
   UNPAID: "Sans solde",
   SCHOOL: "École",
   AUTHORIZED: "Autres (décès, naissance…)",
+  TT: "Télétravail",
+  OFFICE: "Bureau",
+  TRAVEL: "Déplacement",
+  SITE: "Site",
+  REQUEST: "Cette demande",
 };
 
 /** Codes courts affichés dans le Gantt (à la place des pastilles couleur). */

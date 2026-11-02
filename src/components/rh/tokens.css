@@ -673,8 +673,8 @@
 }
 
 /* En attente d’approbation (PENDING / PAUSED) — orange pointillé */
-.rh-gantt-cell[data-status="PENDING"],
-.rh-gantt-cell[data-status="PAUSED"] {
+.rh-gantt-cell[data-status="PENDING"]:not([data-kind="REQUEST"]):not([data-request="1"]),
+.rh-gantt-cell[data-status="PAUSED"]:not([data-kind="REQUEST"]):not([data-request="1"]) {
   color: #f2874e !important;
   background: rgba(242, 135, 78, 0.18) !important;
   border: 1.5px dashed #f2874e !important;
@@ -710,6 +710,114 @@
 }
 .rh-gantt-cell[data-col-request="1"]:not([data-request="1"]):not([data-empty="1"]) {
   box-shadow: inset 0 0 0 1px rgba(229, 242, 181, 0.35);
+}
+
+/* Validation TT — légende + strip présence par jour */
+.rh-tt-plan-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.rh-tt-plan-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #8b95a5;
+}
+.rh-tt-plan-legend-item::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.rh-tt-plan-legend-item[data-swatch="request"]::before {
+  background: var(--rh-accent);
+}
+.rh-tt-plan-legend-item[data-swatch="tt"]::before {
+  background: #7c8cf8;
+}
+.rh-tt-plan-legend-item[data-swatch="pending"]::before {
+  background: rgba(242, 135, 78, 0.25);
+  border: 1.5px dashed #f2874e;
+  box-sizing: border-box;
+}
+.rh-tt-plan-legend-item[data-swatch="office"]::before {
+  background: #8b95a5;
+}
+.rh-tt-plan-legend-item[data-swatch="absent"]::before {
+  background: #f2604e;
+}
+
+.rh-tt-day-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.rh-tt-day-chip {
+  border-radius: 12px;
+  padding: 10px 10px 8px;
+  background: #0e1116;
+  border: 1px solid #1b212a;
+  min-width: 0;
+}
+.rh-tt-day-chip[data-request="1"] {
+  border-color: rgba(229, 242, 181, 0.45);
+  background: rgba(229, 242, 181, 0.06);
+}
+.rh-tt-day-chip-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.rh-tt-day-chip-dow {
+  font-size: 12px;
+  font-weight: 700;
+  color: #e7ecf2;
+  text-transform: capitalize;
+}
+.rh-tt-day-chip-tag {
+  margin-left: auto;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0e1116;
+  background: var(--rh-accent);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+.rh-tt-day-chip-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 10.5px;
+  color: #8b95a5;
+  margin-bottom: 8px;
+}
+.rh-tt-day-chip-bar {
+  display: flex;
+  height: 4px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #1b212a;
+}
+.rh-tt-day-chip-bar > i {
+  display: block;
+  height: 100%;
+}
+
+@media (max-width: 900px) {
+  .rh-tt-day-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 520px) {
+  .rh-tt-day-strip {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 900px) {

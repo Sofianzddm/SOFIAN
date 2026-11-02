@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { House, MapPin, Send } from "lucide-react";
 import {
@@ -86,13 +86,52 @@ function weekdays(start: string, end: string): string[] {
 }
 
 function recountWeek(w: Week): Week {
-  const remoteDays = Object.values(w.places).filter((p) => p === "REMOTE").length;
+  const remoteApproved = Object.entries(w.places)
+    .filter(([, p]) => p === "REMOTE")
+    .map(([d]) => d);
+  const pending = w.pendingRemote || [];
+  const total = new Set([...remoteApproved, ...pending]).size;
   let verdict: Week["verdict"] = "undeclared";
-  if (remoteDays === 0 && w.entitlement === 0) verdict = "none";
-  else if (remoteDays === 0) verdict = "undeclared";
-  else if (remoteDays > w.entitlement) verdict = "over";
+  if (total === 0 && w.entitlement === 0) verdict = "none";
+  else if (total === 0) verdict = "undeclared";
+  else if (total > w.entitlement) verdict = "over";
+  else if (pending.length > 0) verdict = "pending";
   else verdict = "compliant";
-  return { ...w, declared: remoteDays, verdict };
+  return { ...w, declared: remoteApproved.length, verdict };
+}
+
+function applyOptimistic(
+  weeks: Week[],
+  dates: string[],
+  place: Place
+): Week[] {
+  return weeks.map((w) => {
+    const days = weekdays(w.weekStart, w.weekEnd);
+    const hit = dates.some((d) => days.includes(d));
+    if (!hit) return w;
+    if (place === "REMOTE") {
+      const pending = new Set([
+        ...(w.pendingRemote || []),
+        ...dates.filter((d) => days.includes(d) && w.places[d] !== "REMOTE"),
+      ]);
+      return recountWeek({
+        ...w,
+        pendingRemote: [...pending],
+      });
+    }
+    const places = { ...w.places };
+    const pending = new Set(w.pendingRemote || []);
+    for (const d of dates) {
+      if (!days.includes(d)) continue;
+      places[d] = place;
+      pending.delete(d);
+    }
+    return recountWeek({
+      ...w,
+      places,
+      pendingRemote: [...pending],
+    });
+  });
 }
 
 export function RemoteScreen() {
@@ -113,6 +152,7 @@ export function RemoteScreen() {
   const [agreement, setAgreement] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [brush, setBrush] = useState<Place>("REMOTE");
   const [showMorePlaces, setShowMorePlaces] = useState(false);
   const [showException, setShowException] = useState(false);
@@ -127,6 +167,18 @@ export function RemoteScreen() {
   );
   const [motive, setMotive] = useState("");
   const [compensate, setCompensate] = useState(true);
+  const weeksRef = useRef(weeks);
+  weeksRef.current = weeks;
+  const travelMealRef = useRef(travelMeal);
+  travelMealRef.current = travelMeal;
+  const travelPortionRef = useRef(travelPortion);
+  travelPortionRef.current = travelPortion;
+  const dirtyWeeksRef = useRef<Set<string>>(new Set());
+  const dirtyOfficeRef = useRef<Set<string>>(new Set());
+  const dirtyOtherRef = useRef<Map<string, Place>>(new Map());
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncGenRef = useRef(0);
+  const lastTtToastRef = useRef<string | null>(null);
   const primaryPlaces: Place[] = ["OFFICE", "REMOTE"];
   const extraPlaces: Place[] = ["TRAVEL", "SITE"];
   const visiblePlaces = showMorePlaces
@@ -135,8 +187,8 @@ export function RemoteScreen() {
       ? primaryPlaces
       : [...primaryPlaces, brush];
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const res = await fetch("/api/rh/office/weeks");
       if (!res.ok) return;
@@ -158,7 +210,7 @@ export function RemoteScreen() {
       });
       setAgreement(data.agreement || 0);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, []);
 
@@ -166,69 +218,173 @@ export function RemoteScreen() {
     void load();
   }, [load]);
 
-  async function applyPlaces(dates: string[], place: Place) {
-    if (dates.length === 0) return;
-    setBusy(true);
-    // Optimistic — TT = pending, autres = places
-    setWeeks((prev) =>
-      prev.map((w) => {
-        const days = weekdays(w.weekStart, w.weekEnd);
-        const hit = dates.some((d) => days.includes(d));
-        if (!hit) return w;
-        if (place === "REMOTE") {
-          const pending = new Set([...(w.pendingRemote || []), ...dates.filter((d) => days.includes(d))]);
-          return {
-            ...w,
-            pendingRemote: [...pending],
-            verdict: "pending" as const,
-          };
-        }
-        const places = { ...w.places };
-        const pending = new Set(w.pendingRemote || []);
-        for (const d of dates) {
-          if (!days.includes(d)) continue;
-          places[d] = place;
-          pending.delete(d);
-        }
-        return recountWeek({
-          ...w,
-          places,
-          pendingRemote: [...pending],
-        });
-      })
-    );
+  useEffect(() => {
+    return () => {
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    };
+  }, []);
+
+  const flushSync = useCallback(async () => {
+    const gen = ++syncGenRef.current;
+    const snapshot = weeksRef.current;
+    const weekKeys = [...dirtyWeeksRef.current];
+    const officeDates = [...dirtyOfficeRef.current];
+    const otherEntries = [...dirtyOtherRef.current.entries()];
+    dirtyWeeksRef.current.clear();
+    dirtyOfficeRef.current.clear();
+    dirtyOtherRef.current.clear();
+
+    if (
+      weekKeys.length === 0 &&
+      officeDates.length === 0 &&
+      otherEntries.length === 0
+    ) {
+      return;
+    }
+
+    setSyncing(true);
     try {
-      const res = await fetch("/api/rh/office/weeks", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dates,
-          place,
-          ...(place === "TRAVEL"
-            ? { travelMeal, portion: travelPortion }
-            : { portion: "FULL", travelMeal: null }),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erreur");
-      if (data.pending) {
-        const ref = data.plans?.[0]?.reference;
-        toast.success(
-          ref
-            ? `TT envoyé pour validation (${ref})`
-            : "TT mis à jour — en attente de validation"
+      // 1) Sync TT pending absolu par semaine dirty
+      for (const key of weekKeys) {
+        const w = snapshot.find(
+          (x) => `${x.isoYear ?? ""}-W${x.isoWeek}` === key
         );
-      } else if (data.errors?.length) {
-        toast.message(String(data.errors[0]));
+        if (!w) continue;
+        const pending = w.pendingRemote || [];
+        const res = await fetch("/api/rh/office/weeks", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            place: "REMOTE",
+            replace: true,
+            dates: pending,
+            weekRefs: [w.weekStart],
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Erreur TT");
+        if (gen !== syncGenRef.current) return;
+        const ref = data.plans?.[0]?.reference as string | null | undefined;
+        if (data.plans?.[0]?.cancelled) {
+          lastTtToastRef.current = null;
+          toast.message("Demande TT annulée", { id: "rh-tt-sync" });
+        } else if (ref && ref !== lastTtToastRef.current) {
+          lastTtToastRef.current = ref;
+          toast.success(`TT envoyé pour validation (${ref})`, {
+            id: "rh-tt-sync",
+          });
+        }
+        if (ref) {
+          setWeeks((prev) =>
+            prev.map((x) =>
+              `${x.isoYear ?? ""}-W${x.isoWeek}` === key
+                ? { ...x, pendingRequestRef: ref }
+                : x
+            )
+          );
+        } else if (pending.length === 0) {
+          setWeeks((prev) =>
+            prev.map((x) =>
+              `${x.isoYear ?? ""}-W${x.isoWeek}` === key
+                ? { ...x, pendingRequestRef: null }
+                : x
+            )
+          );
+        }
       }
-      await load();
-      await refresh();
+
+      // 2) Retrait TT validé / passage bureau
+      if (officeDates.length > 0) {
+        const res = await fetch("/api/rh/office/weeks", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dates: officeDates,
+            place: "OFFICE",
+            portion: "FULL",
+            travelMeal: null,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Erreur bureau");
+        if (data.errors?.length) toast.message(String(data.errors[0]));
+      }
+
+      // 3) Dépl. / Site
+      for (const [date, place] of otherEntries) {
+        const res = await fetch("/api/rh/office/weeks", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            dates: [date],
+            place,
+            ...(place === "TRAVEL"
+              ? {
+                  travelMeal: travelMealRef.current,
+                  portion: travelPortionRef.current,
+                }
+              : { portion: "FULL", travelMeal: null }),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Erreur");
+        if (data.errors?.length) toast.message(String(data.errors[0]));
+      }
+
+      if (gen !== syncGenRef.current) return;
+      // Si de nouveaux clics sont arrivés pendant le sync, on laisse le debounce suivants
+      if (
+        dirtyWeeksRef.current.size ||
+        dirtyOfficeRef.current.size ||
+        dirtyOtherRef.current.size
+      ) {
+        return;
+      }
+      await load({ silent: true });
+      void refresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
-      await load();
+      await load({ silent: true });
     } finally {
-      setBusy(false);
+      if (gen === syncGenRef.current) setSyncing(false);
     }
+  }, [load, refresh]);
+
+  const scheduleSync = useCallback(() => {
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      syncTimerRef.current = null;
+      void flushSync();
+    }, 280);
+  }, [flushSync]);
+
+  function applyPlaces(dates: string[], place: Place) {
+    if (dates.length === 0) return;
+    const nextWeeks = applyOptimistic(weeksRef.current, dates, place);
+    weeksRef.current = nextWeeks;
+    setWeeks(nextWeeks);
+
+    for (const d of dates) {
+      const w = nextWeeks.find((x) => {
+        const days = weekdays(x.weekStart, x.weekEnd);
+        return days.includes(d);
+      });
+      if (!w) continue;
+      const key = `${w.isoYear ?? ""}-W${w.isoWeek}`;
+      if (place === "REMOTE") {
+        dirtyWeeksRef.current.add(key);
+        dirtyOfficeRef.current.delete(d);
+        dirtyOtherRef.current.delete(d);
+      } else if (place === "OFFICE") {
+        dirtyWeeksRef.current.add(key);
+        dirtyOfficeRef.current.add(d);
+        dirtyOtherRef.current.delete(d);
+      } else {
+        dirtyOtherRef.current.set(d, place);
+        dirtyWeeksRef.current.add(key);
+      }
+    }
+    scheduleSync();
   }
 
   function paintDay(
@@ -237,15 +393,15 @@ export function RemoteScreen() {
     current: Place,
     isPending: boolean
   ) {
-    if (holiday || busy) return;
+    if (holiday) return;
     if (brush === "REMOTE") {
       const next =
         current === "REMOTE" || isPending ? "OFFICE" : "REMOTE";
-      void applyPlaces([date], next);
+      applyPlaces([date], next);
       return;
     }
     const next = current === brush ? "OFFICE" : brush;
-    void applyPlaces([date], next);
+    applyPlaces([date], next);
   }
 
   async function submitAddress() {
@@ -282,14 +438,17 @@ export function RemoteScreen() {
     const days = weekdays(w.weekStart, w.weekEnd).filter(
       (d) => !frenchHolidayLabel(d)
     );
-    void applyPlaces(days, place);
+    applyPlaces(days, place);
   }
 
   function fillRemoteQuota(w: Week) {
     const days = weekdays(w.weekStart, w.weekEnd).filter(
       (d) => !frenchHolidayLabel(d)
     );
-    const already = days.filter((d) => w.places[d] === "REMOTE");
+    const already = days.filter(
+      (d) =>
+        w.places[d] === "REMOTE" || (w.pendingRemote || []).includes(d)
+    );
     const need = Math.max(0, w.entitlement - already.length);
     if (need === 0) {
       toast.message(
@@ -299,8 +458,12 @@ export function RemoteScreen() {
       );
       return;
     }
-    const candidates = days.filter((d) => (w.places[d] || "OFFICE") !== "REMOTE");
-    void applyPlaces(candidates.slice(0, need), "REMOTE");
+    const candidates = days.filter(
+      (d) =>
+        (w.places[d] || "OFFICE") !== "REMOTE" &&
+        !(w.pendingRemote || []).includes(d)
+    );
+    applyPlaces(candidates.slice(0, need), "REMOTE");
   }
 
   function clearRemote(w: Week) {
@@ -311,7 +474,7 @@ export function RemoteScreen() {
       toast.message("Aucun TT à enlever cette semaine");
       return;
     }
-    void applyPlaces(days, "OFFICE");
+    applyPlaces(days, "OFFICE");
   }
 
   async function sendException() {
@@ -364,15 +527,29 @@ export function RemoteScreen() {
             validation manager.
           </p>
         </div>
-        <div
-          className="rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold"
-          style={{
-            background: "rgba(124,140,248,.14)",
-            color: "#A5B0FA",
-            border: "1px solid rgba(124,140,248,.35)",
-          }}
-        >
-          Droit {agreement} j TT / semaine
+        <div className="flex flex-wrap items-center gap-2">
+          {syncing ? (
+            <div
+              className="rounded-full px-3 py-1.5 text-[12px] font-medium"
+              style={{
+                background: "rgba(229,242,181,.1)",
+                color: "#E5F2B5",
+                border: "1px solid rgba(229,242,181,.28)",
+              }}
+            >
+              Envoi…
+            </div>
+          ) : null}
+          <div
+            className="rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold"
+            style={{
+              background: "rgba(124,140,248,.14)",
+              color: "#A5B0FA",
+              border: "1px solid rgba(124,140,248,.35)",
+            }}
+          >
+            Droit {agreement} j TT / semaine
+          </div>
         </div>
       </div>
 
@@ -578,7 +755,7 @@ export function RemoteScreen() {
                         <button
                           key={date}
                           type="button"
-                          disabled={busy || !!holiday}
+                          disabled={!!holiday}
                           title={
                             holiday ||
                             (isPending
@@ -588,9 +765,10 @@ export function RemoteScreen() {
                           onClick={() =>
                             paintDay(date, holiday, place, isPending)
                           }
-                          className="rounded-[12px] p-3 text-center border-0 cursor-pointer disabled:cursor-default transition-transform active:scale-[0.97]"
+                          className="rounded-[12px] p-3 text-center border-0 cursor-pointer disabled:cursor-default transition-[transform,background,border-color,color] duration-150 ease-out active:scale-[0.97]"
                           style={{
                             background: style.bg,
+                            color: style.fg,
                             border: isPending
                               ? `1.5px dashed ${style.border}`
                               : `1.5px solid ${style.border}`,
@@ -630,7 +808,6 @@ export function RemoteScreen() {
                         data-tour="remote-fill-tt"
                         variant="secondary"
                         style={{ fontSize: 12, padding: "7px 12px" }}
-                        disabled={busy}
                         onClick={() => fillRemoteQuota(w)}
                       >
                         Remplir mon TT ({w.entitlement} j)
@@ -641,7 +818,6 @@ export function RemoteScreen() {
                         data-tour="remote-clear-tt"
                         variant="secondary"
                         style={{ fontSize: 12, padding: "7px 12px" }}
-                        disabled={busy}
                         onClick={() => clearRemote(w)}
                       >
                         Enlever le TT
@@ -651,7 +827,6 @@ export function RemoteScreen() {
                       data-tour="remote-all-office"
                       variant="secondary"
                       style={{ fontSize: 12, padding: "7px 12px" }}
-                      disabled={busy}
                       onClick={() => fillWeek(w, "OFFICE")}
                     >
                       Tout bureau

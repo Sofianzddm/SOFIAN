@@ -564,7 +564,14 @@ export function ApprovalsInboxScreen({
                   (selected.detailRaw.dates as string[]).length > 0 ? (
                     <div className="mt-2 text-[12.5px]">
                       <span style={{ color: "#8B95A5" }}>Jours TT : </span>
-                      {(selected.detailRaw.dates as string[]).join(", ")}
+                      {(selected.detailRaw.dates as string[])
+                        .map((d) =>
+                          new Date(d + "T12:00:00").toLocaleDateString(
+                            "fr-FR",
+                            { weekday: "short", day: "numeric", month: "short" }
+                          )
+                        )
+                        .join(" · ")}
                     </div>
                   ) : selected.detailRaw.date ? (
                     <div className="mt-2 text-[12.5px]">
@@ -577,6 +584,13 @@ export function ApprovalsInboxScreen({
                       Compensation demandée la semaine suivante
                     </p>
                   ) : null}
+                  <p
+                    className="m-0 mt-2 text-[11.5px]"
+                    style={{ color: "#7E8998" }}
+                  >
+                    Planning équipe ci-dessous — TT validés, en attente, bureau
+                    / absents.
+                  </p>
                 </div>
               )}
 
@@ -621,6 +635,12 @@ export function ApprovalsInboxScreen({
           employeeName={selected.who}
           requestedDays={leaveDaysForCompare}
           onOpenFiche={onOpenFiche}
+          variant={
+            selected.kind === "REMOTE_PLAN" ||
+            selected.kind === "REMOTE_EXCEPTION"
+              ? "remote"
+              : "leave"
+          }
         />
       ) : null}
 
