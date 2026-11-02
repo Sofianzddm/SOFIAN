@@ -6,11 +6,13 @@ import { ChevronLeft, ChevronRight, FileText, Send } from "lucide-react";
 import { RhButton, RhCard, RhCardHead } from "@/components/rh/ui/primitives";
 import { EmpLabel, EMP_COLORS } from "@/components/rh/employee/parts";
 import {
+  absenceCaption,
   breakRangeMinutes,
   dayNetMinutes,
   hhmmToMinutes,
   minutesToHhmm,
   minutesToLabel,
+  netDayMinutes,
   slotsBreakMinutes,
   slotsBreakWindow,
   splitOvertime,
@@ -37,6 +39,12 @@ type DayRow = {
   exception?: boolean;
   /** Justification HS / exception pour ce jour */
   note?: string | null;
+  /** FULL | HALF_AM | HALF_PM | MINUTES */
+  absenceKind?: string | null;
+  absenceMinutes?: number;
+  absenceLabel?: string | null;
+  /** MANUAL | LEAVE */
+  absenceSource?: string | null;
 };
 
 /** Défaut UI si durée connue mais pas d’horaires (ex. anciennes feuilles). */
@@ -161,9 +169,18 @@ export function TimeScreen() {
   function exceedsSchedule(
     date: string,
     slots: Slot[],
-    breakMinutes: number
+    breakMinutes: number,
+    absenceKind?: string | null,
+    absenceMinutes = 0
   ): boolean {
-    if (dayMinutes(slots, breakMinutes) > schedule.workdayMinutes) return true;
+    const net = netDayMinutes(
+      dayMinutes(slots, breakMinutes),
+      absenceKind,
+      absenceMinutes,
+      schedule.workdayMinutes
+    );
+    if (absenceKind) return net > schedule.workdayMinutes;
+    if (net > schedule.workdayMinutes) return true;
     const dow = new Date(date + "T12:00:00").getDay();
     const daySlots = dow === 5 ? schedule.slotsFriday : schedule.slotsWeekday;
     const start = hm(
@@ -211,6 +228,10 @@ export function TimeScreen() {
             breakTo: d.breakTo || null,
             exception: !!d.exception,
             note: d.note || "",
+            absenceKind: d.absenceKind || null,
+            absenceMinutes: d.absenceMinutes || 0,
+            absenceLabel: d.absenceLabel || null,
+            absenceSource: d.absenceSource || null,
           }))
           .sort((a, b) => isoDow(a.date) - isoDow(b.date))
       );
@@ -254,9 +275,24 @@ export function TimeScreen() {
       const breakMin = d.slots.length
         ? effectiveBreak(slots, rangeMin > 0 ? rangeMin : d.breakMinutes ?? 0)
         : 0;
-      const mins = dayMinutes(slots, breakMin);
+      const mins = netDayMinutes(
+        dayMinutes(slots, breakMin),
+        d.absenceKind,
+        d.absenceMinutes || 0,
+        schedule.workdayMinutes
+      );
       totalMinutes += mins;
-      if (weekendOrHoliday || exceedsSchedule(d.date, slots, breakMin)) {
+      if (
+        mins > 0 &&
+        (weekendOrHoliday ||
+          exceedsSchedule(
+            d.date,
+            slots,
+            breakMin,
+            d.absenceKind,
+            d.absenceMinutes || 0
+          ))
+      ) {
         overDates.add(d.date);
       }
     }
@@ -286,6 +322,15 @@ export function TimeScreen() {
     setDays((prev) =>
       prev.map((d) => (d.date === date ? { ...d, ...patch } : d))
     );
+  }
+
+  function absencePayload(d: DayRow) {
+    return {
+      absenceKind: d.absenceKind || null,
+      absenceMinutes: d.absenceMinutes || 0,
+      absenceLabel: d.absenceLabel || null,
+      absenceSource: d.absenceSource || null,
+    };
   }
 
   async function save() {
@@ -330,6 +375,7 @@ export function TimeScreen() {
                 breakTo: slots.length ? auto?.to || d.breakTo || null : null,
                 exception,
                 note: d.note || null,
+                ...absencePayload(d),
               };
             }
             const slots = d.slots.length
@@ -351,6 +397,7 @@ export function TimeScreen() {
               breakTo: auto?.to || d.breakTo || null,
               exception: false,
               note: d.note || null,
+              ...absencePayload(d),
             };
           }),
         }),
@@ -402,6 +449,7 @@ export function TimeScreen() {
   async function applyDefaultWeek() {
     setDays((prev) =>
       prev.map((d) => {
+        if (d.absenceKind === "FULL") return d;
         const dow = new Date(d.date + "T12:00:00").getDay();
         if (dow === 0 || dow === 6 || isFrenchHoliday(d.date)) {
           return {
@@ -467,12 +515,34 @@ export function TimeScreen() {
           autoBreak > 0 ? autoBreak : manualBreak || d.breakMinutes || 0
         )
       : 0;
-    const mins = filledSlots.length ? dayMinutes(filledSlots, breakMin) : 0;
+    const gross = filledSlots.length ? dayMinutes(filledSlots, breakMin) : 0;
+    const mins = netDayMinutes(
+      gross,
+      d.absenceKind,
+      d.absenceMinutes || 0,
+      schedule.workdayMinutes
+    );
+    const fullAbsent = d.absenceKind === "FULL";
+    const fromLeave = d.absenceSource === "LEAVE";
+    const caption = absenceCaption(
+      d.absenceKind,
+      d.absenceLabel,
+      d.absenceMinutes || 0,
+      schedule.workdayMinutes
+    );
     const overDay =
-      special && filledSlots.length > 0
-        ? true
-        : filledSlots.length > 0 &&
-          exceedsSchedule(d.date, filledSlots, breakMin);
+      fullAbsent
+        ? false
+        : special && filledSlots.length > 0
+          ? true
+          : filledSlots.length > 0 &&
+            exceedsSchedule(
+              d.date,
+              filledSlots,
+              breakMin,
+              d.absenceKind,
+              d.absenceMinutes || 0
+            );
 
     function patchSlots(next: Slot[]) {
       const clean = next.filter((s) => s.from || s.to);
@@ -513,11 +583,13 @@ export function TimeScreen() {
         key={d.date}
         className="p-3.5"
         style={
-          overDay
-            ? { borderColor: "rgba(240,194,78,.45)" }
-            : special && exceptionOn
-              ? { borderColor: "rgba(240,194,78,.35)" }
-              : undefined
+          fullAbsent
+            ? { borderColor: "rgba(242,96,78,.4)" }
+            : overDay
+              ? { borderColor: "rgba(240,194,78,.45)" }
+              : special && exceptionOn
+                ? { borderColor: "rgba(240,194,78,.35)" }
+                : undefined
         }
       >
         <div className="mb-1 flex items-baseline justify-between gap-2">
@@ -530,7 +602,11 @@ export function TimeScreen() {
           <div
             className="rh-mono shrink-0 text-[11px]"
             style={{
-              color: overDay ? EMP_COLORS.warning : EMP_COLORS.accent,
+              color: overDay
+                ? EMP_COLORS.warning
+                : d.absenceKind
+                  ? EMP_COLORS.danger
+                  : EMP_COLORS.accent,
             }}
           >
             {minutesToLabel(mins)}
@@ -554,7 +630,105 @@ export function TimeScreen() {
           </div>
         ) : null}
 
-        {special ? (
+        {caption ? (
+          <div
+            className="mb-2.5 rounded-[10px] px-2.5 py-2 text-[12px] font-medium leading-[1.35]"
+            style={{
+              color: EMP_COLORS.danger,
+              background: "rgba(242,96,78,.08)",
+              border: "1px solid rgba(242,96,78,.28)",
+            }}
+          >
+            {caption}
+            {fromLeave ? (
+              <div
+                className="mt-0.5 text-[11px] font-normal"
+                style={{ color: EMP_COLORS.dim }}
+              >
+                Déduit automatiquement du congé accepté
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {!special && editable && !fromLeave ? (
+          <div className="mb-2.5 flex flex-col gap-1.5">
+            <div
+              className="text-[11px] font-medium"
+              style={{ color: EMP_COLORS.dim }}
+            >
+              Déclarer absent
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  {
+                    kind: "FULL" as const,
+                    label: "Journée",
+                    minutes: schedule.workdayMinutes,
+                  },
+                  {
+                    kind: "HALF_AM" as const,
+                    label: "Matin",
+                    minutes: Math.round(schedule.workdayMinutes / 2),
+                  },
+                  {
+                    kind: "HALF_PM" as const,
+                    label: "Après-midi",
+                    minutes: Math.round(schedule.workdayMinutes / 2),
+                  },
+                ] as const
+              ).map((opt) => {
+                const on = d.absenceKind === opt.kind;
+                return (
+                  <button
+                    key={opt.kind}
+                    type="button"
+                    className="cursor-pointer rounded-[9px] px-2.5 py-1.5 text-[12px] font-medium"
+                    style={{
+                      color: on ? EMP_COLORS.danger : EMP_COLORS.body,
+                      background: on
+                        ? "rgba(242,96,78,.12)"
+                        : "rgba(255,255,255,.03)",
+                      border: `1px solid ${
+                        on ? "rgba(242,96,78,.4)" : "#1B212A"
+                      }`,
+                    }}
+                    onClick={() => {
+                      if (on) {
+                        updateDay(d.date, {
+                          absenceKind: null,
+                          absenceSource: null,
+                          absenceLabel: null,
+                          absenceMinutes: 0,
+                        });
+                        return;
+                      }
+                      updateDay(d.date, {
+                        absenceKind: opt.kind,
+                        absenceSource: "MANUAL",
+                        absenceLabel: "Absence",
+                        absenceMinutes: opt.minutes,
+                      });
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {fullAbsent ? (
+          <p
+            className="m-0 text-[11.5px] leading-[1.4]"
+            style={{ color: EMP_COLORS.dim }}
+          >
+            Journée déduite — 0 h sur la feuille
+            {fromLeave ? " (congé accepté)." : "."}
+          </p>
+        ) : special ? (
           <label
             className="mb-3 flex cursor-pointer items-center gap-2 rounded-[10px] px-2.5 py-2 text-[12.5px] font-medium"
             style={{
@@ -592,7 +766,7 @@ export function TimeScreen() {
           </label>
         ) : null}
 
-        {special && !exceptionOn ? (
+        {fullAbsent ? null : special && !exceptionOn ? (
           <p
             className="m-0 text-[11.5px] leading-[1.4]"
             style={{ color: EMP_COLORS.dim }}

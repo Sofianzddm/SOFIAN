@@ -356,15 +356,31 @@ export function ApprovalsInboxScreen({
                           Record<string, unknown>
                         >
                       )
-                        .filter((d) => Number(d.totalMinutes || 0) > 0)
+                        .filter(
+                          (d) =>
+                            Number(d.totalMinutes || 0) > 0 || !!d.absenceKind
+                        )
                         .map((d, i) => {
                           const slots = Array.isArray(d.slots)
                             ? (d.slots as Array<{ from?: string; to?: string }>)
                             : [];
-                          const slotsLabel = slots
-                            .filter((s) => s.from && s.to)
-                            .map((s) => `${s.from}→${s.to}`)
-                            .join(" · ");
+                          const slotsLabel =
+                            d.absenceKind === "FULL"
+                              ? ""
+                              : slots
+                                  .filter((s) => s.from && s.to)
+                                  .map((s) => `${s.from}→${s.to}`)
+                                  .join(" · ");
+                          const absenceText =
+                            d.absenceKind === "FULL"
+                              ? `${d.absenceLabel || "Absence"} · journée déduite`
+                              : d.absenceKind === "HALF_AM"
+                                ? `${d.absenceLabel || "Absence"} · matin déduit`
+                                : d.absenceKind === "HALF_PM"
+                                  ? `${d.absenceLabel || "Absence"} · après-midi déduit`
+                                  : d.absenceKind === "MINUTES"
+                                    ? `${d.absenceLabel || "Absence"} · horaire déduit`
+                                    : "";
                           return (
                             <div
                               key={i}
@@ -383,6 +399,14 @@ export function ApprovalsInboxScreen({
                                   {String(d.totalLabel)}
                                 </span>
                               </div>
+                              {absenceText ? (
+                                <div
+                                  className="mt-1 text-[11.5px]"
+                                  style={{ color: "#F2604E" }}
+                                >
+                                  {absenceText}
+                                </div>
+                              ) : null}
                               {slotsLabel ? (
                                 <div
                                   className="rh-mono mt-1 text-[11px]"

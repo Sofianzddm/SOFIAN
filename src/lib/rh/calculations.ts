@@ -34,8 +34,14 @@ export {
   slotsBreakWindow,
   breakRangeMinutes,
   dayNetMinutes,
+  absenceDeductionMinutes,
+  netDayMinutes,
+  collapseLeaveAbsence,
+  absenceCaption,
   hhmmToMinutes,
   minutesToHhmm,
+  type AbsenceKind,
+  type LeaveAbsenceInput,
   type RemoteAgreementDays,
 } from "@/components/rh/lib/calculations";
 

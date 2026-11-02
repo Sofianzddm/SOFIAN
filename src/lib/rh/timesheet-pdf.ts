@@ -4,6 +4,8 @@ import { v2 as cloudinary } from "cloudinary";
 import prisma from "@/lib/prisma";
 import { displayName } from "@/lib/rh/auth";
 import { frenchHolidayLabel, isFrenchHoliday } from "@/lib/rh/holidays";
+import { absenceCaption } from "@/lib/rh/calculations";
+import { getRhSettings } from "@/lib/rh/settings";
 import {
   TimesheetPdfDocument,
   type TimesheetPdfData,
@@ -51,6 +53,9 @@ export async function buildTimesheetPdfData(
     signatureImageDataUrl?: string | null;
   }
 ): Promise<TimesheetPdfData> {
+  const { reconcileTimesheetAbsences } = await import("@/lib/rh/timesheet");
+  await reconcileTimesheetAbsences(timesheetId);
+
   const ts = await prisma.rhTimesheet.findUniqueOrThrow({
     where: { id: timesheetId },
     include: {
@@ -77,24 +82,41 @@ export async function buildTimesheetPdfData(
     },
   });
 
+  const settings = await getRhSettings();
   const days: TimesheetPdfDay[] = ts.days.map((d) => {
     const iso = d.date.toISOString().slice(0, 10);
     const slots = (Array.isArray(d.slots) ? d.slots : []) as Slot[];
     const holiday = frenchHolidayLabel(iso);
     const dow = new Date(iso + "T12:00:00").getDay();
+    const caption = absenceCaption(
+      d.absenceKind,
+      d.absenceLabel,
+      d.absenceMinutes || 0,
+      settings.workdayMinutes
+    );
+    const slotsWork = slots.map((s) => `${s.from}–${s.to}`).join(" · ");
     return {
       date: iso,
       weekday: weekdayLabel(iso),
-      slotsLabel: slots.map((s) => `${s.from}–${s.to}`).join(" · "),
+      slotsLabel:
+        d.absenceKind === "FULL"
+          ? "Absent — 0 h"
+          : d.absenceKind
+            ? slotsWork || "—"
+            : slotsWork,
       breakMinutes: d.breakMinutes,
-      breakFrom: d.breakFrom || null,
-      breakTo: d.breakTo || null,
+      breakFrom: d.absenceKind === "FULL" ? null : d.breakFrom || null,
+      breakTo: d.absenceKind === "FULL" ? null : d.breakTo || null,
       totalMinutes: d.totalMinutes,
       isWeekend: dow === 0 || dow === 6,
       isHoliday: isFrenchHoliday(iso),
       holidayLabel: holiday,
       exception: !!d.exception,
       note: d.note || null,
+      absenceKind: d.absenceKind,
+      absenceLabel: d.absenceLabel,
+      absenceMinutes: d.absenceMinutes || 0,
+      absenceNote: caption,
     };
   });
 

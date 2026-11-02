@@ -3,12 +3,15 @@ import prisma from "@/lib/prisma";
 import {
   assertLegalBreak,
   breakRangeMinutes,
+  collapseLeaveAbsence,
   dayNetMinutes,
   LEGAL_BREAK_MIN_MINUTES,
+  netDayMinutes,
   slotsBreakMinutes,
   slotsBreakWindow,
   slotsGrossMinutes,
   splitOvertime,
+  type LeaveAbsenceInput,
 } from "@/lib/rh/calculations";
 import { createRhRequest, isoWeekInfo, writeRhAudit } from "@/lib/rh/workflow";
 import {
@@ -75,6 +78,11 @@ export async function getOrCreateTimesheet(
     });
   }
 
+  if (MUTABLE_TIMESHEET.has(ts.status)) {
+    const synced = await reconcileTimesheetAbsences(ts.id);
+    if (synced) ts = synced;
+  }
+
   const settings = await getRhSettings();
   const totals = recalculateTotals(
     ts.days,
@@ -103,6 +111,166 @@ function isWeekendOrHolidayIso(iso: string): boolean {
   return dow === 0 || dow === 6 || isFrenchHoliday(iso);
 }
 
+const MUTABLE_TIMESHEET = new Set(["DRAFT", "PAUSED", "SUBMITTED"]);
+
+function isoFromDbDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function asSlots(value: unknown): Slot[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (s): s is Slot =>
+      !!s &&
+      typeof s === "object" &&
+      typeof (s as Slot).from === "string" &&
+      typeof (s as Slot).to === "string"
+  );
+}
+
+/**
+ * Aligne la feuille sur les congés acceptés.
+ * Une absence manuelle (bouton) est conservée tant qu'aucun congé ne couvre le jour.
+ * Feuille déjà validée ou signée : on ne réécrit pas.
+ */
+export async function reconcileTimesheetAbsences(timesheetId: string) {
+  const ts = await prisma.rhTimesheet.findUnique({
+    where: { id: timesheetId },
+    include: { days: { orderBy: { date: "asc" } } },
+  });
+  if (!ts || !MUTABLE_TIMESHEET.has(ts.status)) return ts;
+
+  const settings = await getRhSettings();
+  const leaves = await prisma.rhLeaveDay.findMany({
+    where: {
+      employeeId: ts.employeeId,
+      date: { gte: ts.weekStart, lte: ts.weekEnd },
+      request: { status: { in: ["APPROVED", "SIGNED"] } },
+    },
+  });
+
+  const byDate = new Map<string, LeaveAbsenceInput[]>();
+  for (const row of leaves) {
+    const iso = isoFromDbDate(row.date);
+    const list = byDate.get(iso) || [];
+    list.push({
+      accountCode: row.accountCode,
+      halfDay: row.halfDay,
+      half: row.half,
+      minutes: row.minutes,
+      requestId: row.requestId,
+    });
+    byDate.set(iso, list);
+  }
+
+  let changed = false;
+  for (const day of ts.days) {
+    const iso = isoFromDbDate(day.date);
+    const collapsed = collapseLeaveAbsence(
+      byDate.get(iso) || [],
+      settings.workdayMinutes
+    );
+    const slots = asSlots(day.slots);
+    const breakMinutes = effectiveBreakMinutes(slots, day.breakMinutes);
+    const gross = dayMinutes(slots, breakMinutes);
+
+    if (collapsed) {
+      const totalMinutes = netDayMinutes(
+        gross,
+        collapsed.kind,
+        collapsed.minutes,
+        settings.workdayMinutes
+      );
+      const same =
+        day.absenceKind === collapsed.kind &&
+        day.absenceMinutes === collapsed.minutes &&
+        day.absenceLabel === collapsed.label &&
+        day.absenceSource === "LEAVE" &&
+        (day.absenceRequestId || null) === collapsed.requestId &&
+        day.totalMinutes === totalMinutes;
+      if (same) continue;
+      await prisma.rhTimesheetDay.update({
+        where: { id: day.id },
+        data: {
+          totalMinutes,
+          absenceKind: collapsed.kind,
+          absenceMinutes: collapsed.minutes,
+          absenceLabel: collapsed.label,
+          absenceSource: "LEAVE",
+          absenceRequestId: collapsed.requestId,
+        },
+      });
+      changed = true;
+      continue;
+    }
+
+    if (day.absenceSource === "LEAVE") {
+      const totalMinutes = dayMinutes(slots, breakMinutes);
+      await prisma.rhTimesheetDay.update({
+        where: { id: day.id },
+        data: {
+          totalMinutes,
+          absenceKind: null,
+          absenceMinutes: 0,
+          absenceLabel: null,
+          absenceSource: null,
+          absenceRequestId: null,
+        },
+      });
+      changed = true;
+    }
+  }
+
+  if (!changed) return ts;
+
+  const refreshed = await prisma.rhTimesheetDay.findMany({
+    where: { timesheetId: ts.id },
+  });
+  const employee = await prisma.rhEmployee.findUnique({
+    where: { id: ts.employeeId },
+    select: { weeklyHours: true },
+  });
+  const weekly = recalculateTotals(
+    refreshed,
+    employee?.weeklyHours || 35,
+    settings.ot25CapHours
+  );
+  await prisma.rhTimesheet.update({
+    where: { id: ts.id },
+    data: weekly,
+  });
+  return prisma.rhTimesheet.findUnique({
+    where: { id: ts.id },
+    include: { days: { orderBy: { date: "asc" } } },
+  });
+}
+
+/** Recalcule les feuilles encore modifiables qui couvrent ces dates. */
+export async function syncTimesheetAbsencesForDates(
+  employeeId: string,
+  dates: Date[]
+) {
+  if (!dates.length) return;
+  const times = dates.map((d) => d.getTime()).filter((n) => Number.isFinite(n));
+  if (!times.length) return;
+  const min = new Date(Math.min(...times));
+  const max = new Date(Math.max(...times));
+  min.setUTCDate(min.getUTCDate() - 1);
+  max.setUTCDate(max.getUTCDate() + 1);
+  const sheets = await prisma.rhTimesheet.findMany({
+    where: {
+      employeeId,
+      weekStart: { lte: max },
+      weekEnd: { gte: min },
+      status: { in: ["DRAFT", "PAUSED", "SUBMITTED"] },
+    },
+    select: { id: true },
+  });
+  for (const sheet of sheets) {
+    await reconcileTimesheetAbsences(sheet.id);
+  }
+}
+
 export async function updateTimesheetDays(params: {
   timesheetId: string;
   employeeId: string;
@@ -117,6 +285,11 @@ export async function updateTimesheetDays(params: {
     exception?: boolean;
     /** Justification HS / exception pour ce jour */
     note?: string | null;
+    /** FULL = journée déclarée absente à la main */
+    absenceKind?: string | null;
+    absenceMinutes?: number;
+    absenceLabel?: string | null;
+    absenceSource?: string | null;
   }[];
 }) {
   const ts = await prisma.rhTimesheet.findFirst({
@@ -165,16 +338,55 @@ export async function updateTimesheetDays(params: {
       ? autoWindow?.to || (rangeMinutes > 0 ? toRange : null)
       : null;
 
-    if (slots.length > 0) {
+    const manualKinds = new Set(["FULL", "HALF_AM", "HALF_PM", "MINUTES"]);
+    const isManual =
+      day.absenceSource === "MANUAL" &&
+      !!day.absenceKind &&
+      manualKinds.has(day.absenceKind);
+    const isLeave = day.absenceSource === "LEAVE" && !!day.absenceKind;
+    const fullAbsent = day.absenceKind === "FULL";
+    if (slots.length > 0 && !fullAbsent) {
       // L3121-16 : ≥ 20 min dès 6 h brutes (plancher légal, indépendant du défaut UI)
       assertLegalBreak(slotsGrossMinutes(slots), breakMinutes, {
         minBreak: LEGAL_BREAK_MIN_MINUTES,
       });
     }
     const date = new Date(day.date);
-    const totalMinutes = dayMinutes(slots, breakMinutes);
+    const gross = dayMinutes(slots, breakMinutes);
+    const activeKind = isManual || isLeave ? day.absenceKind : null;
+    const activeMinutes = isManual
+      ? day.absenceKind === "FULL"
+        ? settings.workdayMinutes
+        : day.absenceKind === "HALF_AM" || day.absenceKind === "HALF_PM"
+          ? Math.round(settings.workdayMinutes / 2)
+          : Math.max(0, day.absenceMinutes || 0)
+      : day.absenceMinutes || 0;
+    const totalMinutes = netDayMinutes(
+      gross,
+      activeKind,
+      activeMinutes,
+      settings.workdayMinutes
+    );
     const note =
       typeof day.note === "string" ? day.note.trim() || null : undefined;
+    // Le congé accepté est réappliqué juste après : on ne le laisse pas écraser ici.
+    const absenceWrite = isLeave
+      ? {}
+      : isManual
+        ? {
+            absenceKind: day.absenceKind!,
+            absenceMinutes: activeMinutes,
+            absenceLabel: day.absenceLabel?.trim() || "Absence",
+            absenceSource: "MANUAL",
+            absenceRequestId: null,
+          }
+        : {
+            absenceKind: null,
+            absenceMinutes: 0,
+            absenceLabel: null,
+            absenceSource: null,
+            absenceRequestId: null,
+          };
     await prisma.rhTimesheetDay.upsert({
       where: {
         timesheetId_date: { timesheetId: ts.id, date },
@@ -189,6 +401,11 @@ export async function updateTimesheetDays(params: {
         totalMinutes,
         exception,
         note: note ?? null,
+        absenceKind: isManual ? day.absenceKind! : null,
+        absenceMinutes: isManual ? activeMinutes : 0,
+        absenceLabel: isManual ? day.absenceLabel?.trim() || "Absence" : null,
+        absenceSource: isManual ? "MANUAL" : null,
+        absenceRequestId: null,
       },
       update: {
         slots,
@@ -198,6 +415,7 @@ export async function updateTimesheetDays(params: {
         totalMinutes,
         exception,
         ...(note !== undefined ? { note } : {}),
+        ...absenceWrite,
       },
     });
   }
@@ -233,9 +451,15 @@ export async function updateTimesheetDays(params: {
     });
   }
 
-  return prisma.rhTimesheet.update({
+  await prisma.rhTimesheet.update({
     where: { id: ts.id },
     data: totals,
+  });
+
+  const synced = await reconcileTimesheetAbsences(ts.id);
+  if (synced) return synced;
+  return prisma.rhTimesheet.findUniqueOrThrow({
+    where: { id: ts.id },
     include: { days: { orderBy: { date: "asc" } } },
   });
 }
@@ -253,6 +477,7 @@ export async function submitTimesheet(params: {
   const settings = await getRhSettings();
   const overDays: Array<{ iso: string; note: string | null }> = [];
   for (const d of ts.days) {
+    if (d.absenceKind === "FULL") continue;
     const slots = (Array.isArray(d.slots) ? d.slots : []) as Slot[];
     const iso = d.date.toISOString().slice(0, 10);
     if (slots.length > 0 && isWeekendOrHolidayIso(iso) && !d.exception) {
@@ -267,6 +492,7 @@ export async function submitTimesheet(params: {
         { minBreak: LEGAL_BREAK_MIN_MINUTES }
       );
     }
+    // Demi-journée / récup : le total déjà déduit sert de base HS
     const isOver =
       d.totalMinutes > 0 &&
       (isWeekendOrHolidayIso(iso) ||

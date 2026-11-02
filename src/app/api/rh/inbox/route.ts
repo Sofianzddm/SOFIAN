@@ -9,6 +9,7 @@ import {
   requireRhSessionFromRequest,
 } from "@/lib/rh/auth";
 import { minutesToLabel } from "@/lib/rh/calculations";
+import { reconcileTimesheetAbsences } from "@/lib/rh/timesheet";
 
 export async function GET(request: NextRequest) {
   const session = await requireRhSessionFromRequest(request);
@@ -130,6 +131,15 @@ export async function GET(request: NextRequest) {
             include: { days: { orderBy: { date: "asc" } } },
           });
         }
+        if (
+          ts &&
+          (ts.status === "DRAFT" ||
+            ts.status === "PAUSED" ||
+            ts.status === "SUBMITTED")
+        ) {
+          const synced = await reconcileTimesheetAbsences(ts.id);
+          if (synced) ts = synced;
+        }
         detail = {
           ...detail,
           timesheetId: ts?.id,
@@ -150,6 +160,10 @@ export async function GET(request: NextRequest) {
             breakTo: d.breakTo,
             exception: d.exception,
             note: d.note,
+            absenceKind: d.absenceKind,
+            absenceLabel: d.absenceLabel,
+            absenceMinutes: d.absenceMinutes,
+            absenceSource: d.absenceSource,
           })),
         };
       }

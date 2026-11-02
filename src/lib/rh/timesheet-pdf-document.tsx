@@ -229,6 +229,10 @@ export type TimesheetPdfDay = {
   holidayLabel?: string | null;
   exception?: boolean;
   note?: string | null;
+  absenceKind?: string | null;
+  absenceLabel?: string | null;
+  absenceMinutes?: number;
+  absenceNote?: string | null;
 };
 
 export type TimesheetPdfData = {
@@ -350,15 +354,22 @@ export function TimesheetPdfDocument({ data }: { data: TimesheetPdfData }) {
               <Text style={styles.cell}>{d.weekday}</Text>
               <Text style={styles.cellMuted}>{d.date}</Text>
             </View>
-            <Text style={[styles.cell, { width: "38%" }]}>
-              {d.slotsLabel || "—"}
-            </Text>
+            <View style={{ width: "38%" }}>
+              <Text style={styles.cell}>{d.slotsLabel || "—"}</Text>
+              {d.absenceNote ? (
+                <Text style={[styles.cellMuted, { marginTop: 2 }]}>
+                  {d.absenceNote}
+                </Text>
+              ) : null}
+            </View>
             <Text style={[styles.cell, { width: "14%", textAlign: "right" }]}>
-              {d.breakFrom && d.breakTo
-                ? `${d.breakFrom}–${d.breakTo}`
-                : d.breakMinutes
-                  ? `${d.breakMinutes} min`
-                  : "—"}
+              {d.absenceKind === "FULL"
+                ? "—"
+                : d.breakFrom && d.breakTo
+                  ? `${d.breakFrom}–${d.breakTo}`
+                  : d.breakMinutes
+                    ? `${d.breakMinutes} min`
+                    : "—"}
             </Text>
             <Text
               style={[
@@ -366,23 +377,53 @@ export function TimesheetPdfDocument({ data }: { data: TimesheetPdfData }) {
                 { width: "14%", textAlign: "right", fontFamily: "Helvetica-Bold" },
               ]}
             >
-              {d.totalMinutes ? minsLabel(d.totalMinutes) : "—"}
+              {d.absenceKind === "FULL"
+                ? "0 h 00"
+                : d.totalMinutes
+                  ? minsLabel(d.totalMinutes)
+                  : "—"}
             </Text>
             <Text
               style={[styles.cellMuted, { width: "16%", textAlign: "right" }]}
             >
-              {d.isHoliday
-                ? `${d.holidayLabel || "Férié"}${d.exception ? " · Exc." : ""}`
-                : d.isWeekend
-                  ? d.exception
-                    ? "Week-end · Exc."
-                    : "Week-end"
-                  : d.totalMinutes
-                    ? "Travaillé"
-                    : "—"}
+              {d.absenceKind === "FULL"
+                ? d.absenceLabel || "Absent"
+                : d.absenceKind === "HALF_AM"
+                  ? `${d.absenceLabel || "Absence"} · matin`
+                  : d.absenceKind === "HALF_PM"
+                    ? `${d.absenceLabel || "Absence"} · après-midi`
+                    : d.absenceKind === "MINUTES"
+                      ? `${d.absenceLabel || "Absence"} · horaire`
+                      : d.isHoliday
+                        ? `${d.holidayLabel || "Férié"}${d.exception ? " · Exc." : ""}`
+                        : d.isWeekend
+                          ? d.exception
+                            ? "Week-end · Exc."
+                            : "Week-end"
+                          : d.totalMinutes
+                            ? "Travaillé"
+                            : "—"}
             </Text>
           </View>
         ))}
+        {data.days.some((d) => d.absenceKind) ? (
+          <View style={{ marginTop: 10 }}>
+            <Text style={styles.label}>Absences déduites</Text>
+            {data.days
+              .filter((d) => d.absenceKind)
+              .map((d) => (
+                <Text key={`abs-${d.date}`} style={styles.noteText}>
+                  {d.weekday} {d.date} —{" "}
+                  {d.absenceNote || d.absenceLabel || "Absence"}
+                  {d.absenceKind === "FULL"
+                    ? " (0 h travaillée)"
+                    : d.totalMinutes
+                      ? ` · restant ${minsLabel(d.totalMinutes)}`
+                      : ""}
+                </Text>
+              ))}
+          </View>
+        ) : null}
         {data.days.some((d) => d.note) ? (
           <View style={{ marginTop: 10 }}>
             <Text style={styles.label}>Justifications HS / exception</Text>

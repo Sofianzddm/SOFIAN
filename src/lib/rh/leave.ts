@@ -17,6 +17,7 @@ import {
   writeRhAudit,
 } from "@/lib/rh/workflow";
 import { notifyRhRequestCreated, notifyRhDecision } from "@/lib/rh/notify";
+import { syncTimesheetAbsencesForDates } from "@/lib/rh/timesheet";
 import { getRhSettings } from "@/lib/rh/settings";
 
 export async function ensureCpAccrual(
@@ -727,7 +728,13 @@ export async function decideLeaveRequest(params: {
       },
     });
 
-    return { row, employeeId: request.employeeId, title: request.title, reference: request.reference };
+    return {
+      row,
+      employeeId: request.employeeId,
+      title: request.title,
+      reference: request.reference,
+      leaveDates: request.leaveDays.map((d) => d.date),
+    };
   });
 
   await notifyRhDecision({
@@ -737,6 +744,17 @@ export async function decideLeaveRequest(params: {
     approved: params.approve,
     note: params.note,
   });
+
+  if (updated.leaveDates.length) {
+    try {
+      await syncTimesheetAbsencesForDates(
+        updated.employeeId,
+        updated.leaveDates
+      );
+    } catch (e) {
+      console.error("[rh.leave] sync feuille de temps", e);
+    }
+  }
 
   return updated.row;
 }

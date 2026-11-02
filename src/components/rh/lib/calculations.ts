@@ -225,6 +225,125 @@ export function dayNetMinutes(
   return Math.max(0, gross - Math.max(0, breakMinutes));
 }
 
+export type AbsenceKind = "FULL" | "HALF_AM" | "HALF_PM" | "MINUTES";
+
+/** Minutes retirées du temps travaillé. Jamais plus que le brut du jour. */
+export function absenceDeductionMinutes(
+  kind: string | null | undefined,
+  absenceMinutes: number,
+  workdayMinutes: number,
+  grossNetMinutes: number
+): number {
+  const gross = Math.max(0, grossNetMinutes || 0);
+  if (!kind) return 0;
+  if (kind === "FULL") return gross;
+  if (kind === "HALF_AM" || kind === "HALF_PM") {
+    return Math.min(gross, Math.round(Math.max(0, workdayMinutes) / 2));
+  }
+  if (kind === "MINUTES") {
+    return Math.min(gross, Math.max(0, absenceMinutes || 0));
+  }
+  return 0;
+}
+
+/** Temps qui reste sur la feuille après absence. Journée entière → 0. */
+export function netDayMinutes(
+  gross: number,
+  kind: string | null | undefined,
+  absenceMinutes: number,
+  workdayMinutes: number
+): number {
+  if (kind === "FULL") return 0;
+  return Math.max(
+    0,
+    gross -
+      absenceDeductionMinutes(kind, absenceMinutes, workdayMinutes, gross)
+  );
+}
+
+export type LeaveAbsenceInput = {
+  accountCode: string;
+  halfDay?: boolean;
+  half?: string | null;
+  minutes?: number | null;
+  requestId?: string | null;
+};
+
+/**
+ * Plusieurs lignes de congé le même jour → une seule déduction feuille.
+ * Journée, deux demi-journées, matin, après-midi, ou récup en minutes.
+ */
+export function collapseLeaveAbsence(
+  rows: LeaveAbsenceInput[],
+  workdayMinutes: number
+): {
+  kind: AbsenceKind;
+  minutes: number;
+  label: string;
+  requestId: string | null;
+} | null {
+  if (!rows.length) return null;
+  const label = LEAVE_LABELS[rows[0].accountCode] || "Absence";
+  const requestId = rows[0].requestId ?? null;
+  const hourly = rows.filter((r) => (r.minutes || 0) > 0 || r.half === "H");
+  if (hourly.length === rows.length && hourly.some((r) => (r.minutes || 0) > 0)) {
+    const minutes = hourly.reduce((sum, r) => sum + (r.minutes || 0), 0);
+    return { kind: "MINUTES", minutes, label, requestId };
+  }
+  const hasFull = rows.some(
+    (r) => !r.halfDay || r.half === "FULL" || r.half == null
+  );
+  const hasAm = rows.some((r) => r.half === "AM");
+  const hasPm = rows.some((r) => r.half === "PM");
+  if (hasFull || (hasAm && hasPm)) {
+    return {
+      kind: "FULL",
+      minutes: Math.max(0, workdayMinutes),
+      label,
+      requestId,
+    };
+  }
+  if (hasAm) {
+    return {
+      kind: "HALF_AM",
+      minutes: Math.round(Math.max(0, workdayMinutes) / 2),
+      label,
+      requestId,
+    };
+  }
+  if (hasPm) {
+    return {
+      kind: "HALF_PM",
+      minutes: Math.round(Math.max(0, workdayMinutes) / 2),
+      label,
+      requestId,
+    };
+  }
+  return {
+    kind: "FULL",
+    minutes: Math.max(0, workdayMinutes),
+    label,
+    requestId,
+  };
+}
+
+/** Texte court affiché sur la feuille (« Congés payés · journée déduite »). */
+export function absenceCaption(
+  kind: string | null | undefined,
+  label: string | null | undefined,
+  minutes: number,
+  workdayMinutes: number
+): string | null {
+  if (!kind) return null;
+  const name = label?.trim() || "Absence";
+  if (kind === "FULL") return `${name} · journée déduite`;
+  const half = minutesToLabel(Math.round(Math.max(0, workdayMinutes) / 2));
+  if (kind === "HALF_AM") return `${name} · matin déduit (−${half})`;
+  if (kind === "HALF_PM") return `${name} · après-midi déduit (−${half})`;
+  if (kind === "MINUTES") return `${name} · −${minutesToLabel(minutes)} déduit`;
+  return name;
+}
+
 /** 25 CP / an, crédités 2,08 j à chaque mois clos (Lucca). */
 export const CP_DAYS_PER_YEAR = 25;
 export const CP_PER_MONTH = Math.round((CP_DAYS_PER_YEAR / 12) * 100) / 100;

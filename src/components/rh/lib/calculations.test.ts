@@ -16,6 +16,10 @@ import {
   slotsBreakMinutes,
   slotsBreakWindow,
   dayNetMinutes,
+  absenceDeductionMinutes,
+  netDayMinutes,
+  collapseLeaveAbsence,
+  absenceCaption,
   minutesToLeaveDays,
   leaveDaysToMinutes,
   WORKDAY_MINUTES,
@@ -243,6 +247,50 @@ export function runRhCalculationTests(): string[] {
     "1 créneau − horaires pause"
   );
   ok("slotsBreakWindow / breakRangeMinutes");
+
+  // Absence → déduction feuille (journée, demi-journée, minutes)
+  assert(netDayMinutes(420, "FULL", 420, 420) === 0, "journée absente = 0");
+  assert(netDayMinutes(420, null, 0, 420) === 420, "sans absence = brut");
+  assert(
+    absenceDeductionMinutes("HALF_AM", 210, 420, 420) === 210,
+    "demi-journée = 3 h 30"
+  );
+  assert(netDayMinutes(420, "HALF_PM", 210, 420) === 210, "après-midi déduit");
+  assert(netDayMinutes(420, "MINUTES", 90, 420) === 330, "récup 1 h 30");
+  assert(
+    absenceDeductionMinutes("MINUTES", 500, 420, 420) === 420,
+    "déduction plafonnée au brut"
+  );
+  const full = collapseLeaveAbsence(
+    [{ accountCode: "CP", halfDay: false, half: "FULL", requestId: "r1" }],
+    420
+  );
+  assert(full?.kind === "FULL" && full.label === "Congés payés", "collapse CP");
+  const am = collapseLeaveAbsence(
+    [{ accountCode: "RTT", halfDay: true, half: "AM" }],
+    420
+  );
+  assert(am?.kind === "HALF_AM" && am.minutes === 210, "collapse matin");
+  const both = collapseLeaveAbsence(
+    [
+      { accountCode: "CP", halfDay: true, half: "AM" },
+      { accountCode: "CP", halfDay: true, half: "PM" },
+    ],
+    420
+  );
+  assert(both?.kind === "FULL", "deux demi-journées = journée");
+  const recup = collapseLeaveAbsence(
+    [{ accountCode: "RECUP", half: "H", minutes: 120 }],
+    420
+  );
+  assert(recup?.kind === "MINUTES" && recup.minutes === 120, "collapse récup");
+  assert(
+    absenceCaption("FULL", "Congés payés", 420, 420) ===
+      "Congés payés · journée déduite",
+    "caption journée"
+  );
+  assert(absenceCaption(null, null, 0, 420) === null, "caption vide");
+  ok("absence feuille de temps");
 
   return logs;
 }

@@ -4977,6 +4977,16 @@ model RhTimesheetDay {
   /// Week-end / férié : case « exception » cochée pour autoriser la saisie
   exception    Boolean     @default(false)
   note         String?
+  /// FULL | HALF_AM | HALF_PM | MINUTES — null = journée travaillée
+  absenceKind      String?
+  /// Minutes déduites (demi-journée ou récup horaire). Journée entière → total à 0.
+  absenceMinutes   Int         @default(0)
+  /// Libellé affiché (Congés payés, Absence…)
+  absenceLabel     String?
+  /// MANUAL (bouton) | LEAVE (congé accepté)
+  absenceSource    String?
+  /// Demande de congé à l'origine, si absenceSource = LEAVE
+  absenceRequestId String?
 
   @@unique([timesheetId, date])
   @@index([timesheetId])
