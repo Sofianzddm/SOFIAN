@@ -347,14 +347,18 @@ export async function proxy(request: NextRequest) {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
-  // Compte community manager : uniquement l'espace /community (lecture seule des
-  // collabs publiées + liens) + son API + auth. Tout le reste redirige vers /community.
+  // Compte community manager : espace /community (lecture seule des collabs
+  // publiées + liens) + API community + espace RH salarié + auth.
+  // Tout le reste redirige vers /community.
   if (effectiveRole === "COMMUNITY_MANAGER") {
     const allowed =
       pathname === "/login" ||
       pathname.startsWith("/api/auth") ||
       pathname.startsWith("/community") ||
-      pathname.startsWith("/api/community");
+      pathname.startsWith("/api/community") ||
+      pathname === "/rh" ||
+      pathname.startsWith("/rh/") ||
+      pathname.startsWith("/api/rh");
     if (!allowed) {
       return withNoIndex(NextResponse.redirect(new URL("/community", request.url)));
     }

@@ -4,12 +4,13 @@ import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect } from "react";
-import { Loader2, LogOut, Sparkles, Users } from "lucide-react";
+import { CalendarDays, Loader2, LogOut, Sparkles, Users } from "lucide-react";
 import { GlowUpLogo } from "@/components/ui/logo";
 
 const NAV = [
   { label: "Collaborations", href: "/community", icon: Sparkles },
   { label: "Talents", href: "/community/talents", icon: Users },
+  { label: "RH Glow Up", href: "/rh/espace", icon: CalendarDays },
 ];
 
 export default function CommunityLayout({ children }: { children: React.ReactNode }) {

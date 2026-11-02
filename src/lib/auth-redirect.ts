@@ -35,7 +35,8 @@ export function resolvePostLoginPath(
     return safe?.startsWith("/talent") ? safe : "/talent/dashboard";
   }
   if (role === "COMMUNITY_MANAGER") {
-    return safe?.startsWith("/community") ? safe : "/community";
+    if (safe?.startsWith("/community") || safe?.startsWith("/rh")) return safe;
+    return "/community";
   }
   if (role === "COMPTABLE") {
     return safe?.startsWith("/comptable") ? safe : "/comptable";
