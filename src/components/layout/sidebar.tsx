@@ -215,6 +215,7 @@ const menuItems = [
       "HEAD_OF_INFLUENCE",
       "HEAD_OF_SALES",
       "TM",
+      "ASSISTANTE_TM",
       "STRATEGY_PLANNER",
       "JURISTE",
     ],
@@ -502,7 +503,7 @@ export function Sidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userRole]);
 
-  // Assistante TM : menu réduit — Talents + Collaborations (stats/uploads) + RH
+  // Assistante TM : menu réduit — Talents + Collaborations (stats/uploads) + EMV + RH
   if (userRole === "ASSISTANTE_TM") {
     return (
       <aside
@@ -551,6 +552,23 @@ export function Sidebar({
               }`}
             />
             {!collapsed && <span className="font-medium text-sm">Collaborations</span>}
+          </Link>
+          <Link
+            href="/simulateur-emv"
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${
+              pathname === "/simulateur-emv" || pathname?.startsWith("/simulateur-emv/")
+                ? "bg-glowup-rose text-white"
+                : "text-gray-600 hover:bg-glowup-lace hover:text-glowup-licorice"
+            }`}
+          >
+            <Gauge
+              className={`w-5 h-5 flex-shrink-0 ${
+                pathname === "/simulateur-emv" || pathname?.startsWith("/simulateur-emv/")
+                  ? "text-white"
+                  : "text-gray-400 group-hover:text-glowup-rose"
+              }`}
+            />
+            {!collapsed && <span className="font-medium text-sm">Simulateur EMV</span>}
           </Link>
           <Link
             href="/rh/espace"

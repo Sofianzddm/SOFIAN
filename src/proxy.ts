@@ -263,7 +263,7 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // Assistante TM : Talents + Kit Media + Collaborations (liste/fiche) + RH salarié
+  // Assistante TM : Talents + Kit Media + Collaborations (liste/fiche) + RH salarié + Simulateur EMV
   // Collabs : pas de new / edit / facturer / contrat — stats + uploads via API
   if (effectiveRole === "ASSISTANTE_TM") {
     const isCollabListPath = pathname === "/collaborations";
@@ -284,6 +284,7 @@ export async function proxy(request: NextRequest) {
       pathname === "/rh" ||
       pathname.startsWith("/rh/") ||
       pathname.startsWith("/api/rh") ||
+      pathname.startsWith("/simulateur-emv") ||
       isCollabListPath ||
       isCollabDetailPath;
     if (!allowed) {

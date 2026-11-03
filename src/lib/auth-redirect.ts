@@ -52,6 +52,7 @@ export function resolvePostLoginPath(
       safe?.startsWith("/talents") ||
       safe?.startsWith("/rh") ||
       safe?.startsWith("/kit/") ||
+      safe?.startsWith("/simulateur-emv") ||
       safe === "/collaborations" ||
       (safe?.startsWith("/collaborations/") &&
         !safe.startsWith("/collaborations/new") &&
