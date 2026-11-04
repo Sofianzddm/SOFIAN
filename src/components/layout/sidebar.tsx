@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { canAccessFashionWeek } from "@/lib/fw-access";
+import { canAccessBrandSimulator } from "@/lib/brand-simulator-access";
 import {
   isDecisionCenterEmail,
   isDecisionCenterEnabled,
@@ -128,6 +129,13 @@ const menuItems = [
     href: "/strategy/projet-individuel-talent/pipeline",
     icon: Layers,
     roles: ["CASTING_MANAGER", "HEAD_OF_SALES", "STRATEGY_PLANNER", "ADMIN", "HEAD_OF"],
+  },
+  {
+    label: "Simulateur marque",
+    href: "/strategy/projet-individuel-talent/simulateur-marque",
+    icon: Sparkles,
+    // Visible ADMIN via menu général ; Inès via layout STRATEGY_PLANNER (gate email)
+    roles: ["ADMIN"],
   },
   {
     label: "Projets outreach talent",
@@ -401,6 +409,7 @@ export function Sidebar({
   const userRole = effectiveRole ?? (session?.user as { role?: string })?.role ?? "TALENT";
   const userEmail = (session?.user as { email?: string } | undefined)?.email ?? "";
   const showFashionWeek = canAccessFashionWeek(userRole, userEmail);
+  const showBrandSimulator = canAccessBrandSimulator(userRole, userEmail);
   const showDecisionCenter =
     isDecisionCenterEnabled() && isDecisionCenterEmail(userEmail);
 
@@ -743,6 +752,16 @@ export function Sidebar({
             icon: Layers,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
+          ...(showBrandSimulator
+            ? [
+                {
+                  label: "Simulateur marque",
+                  href: "/strategy/projet-individuel-talent/simulateur-marque",
+                  icon: Sparkles,
+                  roles: ["STRATEGY_PLANNER", "ADMIN"],
+                } as (typeof menuItems)[number],
+              ]
+            : []),
           {
             label: "Missions Casting (création)",
             href: "/strategy/projet-individuel-talent",

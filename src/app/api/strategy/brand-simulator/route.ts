@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import prisma from "@/lib/prisma";
+import { canAccessBrandSimulator } from "@/lib/brand-simulator-access";
 import { xaiResponse } from "@/lib/xai";
 import { normalizeInstagramHandle } from "@/lib/social-links";
 import {
@@ -257,12 +258,6 @@ function nicheExampleQueries(
 }
 
 export const maxDuration = 300;
-
-const ALLOWED_ROLES = ["ADMIN"] as const;
-
-function isAllowed(role: string | undefined): boolean {
-  return role !== undefined && (ALLOWED_ROLES as readonly string[]).includes(role);
-}
 
 export type BrandSimulatorProfile = {
   whoTheyAre: string;
@@ -1397,9 +1392,9 @@ export async function POST(request: NextRequest) {
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!isAllowed(session.user.role)) {
+    if (!canAccessBrandSimulator(session.user.role, session.user.email)) {
       return NextResponse.json(
-        { error: "Accès réservé Strategy / Casting / Admin." },
+        { error: "Accès réservé." },
         { status: 403 }
       );
     }

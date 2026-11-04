@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { canAccessBrandSimulator } from "@/lib/brand-simulator-access";
 import { BrandSimulatorClient } from "./BrandSimulatorClient";
 
 export default async function BrandSimulatorPage() {
@@ -8,7 +9,8 @@ export default async function BrandSimulatorPage() {
   if (!session?.user) redirect("/login");
 
   const role = (session.user as { role?: string }).role ?? "";
-  if (role !== "ADMIN") {
+  const email = session.user.email;
+  if (!canAccessBrandSimulator(role, email)) {
     redirect("/dashboard");
   }
 
