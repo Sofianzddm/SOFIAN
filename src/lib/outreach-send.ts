@@ -255,6 +255,9 @@ export async function executeOutreachSend(
   if (target.status === "STOPPED") {
     return { ok: false, error: "Ce client est sorti du cycle (stoppé)." };
   }
+  if (target.manualHoldUntil && target.manualHoldUntil.getTime() > Date.now()) {
+    return { ok: false, error: "Cette marque est en attente de recontact." };
+  }
 
   const subjectTpl = input.subject.trim();
   const bodyRaw = input.bodyHtml.trim();
@@ -493,6 +496,9 @@ export async function executeOutreachSchedule(
   if (!target) return { ok: false, error: "Client introuvable." };
   if (target.status === "STOPPED") {
     return { ok: false, error: "Ce client est sorti du cycle (stoppé)." };
+  }
+  if (target.manualHoldUntil && target.manualHoldUntil.getTime() > Date.now()) {
+    return { ok: false, error: "Cette marque est en attente de recontact." };
   }
 
   const subjectTpl = input.subject.trim();

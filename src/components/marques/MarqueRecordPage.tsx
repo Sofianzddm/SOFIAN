@@ -49,7 +49,12 @@ import {
 } from "lucide-react";
 import { MarqueCrmTab } from "@/app/(dashboard)/marques/[id]/MarqueCrmTab";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
-import { canAccessFullMarqueCrm, canWriteMarqueCrm, isMarqueCrmReadOnly } from "@/lib/marque-crm-access";
+import {
+  canAccessFullMarqueCrm,
+  canManageDiffusionOptOut,
+  canWriteMarqueCrm,
+  isMarqueCrmReadOnly,
+} from "@/lib/marque-crm-access";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -495,6 +500,9 @@ export default function MarqueRecordPage({
   // Lancer un contact dans le cycle Outreach est réservé aux rôles qui y ont
   // accès côté API (ADMIN / CASTING_MANAGER).
   const canOutreach = ["ADMIN", "CASTING_MANAGER"].includes(session?.user?.role || "");
+  // Retrait liste de diffusion : écriture CRM, ou casting manager (fiche seule).
+  const canOptOutDiffusion =
+    canManageDiffusionOptOut(session?.user?.role) || isBenelux;
   // CRM complet (onglet Achats-AO, fichiers AO, sync) : ADMIN + HEAD_OF_SALES (Leyna)
   // Masqué côté BENELUX (pas de feuille AO).
   const canFullCrm = !isBenelux && canAccessFullMarqueCrm(session?.user?.role);
@@ -2898,8 +2906,8 @@ export default function MarqueRecordPage({
                                 )}
                               </div>
 
-                              {/* Opt-out liste de diffusion */}
-                              {!readOnly && (
+                              {/* Opt-out liste de diffusion — aussi pour le casting manager */}
+                              {canOptOutDiffusion && (
                                 <label
                                   className={`mt-2.5 flex items-start gap-2 cursor-pointer select-none rounded-lg px-2.5 py-2 ring-1 ring-inset transition-colors ${
                                     contact.diffusionOptOut
@@ -2932,7 +2940,7 @@ export default function MarqueRecordPage({
                                   )}
                                 </label>
                               )}
-                              {readOnly && contact.diffusionOptOut && (
+                              {!canOptOutDiffusion && contact.diffusionOptOut && (
                                 <p className="mt-2 text-[12px] text-red-700">
                                   Hors liste de diffusion — enrôlement impossible.
                                 </p>

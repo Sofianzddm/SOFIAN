@@ -10,6 +10,10 @@ import OutreachCastingWizard, {
 import { AdminAddBrandsPanel } from "./AdminAddBrandsPanel";
 import { TalentIndivBatchAnalyzeBar } from "./TalentIndivBatchAnalyzeBar";
 import { businessDaysAfter, hasBusinessDaysElapsed } from "@/lib/business-days";
+import {
+  formatRecontactHoldDate,
+  isRecontactHoldActive,
+} from "@/lib/recontact-hold";
 import { brandsLookSame } from "@/lib/brand-match";
 import {
   cacheIndivBrandResearch,
@@ -84,6 +88,8 @@ type Mission = {
   openedAt?: string | null;
   clickCount?: number;
   clickedAt?: string | null;
+  recontactHoldUntil?: string | null;
+  recontactHoldNote?: string | null;
   awaitingContactsCompletion?: boolean;
   contactsCompletionRequestedAt?: string | null;
   createdAt?: string;
@@ -154,7 +160,23 @@ type BrandSearchState = {
 };
 
 type DraftedSubTab = "cards" | "contacts" | "enrich";
-type StageTab = Stage | "BLOCKED" | "AWAITING_ENRICH";
+type StageTab = Stage | "BLOCKED" | "AWAITING_ENRICH" | "RECONTACT_HOLD";
+
+const HOLDABLE_STAGES: Stage[] = [
+  "STRATEGY_DEFINED",
+  "TO_DRAFT",
+  "DRAFTED_FOR_VALIDATION",
+  "TO_SEND",
+];
+
+function localDateInput(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 type ReadyContact = {
   id: string;
@@ -563,8 +585,20 @@ export function ProspectingPipelineClient() {
     role === "HEAD_OF_SALES" ||
     role === "CASTING_MANAGER";
 
+  const [holdEditor, setHoldEditor] = useState<{
+    missionId: string;
+    date: string;
+    note: string;
+  } | null>(null);
+
   useEffect(() => {
-    if (activeStageTab === "BLOCKED" || activeStageTab === "AWAITING_ENRICH") return;
+    if (
+      activeStageTab === "BLOCKED" ||
+      activeStageTab === "AWAITING_ENRICH" ||
+      activeStageTab === "RECONTACT_HOLD"
+    ) {
+      return;
+    }
     if (!visibleStages.includes(activeStageTab)) {
       setActiveStageTab(visibleStages[0] || "TO_DRAFT");
     }
@@ -892,6 +926,63 @@ export function ProspectingPipelineClient() {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erreur réseau.");
       throw e;
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
+  async function setRecontactHold(
+    mission: Mission,
+    until: string | null,
+    note?: string
+  ) {
+    const brand = brandDisplayName(mission);
+    if (until) {
+      const label = new Date(`${until}T12:00:00`).toLocaleDateString("fr-FR", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+      const ok = confirm(
+        `${brand} n'a pas de casting à traiter avant le ${label} ?\n\n` +
+          `Toutes les cartes ouvertes de cette marque sortent de la file jusqu'à cette date, puis reviennent toutes seules.`
+      );
+      if (!ok) return;
+    }
+    setUpdatingId(mission.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch("/api/strategy/contact-missions/recontact-hold", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          missionId: mission.id,
+          until,
+          note: note || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Mise en attente impossible.");
+      setHoldEditor(null);
+      const count = Number(data.updated || 0);
+      if (until) {
+        setSuccess(
+          `${data.brand || brand} en attente jusqu'au ${data.untilLabel || until}` +
+            (count > 1 ? ` (${count} cartes).` : ".")
+        );
+        setActiveStageTab("RECONTACT_HOLD");
+      } else {
+        setSuccess(
+          `${data.brand || brand} reprend sa place dans la file` +
+            (count > 1 ? ` (${count} cartes).` : ".")
+        );
+        setActiveStageTab("TO_DRAFT");
+      }
+      await loadMissions();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
       setUpdatingId(null);
     }
@@ -1832,6 +1923,7 @@ export function ProspectingPipelineClient() {
     };
     for (const m of missions) {
       if (m.awaitingContactsCompletion) continue;
+      if (isRecontactHoldActive(m.recontactHoldUntil)) continue;
       map[m.stage].push(m);
     }
     const timeOf = (m: Mission): number => {
@@ -1847,8 +1939,20 @@ export function ProspectingPipelineClient() {
     return map;
   }, [missions, sortOrder]);
 
+  const recontactHoldMissions = useMemo(() => {
+    const list = missions.filter((m) => isRecontactHoldActive(m.recontactHoldUntil));
+    return list.sort((a, b) => {
+      const ta = new Date(a.recontactHoldUntil || 0).getTime();
+      const tb = new Date(b.recontactHoldUntil || 0).getTime();
+      return ta - tb;
+    });
+  }, [missions]);
+
   const awaitingEnrichMissions = useMemo(() => {
-    const list = missions.filter((m) => m.awaitingContactsCompletion);
+    const list = missions.filter(
+      (m) =>
+        m.awaitingContactsCompletion && !isRecontactHoldActive(m.recontactHoldUntil)
+    );
     const timeOf = (m: Mission): number => {
       const raw = m.contactsCompletionRequestedAt || m.updatedAt || m.createdAt;
       const t = raw ? new Date(raw).getTime() : NaN;
@@ -1860,7 +1964,11 @@ export function ProspectingPipelineClient() {
   /** Horloge minute : déblocage auto J+20 sans rebuild chaque seconde. */
   const brandBlockClockMin = Math.floor(nowTick / 60_000);
   const blockedBrandClusters = useMemo(
-    () => buildBlockedBrandClusters(missions, new Date(brandBlockClockMin * 60_000)),
+    () =>
+      buildBlockedBrandClusters(
+        missions.filter((m) => !isRecontactHoldActive(m.recontactHoldUntil)),
+        new Date(brandBlockClockMin * 60_000)
+      ),
     [missions, brandBlockClockMin]
   );
 
@@ -1929,7 +2037,9 @@ export function ProspectingPipelineClient() {
   }, [grouped.SENT, ackedReminderIds]);
 
   const activeStageMissions =
-    activeStageTab === "BLOCKED" || activeStageTab === "AWAITING_ENRICH"
+    activeStageTab === "BLOCKED" ||
+    activeStageTab === "AWAITING_ENRICH" ||
+    activeStageTab === "RECONTACT_HOLD"
       ? []
       : missionsForStage(activeStageTab);
   const StageIcon =
@@ -1937,7 +2047,9 @@ export function ProspectingPipelineClient() {
       ? ShieldAlert
       : activeStageTab === "AWAITING_ENRICH"
         ? ScanSearch
-        : STAGE_ICON[activeStageTab];
+        : activeStageTab === "RECONTACT_HOLD"
+          ? Clock
+          : STAGE_ICON[activeStageTab];
 
   return (
     <main
@@ -2386,6 +2498,37 @@ export function ProspectingPipelineClient() {
             </button>
             <button
               type="button"
+              onClick={() => setActiveStageTab("RECONTACT_HOLD")}
+              className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-left transition"
+              style={
+                activeStageTab === "RECONTACT_HOLD"
+                  ? {
+                      background: isCastingManager ? LICORICE : "#0f172a",
+                      color: "#fff",
+                    }
+                  : {
+                      background: "#f8fafc",
+                      color: isCastingManager ? LICORICE : "#334155",
+                      border: "1px solid #e2e8f0",
+                    }
+              }
+            >
+              <Clock className="h-3.5 w-3.5 shrink-0 opacity-80" />
+              <span className="text-[12px] font-semibold">En attente</span>
+              <span
+                className="rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
+                style={{
+                  background:
+                    activeStageTab === "RECONTACT_HOLD"
+                      ? "rgba(255,255,255,0.14)"
+                      : "#e2e8f0",
+                }}
+              >
+                {recontactHoldMissions.length}
+              </span>
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveStageTab("BLOCKED")}
               className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-left transition"
               style={
@@ -2617,6 +2760,88 @@ export function ProspectingPipelineClient() {
               >
                 Aucune marque en enrichissement. Utilise « Enrichir » depuis Rédigé
                 pour y envoyer une carte.
+              </p>
+            )}
+          </div>
+        </div>
+        ) : activeStageTab === "RECONTACT_HOLD" ? (
+        <div
+          className="min-w-0 rounded-2xl border bg-white p-4 md:p-5"
+          style={
+            isCastingManager
+              ? {
+                  borderColor: `color-mix(in srgb, ${OLD_ROSE} 22%, transparent)`,
+                }
+              : { borderColor: "#e2e8f0" }
+          }
+        >
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl"
+                style={{ background: "#f1f5f9", color: "#475569" }}
+              >
+                <Clock className="h-5 w-5" />
+              </span>
+              <div>
+                <h2
+                  className="text-xl font-semibold tracking-tight"
+                  style={
+                    isCastingManager
+                      ? { color: LICORICE, fontFamily: "Spectral, serif" }
+                      : { color: "#0f172a" }
+                  }
+                >
+                  En attente de recontact
+                </h2>
+                <p
+                  className="text-sm"
+                  style={{ color: isCastingManager ? OLD_ROSE : "#64748b" }}
+                >
+                  Pas de casting ouvert — les cartes reviennent le matin de la date choisie.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {recontactHoldMissions.map((m) => (
+              <article
+                key={m.id}
+                className="rounded-xl border bg-white p-4"
+                style={{ borderColor: `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)` }}
+              >
+                <p className="text-sm font-semibold" style={{ color: LICORICE }}>
+                  {m.creatorName} → {brandDisplayName(m)}
+                </p>
+                <p className="mt-1 text-xs" style={{ color: OLD_ROSE }}>
+                  Talent : {m.talentName || "Non renseigné"} · {STAGE_LABEL[m.stage]}
+                </p>
+                <p className="mt-2 inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                  <Clock className="h-3 w-3" />
+                  Reprise le {formatRecontactHoldDate(m.recontactHoldUntil || "")}
+                </p>
+                {m.recontactHoldNote && (
+                  <p className="mt-2 text-xs text-gray-600">{m.recontactHoldNote}</p>
+                )}
+                {canEditBrand && (
+                  <button
+                    type="button"
+                    disabled={updatingId === m.id}
+                    onClick={() => void setRecontactHold(m, null)}
+                    className="mt-3 rounded-lg px-3 py-1.5 text-xs font-medium"
+                    style={{ backgroundColor: OLD_LACE, color: LICORICE, border: `1px solid ${OLD_ROSE}` }}
+                  >
+                    {updatingId === m.id ? "Reprise…" : "Reprendre maintenant"}
+                  </button>
+                )}
+              </article>
+            ))}
+            {recontactHoldMissions.length === 0 && (
+              <p
+                className="col-span-full py-14 text-center text-sm"
+                style={{ color: isCastingManager ? OLD_ROSE : "#64748b" }}
+              >
+                Aucune marque en attente. Depuis une carte, « Mettre en attente » avec une date.
               </p>
             )}
           </div>
@@ -3195,6 +3420,22 @@ export function ProspectingPipelineClient() {
                   <p className="text-xs" style={isCastingManager ? { color: OLD_ROSE } : { color: "#6B7280" }}>
                     Talent: {m.talentName || "Non renseigné"}
                   </p>
+                  {m.recontactHoldUntil && !isRecontactHoldActive(m.recontactHoldUntil) && (
+                    <p
+                      className="mt-1 inline-flex max-w-full items-start gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900"
+                      title={
+                        m.recontactHoldNote
+                          ? `Note : ${m.recontactHoldNote}`
+                          : "Reprise automatique de la mise en attente"
+                      }
+                    >
+                      <Clock className="mt-0.5 h-3 w-3 shrink-0" />
+                      <span className="min-w-0 break-words">
+                        Reprise du {formatRecontactHoldDate(m.recontactHoldUntil)}
+                        {m.recontactHoldNote ? ` — ${m.recontactHoldNote}` : ""}
+                      </span>
+                    </p>
+                  )}
                   {(() => {
                     const writtenAt = missionDraftWrittenAt(m);
                     if (!writtenAt) return null;
@@ -3359,6 +3600,73 @@ export function ProspectingPipelineClient() {
                     {m.strategyReason}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
+                    {canEditBrand && HOLDABLE_STAGES.includes(stage) && (
+                      holdEditor?.missionId === m.id ? (
+                        <div className="basis-full rounded-lg border border-amber-200 bg-amber-50/70 p-2.5">
+                          <p className="text-[11px] font-medium text-amber-900">
+                            Pas de casting ouvert — reprendre {brandDisplayName(m)} le
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <input
+                              type="date"
+                              value={holdEditor.date}
+                              min={localDateInput(1)}
+                              onChange={(e) =>
+                                setHoldEditor((prev) =>
+                                  prev ? { ...prev, date: e.target.value } : prev
+                                )
+                              }
+                              className="rounded border border-amber-200 bg-white px-2 py-1 text-xs"
+                            />
+                            <input
+                              type="text"
+                              value={holdEditor.note}
+                              placeholder="Ex. pas de casting ouvert avant janvier"
+                              onChange={(e) =>
+                                setHoldEditor((prev) =>
+                                  prev ? { ...prev, note: e.target.value } : prev
+                                )
+                              }
+                              className="min-w-[12rem] flex-1 rounded border border-amber-200 bg-white px-2 py-1 text-xs"
+                            />
+                            <button
+                              type="button"
+                              disabled={updatingId === m.id || !holdEditor.date}
+                              onClick={() =>
+                                void setRecontactHold(m, holdEditor.date, holdEditor.note)
+                              }
+                              className="rounded bg-amber-800 px-2 py-1 text-xs font-medium text-white disabled:opacity-50"
+                            >
+                              {updatingId === m.id ? "Enregistrement…" : "Mettre en attente"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setHoldEditor(null)}
+                              className="rounded border border-amber-200 bg-white px-2 py-1 text-xs text-amber-900"
+                            >
+                              Annuler
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={updatingId === m.id}
+                          onClick={() => {
+                            setHoldEditor({
+                              missionId: m.id,
+                              date: localDateInput(1),
+                              note: "",
+                            });
+                          }}
+                          className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900"
+                          title="Sortir la marque de la file jusqu'à une date"
+                        >
+                          <Clock className="h-3 w-3" />
+                          Mettre en attente
+                        </button>
+                      )
+                    )}
                     {role === "ADMIN" && (
                       <button
                         type="button"

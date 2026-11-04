@@ -65,6 +65,10 @@ import {
   type OutreachCachedLeynaExchange,
   type OutreachCachedTalentResearchItem,
 } from "@/lib/outreach-clients-batch-cache";
+import {
+  formatRecontactHoldDate,
+  isRecontactHoldActive,
+} from "@/lib/recontact-hold";
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -220,6 +224,8 @@ type Target = {
   scheduledSendAt: string | null;
   autoRescheduleReason: string | null;
   autoRescheduledAt: string | null;
+  manualHoldUntil: string | null;
+  manualHoldNote: string | null;
   hubspotContactId: string | null;
   hubspotSyncedAt: string | null;
   createdAt: string;
@@ -483,6 +489,26 @@ function daysUntil(dateStr: string | null): number | null {
   return Math.ceil((new Date(dateStr).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
+function tomorrowDateInput(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function holdIsActive(target: { manualHoldUntil?: string | null }): boolean {
+  return isRecontactHoldActive(target.manualHoldUntil);
+}
+
+function holdUntilLabel(
+  target: { manualHoldUntil?: string | null } | undefined
+): string {
+  if (!target?.manualHoldUntil) return "";
+  return formatRecontactHoldDate(target.manualHoldUntil);
+}
+
 /** Libellé lisible pour un lien cliqué dans un mail (profil Insta/TikTok, talentbook…). */
 function clickLabel(url: string): string {
   try {
@@ -579,6 +605,11 @@ export default function OutreachPage() {
   const [expandedTouches, setExpandedTouches] = useState<Touch[]>([]);
   const [expandedLoading, setExpandedLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [holdEditor, setHoldEditor] = useState<{
+    groupKey: string;
+    date: string;
+    note: string;
+  } | null>(null);
   /** Tick pour rafraîchir les badges « Part à / En attente d'envoi ». */
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [checkingBounces, setCheckingBounces] = useState(false);
@@ -981,15 +1012,19 @@ export default function OutreachPage() {
     };
     for (const t of targets) {
       const both = Boolean(t.alsoInSiblingMarket);
-      if (marketView === "BOTH" ? both : !both) {
-        c[t.status] += 1;
-      }
+      if (marketView === "BOTH" ? !both : both) continue;
+      const parked =
+        holdIsActive(t) &&
+        (t.status === "TO_CONTACT" || t.status === "TO_RECONTACT");
+      c[parked ? "WAITING" : t.status] += 1;
     }
     return c;
   }, [targets, marketView]);
 
   const marketViewCounts = useMemo(() => {
-    const toContact = targets.filter((t) => t.status === "TO_CONTACT");
+    const toContact = targets.filter(
+      (t) => t.status === "TO_CONTACT" && !holdIsActive(t)
+    );
     if (marketView === "BOTH") {
       const emails = new Set(
         toContact.map((t) => (t.email || "").trim().toLowerCase()).filter(Boolean)
@@ -1006,7 +1041,14 @@ export default function OutreachPage() {
   }, [targets, marketView]);
 
   const visibleTargets = useMemo(() => {
-    const byStatus = targets.filter((t) => t.status === activeTab);
+    const byStatus = targets.filter((t) => {
+      const parked =
+        holdIsActive(t) &&
+        (t.status === "TO_CONTACT" || t.status === "TO_RECONTACT");
+      if (activeTab === "WAITING") return t.status === "WAITING" || parked;
+      if (parked) return false;
+      return t.status === activeTab;
+    });
     // Tri Unique FR / Unique BE / FR+BE selon la présence dans le pipeline frère.
     const filtered = byStatus.filter((t) => {
       const both = Boolean(t.alsoInSiblingMarket);
@@ -1077,7 +1119,11 @@ export default function OutreachPage() {
         });
     }
     if (activeTab === "TO_CONTACT" && marketView !== "BOTH") {
+      const heldMarqueIds = new Set(
+        targets.filter((t) => holdIsActive(t)).map((t) => t.marqueId)
+      );
       for (const c of pendingContacts) {
+        if (heldMarqueIds.has(c.marqueId)) continue;
         const key = `${c.marqueId}::${brandSetKey(c.coveredBrands)}`;
         const group = map.get(key);
         if (group) group.pending.push(c);
@@ -1144,7 +1190,7 @@ export default function OutreachPage() {
     }
 
     return groups;
-  }, [visibleTargets, pendingContacts, activeTab, searchTerm, sortBy, marketView]);
+  }, [visibleTargets, pendingContacts, activeTab, searchTerm, sortBy, marketView, targets]);
 
   /** Marques de la file active (À contacter / À recontacter) pour le batch analyse. */
   const batchBrandGroups = useMemo(() => {
@@ -1514,6 +1560,62 @@ export default function OutreachPage() {
       }
     },
     [flash, loadTargets, loadPendingContacts]
+  );
+
+  const handleHoldMarque = useCallback(
+    async (
+      group: { groupKey: string; company: string; targets: Target[] },
+      until: string | null,
+      note?: string
+    ) => {
+      if (group.targets.length === 0) return;
+      if (until) {
+        const label = new Date(`${until}T12:00:00`).toLocaleDateString("fr-FR", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        });
+        const ok = window.confirm(
+          `${group.company} n'a pas de casting à traiter avant le ${label} ?\n\n` +
+            `La marque sort de « À contacter » jusqu'à cette date, puis y revient avec la note.`
+        );
+        if (!ok) return;
+      }
+      setActionBusy(group.groupKey);
+      try {
+        const res = await fetch("/api/outreach/hold", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targets: group.targets.map((t) => ({
+              id: t.id,
+              pipeline: t.pipeline || "FR",
+            })),
+            until,
+            note: note || null,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Mise en attente impossible.");
+        setHoldEditor(null);
+        if (until) {
+          flash(
+            "success",
+            `${group.company} en attente jusqu'au ${data.untilLabel || until}.`
+          );
+          setActiveTab("WAITING");
+        } else {
+          flash("success", `${group.company} est de retour dans À contacter.`);
+          setActiveTab("TO_CONTACT");
+        }
+        await loadTargets();
+      } catch (e) {
+        flash("error", e instanceof Error ? e.message : "Erreur");
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [flash, loadTargets]
   );
 
   /**
@@ -2450,7 +2552,13 @@ export default function OutreachPage() {
         <div className="space-y-4">
           {visibleGroups.map((group) => {
             const groupBusy =
-              group.targets.some((t) => actionBusy === t.id) || actionBusy === group.marqueId;
+              group.targets.some((t) => actionBusy === t.id) ||
+              actionBusy === group.marqueId ||
+              actionBusy === group.groupKey;
+            const holdTarget = group.targets.find(
+              (t) => t.manualHoldUntil || t.manualHoldNote
+            );
+            const holdActive = group.targets.some((t) => holdIsActive(t));
             const canCompose = activeTab !== "STOPPED";
             const groupLangs = [
               ...group.targets.map((t) => (t.language === "en" ? "en" : "fr")),
@@ -2679,6 +2787,41 @@ export default function OutreachPage() {
                         ` (${group.targets.length})`}
                     </button>
                   )}
+                  {group.targets.length > 0 &&
+                    (holdActive ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleHoldMarque(group, null)}
+                        disabled={groupBusy}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition disabled:opacity-50"
+                        style={{ backgroundColor: "#FFF7E8", color: "#8A6D1A" }}
+                        title="Ramener la marque dans À contacter maintenant"
+                      >
+                        <PlayCircle className="w-3.5 h-3.5" />
+                        Reprendre
+                      </button>
+                    ) : (
+                      holdEditor?.groupKey === group.groupKey ? null : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setHoldEditor({
+                              groupKey: group.groupKey,
+                              date: tomorrowDateInput(),
+                              note: "",
+                            })
+                          }
+                          disabled={groupBusy}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition disabled:opacity-50"
+                          style={{ backgroundColor: "#FFF7E8", color: "#8A6D1A" }}
+                          title="Pas de casting ouvert — sortir de la file jusqu'à une date"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                          Mettre en attente
+                        </button>
+                      )
+                    )
+                  )}
                   {isAdmin && (
                     <button
                       onClick={() => handleDeleteMarque(group)}
@@ -2690,7 +2833,69 @@ export default function OutreachPage() {
                       Retirer
                     </button>
                   )}
+                  {holdEditor?.groupKey === group.groupKey && (
+                    <div className="basis-full flex flex-wrap items-center gap-2 pt-1">
+                      <span className="text-[11px] font-medium" style={{ color: "#8A6D1A" }}>
+                        Reprendre {group.company} le
+                      </span>
+                      <input
+                        type="date"
+                        value={holdEditor.date}
+                        min={tomorrowDateInput()}
+                        onChange={(e) =>
+                          setHoldEditor((prev) =>
+                            prev ? { ...prev, date: e.target.value } : prev
+                          )
+                        }
+                        className="rounded-lg border px-2 py-1 text-xs"
+                        style={{ borderColor: "#E8D5A3" }}
+                      />
+                      <input
+                        type="text"
+                        value={holdEditor.note}
+                        placeholder="Ex. pas de casting ouvert avant janvier"
+                        onChange={(e) =>
+                          setHoldEditor((prev) =>
+                            prev ? { ...prev, note: e.target.value } : prev
+                          )
+                        }
+                        className="min-w-[14rem] flex-1 rounded-lg border px-2 py-1 text-xs"
+                        style={{ borderColor: "#E8D5A3" }}
+                      />
+                      <button
+                        type="button"
+                        disabled={groupBusy || !holdEditor.date}
+                        onClick={() =>
+                          void handleHoldMarque(group, holdEditor.date, holdEditor.note)
+                        }
+                        className="rounded-lg px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
+                        style={{ backgroundColor: "#8A6D1A" }}
+                      >
+                        {groupBusy ? "…" : "Valider"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHoldEditor(null)}
+                        className="rounded-lg px-2 py-1 text-xs text-gray-500"
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                  )}
                 </div>
+                {holdUntilLabel(holdTarget) && (
+                  <div className="px-4 py-2 border-b" style={{ borderColor: "#F0EBE4", backgroundColor: "#FFFBF3" }}>
+                    <p className="text-[11px] flex items-start gap-1" style={{ color: "#8A6D1A" }}>
+                      <Clock className="w-3 h-3 mt-0.5 shrink-0" />
+                      <span>
+                        {holdActive
+                          ? `En attente jusqu'au ${holdUntilLabel(holdTarget)}`
+                          : `Reprise du ${holdUntilLabel(holdTarget)}`}
+                        {holdTarget?.manualHoldNote ? ` — ${holdTarget.manualHoldNote}` : ""}
+                      </span>
+                    </p>
+                  </div>
+                )}
 
                 {/* Contacts de la marque */}
                 {group.targets.map((target) => {

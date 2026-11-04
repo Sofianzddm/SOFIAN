@@ -3370,6 +3370,10 @@ model ContactMission {
   brandCooldownUntil      DateTime?
   /// Motif court (ex. « Déjà contactée via Tatiana le 29 sept. »).
   brandCooldownReason    String?                    @db.Text
+  /// Pipeline Casting : pas de casting ouvert avant cette date (matin Paris).
+  recontactHoldUntil     DateTime?
+  recontactHoldNote      String?                    @db.Text
+  recontactHoldById      String?
   /// Talents à pitcher pour cette marque (projet MULTI). Vide = tous les talents du projet.
   selectedTalentIds    String[]                   @default([])
   condensationGroupId  String?
@@ -3408,6 +3412,7 @@ model ContactMission {
   @@index([relanceCancelledAt])
   @@index([condensationGroupId])
   @@index([waveClusterId])
+  @@index([recontactHoldUntil])
   @@map("contact_missions")
 }
 
@@ -4061,6 +4066,12 @@ model OutreachTarget {
   autoRescheduleReason String?   @db.Text
   autoRescheduledAt    DateTime?
 
+  // Mise en attente manuelle (pas de casting ouvert avant cette date).
+  // Le statut reste À contacter / À recontacter : la carte quitte la file
+  // jusqu'au matin de la date, puis y revient avec la note.
+  manualHoldUntil DateTime?
+  manualHoldNote  String?   @db.Text
+
   // Write-back HubSpot (app_last_contacted_at / app_outreach_status)
   hubspotContactId String?
   hubspotSyncedAt  DateTime?
@@ -4464,6 +4475,10 @@ model BeneluxOutreachTarget {
 
   autoRescheduleReason String?   @db.Text
   autoRescheduledAt    DateTime?
+
+  // Mise en attente manuelle (pas de casting ouvert avant cette date).
+  manualHoldUntil DateTime?
+  manualHoldNote  String?   @db.Text
 
   createdById String
   createdAt   DateTime @default(now())

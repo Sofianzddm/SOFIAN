@@ -289,6 +289,8 @@ export async function GET(request: NextRequest) {
             openedAt: m.openedAt ?? null,
             clickCount: m.clickCount ?? 0,
             clickedAt: m.clickedAt ?? null,
+            recontactHoldUntil: m.recontactHoldUntil ?? null,
+            recontactHoldNote: m.recontactHoldNote ?? null,
             awaitingContactsCompletion: Boolean(m.awaitingContactsCompletion),
             contactsCompletionRequestedAt:
               m.contactsCompletionRequestedAt?.toISOString?.() ??

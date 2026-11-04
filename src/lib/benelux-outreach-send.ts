@@ -151,6 +151,9 @@ export async function executeBeneluxOutreachSend(
   if (target.status === "STOPPED") {
     return { ok: false, error: "Ce prospect est sorti du cycle (stoppé)." };
   }
+  if (target.manualHoldUntil && target.manualHoldUntil.getTime() > Date.now()) {
+    return { ok: false, error: "Cette marque est en attente de recontact." };
+  }
 
   const subjectTpl = input.subject.trim();
   const bodyRaw = input.bodyHtml.trim();
@@ -305,6 +308,9 @@ export async function executeBeneluxOutreachSchedule(
   if (!target) return { ok: false, error: "Prospect introuvable." };
   if (target.status === "STOPPED") {
     return { ok: false, error: "Ce prospect est sorti du cycle (stoppé)." };
+  }
+  if (target.manualHoldUntil && target.manualHoldUntil.getTime() > Date.now()) {
+    return { ok: false, error: "Cette marque est en attente de recontact." };
   }
 
   const subjectTpl = input.subject.trim();

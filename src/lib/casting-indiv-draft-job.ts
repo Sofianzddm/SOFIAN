@@ -181,6 +181,12 @@ async function processOneMissionItem(itemId: string): Promise<{
   if (mission.sentAt || mission.stage === "SENT") {
     return { ok: true, brandName: item.brandName };
   }
+  if (
+    mission.recontactHoldUntil &&
+    mission.recontactHoldUntil.getTime() > Date.now()
+  ) {
+    return { ok: true, brandName: item.brandName };
+  }
 
   const brandName =
     (mission.marque?.nom || mission.targetBrand || item.brandName).trim() ||

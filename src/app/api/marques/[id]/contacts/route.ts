@@ -4,7 +4,10 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
 import { setMarqueContactDiffusionOptOut } from "@/lib/diffusion-opt-out";
-import { canWriteMarqueCrm } from "@/lib/marque-crm-access";
+import {
+  canManageDiffusionOptOut,
+  canWriteMarqueCrm,
+} from "@/lib/marque-crm-access";
 
 /**
  * POST → ajout rapide d'un contact depuis la fiche marque (sans passer par
@@ -133,9 +136,6 @@ export async function PATCH(
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!canWriteMarqueCrm(session.user.role)) {
-      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
-    }
 
     const { id } = await params;
     const body = (await request.json().catch(() => ({}))) as {
@@ -157,8 +157,11 @@ export async function PATCH(
       return NextResponse.json({ error: "contactId requis." }, { status: 400 });
     }
 
-    // Mode « opt-out liste de diffusion » : garde l'email, bloque tout enrôlement.
+    // Opt-out liste de diffusion : casting manager inclus, sans le reste du CRM.
     if (typeof body.diffusionOptOut === "boolean") {
+      if (!canManageDiffusionOptOut(session.user.role)) {
+        return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
+      }
       try {
         const result = await setMarqueContactDiffusionOptOut({
           contactId,
@@ -174,6 +177,10 @@ export async function PATCH(
         const status = message === "Contact non trouvé." ? 404 : 500;
         return NextResponse.json({ error: message }, { status });
       }
+    }
+
+    if (!canWriteMarqueCrm(session.user.role)) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     // Mode « sous-marques » : rattache / détache le contact à une ou plusieurs

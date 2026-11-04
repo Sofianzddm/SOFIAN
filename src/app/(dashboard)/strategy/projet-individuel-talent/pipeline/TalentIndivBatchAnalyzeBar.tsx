@@ -10,6 +10,7 @@ import {
   loadIndivTalentResearchCache,
 } from "@/lib/indiv-talent-batch-cache";
 import { buildDraftPrepBrief } from "@/lib/draft-prep-brief";
+import { isRecontactHoldActive } from "@/lib/recontact-hold";
 
 type MissionLite = {
   id: string;
@@ -37,6 +38,7 @@ type MissionLite = {
     role?: string;
   }> | null;
   sentAt?: string | null;
+  recontactHoldUntil?: string | null;
   awaitingContactsCompletion?: boolean;
   createdAt?: string | Date | null;
   updatedAt?: string | Date | null;
@@ -505,6 +507,7 @@ export function TalentIndivBatchAnalyzeBar({
     for (const m of source) {
       if (!m.talentId) continue;
       if (m.sentAt || m.stage === "SENT") continue;
+      if (isRecontactHoldActive(m.recontactHoldUntil)) continue;
       if (
         m.stage !== "TO_DRAFT" &&
         m.stage !== "DRAFTED_FOR_VALIDATION" &&
@@ -552,6 +555,7 @@ export function TalentIndivBatchAnalyzeBar({
     for (const m of source) {
       if (!m.talentId) continue;
       if (m.sentAt || m.stage === "SENT") continue;
+      if (isRecontactHoldActive(m.recontactHoldUntil)) continue;
       if (
         m.stage !== "TO_DRAFT" &&
         m.stage !== "DRAFTED_FOR_VALIDATION" &&
@@ -643,6 +647,7 @@ export function TalentIndivBatchAnalyzeBar({
       if (!m.talentId) continue;
       if (m.sentAt || m.stage === "SENT") continue;
       if (m.awaitingContactsCompletion) continue;
+      if (isRecontactHoldActive(m.recontactHoldUntil)) continue;
       if (m.stage !== "TO_DRAFT") continue;
       if (hasCompleteDraft(m)) continue;
       const name = brandLabel(m);
