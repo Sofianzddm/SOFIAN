@@ -9,12 +9,57 @@ import {
   uploadBufferToS3,
   buildKey,
   isS3Configured,
+  isS3Url,
   deleteFromS3,
 } from "@/lib/s3";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 const MAX_SIZE = 20 * 1024 * 1024;
+/** Au-delà, Vercel renvoie 413 — passer par /presign + PUT S3. */
+const PROXY_UPLOAD_MAX = 4 * 1024 * 1024;
+
+async function finalizePresentation(opts: {
+  campaignId: string;
+  actorId: string;
+  previousUrl: string | null;
+  url: string;
+  fileName: string;
+}) {
+  if (opts.previousUrl && opts.previousUrl !== opts.url) {
+    await deleteFromS3(opts.previousUrl);
+  }
+
+  const displayName = opts.fileName.replace(/\.pdf$/i, "") + ".pdf";
+  const updated = await prisma.talentProspectingCampaign.update({
+    where: { id: opts.campaignId },
+    data: {
+      presentationPdfUrl: opts.url,
+      presentationFileName: displayName,
+      presentationUploadedAt: new Date(),
+    },
+    select: {
+      presentationPdfUrl: true,
+      presentationFileName: true,
+      presentationUploadedAt: true,
+    },
+  });
+
+  await prisma.prospectingCampaignEvent.create({
+    data: {
+      campaignId: opts.campaignId,
+      actorId: opts.actorId,
+      type: "PRESENTATION_UPLOADED",
+      message: `Présentation PDF ajoutée : ${updated.presentationFileName}`,
+      payload: {
+        fileName: updated.presentationFileName,
+        url: updated.presentationPdfUrl,
+      },
+    },
+  });
+
+  return updated;
+}
 
 function isCloudinaryConfigured(): boolean {
   return Boolean(
@@ -77,12 +122,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
         { status: 403 }
       );
     }
-    if (!isS3Configured() && !isCloudinaryConfigured()) {
-      return NextResponse.json(
-        { error: "Aucun stockage de fichiers configuré (S3 ou Cloudinary requis)." },
-        { status: 503 }
-      );
-    }
 
     const { id } = await context.params;
     const campaignId = String(id || "").trim();
@@ -96,6 +135,50 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
     if (!existing) {
       return NextResponse.json({ error: "Projet introuvable." }, { status: 404 });
+    }
+
+    const contentType = request.headers.get("content-type") || "";
+
+    // Finalisation après upload direct S3 (presign + PUT navigateur)
+    if (contentType.includes("application/json")) {
+      const body = await request.json().catch(() => ({}));
+      const url = String(body.url || "").trim();
+      const fileName = String(body.fileName || body.name || "presentation.pdf");
+      if (!url || !isS3Url(url)) {
+        return NextResponse.json(
+          { error: "URL S3 de présentation invalide." },
+          { status: 400 }
+        );
+      }
+      if (!fileName.toLowerCase().endsWith(".pdf")) {
+        return NextResponse.json(
+          { error: "Seuls les fichiers PDF sont acceptés." },
+          { status: 400 }
+        );
+      }
+
+      const updated = await finalizePresentation({
+        campaignId,
+        actorId: session.user.id,
+        previousUrl: existing.presentationPdfUrl,
+        url,
+        fileName,
+      });
+
+      return NextResponse.json({
+        success: true,
+        presentationPdfUrl: updated.presentationPdfUrl,
+        presentationFileName: updated.presentationFileName,
+        presentationUploadedAt: updated.presentationUploadedAt,
+      });
+    }
+
+    // Fallback FormData (petits PDF uniquement — limite Vercel 4.5 Mo)
+    if (!isS3Configured() && !isCloudinaryConfigured()) {
+      return NextResponse.json(
+        { error: "Aucun stockage de fichiers configuré (S3 ou Cloudinary requis)." },
+        { status: 503 }
+      );
     }
 
     const formData = await request.formData();
@@ -118,41 +201,28 @@ export async function POST(request: NextRequest, context: RouteContext) {
         { status: 400 }
       );
     }
+    if (file.size > PROXY_UPLOAD_MAX) {
+      return NextResponse.json(
+        {
+          error:
+            "PDF trop volumineux pour l’upload direct serveur. Utilise l’upload S3 (presign).",
+          code: "USE_PRESIGN",
+        },
+        { status: 413 }
+      );
+    }
 
     const originalName = file.name || "presentation.pdf";
     const safeName = sanitizeFileName(originalName);
     const buffer = Buffer.from(await file.arrayBuffer());
     const url = await uploadPresentationPdf(buffer, campaignId, safeName);
 
-    if (existing.presentationPdfUrl) {
-      await deleteFromS3(existing.presentationPdfUrl);
-    }
-
-    const updated = await prisma.talentProspectingCampaign.update({
-      where: { id: campaignId },
-      data: {
-        presentationPdfUrl: url,
-        presentationFileName: originalName.replace(/\.pdf$/i, "") + ".pdf",
-        presentationUploadedAt: new Date(),
-      },
-      select: {
-        presentationPdfUrl: true,
-        presentationFileName: true,
-        presentationUploadedAt: true,
-      },
-    });
-
-    await prisma.prospectingCampaignEvent.create({
-      data: {
-        campaignId,
-        actorId: session.user.id,
-        type: "PRESENTATION_UPLOADED",
-        message: `Présentation PDF ajoutée : ${updated.presentationFileName}`,
-        payload: {
-          fileName: updated.presentationFileName,
-          url: updated.presentationPdfUrl,
-        },
-      },
+    const updated = await finalizePresentation({
+      campaignId,
+      actorId: session.user.id,
+      previousUrl: existing.presentationPdfUrl,
+      url,
+      fileName: originalName,
     });
 
     return NextResponse.json({

@@ -6122,14 +6122,65 @@ function PresentationCard({
     setUploading(true);
     setError(null);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch(
-        `/api/projets-outreach/${campaign.id}/presentation`,
-        { method: "POST", credentials: "include", body: fd }
+      if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
+        throw new Error("Seuls les fichiers PDF sont acceptés.");
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        throw new Error("Fichier trop volumineux (max 20 Mo).");
+      }
+
+      // Upload direct navigateur → S3 (bypass limite 4.5 Mo Vercel)
+      const { uploadFileViaPresignedUrl } = await import(
+        "@/lib/s3-upload-client"
       );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Upload impossible.");
+      let publicUrl: string;
+      try {
+        publicUrl = await uploadFileViaPresignedUrl(
+          `/api/projets-outreach/${campaign.id}/presentation/presign`,
+          {
+            fileName: file.name || "presentation.pdf",
+            size: file.size,
+            contentType: "application/pdf",
+          },
+          file
+        );
+      } catch (presignErr) {
+        // Fallback petits fichiers si S3 indisponible
+        if (file.size > 4 * 1024 * 1024) {
+          throw presignErr instanceof Error
+            ? presignErr
+            : new Error("Upload S3 impossible.");
+        }
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch(
+          `/api/projets-outreach/${campaign.id}/presentation`,
+          { method: "POST", credentials: "include", body: fd }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Upload impossible.");
+        setSuccess("Présentation PDF ajoutée.");
+        await onSaved();
+        return;
+      }
+
+      const confirmRes = await fetch(
+        `/api/projets-outreach/${campaign.id}/presentation`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: publicUrl,
+            fileName: file.name || "presentation.pdf",
+          }),
+        }
+      );
+      const confirmData = await confirmRes.json().catch(() => ({}));
+      if (!confirmRes.ok) {
+        throw new Error(confirmData.error || "Enregistrement impossible.");
+      }
+
       setSuccess("Présentation PDF ajoutée.");
       await onSaved();
     } catch (err) {

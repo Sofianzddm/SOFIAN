@@ -15,10 +15,20 @@ export async function uploadFileViaPresignedUrl(
   body: Record<string, unknown>,
   file: File
 ): Promise<string> {
+  const contentType =
+    String(body.contentType || file.type || "application/octet-stream").trim() ||
+    "application/octet-stream";
+
   const sigRes = await fetch(signatureEndpoint, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...body, contentType: file.type }),
+    body: JSON.stringify({
+      ...body,
+      contentType,
+      fileName: body.fileName || file.name,
+      size: body.size ?? file.size,
+    }),
   });
   if (!sigRes.ok) {
     const err = await sigRes.json().catch(() => ({}));
@@ -32,11 +42,13 @@ export async function uploadFileViaPresignedUrl(
 
   const putRes = await fetch(uploadUrl, {
     method: "PUT",
-    headers: { "Content-Type": file.type },
+    headers: { "Content-Type": contentType },
     body: file,
   });
   if (!putRes.ok) {
-    throw new Error("Erreur upload S3");
+    throw new Error(
+      `Erreur upload S3 (${putRes.status}). Vérifie le CORS du bucket si ça persiste.`
+    );
   }
 
   return publicUrl;
