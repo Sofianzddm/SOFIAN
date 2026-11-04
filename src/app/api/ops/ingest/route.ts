@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import {
   humanizeApiPath,
   inferActivityModule,
   shouldSkipActivityPath,
 } from "@/lib/activity-modules";
+import { logUserActivity } from "@/lib/user-activity-log";
 
 const SKIP_ROLES = new Set(["TALENT", "COMPTABLE", "JURISTE"]);
 
@@ -58,6 +58,10 @@ export async function POST(request: NextRequest) {
     if (path && shouldSkipActivityPath(path)) {
       return new NextResponse(null, { status: 204 });
     }
+    // Même règle que le proxy : pas de log GET/HEAD API
+    if (method === "GET" || method === "HEAD") {
+      return new NextResponse(null, { status: 204 });
+    }
 
     const action = String(body.action || (method ? `API_${method}` : "EVENT"))
       .trim()
@@ -74,34 +78,16 @@ export async function POST(request: NextRequest) {
       else summary = action;
     }
 
-    if (action === "HEARTBEAT" || action === "PAGE_VIEW" || method === "GET") {
-      const since = new Date(Date.now() - 45_000);
-      const dup = await prisma.userActivityLog.findFirst({
-        where: {
-          userId,
-          action,
-          path: path || null,
-          createdAt: { gte: since },
-        },
-        select: { id: true },
-      });
-      if (dup) {
-        return new NextResponse(null, { status: 204 });
-      }
-    }
-
-    await prisma.userActivityLog.create({
-      data: {
-        userId,
-        action,
-        module: moduleName.slice(0, 64),
-        summary: summary.slice(0, 500),
-        meta: {
-          ...(body.meta && typeof body.meta === "object" ? body.meta : {}),
-          role: role || undefined,
-        },
-        path: path || null,
-        method: method || null,
+    logUserActivity({
+      userId,
+      action,
+      summary,
+      module: moduleName,
+      path: path || null,
+      method: method || null,
+      meta: {
+        ...(body.meta && typeof body.meta === "object" ? body.meta : {}),
+        role: role || undefined,
       },
     });
 

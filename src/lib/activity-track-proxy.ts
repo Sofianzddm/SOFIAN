@@ -34,6 +34,10 @@ export function trackStaffActivityFromProxy(
 
     const method = request.method.toUpperCase();
     const isApi = path.startsWith("/api/");
+    // GET/HEAD API = polls UI (notif, inbound count…) → saturent le pool Neon
+    // sans valeur Pulse. On ne log que les mutations API + navigations page.
+    if (isApi && (method === "GET" || method === "HEAD")) return;
+
     const isRsc = request.nextUrl.searchParams.has("_rsc");
     const dest = request.headers.get("sec-fetch-dest") || "";
     const purpose = request.headers.get("purpose") || request.headers.get("Sec-Purpose") || "";

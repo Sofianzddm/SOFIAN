@@ -39,6 +39,8 @@ export const ACTIVITY_API_SKIP_PREFIXES = [
   "/api/health",
   "/api/cron",
   "/api/webhooks",
+  "/api/notifications",
+  "/api/inbound/opportunities",
   "/ops/pulse",
   "/_s/",
 ] as const;
