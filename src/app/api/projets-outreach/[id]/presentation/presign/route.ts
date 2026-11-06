@@ -94,6 +94,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       uploadUrl: signed.uploadUrl,
       publicUrl: signed.publicUrl,
       key: signed.key,
+      contentType: signed.contentType,
     });
   } catch (error) {
     console.error("POST .../presentation/presign:", error);

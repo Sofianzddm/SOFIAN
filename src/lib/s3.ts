@@ -24,7 +24,7 @@ export const S3_BUCKET = process.env.AWS_S3_BUCKET ?? "";
 
 /** Base publique pour lire les fichiers (sans slash final). */
 export const S3_PUBLIC_BASE = (
-  process.env.AWS_S3_PUBLIC_URL ??
+  process.env.AWS_S3_PUBLIC_URL?.trim() ||
   `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com`
 ).replace(/\/+$/, "");
 
@@ -46,6 +46,10 @@ function client(): S3Client {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
       },
+      // SDK ≥ 3.729 signe PutObject avec un CRC32 du body vide par défaut.
+      // Les PUT navigateur (presign) ne peuvent jamais le reproduire → 403.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
   }
   return _client;
@@ -195,16 +199,27 @@ export async function createPresignedUpload(opts: {
   key: string;
   contentType: string;
   expiresIn?: number;
-}): Promise<{ uploadUrl: string; publicUrl: string; key: string }> {
+}): Promise<{
+  uploadUrl: string;
+  publicUrl: string;
+  key: string;
+  contentType: string;
+}> {
   // NB : on ne signe que Bucket/Key/ContentType. Ajouter d'autres en-têtes
   // (ex. CacheControl) obligerait le navigateur à les renvoyer à l'identique.
+  const contentType = opts.contentType || "application/octet-stream";
   const command = new PutObjectCommand({
     Bucket: S3_BUCKET,
     Key: opts.key,
-    ContentType: opts.contentType,
+    ContentType: contentType,
   });
   const uploadUrl = await getSignedUrl(client(), command, {
     expiresIn: opts.expiresIn ?? 600,
   });
-  return { uploadUrl, publicUrl: publicUrlForKey(opts.key), key: opts.key };
+  return {
+    uploadUrl,
+    publicUrl: publicUrlForKey(opts.key),
+    key: opts.key,
+    contentType,
+  };
 }

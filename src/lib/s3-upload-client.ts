@@ -7,6 +7,8 @@ export type PresignedUploadResponse = {
   uploadUrl: string;
   publicUrl: string;
   key: string;
+  /** Content-Type signé — le PUT doit renvoyer exactement cette valeur. */
+  contentType?: string;
 };
 
 /** Demande une URL présignée puis envoie le fichier en PUT. */
@@ -15,7 +17,7 @@ export async function uploadFileViaPresignedUrl(
   body: Record<string, unknown>,
   file: File
 ): Promise<string> {
-  const contentType =
+  const requestedContentType =
     String(body.contentType || file.type || "application/octet-stream").trim() ||
     "application/octet-stream";
 
@@ -25,7 +27,7 @@ export async function uploadFileViaPresignedUrl(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       ...body,
-      contentType,
+      contentType: requestedContentType,
       fileName: body.fileName || file.name,
       size: body.size ?? file.size,
     }),
@@ -37,8 +39,11 @@ export async function uploadFileViaPresignedUrl(
     );
   }
 
-  const { uploadUrl, publicUrl } =
+  const { uploadUrl, publicUrl, contentType: signedContentType } =
     (await sigRes.json()) as PresignedUploadResponse;
+
+  // Doit matcher exactement le ContentType signé côté serveur.
+  const contentType = (signedContentType || requestedContentType).trim();
 
   const putRes = await fetch(uploadUrl, {
     method: "PUT",
@@ -46,6 +51,15 @@ export async function uploadFileViaPresignedUrl(
     body: file,
   });
   if (!putRes.ok) {
+    const detail = await putRes.text().catch(() => "");
+    const looksLikeChecksum =
+      /checksum|SignatureDoesNotMatch|BadDigest/i.test(detail) ||
+      /x-amz-checksum/i.test(uploadUrl);
+    if (looksLikeChecksum) {
+      throw new Error(
+        `Erreur upload S3 (${putRes.status}) : signature/checksum invalide. Relance après déploiement du fix S3.`
+      );
+    }
     throw new Error(
       `Erreur upload S3 (${putRes.status}). Vérifie le CORS du bucket si ça persiste.`
     );
