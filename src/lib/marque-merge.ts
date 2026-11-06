@@ -267,109 +267,114 @@ export async function mergeMarques(
 
   const moved: Record<string, number> = {};
 
-  await prisma.$transaction(async (tx) => {
-    const upd = async (model: keyof Prisma.TransactionClient, countKey: string) => {
-      const m = tx[model] as { updateMany: (args: unknown) => Promise<{ count: number }> };
-      const result = await m.updateMany({
+  // Fusion + dédup contacts + relink outreach = beaucoup de requêtes séquentielles.
+  // Le timeout interactif Prisma par défaut (5s) est trop court sur les grosses fiches.
+  await prisma.$transaction(
+    async (tx) => {
+      const upd = async (model: keyof Prisma.TransactionClient, countKey: string) => {
+        const m = tx[model] as { updateMany: (args: unknown) => Promise<{ count: number }> };
+        const result = await m.updateMany({
+          where: { marqueId: sourceMarqueId },
+          data: { marqueId: targetMarqueId },
+        });
+        if (result.count > 0) moved[countKey] = result.count;
+      };
+
+      // 1) Outreach EN PREMIER : FK Marque en CASCADE — ne jamais supprimer la
+      // source tant que les targets n'ont pas basculé sur la cible.
+      const outreach = await tx.outreachTarget.updateMany({
+        where: { marqueId: sourceMarqueId },
+        data: { marqueId: targetMarqueId, company: target.nom },
+      });
+      if (outreach.count > 0) moved.outreachTargets = outreach.count;
+
+      // 2) Reste des relations
+      await upd("marqueContact", "contacts");
+      await upd("collaboration", "collaborations");
+      await upd("negociation", "negociations");
+      await upd("prospection", "prospections");
+      await upd("demandeGift", "demandesGift");
+      await upd("quote", "quotes");
+      await upd("inboundOpportunity", "inboundOpportunities");
+      await upd("contactMission", "contactMissions");
+      await upd("opportuniteMarque", "opportunitesMarque");
+      await upd("demandeEntrante", "demandesEntrantes");
+      await upd("marqueCartoFile", "cartoFiles");
+      await upd("marqueContactSousMarque", "sousMarqueLinks");
+
+      const notif = await tx.notification.updateMany({
         where: { marqueId: sourceMarqueId },
         data: { marqueId: targetMarqueId },
       });
-      if (result.count > 0) moved[countKey] = result.count;
-    };
+      if (notif.count > 0) moved.notifications = notif.count;
 
-    // 1) Outreach EN PREMIER : FK Marque en CASCADE — ne jamais supprimer la
-    // source tant que les targets n'ont pas basculé sur la cible.
-    const outreach = await tx.outreachTarget.updateMany({
-      where: { marqueId: sourceMarqueId },
-      data: { marqueId: targetMarqueId, company: target.nom },
-    });
-    if (outreach.count > 0) moved.outreachTargets = outreach.count;
-
-    // 2) Reste des relations
-    await upd("marqueContact", "contacts");
-    await upd("collaboration", "collaborations");
-    await upd("negociation", "negociations");
-    await upd("prospection", "prospections");
-    await upd("demandeGift", "demandesGift");
-    await upd("quote", "quotes");
-    await upd("inboundOpportunity", "inboundOpportunities");
-    await upd("contactMission", "contactMissions");
-    await upd("opportuniteMarque", "opportunitesMarque");
-    await upd("demandeEntrante", "demandesEntrantes");
-    await upd("marqueCartoFile", "cartoFiles");
-    await upd("marqueContactSousMarque", "sousMarqueLinks");
-
-    const notif = await tx.notification.updateMany({
-      where: { marqueId: sourceMarqueId },
-      data: { marqueId: targetMarqueId },
-    });
-    if (notif.count > 0) moved.notifications = notif.count;
-
-    const aliases = await tx.marqueAlias.findMany({
-      where: { marqueId: sourceMarqueId },
-    });
-    for (const alias of aliases) {
-      // Upsert : pas de create().catch() en transaction (P2002 abort Postgres).
-      await tx.marqueAlias.upsert({
-        where: {
-          slug_marqueId: { slug: alias.slug, marqueId: targetMarqueId },
-        },
-        create: {
-          marqueId: targetMarqueId,
-          slug: alias.slug,
-          label: alias.label,
-          source: `MERGE_FROM_${alias.source}`,
-        },
-        update: {},
+      const aliases = await tx.marqueAlias.findMany({
+        where: { marqueId: sourceMarqueId },
       });
-    }
-    await tx.marqueAlias.deleteMany({ where: { marqueId: sourceMarqueId } });
-
-    if (source.nom.trim().toLowerCase() !== target.nom.trim().toLowerCase()) {
-      const { marqueSlug } = await import("@/lib/marque-resolver");
-      const slug = marqueSlug(source.nom);
-      if (slug) {
+      for (const alias of aliases) {
+        // Upsert : pas de create().catch() en transaction (P2002 abort Postgres).
         await tx.marqueAlias.upsert({
           where: {
-            slug_marqueId: { slug, marqueId: targetMarqueId },
+            slug_marqueId: { slug: alias.slug, marqueId: targetMarqueId },
           },
           create: {
             marqueId: targetMarqueId,
-            slug,
-            label: source.nom,
-            source: "MERGE",
+            slug: alias.slug,
+            label: alias.label,
+            source: `MERGE_FROM_${alias.source}`,
           },
           update: {},
         });
       }
-    }
+      await tx.marqueAlias.deleteMany({ where: { marqueId: sourceMarqueId } });
 
-    // 3) Dédoublonnage contacts (réassigne le cycle avant chaque delete)
-    const deduped = await dedupeMarqueContacts(tx, targetMarqueId);
-    if (deduped.removed > 0) moved.contactsDeduped = deduped.removed;
+      if (source.nom.trim().toLowerCase() !== target.nom.trim().toLowerCase()) {
+        const { marqueSlug } = await import("@/lib/marque-resolver");
+        const slug = marqueSlug(source.nom);
+        if (slug) {
+          await tx.marqueAlias.upsert({
+            where: {
+              slug_marqueId: { slug, marqueId: targetMarqueId },
+            },
+            create: {
+              marqueId: targetMarqueId,
+              slug,
+              label: source.nom,
+              source: "MERGE",
+            },
+            update: {},
+          });
+        }
+      }
 
-    // 4) Filet de sécurité : reclasse / recrée les contacts manquants pour le cycle
-    const ensured = await ensureOutreachContactsLinked(tx, targetMarqueId);
-    if (ensured.relinked > 0) moved.outreachRelinked = ensured.relinked;
-    if (ensured.created > 0) moved.outreachContactsCreated = ensured.created;
+      // 3) Dédoublonnage contacts (réassigne le cycle avant chaque delete)
+      const deduped = await dedupeMarqueContacts(tx, targetMarqueId);
+      if (deduped.removed > 0) moved.contactsDeduped = deduped.removed;
 
-    // 5) Garde-fou dur : aucun target actif orphelin ne doit rester
-    const orphans = await tx.outreachTarget.count({
-      where: {
-        marqueId: targetMarqueId,
-        marqueContactId: null,
-        status: { not: "STOPPED" },
-      },
-    });
-    if (orphans > 0) {
-      throw new Error(
-        `Fusion annulée : ${orphans} contact(s) Outreach resteraient hors fiche. Réessaie ou contacte Sofian.`
-      );
-    }
+      // 4) Filet de sécurité : reclasse / recrée les contacts manquants pour le cycle
+      const ensured = await ensureOutreachContactsLinked(tx, targetMarqueId);
+      if (ensured.relinked > 0) moved.outreachRelinked = ensured.relinked;
+      if (ensured.created > 0) moved.outreachContactsCreated = ensured.created;
 
-    // 6) Suppression source (CASCADE safe : plus aucun target dessus)
-    await tx.marque.delete({ where: { id: sourceMarqueId } });
-  });
+      // 5) Garde-fou dur : aucun target actif orphelin ne doit rester
+      const orphans = await tx.outreachTarget.count({
+        where: {
+          marqueId: targetMarqueId,
+          marqueContactId: null,
+          status: { not: "STOPPED" },
+        },
+      });
+      if (orphans > 0) {
+        throw new Error(
+          `Fusion annulée : ${orphans} contact(s) Outreach resteraient hors fiche. Réessaie ou contacte Sofian.`
+        );
+      }
+
+      // 6) Suppression source (CASCADE safe : plus aucun target dessus)
+      await tx.marque.delete({ where: { id: sourceMarqueId } });
+    },
+    { maxWait: 15_000, timeout: 60_000 }
+  );
 
   return { moved };
 }
