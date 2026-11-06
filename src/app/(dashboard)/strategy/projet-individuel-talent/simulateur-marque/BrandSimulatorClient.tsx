@@ -213,62 +213,79 @@ export function BrandSimulatorClient() {
       const decoder = new TextDecoder();
       let buffer = "";
       let gotResult = false;
+      let lastStep = "";
+
+      const handleEvent = (event: Record<string, unknown>) => {
+        if (event.type === "progress") {
+          const step = String(event.step || "");
+          lastStep = step;
+          if (step === "match" || step === "match_more") setPhase("match");
+          else if (step === "sponsors") setPhase("sponsors");
+          else if (step === "apify" || step === "profile" || step === "crm") {
+            setPhase("profile");
+          }
+          setProgressLog((prev) => [
+            ...prev,
+            {
+              id: `${Date.now()}-${prev.length}`,
+              step,
+              label: String(event.label || step),
+              detail:
+                typeof event.detail === "string" ? event.detail : undefined,
+              queries: Array.isArray(event.queries)
+                ? (event.queries as unknown[])
+                    .map((q) => String(q || "").trim())
+                    .filter(Boolean)
+                : undefined,
+              at: Date.now(),
+            },
+          ]);
+        } else if (event.type === "result") {
+          gotResult = true;
+          const payload = { ...event };
+          delete payload.type;
+          setResult(payload as unknown as SimResult);
+        } else if (event.type === "error") {
+          throw new Error(String(event.error || "Simulateur impossible."));
+        }
+      };
+
+      const consumeBuffer = (flush: boolean) => {
+        const parts = buffer.split("\n");
+        if (!flush) {
+          buffer = parts.pop() || "";
+        } else {
+          buffer = "";
+        }
+        for (const line of parts) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            handleEvent(JSON.parse(trimmed) as Record<string, unknown>);
+          } catch {
+            /* ligne partielle / bruit */
+          }
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          let event: Record<string, unknown>;
-          try {
-            event = JSON.parse(trimmed) as Record<string, unknown>;
-          } catch {
-            continue;
-          }
-
-          if (event.type === "progress") {
-            const step = String(event.step || "");
-            if (step === "match" || step === "match_more") setPhase("match");
-            else if (step === "sponsors") setPhase("sponsors");
-            else if (step === "apify" || step === "profile" || step === "crm") {
-              setPhase("profile");
-            }
-            setProgressLog((prev) => [
-              ...prev,
-              {
-                id: `${Date.now()}-${prev.length}`,
-                step,
-                label: String(event.label || step),
-                detail:
-                  typeof event.detail === "string" ? event.detail : undefined,
-                queries: Array.isArray(event.queries)
-                  ? (event.queries as unknown[])
-                      .map((q) => String(q || "").trim())
-                      .filter(Boolean)
-                  : undefined,
-                at: Date.now(),
-              },
-            ]);
-          } else if (event.type === "result") {
-            gotResult = true;
-            const payload = { ...event };
-            delete payload.type;
-            setResult(payload as unknown as SimResult);
-          } else if (event.type === "error") {
-            throw new Error(
-              String(event.error || "Simulateur impossible.")
-            );
-          }
+        if (value) {
+          buffer += decoder.decode(value, { stream: !done });
         }
+        if (done) {
+          buffer += decoder.decode();
+          consumeBuffer(true);
+          break;
+        }
+        consumeBuffer(false);
       }
 
       if (!gotResult) {
-        throw new Error("Flux interrompu — pas de résultat.");
+        const stepHint = lastStep ? ` (étape : ${lastStep})` : "";
+        throw new Error(
+          `Flux interrompu — pas de résultat${stepHint}. Réessaie : l’analyse peut prendre plusieurs minutes.`
+        );
       }
       setPhase("idle");
     } catch (e) {

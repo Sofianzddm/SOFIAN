@@ -257,7 +257,8 @@ function nicheExampleQueries(
   return seeds.slice(0, 4).map((s) => `marques connues ${s} France Europe`);
 }
 
-export const maxDuration = 300;
+/** Pipeline Apify + plusieurs appels xAI (profil / match / sponsors) — Pro max. */
+export const maxDuration = 800;
 
 export type BrandSimulatorProfile = {
   whoTheyAre: string;
@@ -421,13 +422,14 @@ async function researchProfile(
   });
   const name = `${talent.prenom} ${talent.nom}`.trim();
   let lastError: unknown;
+  // 1 retry max, timeout court : le budget total (Apify + match + sponsors) doit tenir sous maxDuration.
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const text = await xaiResponse(
         buildProfilePrompt(talent, ig, momentContext),
         {
           tools: [...TALENT_RESEARCH_TOOLS],
-          timeoutMs: 150_000,
+          timeoutMs: 110_000,
         }
       );
       const o = tryParseJsonObject(text);
@@ -987,7 +989,7 @@ async function runBrandMatchPass(args: {
     }),
     {
       tools: [...TALENT_RESEARCH_TOOLS],
-      timeoutMs: 150_000,
+      timeoutMs: 120_000,
     }
   );
   return parseBrands(
@@ -1024,7 +1026,7 @@ async function runSponsorDiscoveryPass(args: {
       }),
       {
         tools: [...TALENT_RESEARCH_TOOLS],
-        timeoutMs: 120_000,
+        timeoutMs: 90_000,
       }
     );
     return parseBrands(
@@ -1069,6 +1071,30 @@ export type BrandSimulatorProgressEvent = {
   queries?: string[];
 };
 
+/** Heartbeats NDJSON pendant les longs await (Apify / xAI) pour éviter les coupures proxy idle. */
+async function withProgressHeartbeat<T>(
+  emit: (e: Omit<BrandSimulatorProgressEvent, "type">) => void,
+  step: string,
+  label: string,
+  promise: Promise<T>,
+  intervalMs = 12_000
+): Promise<T> {
+  const started = Date.now();
+  const id = setInterval(() => {
+    const elapsedSec = Math.round((Date.now() - started) / 1000);
+    emit({
+      step,
+      label,
+      detail: `Toujours en cours… ${elapsedSec}s`,
+    });
+  }, intervalMs);
+  try {
+    return await promise;
+  } finally {
+    clearInterval(id);
+  }
+}
+
 type BrandSimulatorResultPayload = {
   talent: {
     id: string;
@@ -1092,6 +1118,7 @@ async function runBrandSimulator(args: {
   limit: number;
   onProgress?: (e: BrandSimulatorProgressEvent) => void;
 }): Promise<BrandSimulatorResultPayload> {
+  const pipelineStartedAt = Date.now();
   const emit = (e: Omit<BrandSimulatorProgressEvent, "type">) => {
     args.onProgress?.({ type: "progress", ...e });
   };
@@ -1167,7 +1194,12 @@ async function runBrandSimulator(args: {
     ].filter(Boolean) as string[],
   });
 
-  const { profile, ig } = await researchProfile(talent, args.momentContext);
+  const { profile, ig } = await withProgressHeartbeat(
+    emit,
+    "profile",
+    "Analyse créateur (web + X + fiche)",
+    researchProfile(talent, args.momentContext)
+  );
 
   const ownedCategories = detectOwnedBrandCategories(
     args.momentContext || profile.detectedMoments,
@@ -1214,17 +1246,22 @@ async function runBrandSimulator(args: {
   let lastError: unknown;
 
   try {
-    brands = await runBrandMatchPass({
-      talent,
-      profile,
-      candidates,
-      contactedLabels,
-      contactedKeys,
-      pastBrands,
-      pastBrandKeys,
-      limit: args.limit,
-      momentContext: args.momentContext,
-    });
+    brands = await withProgressHeartbeat(
+      emit,
+      "match",
+      "Matching marques niches (web + X)",
+      runBrandMatchPass({
+        talent,
+        profile,
+        candidates,
+        contactedLabels,
+        contactedKeys,
+        pastBrands,
+        pastBrandKeys,
+        limit: args.limit,
+        momentContext: args.momentContext,
+      })
+    );
   } catch (e) {
     lastError = e;
     console.warn(
@@ -1233,25 +1270,36 @@ async function runBrandSimulator(args: {
     );
   }
 
-  if (brands.length > 0 && brands.length < args.limit) {
+  const elapsedAfterMatch1 = Date.now() - pipelineStartedAt;
+  // 2e vague seulement si on a de la marge (< 9 min) et pas assez de résultats.
+  if (
+    brands.length > 0 &&
+    brands.length < args.limit &&
+    elapsedAfterMatch1 < 540_000
+  ) {
     emit({
       step: "match_more",
       label: "Complément matching (2e vague)",
       detail: `${brands.length}/${args.limit} — on continue`,
     });
     try {
-      const more = await runBrandMatchPass({
-        talent,
-        profile,
-        candidates,
-        contactedLabels,
-        contactedKeys,
-        pastBrands,
-        pastBrandKeys,
-        limit: args.limit - brands.length,
-        momentContext: args.momentContext,
-        excludeNames: brands.map((b) => b.nom),
-      });
+      const more = await withProgressHeartbeat(
+        emit,
+        "match_more",
+        "Complément matching (2e vague)",
+        runBrandMatchPass({
+          talent,
+          profile,
+          candidates,
+          contactedLabels,
+          contactedKeys,
+          pastBrands,
+          pastBrandKeys,
+          limit: args.limit - brands.length,
+          momentContext: args.momentContext,
+          excludeNames: brands.map((b) => b.nom),
+        })
+      );
       const seen = new Set(brands.map((b) => b.nom.toLowerCase()));
       for (const b of more) {
         if (seen.has(b.nom.toLowerCase())) continue;
@@ -1269,17 +1317,22 @@ async function runBrandSimulator(args: {
 
   if (brands.length === 0) {
     try {
-      brands = await runBrandMatchPass({
-        talent,
-        profile,
-        candidates,
-        contactedLabels,
-        contactedKeys,
-        pastBrands,
-        pastBrandKeys,
-        limit: args.limit,
-        momentContext: args.momentContext,
-      });
+      brands = await withProgressHeartbeat(
+        emit,
+        "match",
+        "Matching marques niches (retry)",
+        runBrandMatchPass({
+          talent,
+          profile,
+          candidates,
+          contactedLabels,
+          contactedKeys,
+          pastBrands,
+          pastBrandKeys,
+          limit: args.limit,
+          momentContext: args.momentContext,
+        })
+      );
     } catch (e) {
       lastError = e;
     }
@@ -1298,17 +1351,28 @@ async function runBrandSimulator(args: {
     queries: nicheExampleQueries(searchMode, eventSeeds, ownedCategories),
   });
 
-  const sponsorBrands = await runSponsorDiscoveryPass({
-    talent,
-    profile,
-    candidates,
-    contactedKeys,
-    pastBrands,
-    pastBrandKeys,
-    momentContext: args.momentContext,
-    excludeNames: brands.map((b) => b.nom),
-    limit: 22,
-  });
+  const elapsedBeforeSponsors = Date.now() - pipelineStartedAt;
+  const sponsorBrands =
+    elapsedBeforeSponsors < 660_000
+      ? await withProgressHeartbeat(
+          emit,
+          "sponsors",
+          searchMode === "endurance"
+            ? "Pass sponsors events + niches sport"
+            : "Pass niches alignées moments",
+          runSponsorDiscoveryPass({
+            talent,
+            profile,
+            candidates,
+            contactedKeys,
+            pastBrands,
+            pastBrandKeys,
+            momentContext: args.momentContext,
+            excludeNames: brands.map((b) => b.nom),
+            limit: 22,
+          })
+        )
+      : [];
   if (sponsorBrands.length > 0) {
     brands = mergeBrandsPreferringNiche(brands, sponsorBrands, args.limit);
   }
@@ -1423,8 +1487,18 @@ export async function POST(request: NextRequest) {
       const encoder = new TextEncoder();
       const readable = new ReadableStream<Uint8Array>({
         async start(controller) {
+          let closed = false;
           const write = (obj: unknown) => {
-            controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+            if (closed) return;
+            try {
+              controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+            } catch (err) {
+              console.warn(
+                "brand-simulator stream write failed:",
+                err instanceof Error ? err.message : err
+              );
+              closed = true;
+            }
           };
           try {
             const result = await runBrandSimulator({
@@ -1449,7 +1523,14 @@ export async function POST(request: NextRequest) {
               status,
             });
           } finally {
-            controller.close();
+            if (!closed) {
+              try {
+                controller.close();
+              } catch {
+                /* already closed */
+              }
+              closed = true;
+            }
           }
         },
       });
@@ -1457,6 +1538,7 @@ export async function POST(request: NextRequest) {
         headers: {
           "Content-Type": "application/x-ndjson; charset=utf-8",
           "Cache-Control": "no-cache, no-transform",
+          Connection: "keep-alive",
           "X-Accel-Buffering": "no",
         },
       });
