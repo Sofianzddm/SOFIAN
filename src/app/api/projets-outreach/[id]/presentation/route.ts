@@ -69,6 +69,23 @@ function isCloudinaryConfigured(): boolean {
   );
 }
 
+function isCloudinaryUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return (
+      u.protocol === "https:" &&
+      (u.hostname === "res.cloudinary.com" ||
+        u.hostname.endsWith(".cloudinary.com"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedPresentationUrl(url: string): boolean {
+  return isS3Url(url) || isCloudinaryUrl(url);
+}
+
 async function uploadPresentationPdf(
   buffer: Buffer,
   campaignId: string,
@@ -139,14 +156,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const contentType = request.headers.get("content-type") || "";
 
-    // Finalisation après upload direct S3 (presign + PUT navigateur)
+    // Finalisation après upload direct (S3 ou Cloudinary)
     if (contentType.includes("application/json")) {
       const body = await request.json().catch(() => ({}));
       const url = String(body.url || "").trim();
       const fileName = String(body.fileName || body.name || "presentation.pdf");
-      if (!url || !isS3Url(url)) {
+      if (!url || !isAllowedPresentationUrl(url)) {
         return NextResponse.json(
-          { error: "URL S3 de présentation invalide." },
+          { error: "URL de présentation invalide." },
           { status: 400 }
         );
       }

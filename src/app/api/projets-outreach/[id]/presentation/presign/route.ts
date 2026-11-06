@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { v2 as cloudinary } from "cloudinary";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { canManagePresentation } from "@/lib/projets-outreach";
@@ -11,6 +12,7 @@ import {
 type RouteContext = { params: Promise<{ id: string }> };
 
 const MAX_SIZE = 20 * 1024 * 1024;
+const FOLDER = "glowup-projets-outreach-presentations";
 
 function sanitizeFileName(raw: string): string {
   return (
@@ -25,9 +27,17 @@ function sanitizeFileName(raw: string): string {
   );
 }
 
+function isCloudinaryConfigured(): boolean {
+  return Boolean(
+    process.env.CLOUDINARY_CLOUD_NAME &&
+      process.env.CLOUDINARY_API_KEY &&
+      process.env.CLOUDINARY_API_SECRET
+  );
+}
+
 /**
- * URL présignée pour upload PDF direct navigateur → S3
- * (bypass limite 4.5 Mo Vercel — decks présentation souvent plus gros).
+ * Prépare un upload PDF direct navigateur (bypass limite 4.5 Mo Vercel).
+ * Prefère S3 si configuré, sinon signature Cloudinary (raw).
  */
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
@@ -41,9 +51,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
         { status: 403 }
       );
     }
-    if (!isS3Configured()) {
+
+    const s3Ok = isS3Configured();
+    const cloudinaryOk = isCloudinaryConfigured();
+    if (!s3Ok && !cloudinaryOk) {
       return NextResponse.json(
-        { error: "Stockage S3 non configuré — upload direct impossible." },
+        {
+          error:
+            "Aucun stockage configuré (AWS S3 ou Cloudinary requis pour les gros PDF).",
+        },
         { status: 503 }
       );
     }
@@ -65,7 +81,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       .toLowerCase();
     const size = Number(body.size);
 
-    if (contentType && contentType !== "application/pdf" && contentType !== "application/octet-stream") {
+    if (
+      contentType &&
+      contentType !== "application/pdf" &&
+      contentType !== "application/octet-stream"
+    ) {
       return NextResponse.json(
         { error: "Seuls les fichiers PDF sont acceptés." },
         { status: 400 }
@@ -79,22 +99,44 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const safeName = sanitizeFileName(fileName);
-    const key = buildKey(
-      "glowup-projets-outreach-presentations",
-      `${campaignId}/${Date.now()}-${safeName}.pdf`
+
+    if (s3Ok) {
+      const key = buildKey(FOLDER, `${campaignId}/${Date.now()}-${safeName}.pdf`);
+      const signed = await createPresignedUpload({
+        key,
+        contentType: "application/pdf",
+        expiresIn: 600,
+      });
+      return NextResponse.json({
+        provider: "s3",
+        uploadUrl: signed.uploadUrl,
+        publicUrl: signed.publicUrl,
+        key: signed.key,
+        contentType: signed.contentType,
+      });
+    }
+
+    // Fallback Cloudinary (prod actuelle : pas de AWS_* sur Vercel)
+    cloudinary.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+    });
+    const timestamp = Math.round(Date.now() / 1000);
+    const publicId = `${campaignId}-${timestamp}-${safeName}`;
+    const signature = cloudinary.utils.api_sign_request(
+      { timestamp, folder: FOLDER, public_id: publicId },
+      process.env.CLOUDINARY_API_SECRET!
     );
 
-    const signed = await createPresignedUpload({
-      key,
-      contentType: "application/pdf",
-      expiresIn: 600,
-    });
-
     return NextResponse.json({
-      uploadUrl: signed.uploadUrl,
-      publicUrl: signed.publicUrl,
-      key: signed.key,
-      contentType: signed.contentType,
+      provider: "cloudinary",
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+      apiKey: process.env.CLOUDINARY_API_KEY,
+      signature,
+      timestamp,
+      folder: FOLDER,
+      publicId,
     });
   } catch (error) {
     console.error("POST .../presentation/presign:", error);
