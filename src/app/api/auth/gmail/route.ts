@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
-import { isMailerRole } from "@/lib/requireMailerAccess";
+import { canConnectGmail } from "@/lib/requireMailerAccess";
 
 const RETURN_COOKIE = "gmail_oauth_return";
 
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
   if (!session?.user) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
-  if (!isMailerRole(session.user.role)) {
+  if (!canConnectGmail(session.user.role)) {
     return NextResponse.json({ error: "Accès non autorisé." }, { status: 403 });
   }
 

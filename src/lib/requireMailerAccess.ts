@@ -19,6 +19,15 @@ export function isMailerRole(role: string | undefined | null): role is MailerRol
 }
 
 /**
+ * Qui peut connecter sa propre boîte Gmail (OAuth).
+ * Inclut les rôles mailer + ASSISTANTE_TM (contact marques gifts).
+ * Ne donne PAS accès au rédacteur /admin/mailer.
+ */
+export function canConnectGmail(role: string | undefined | null): boolean {
+  return isMailerRole(role) || role === "ASSISTANTE_TM";
+}
+
+/**
  * Garde pour le rédacteur de mails.
  * Retourne la session si le rôle est autorisé, sinon null.
  */
