@@ -245,21 +245,21 @@ export async function PATCH(
     const updateData: any = {};
 
     // Ajout de marques CRM (TM / AM) — append sans retirer les existantes
-    const marqueIdsToAdd = Array.isArray(body.marqueIds)
+    const marqueIdsToAdd: string[] | null = Array.isArray(body.marqueIds)
       ? Array.from(
           new Set(
-            body.marqueIds
-              .map((id: unknown) => String(id || "").trim())
-              .filter(Boolean)
+            (body.marqueIds as unknown[])
+              .map((id) => String(id ?? "").trim())
+              .filter((id): id is string => id.length > 0)
           )
         )
       : null;
-    const partnerIdsToAdd = Array.isArray(body.partnerIds)
+    const partnerIdsToAdd: string[] | null = Array.isArray(body.partnerIds)
       ? Array.from(
           new Set(
-            body.partnerIds
-              .map((id: unknown) => String(id || "").trim())
-              .filter(Boolean)
+            (body.partnerIds as unknown[])
+              .map((id) => String(id ?? "").trim())
+              .filter((id): id is string => id.length > 0)
           )
         )
       : null;
