@@ -220,6 +220,163 @@ export function scrubCringeCtas(body: string): string {
   return text.replace(/\n{3,}/g, "\n\n").replace(/[ \t]+\n/g, "\n").trim();
 }
 
+/** Token prénom destinataire — résolu à l'envoi depuis MarqueContact.prenom. */
+export const GIFT_PRENOM_TOKEN = "{{prenom}}";
+
+const GIFT_PRENOM_TOKEN_RE =
+  /\{\{\s*(?:prenom|prénom|firstname|firstName|first_name|contact\.firstname|contact\.prenom)\s*\}\}/gi;
+
+function giftGreetingIsEn(
+  body: string,
+  language?: "fr" | "en" | null
+): boolean {
+  const head = body.trim();
+  // Préserver Hello… (relances gift FR) vs Bonjour… (1er contact FR)
+  if (/^(hey|hello)\b/i.test(head)) return true;
+  if (/^(bonjour|salut|coucou)\b/i.test(head)) return false;
+  return language === "en";
+}
+
+/** Remplace tous les tokens prénom (+ variantes casting) par la valeur CRM. */
+export function resolveGiftPrenomTokens(
+  text: string,
+  contactPrenom: string | null | undefined
+): string {
+  const prenom = (contactPrenom || "").trim();
+  if (!prenom) {
+    // Pas de prénom → retire le token, laisse Hello/Bonjour,
+    return text
+      .replace(GIFT_PRENOM_TOKEN_RE, "")
+      .replace(/^(Hey|Hello|Bonjour|Salut|Coucou)\s+,/i, "$1,")
+      .replace(/\s{2,}/g, " ");
+  }
+  return text.replace(GIFT_PRENOM_TOKEN_RE, prenom);
+}
+
+/**
+ * Normalise l'accroche en `Hello/Bonjour {{prenom}},` pour stockage brouillon
+ * (1 mail / marque, N destinataires à l'envoi).
+ */
+export function tokenizeGiftPrenomGreeting(
+  body: string,
+  language?: "fr" | "en" | null
+): string {
+  let text = body.replace(/\r\n/g, "\n").trim();
+  const hi = giftGreetingIsEn(text, language) ? "Hello" : "Bonjour";
+  const greetingLine = `${hi} ${GIFT_PRENOM_TOKEN},`;
+
+  if (/^(Hey|Hello|Bonjour|Salut|Coucou)\b/i.test(text)) {
+    text = text.replace(
+      /^(Hey|Hello|Bonjour|Salut|Coucou)(\s+[^,\n]+)?(\s*,)?/i,
+      greetingLine
+    );
+  } else {
+    text = `${greetingLine}\n\n${text}`;
+  }
+  // Au cas où l'IA a collé un prénom en dur ailleurs en tête
+  text = text.replace(GIFT_PRENOM_TOKEN_RE, GIFT_PRENOM_TOKEN);
+  return text.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * Personnalise sujet+corps pour UN destinataire (token → prénom CRM + accroche).
+ */
+export function personalizeGiftMailForContact(opts: {
+  subject: string;
+  bodyText: string;
+  contactPrenom: string | null | undefined;
+  language?: "fr" | "en" | null;
+}): { subject: string; bodyText: string } {
+  const prenom = (opts.contactPrenom || "").trim();
+  let subject = resolveGiftPrenomTokens(opts.subject || "", prenom).trim();
+  let bodyText = resolveGiftPrenomTokens(opts.bodyText || "", prenom).trim();
+  bodyText = applyContactPrenomGreeting(bodyText, prenom || null, opts.language);
+  subject = subject.replace(/\s{2,}/g, " ").trim();
+  return { subject, bodyText };
+}
+
+/**
+ * Force l'accroche Hello/Bonjour sur le bon prénom destinataire
+ * (évite les swaps de drafts / multi-contacts sur une même marque).
+ */
+export function applyContactPrenomGreeting(
+  body: string,
+  contactPrenom: string | null | undefined,
+  language?: "fr" | "en" | null
+): string {
+  const prenom = (contactPrenom || "").trim();
+  let text = body.replace(/\r\n/g, "\n").trim();
+  const hi = giftGreetingIsEn(text, language) ? "Hello" : "Bonjour";
+  const greetingLine = prenom ? `${hi} ${prenom},` : `${hi},`;
+
+  if (/^(Hey|Hello|Bonjour|Salut|Coucou)\b/i.test(text)) {
+    text = text.replace(
+      /^(Hey|Hello|Bonjour|Salut|Coucou)(\s+[^,\n]+)?(\s*,)?/i,
+      greetingLine
+    );
+  } else {
+    text = `${greetingLine}\n\n${text}`;
+  }
+  return text.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Retire les auto-présentations AM (« My name is Noémie », « Je m'appelle … »). */
+export function scrubAmSelfIntro(
+  body: string,
+  amName: string | null | undefined
+): string {
+  let text = body.replace(/\r\n/g, "\n");
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const am = (amName || "").trim();
+  const first = am.split(/\s+/).filter(Boolean)[0] || "";
+
+  text = text.replace(
+    /\b(?:my\s+name\s+is|i(?:'|’)m|i\s+am)\s+[A-ZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][\wÀ-ÿ'’-]*(?:\s+[A-ZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][\wÀ-ÿ'’-]*)?\s*(?:,|\.|and\s+i\s+work\b)/gi,
+    (m) => (/and\s+i\s+work/i.test(m) ? "I work" : "")
+  );
+  text = text.replace(
+    /\bje\s+m['’]appelle\s+[A-ZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][\wÀ-ÿ'’-]*\s*(?:,|\.|et\s+je\b)/gi,
+    (m) => (/et\s+je/i.test(m) ? "je" : "")
+  );
+  if (first.length >= 3) {
+    text = text.replace(
+      new RegExp(
+        `\\b(?:my\\s+name\\s+is|i(?:'|’)?m|i\\s+am)\\s+${escape(first)}\\b[^.\\n]*[.!]\\s*`,
+        "gi"
+      ),
+      ""
+    );
+    text = text.replace(
+      new RegExp(
+        `\\bje\\s+m['’]appelle\\s+${escape(first)}\\b[^.\\n]*[.!]\\s*`,
+        "gi"
+      ),
+      ""
+    );
+  }
+
+  text = text.replace(/[^\S\n]{2,}/g, " ");
+  text = text.replace(/\s+,/g, ",");
+  return text.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * Neutralise les inventions de genre autour d'un duo (compagne/compagnon)
+ * quand le brief CRM ne le précise pas.
+ */
+export function scrubInventedPartnerGender(body: string): string {
+  let text = body.replace(/\r\n/g, "\n");
+  text = text.replace(
+    /\bet\s+(?:sa\s+compagne|son\s+compagnon|sa\s+partenaire|son\s+partenaire)\s+/gi,
+    "et "
+  );
+  text = text.replace(
+    /\band\s+(?:her\s+partner|his\s+partner|her\s+girlfriend|his\s+boyfriend|her\s+wife|his\s+husband)\s+/gi,
+    "and "
+  );
+  return text.replace(/[^\S\n]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** Signature en fin de mail uniquement (pas le prénom talent au milieu). */
 export function stripGiftAiSignOff(
   body: string,

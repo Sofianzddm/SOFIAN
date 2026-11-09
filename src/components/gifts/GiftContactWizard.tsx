@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
@@ -16,6 +16,10 @@ import {
 } from "lucide-react";
 import { businessDaysAfter } from "@/lib/business-days";
 import { GIFT_RELANCE_BUSINESS_DAYS } from "@/lib/gifts/gift-relance-config";
+import {
+  GIFT_PRENOM_TOKEN,
+  personalizeGiftMailForContact,
+} from "@/lib/gifts/contact-marque-ai-scrub";
 
 type GmailAccountOption = {
   email: string;
@@ -174,6 +178,14 @@ export function GiftContactWizard({
     total: number;
     currentName: string;
   } | null>(null);
+  const [draftSaveState, setDraftSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftsRef = useRef(draftsByMarque);
+  const activeDraftRef = useRef(activeDraftMarqueId);
+  const subjectRef = useRef(subject);
+  const bodyTextRef = useRef(bodyText);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sendResult, setSendResult] = useState<{
@@ -188,6 +200,66 @@ export function GiftContactWizard({
   )}`;
 
   useEffect(() => {
+    draftsRef.current = draftsByMarque;
+  }, [draftsByMarque]);
+  useEffect(() => {
+    activeDraftRef.current = activeDraftMarqueId;
+  }, [activeDraftMarqueId]);
+  useEffect(() => {
+    subjectRef.current = subject;
+  }, [subject]);
+  useEffect(() => {
+    bodyTextRef.current = bodyText;
+  }, [bodyText]);
+
+  async function persistDraftsToDb(
+    payload: Record<string, { subject: string; bodyText: string }>
+  ) {
+    const entries = Object.entries(payload).filter(
+      ([, d]) => d.subject.trim() && d.bodyText.trim()
+    );
+    if (entries.length === 0) return;
+    setDraftSaveState("saving");
+    try {
+      const res = await fetch(`/api/gifts/${giftId}/contact-marques`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          draftsByMarque: Object.fromEntries(entries),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Sauvegarde brouillon impossible");
+      }
+      setDraftSaveState("saved");
+    } catch {
+      setDraftSaveState("error");
+    }
+  }
+
+  function scheduleDraftSave(
+    nextMap?: Record<string, { subject: string; bodyText: string; marqueNom: string }>
+  ) {
+    if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current);
+    draftSaveTimer.current = setTimeout(() => {
+      const map = nextMap || draftsRef.current;
+      const activeId = activeDraftRef.current;
+      const payload: Record<string, { subject: string; bodyText: string }> = {};
+      for (const [mid, d] of Object.entries(map)) {
+        payload[mid] = { subject: d.subject, bodyText: d.bodyText };
+      }
+      if (activeId) {
+        payload[activeId] = {
+          subject: subjectRef.current,
+          bodyText: bodyTextRef.current,
+        };
+      }
+      void persistDraftsToDb(payload);
+    }, 700);
+  }
+
+  useEffect(() => {
     if (!open) return;
     setStep("marques");
     setSelectedMarqueIds(new Set(marques.map((m) => m.id)));
@@ -196,6 +268,7 @@ export function GiftContactWizard({
     setActiveDraftMarqueId(null);
     setAiProgress(null);
     setGeneratingAi(false);
+    setDraftSaveState("idle");
     setError(null);
     setSendResult(null);
     setLoadingDraft(true);
@@ -215,8 +288,42 @@ export function GiftContactWizard({
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Erreur draft");
         if (cancelled) return;
-        setSubject(data.draft?.subject || "");
-        setBodyText(data.draft?.bodyText || "");
+        const savedRaw =
+          data.draftsByMarque && typeof data.draftsByMarque === "object"
+            ? data.draftsByMarque
+            : {};
+        const saved: Record<
+          string,
+          { subject: string; bodyText: string; marqueNom: string }
+        > = {};
+        for (const [mid, d] of Object.entries(savedRaw) as Array<
+          [
+            string,
+            { subject?: string; bodyText?: string; marqueNom?: string },
+          ]
+        >) {
+          const subjectSaved = String(d?.subject || "").trim();
+          const bodySaved = String(d?.bodyText || "").trim();
+          if (!subjectSaved || !bodySaved) continue;
+          saved[mid] = {
+            subject: subjectSaved,
+            bodyText: bodySaved,
+            marqueNom:
+              String(d?.marqueNom || "").trim() ||
+              marques.find((m) => m.id === mid)?.nom ||
+              "",
+          };
+        }
+        setDraftsByMarque(saved);
+        const firstSavedId = Object.keys(saved)[0];
+        if (firstSavedId) {
+          setSubject(saved[firstSavedId].subject);
+          setBodyText(saved[firstSavedId].bodyText);
+          setActiveDraftMarqueId(firstSavedId);
+        } else {
+          setSubject(data.draft?.subject || "");
+          setBodyText(data.draft?.bodyText || "");
+        }
         setFromEmail(data.fromEmail || null);
         setFromName(data.fromName || null);
         setSenderPrenom(data.senderPrenom || null);
@@ -232,6 +339,31 @@ export function GiftContactWizard({
       });
     return () => {
       cancelled = true;
+      if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current);
+      // Flush final à la fermeture
+      const map = { ...draftsRef.current };
+      const activeId = activeDraftRef.current;
+      if (activeId) {
+        map[activeId] = {
+          subject: subjectRef.current,
+          bodyText: bodyTextRef.current,
+          marqueNom: map[activeId]?.marqueNom || "",
+        };
+      }
+      const payload: Record<string, { subject: string; bodyText: string }> = {};
+      for (const [mid, d] of Object.entries(map)) {
+        if (d.subject.trim() && d.bodyText.trim()) {
+          payload[mid] = { subject: d.subject, bodyText: d.bodyText };
+        }
+      }
+      if (Object.keys(payload).length > 0) {
+        void fetch(`/api/gifts/${giftId}/contact-marques`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ draftsByMarque: payload }),
+          keepalive: true,
+        });
+      }
     };
     // Intentionnel : reset uniquement à l'ouverture / changement de gift
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -386,40 +518,79 @@ export function GiftContactWizard({
     setGmailConnected(true);
   }
 
+  function previewPrenomForMarque(marqueId: string): string {
+    for (const key of selectedRecipients) {
+      const [mid, contactId] = key.split(":");
+      if (mid !== marqueId || !contactId) continue;
+      const marque = marques.find((m) => m.id === mid);
+      const contact = giftVisibleContacts(marque?.contacts).find(
+        (c) => c.id === contactId
+      );
+      const prenom = contact?.prenom?.trim();
+      if (prenom) return prenom;
+    }
+    return "";
+  }
+
+  function draftForEditor(
+    marqueId: string,
+    draft: { subject: string; bodyText: string; marqueNom: string }
+  ) {
+    const prenom = previewPrenomForMarque(marqueId);
+    if (!prenom) return draft;
+    const personalized = personalizeGiftMailForContact({
+      subject: draft.subject,
+      bodyText: draft.bodyText,
+      contactPrenom: prenom,
+    });
+    return {
+      ...draft,
+      subject: personalized.subject,
+      bodyText: personalized.bodyText,
+    };
+  }
+
   function syncActiveDraft(
     marqueId: string,
     next: { subject: string; bodyText: string; marqueNom: string }
   ) {
+    // En mémoire / base : garder le token. À l'écran : aperçu avec 1er contact.
     setDraftsByMarque((prev) => ({ ...prev, [marqueId]: next }));
-    setSubject(next.subject);
-    setBodyText(next.bodyText);
+    const preview = draftForEditor(marqueId, next);
+    setSubject(preview.subject);
+    setBodyText(preview.bodyText);
     setActiveDraftMarqueId(marqueId);
   }
 
   function switchDraftMarque(marqueId: string) {
     // Sauve l'édition en cours avant de switcher
+    let nextMap = draftsByMarque;
     if (activeDraftMarqueId) {
-      setDraftsByMarque((prev) => ({
-        ...prev,
+      nextMap = {
+        ...draftsByMarque,
         [activeDraftMarqueId]: {
           subject,
           bodyText,
           marqueNom:
-            prev[activeDraftMarqueId]?.marqueNom ||
+            draftsByMarque[activeDraftMarqueId]?.marqueNom ||
             marques.find((m) => m.id === activeDraftMarqueId)?.nom ||
             "",
         },
-      }));
+      };
+      setDraftsByMarque(nextMap);
+      scheduleDraftSave(nextMap);
     }
-    const draft = draftsByMarque[marqueId];
+    const draft = nextMap[marqueId] || draftsByMarque[marqueId];
     if (draft) {
-      setSubject(draft.subject);
-      setBodyText(draft.bodyText);
+      const preview = draftForEditor(marqueId, draft);
+      setSubject(preview.subject);
+      setBodyText(preview.bodyText);
       setActiveDraftMarqueId(marqueId);
     }
   }
 
-  async function generateAiMessage() {
+  async function generateAiMessage(opts?: { forceAll?: boolean }) {
+    const forceAll = Boolean(opts?.forceAll);
     setGeneratingAi(true);
     setError(null);
     try {
@@ -456,16 +627,54 @@ export function GiftContactWizard({
         string,
         { subject: string; bodyText: string; marqueNom: string }
       > = {};
+      // Reprend les brouillons déjà en base / en mémoire (sauf régénération forcée)
+      if (!forceAll) {
+        for (const mid of marqueIdsWithRecipients) {
+          const existing = draftsByMarque[mid];
+          if (existing?.subject?.trim() && existing?.bodyText?.trim()) {
+            map[mid] = existing;
+          }
+        }
+      }
+
+      const toGenerate = forceAll
+        ? marqueIdsWithRecipients
+        : marqueIdsWithRecipients.filter((mid) => !map[mid]);
+
       const fails: string[] = [];
       const total = marqueIdsWithRecipients.length;
-      setAiProgress({ done: 0, total, currentName: "" });
-      setDraftsByMarque({});
+      const already = Object.keys(map).length;
+      setAiProgress({
+        done: already,
+        total,
+        currentName: already > 0 && toGenerate.length === 0 ? "" : "",
+      });
+      setDraftsByMarque({ ...map });
+      if (Object.keys(map).length > 0 && !activeDraftMarqueId) {
+        const firstId = Object.keys(map)[0];
+        syncActiveDraft(firstId, map[firstId]);
+      }
 
-      for (let i = 0; i < marqueIdsWithRecipients.length; i++) {
-        const marqueId = marqueIdsWithRecipients[i];
+      if (toGenerate.length === 0) {
+        const ids = Object.keys(map);
+        if (ids.length === 0) {
+          throw new Error("Impossible de générer le message IA");
+        }
+        if (!activeDraftMarqueId || !map[activeDraftMarqueId]) {
+          syncActiveDraft(ids[0], map[ids[0]]);
+        }
+        return;
+      }
+
+      for (let i = 0; i < toGenerate.length; i++) {
+        const marqueId = toGenerate[i];
         const marqueNom =
           marques.find((m) => m.id === marqueId)?.nom || "Marque";
-        setAiProgress({ done: i, total, currentName: marqueNom });
+        setAiProgress({
+          done: already + i,
+          total,
+          currentName: marqueNom,
+        });
 
         const res = await fetch(
           `/api/gifts/${giftId}/contact-marques/generate`,
@@ -519,11 +728,15 @@ export function GiftContactWizard({
         }
 
         setDraftsByMarque({ ...map });
-        if (i === 0) {
+        if (!activeDraftMarqueId && Object.keys(map).length === 1) {
           const firstId = Object.keys(map)[0];
           if (firstId) syncActiveDraft(firstId, map[firstId]);
         }
-        setAiProgress({ done: i + 1, total, currentName: marqueNom });
+        setAiProgress({
+          done: already + i + 1,
+          total,
+          currentName: marqueNom,
+        });
       }
 
       const ids = Object.keys(map);
@@ -566,7 +779,7 @@ export function GiftContactWizard({
         return;
       }
       setStep("message");
-      void generateAiMessage();
+      void generateAiMessage({ forceAll: false });
       return;
     }
     if (step === "message") {
@@ -575,19 +788,28 @@ export function GiftContactWizard({
         setError("Sujet et message requis.");
         return;
       }
-      // Flush l'édition courante dans le map avant envoi
+      // Flush l'édition courante dans le map + base avant envoi
       if (activeDraftMarqueId) {
-        setDraftsByMarque((prev) => ({
-          ...prev,
+        const nextMap = {
+          ...draftsByMarque,
           [activeDraftMarqueId]: {
             subject,
             bodyText,
             marqueNom:
-              prev[activeDraftMarqueId]?.marqueNom ||
+              draftsByMarque[activeDraftMarqueId]?.marqueNom ||
               marques.find((m) => m.id === activeDraftMarqueId)?.nom ||
               "",
           },
-        }));
+        };
+        setDraftsByMarque(nextMap);
+        void persistDraftsToDb(
+          Object.fromEntries(
+            Object.entries(nextMap).map(([mid, d]) => [
+              mid,
+              { subject: d.subject, bodyText: d.bodyText },
+            ])
+          )
+        );
       }
       setStep("envoi");
       return;
@@ -1077,7 +1299,7 @@ export function GiftContactWizard({
                     <button
                       type="button"
                       disabled={generatingAi}
-                      onClick={() => void generateAiMessage()}
+                      onClick={() => void generateAiMessage({ forceAll: true })}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 text-xs font-medium text-violet-800 hover:bg-violet-100 disabled:opacity-50"
                     >
                       {generatingAi ? (
@@ -1085,6 +1307,19 @@ export function GiftContactWizard({
                       ) : null}
                       {generatingAi ? "Rédaction…" : "Régénérer"}
                     </button>
+                    {draftSaveState === "saving" ? (
+                      <span className="text-[11px] text-zinc-400">
+                        Enregistrement…
+                      </span>
+                    ) : draftSaveState === "saved" ? (
+                      <span className="text-[11px] text-emerald-600">
+                        Brouillon enregistré
+                      </span>
+                    ) : draftSaveState === "error" ? (
+                      <span className="text-[11px] text-red-600">
+                        Échec sauvegarde
+                      </span>
+                    ) : null}
                   </div>
                   {generatingAi ? (
                     <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-6 text-sm text-zinc-600">
@@ -1178,7 +1413,28 @@ export function GiftContactWizard({
                         </label>
                         <input
                           value={subject}
-                          onChange={(e) => setSubject(e.target.value)}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setSubject(value);
+                            if (activeDraftMarqueId) {
+                              const nextMap = {
+                                ...draftsByMarque,
+                                [activeDraftMarqueId]: {
+                                  subject: value,
+                                  bodyText,
+                                  marqueNom:
+                                    draftsByMarque[activeDraftMarqueId]
+                                      ?.marqueNom ||
+                                    marques.find(
+                                      (m) => m.id === activeDraftMarqueId
+                                    )?.nom ||
+                                    "",
+                                },
+                              };
+                              setDraftsByMarque(nextMap);
+                              scheduleDraftSave(nextMap);
+                            }
+                          }}
                           className="h-[38px] w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-violet-600 focus:ring-[3px] focus:ring-violet-600/15"
                         />
                       </div>
@@ -1188,13 +1444,39 @@ export function GiftContactWizard({
                         </label>
                         <textarea
                           value={bodyText}
-                          onChange={(e) => setBodyText(e.target.value)}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setBodyText(value);
+                            if (activeDraftMarqueId) {
+                              const nextMap = {
+                                ...draftsByMarque,
+                                [activeDraftMarqueId]: {
+                                  subject,
+                                  bodyText: value,
+                                  marqueNom:
+                                    draftsByMarque[activeDraftMarqueId]
+                                      ?.marqueNom ||
+                                    marques.find(
+                                      (m) => m.id === activeDraftMarqueId
+                                    )?.nom ||
+                                    "",
+                                },
+                              };
+                              setDraftsByMarque(nextMap);
+                              scheduleDraftSave(nextMap);
+                            }
+                          }}
                           rows={12}
                           className="w-full resize-y rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm leading-relaxed text-zinc-900 outline-none transition focus:border-violet-600 focus:ring-[3px] focus:ring-violet-600/15"
                         />
                         <p className="mt-1.5 text-[11px] text-zinc-400">
-                          Chaque marque reçoit sa version à l&apos;envoi. La
-                          signature de ta boîte Gmail est ajoutée automatiquement.
+                          Token{" "}
+                          <code className="rounded bg-zinc-100 px-1">
+                            {GIFT_PRENOM_TOKEN}
+                          </code>{" "}
+                          → prénom CRM de chaque destinataire à l&apos;envoi
+                          (même si plusieurs contacts / marque). Brouillons
+                          sauvés auto. Signature Gmail à l&apos;envoi.
                         </p>
                       </div>
                     </>

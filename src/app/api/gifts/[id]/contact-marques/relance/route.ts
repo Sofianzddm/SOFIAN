@@ -17,6 +17,7 @@ import {
   injectGiftRelanceIgLinks,
 } from "@/lib/gifts/gift-relance-ai";
 import { normalizeContactLanguage } from "@/lib/gifts/contact-language";
+import { personalizeGiftMailForContact } from "@/lib/gifts/contact-marque-ai-scrub";
 import { resolveGiftSenderMailbox } from "@/lib/gifts/gift-sender-mailbox";
 import { canContactGiftMarques } from "@/lib/gifts/gift-roles";
 import { ensureTalentExtralinksInHtml } from "@/lib/talent-email-links";
@@ -184,6 +185,13 @@ export async function POST(
       subject = subject || fb.subject;
       bodyText = bodyText || fb.bodyText;
     }
+
+    ({ subject, bodyText } = personalizeGiftMailForContact({
+      subject,
+      bodyText,
+      contactPrenom: prenom,
+      language,
+    }));
 
     const talentLink = {
       prenom: demande.talent?.prenom,

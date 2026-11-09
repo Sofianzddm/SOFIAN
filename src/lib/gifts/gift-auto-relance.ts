@@ -23,6 +23,7 @@ import {
   injectGiftRelanceIgLinks,
 } from "@/lib/gifts/gift-relance-ai";
 import { normalizeContactLanguage } from "@/lib/gifts/contact-language";
+import { personalizeGiftMailForContact } from "@/lib/gifts/contact-marque-ai-scrub";
 import { GIFT_RELANCE_BUSINESS_DAYS } from "@/lib/gifts/gift-relance-config";
 import { relanceDue } from "@/lib/business-days";
 import { ensureTalentExtralinksInHtml } from "@/lib/talent-email-links";
@@ -237,6 +238,13 @@ export async function executeGiftRelance(opts: {
     subject = fb.subject;
     bodyText = fb.bodyText;
   }
+
+  ({ subject, bodyText } = personalizeGiftMailForContact({
+    subject,
+    bodyText,
+    contactPrenom: prenom,
+    language,
+  }));
 
   const talentLink = {
     prenom: link.demandeGift.talent?.prenom,

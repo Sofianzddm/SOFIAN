@@ -2666,6 +2666,10 @@ model DemandeGiftMarque {
   lastSubject   String?
   /// Corps texte du dernier mail parti (pour relance IA + citation).
   lastBodyText  String?   @db.Text
+  /// Brouillon wizard contact (avant envoi) — survivit à la fermeture.
+  draftSubject   String?
+  draftBodyText  String?   @db.Text
+  draftUpdatedAt DateTime?
   /// Id interne Gmail du dernier message (messages.get / Message-ID RFC).
   lastMessageId String?
   /// Id thread Gmail — pour messages.send?threadId= (relance dans le fil).

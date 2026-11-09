@@ -187,6 +187,7 @@ export default function GiftDetailPage() {
   const [addingMarque, setAddingMarque] = useState(false);
   const [contactWizardOpen, setContactWizardOpen] = useState(false);
   const [marqueActionBusy, setMarqueActionBusy] = useState<string | null>(null);
+  const [exportingContactedPdf, setExportingContactedPdf] = useState(false);
 
   const user = session?.user as { id?: string; role?: string };
   const isAM =
@@ -631,6 +632,36 @@ export default function GiftDetailPage() {
     !demande.archivedAt &&
     demande.statut !== "ANNULE" &&
     marquesList.length > 0;
+  const canExportContactedPdf =
+    (isAM || (isTM && isTmSurDemande)) && marquesList.length > 0;
+
+  async function exportContactedMarquesPdf() {
+    if (!demande?.id || exportingContactedPdf) return;
+    setExportingContactedPdf(true);
+    try {
+      const res = await fetch(`/api/gifts/${demande.id}/marques/export-pdf`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Export PDF impossible");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const disposition = res.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="([^"]+)"/);
+      a.href = url;
+      a.download = match?.[1] || "marques-selection.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Export PDF impossible");
+    } finally {
+      setExportingContactedPdf(false);
+    }
+  }
+
   const partnersList = (demande.partners || []).map(
     (row: { partner: { id: string; name: string; slug?: string } }) =>
       row.partner
@@ -1237,16 +1268,33 @@ export default function GiftDetailPage() {
 
             {activeTab === "brands" ? (
               <div className="px-7 pb-5 pt-2">
-                {canContactMarques && (
-                  <div className="mb-2 flex justify-end pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setContactWizardOpen(true)}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-medium text-violet-800 hover:bg-violet-100"
-                    >
-                      <Mail className="h-3.5 w-3.5" />
-                      Contacter / Relancer
-                    </button>
+                {(canContactMarques || canExportContactedPdf) && (
+                  <div className="mb-2 flex flex-wrap justify-end gap-2 pt-2">
+                    {canExportContactedPdf && (
+                      <button
+                        type="button"
+                        disabled={exportingContactedPdf}
+                        onClick={() => void exportContactedMarquesPdf()}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 text-xs font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                      >
+                        {exportingContactedPdf ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <FileText className="h-3.5 w-3.5" />
+                        )}
+                        PDF pour le talent
+                      </button>
+                    )}
+                    {canContactMarques && (
+                      <button
+                        type="button"
+                        onClick={() => setContactWizardOpen(true)}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-medium text-violet-800 hover:bg-violet-100"
+                      >
+                        <Mail className="h-3.5 w-3.5" />
+                        Contacter / Relancer
+                      </button>
+                    )}
                   </div>
                 )}
                 <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)_minmax(0,0.95fr)_minmax(0,1.1fr)] gap-3 border-b border-zinc-100 py-3.5 text-xs font-medium text-zinc-500">

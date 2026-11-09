@@ -8,13 +8,17 @@ import {
 import {
   ensureGiftParagraphs,
   giftBodyLooksComplete,
+  GIFT_PRENOM_TOKEN,
+  scrubAmSelfIntro,
   scrubCringeCtas,
   scrubFalseFollowUpOpeners,
   scrubHeyOpeners,
   scrubInventedContentPromises,
+  scrubInventedPartnerGender,
   scrubMarketingFluff,
   scrubVouvoiementLeaks,
   stripGiftAiSignOff,
+  tokenizeGiftPrenomGreeting,
 } from "@/lib/gifts/contact-marque-ai-scrub";
 import { normalizeContactLanguage } from "@/lib/gifts/contact-language";
 
@@ -271,16 +275,21 @@ export async function generateGiftContactEmailForMarque(
     ? `- ENGLISH ONLY — every sentence in English. NEVER French (no Bonjour, no « je te », no « Est-ce que »).
 - Warm, natural, human tone — not stiff corporate, no emoji spam.
 - Use natural "you / your" (friendly BD). Never mix French.
-- Opening: Hello ${prenom || "…"}, ONLY — NEVER "Hey". Talent is the SUBJECT, never the sender.
+- Opening MUST be exactly: Hello ${GIFT_PRENOM_TOKEN}, — keep the token literal (resolved at send from CRM first name). NEVER "Hey". NEVER invent a real first name in the greeting.
+- NEVER self-introduce as the AM ("My name is ${fallback.amName}", "I'm ${fallback.amName}", etc.). Gmail signature handles identity.
+- If the talent brief mentions a duo/partner without a clear gender, stay NEUTRAL (e.g. "Maréva and Kelly") — NEVER invent "her partner" / "his partner" / girlfriend / boyfriend.
+- Talent is the SUBJECT, never the sender.
 - FORBIDDEN CTAs: "does this ring a bell?", "thoughts?", "let me know if you're down". Prefer a clean pro ask (e.g. "Would you be open to discussing this?" / "Happy to send more details if useful.").
 - Closing: NO sign-off name, NO "Best regards,", NO talent name (${fallback.talentName}), NO "Glow Up" / "Account Manager" in the body — Gmail signature + template handle that.
 - COLD FIRST CONTACT: never invent a prior thread. FORBIDDEN: "following up", "as discussed", "per our last email", "circling back".`
     : `- Français, TUTOIEMENT STRICT partout (tu / te / ton / ta / tes / toi). JAMAIS « vous », « votre », « vos », « voudriez », « seriez », « incarnez », etc. Si tu parles à la marque : « ton expertise », « tu incarnes », « ta collection » — PAS un mélange tu/vous dans la même phrase.
 - Ton pro, naturel, humain — pas corporate, pas commercial agressif, pas emoji.
 - CTA INTERDITS (trop vs / ado) : « ça te parle », « dis-moi si ça te parle », « tu kiffes », « hésite pas », « on en parle quand tu veux ». Termine proprement : une question pro simple (ex. « Est-ce que tu serais dispo pour en discuter ? » / « Je peux t'envoyer plus de détails si tu veux. ») — sans formule de signature après.
-- SIGNATURE INTERDITE dans le body : pas de « Bien à toi », pas de prénom, PAS le nom du talent (${fallback.talentName}), pas « Glow Up », pas « Account Manager ». Le mail part de ${fallback.amName} (AM) — la signature Gmail + template s'ajoutent à l'envoi.
+- SIGNATURE INTERDITE dans le body : pas de « Bien à toi », pas de prénom AM, PAS « Je m'appelle ${fallback.amName} », PAS le nom du talent (${fallback.talentName}), pas « Glow Up », pas « Account Manager ». Le mail part de ${fallback.amName} (AM) — la signature Gmail s'ajoute à l'envoi.
 - PREMIER CONTACT À FROID : n'invente AUCUN échange passé. INTERDIT : « je reviens vers toi », « suite à notre échange », « comme convenu », « suite à mon précédent mail », « on s'était dit », ou toute formulation de relance / fil existant.
-- Accroche : Bonjour ${prenom || "…"}, UNIQUEMENT — JAMAIS « Hey », JAMAIS « Salut », JAMAIS « Coucou ». Puis pitch direct. Le talent est le SUJET du mail, jamais l'expéditeur.`;
+- Accroche OBLIGATOIRE exactement : Bonjour ${GIFT_PRENOM_TOKEN}, — laisse le token tel quel (remplacé à l'envoi par le prénom CRM). N'invente JAMAIS un prénom réel dans l'accroche. JAMAIS « Hey », « Salut », « Coucou ».
+- Duo / partenaire dans le brief : si le genre n'est PAS explicite, reste NEUTRE (« Maréva et Kelly ») — INTERDIT d'inventer « sa compagne » / « son compagnon ».
+- Puis pitch direct. Le talent est le SUJET du mail, jamais l'expéditeur.`;
 
   const prompt = `Tu es Account Manager chez Glow Up Agence. Tu rédiges UN mail de proposition de gift à la marque "${input.marque.nom}".
 
@@ -305,7 +314,7 @@ ${langRules}
   • Si une contrepartie est listée, reste vague et prudent — ne détaille pas un plan éditorial.
   • Si contrepartie = « à discuter » / vide : dis juste qu'on est ouverts sur la contrepartie, SANS lister de formats.
 - LONGUEUR / STRUCTURE OBLIGATOIRES (chaque point = son propre paragraphe, séparés par \\n\\n) :
-  1) Accroche seule (${isEn ? "Hello" : "Bonjour"} ${prenom || "…"},) — JAMAIS Hey
+  1) Accroche seule EXACTE : ${isEn ? "Hello" : "Bonjour"} ${GIFT_PRENOM_TOKEN}, — JAMAIS Hey, JAMAIS un prénom en dur
   2) Qui / contexte talent + intention boutique — 2-4 phrases max, naturel
   3) Pourquoi "${input.marque.nom}" (1 accroche collection concrète)
   4) Demande concrète = adaptedAsk (sapin + déco / produits catalogue) — SANS « scénographie / showcase »
@@ -335,11 +344,11 @@ Campagnes récentes: ${br.recentCampaigns}
 Influence: ${br.influenceStrategy}
 ANGLE GIFT FIT: ${br.giftFitAngle}
 
-Destinataire prénom: ${prenom || "(inconnu — pas de prénom forcé)"}
+Destinataire : utilise TOUJOURS le token ${GIFT_PRENOM_TOKEN} dans l'accroche (exemple CRM si besoin: ${prenom || "n/a"} — ne pas l'écrire en dur).
 AM: ${fallback.amName}
 
 Réponds UNIQUEMENT en JSON (dans "body", utilise \\n\\n entre chaque paragraphe) :
-{"subject":"...","body":"${isEn ? "Hello" : "Bonjour"} …,\\n\\nParagraphe 2…\\n\\nParagraphe 3…"}`;
+{"subject":"...","body":"${isEn ? "Hello" : "Bonjour"} ${GIFT_PRENOM_TOKEN},\\n\\nParagraphe 2…\\n\\nParagraphe 3…"}`;
 
   let subject = "";
   let body = "";
@@ -360,13 +369,17 @@ Réponds UNIQUEMENT en JSON (dans "body", utilise \\n\\n entre chaque paragraphe
       talentName: fallback.talentName,
       amName: fallback.amName,
     });
+    body = scrubAmSelfIntro(body, fallback.amName);
+    body = scrubInventedPartnerGender(body);
     body = scrubFalseFollowUpOpeners(body);
     body = scrubHeyOpeners(body, language);
+    body = tokenizeGiftPrenomGreeting(body, language);
     body = scrubCringeCtas(body);
     body = scrubMarketingFluff(body);
     if (!isEn) body = scrubVouvoiementLeaks(body);
     body = scrubInventedContentPromises(body, contrepartie);
     body = ensureGiftParagraphs(body);
+    body = tokenizeGiftPrenomGreeting(body, language);
 
     const hasVous = !isEn && /\b(vous|votre|vos|vôtre)\b/i.test(body);
     const hasFrLeak =
@@ -390,10 +403,13 @@ Réponds UNIQUEMENT en JSON (dans "body", utilise \\n\\n entre chaque paragraphe
   }
 
   if (!subject || !body) throw new Error("Sujet ou corps vide");
+  body = scrubAmSelfIntro(body, fallback.amName);
+  body = scrubInventedPartnerGender(body);
   if (!isEn) body = scrubVouvoiementLeaks(body);
   body = scrubHeyOpeners(body, language);
   body = scrubMarketingFluff(body);
   body = ensureGiftParagraphs(body);
+  body = tokenizeGiftPrenomGreeting(body, language);
 
   return { subject, bodyText: body };
 }

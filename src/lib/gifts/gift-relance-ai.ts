@@ -12,11 +12,13 @@ import {
 } from "@/lib/social-links";
 import {
   ensureGiftParagraphs,
+  GIFT_PRENOM_TOKEN,
   scrubCringeCtas,
   scrubHeyOpeners,
   scrubMarketingFluff,
   scrubVouvoiementLeaks,
   stripGiftAiSignOff,
+  tokenizeGiftPrenomGreeting,
 } from "@/lib/gifts/contact-marque-ai-scrub";
 import { normalizeContactLanguage } from "@/lib/gifts/contact-language";
 
@@ -231,7 +233,7 @@ function buildGiftRelancePrompt(opts: {
   talentBlock: string;
 }): string {
   const isEn = opts.language === "en";
-  const prenom = opts.contactPrenom || (isEn ? "there" : "");
+  const crmPrenomHint = (opts.contactPrenom || "").trim();
 
   if (isEn) {
     return `You are an Account Manager at Glow Up Agence. Write a COMPLETE follow-up email (round 1, ~2 business days after silence) about a gift proposal — FULL human BD letter, NOT a short blurb.
@@ -240,10 +242,10 @@ Language: ENGLISH ONLY. Never French.
 Brand: ${opts.marqueNom}
 Talent (subject of the mail, NOT the sender): ${opts.talentName}
 AM sender (do NOT sign in body): ${opts.amName}
-Contact first name: ${prenom || "(unknown)"}
+CRM first-name hint (do NOT hardcode in the greeting): ${crmPrenomHint || "(unknown)"}
 
 STRUCTURE (solo — FULL letter):
-1) Hello ${prenom || ""}, — NEVER "Hey" / "Hi" / "Bonjour"
+1) Hello ${GIFT_PRENOM_TOKEN}, — keep the token LITERAL (resolved at send from CRM). NEVER invent a real first name. NEVER "Hey" / "Hi" / "Bonjour"
 2) ALWAYS exactly: Hope you're well?
 3) Follow-up paragraph on the previous gift email for ${opts.marqueNom} — open with "Just following up on my note about…" / "I wanted to follow up on…" — NEVER "Just contacting you For reminder" / glued sentences
 4) Who ${opts.talentName} is — 2–4 full sentences + their Instagram @handle in the flow
@@ -274,7 +276,8 @@ TALENT PROFILE (facts only — do not invent numbers):
 ${opts.talentBlock || "- (no CRM stats — do not invent numbers)"}
 
 Reply ONLY JSON: {"subject":"...","body":"..."}
-Subject should be Re: … if previous subject exists.`;
+Subject should be Re: … if previous subject exists.
+CRITICAL: greeting MUST be exactly Hello ${GIFT_PRENOM_TOKEN}, — never a real first name.`;
   }
 
   return `Tu es Account Manager chez Glow Up Agence. Tu écris une RELANCE COMPLÈTE (round 1, ~2 jours ouvrés après silence) sur une proposition de gift — LETTRE BD humaine, jamais un mini-mail.
@@ -283,10 +286,10 @@ Langue: FRANÇAIS — TUTOIEMENT STRICT (tu / te / ton). JAMAIS vous / votre / v
 Marque: ${opts.marqueNom}
 Talent (sujet du mail, PAS l'expéditeur): ${opts.talentName}
 AM (ne PAS signer dans le body): ${opts.amName}
-Prénom contact: ${prenom || "(inconnu)"}
+Indice prénom CRM (ne PAS l'écrire en dur dans l'accroche): ${crmPrenomHint || "(inconnu)"}
 
 STRUCTURE (solo — LETTRE COMPLÈTE, modèle pipeline indiv) :
-1) Hello ${prenom || ""}, — JAMAIS « Hey » / « Salut » / « Coucou » / « Bonjour »
+1) Hello ${GIFT_PRENOM_TOKEN}, — laisse le token TEL QUEL (remplacé à l'envoi par le prénom CRM). JAMAIS un prénom en dur. JAMAIS « Hey » / « Salut » / « Coucou » / « Bonjour »
 2) TOUJOURS exactement : J'espère que tu vas bien ?
 3) Suite au mail gift pour ${opts.marqueNom} — 1 paragraphe. Ouverture OBLIGATOIRE type « Je me permets de te relancer concernant… » / « Je me permets de te relancer au sujet de… ». INTERDIT : « Je me permets de te contacter Pour rappel » (collé), « Je reviens vers toi », « Suite à mon mail », phrases collées sans ponctuation.
 4) Qui est ${opts.talentName} — 2–4 phrases + son @handle Instagram dans le flux
@@ -318,7 +321,8 @@ TALENT PROFILE (faits uniquement — ne pas inventer de chiffres) :
 ${opts.talentBlock || "- (pas de stats CRM — ne pas inventer de chiffres)"}
 
 Réponds UNIQUEMENT en JSON: {"subject":"...","body":"..."}
-Sujet = Re: … si un sujet précédent existe.`;
+Sujet = Re: … si un sujet précédent existe.
+CRITIQUE: accroche EXACTE Hello ${GIFT_PRENOM_TOKEN}, — jamais un prénom réel.`;
 }
 
 function scrubGluedRelanceOpeners(body: string): string {
@@ -487,8 +491,8 @@ async function generateViaOpenAI(
         role: "system",
         content:
           language === "en"
-            ? 'You write COMPLETE BD gift follow-ups in ENGLISH ONLY: Hello + "Hope you\'re well?" + talent profile + proof points + gift ask reminder + CTA. Never French. Never telegraphic. Include @instagram handle when provided. NO signature. JSON {"subject":"...","body":"..."}.'
-            : 'Tu rédiges des relances gift BD COMPLÈTES en FRANÇAIS : Hello + « J\'espère que tu vas bien ? » + tutoiement, profil + preuves, rappel demande gift, CTA. Jamais Bonjour/Salut, jamais vouvoiement, jamais style télégraphique. Inclure @handle Instagram si fourni. PAS de signature. JSON {"subject":"...","body":"..."}.',
+            ? `You write COMPLETE BD gift follow-ups in ENGLISH ONLY: Hello ${GIFT_PRENOM_TOKEN}, + "Hope you're well?" + talent profile + proof points + gift ask reminder + CTA. Keep ${GIFT_PRENOM_TOKEN} literal — never a real first name. Never French. Never telegraphic. Include @instagram handle when provided. NO signature. JSON {"subject":"...","body":"..."}.`
+            : `Tu rédiges des relances gift BD COMPLÈTES en FRANÇAIS : Hello ${GIFT_PRENOM_TOKEN}, + « J'espère que tu vas bien ? » + tutoiement, profil + preuves, rappel demande gift, CTA. Laisse ${GIFT_PRENOM_TOKEN} tel quel — jamais un prénom en dur. Jamais Bonjour/Salut, jamais vouvoiement, jamais style télégraphique. Inclure @handle Instagram si fourni. PAS de signature. JSON {"subject":"...","body":"..."}.`,
       },
       { role: "user", content: safePrompt },
     ],
@@ -617,21 +621,21 @@ export async function generateGiftRelanceBody(opts: {
     talentName,
     amName: opts.amName,
   });
+  // Accroche toujours tokenisée — résolue à l'envoi (manuel / auto)
+  body = tokenizeGiftPrenomGreeting(body, language);
 
   if (!giftRelanceBodyQualityOk(body)) {
     console.warn(
       `[gift-relance-ai] body qualité insuffisante (len/paragraphes) — fallback`
     );
-    const fb = buildGiftRelanceFallback({
+    return buildGiftRelanceFallback({
       language,
       marqueNom: opts.marqueNom,
       talentName,
-      contactPrenom: prenom,
       previousSubject: prevSubject,
       instagram: snap?.instagram,
       typeGiftLabel: typeLabel,
     });
-    return fb;
   }
 
   // S'assurer que le @handle apparaît en clair pour injection HTML à l'envoi
@@ -662,8 +666,8 @@ export function buildGiftRelanceFallback(opts: {
   instagram?: string | null;
   typeGiftLabel?: string | null;
 }): { subject: string; bodyText: string } {
-  const isEn = normalizeContactLanguage(opts.language) === "en";
-  const prenom = (opts.contactPrenom || "").trim();
+  const language = normalizeContactLanguage(opts.language);
+  const isEn = language === "en";
   const prev = (opts.previousSubject || "").trim();
   const handle = normalizeInstagramHandle(opts.instagram);
   const talentRef = handle
@@ -681,7 +685,7 @@ export function buildGiftRelanceFallback(opts: {
 
   const bodyText = isEn
     ? [
-        prenom ? `Hello ${prenom},` : "Hello,",
+        `Hello ${GIFT_PRENOM_TOKEN},`,
         "",
         "Hope you're well?",
         "",
@@ -694,7 +698,7 @@ export function buildGiftRelanceFallback(opts: {
         "Would you be open to a quick exchange?",
       ].join("\n\n")
     : [
-        prenom ? `Hello ${prenom},` : "Hello,",
+        `Hello ${GIFT_PRENOM_TOKEN},`,
         "",
         "J'espère que tu vas bien ?",
         "",
@@ -707,5 +711,11 @@ export function buildGiftRelanceFallback(opts: {
         "On en discute ?",
       ].join("\n\n");
 
-  return { subject, bodyText: ensureGiftParagraphs(bodyText) };
+  return {
+    subject,
+    bodyText: tokenizeGiftPrenomGreeting(
+      ensureGiftParagraphs(bodyText),
+      language
+    ),
+  };
 }

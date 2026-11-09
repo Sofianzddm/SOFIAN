@@ -194,6 +194,36 @@ export async function POST(
       })
     );
 
+    // Persiste chaque brouillon pour survivre à la fermeture du wizard
+    const now = new Date();
+    await Promise.all(
+      results.map(async (r) => {
+        const subject = (r.subject || "").trim();
+        const bodyText = (r.bodyText || "").trim();
+        if (!subject || !bodyText || !r.marqueId) return;
+        await prisma.demandeGiftMarque.upsert({
+          where: {
+            demandeGiftId_marqueId: {
+              demandeGiftId: id,
+              marqueId: r.marqueId,
+            },
+          },
+          create: {
+            demandeGiftId: id,
+            marqueId: r.marqueId,
+            draftSubject: subject,
+            draftBodyText: bodyText,
+            draftUpdatedAt: now,
+          },
+          update: {
+            draftSubject: subject,
+            draftBodyText: bodyText,
+            draftUpdatedAt: now,
+          },
+        });
+      })
+    );
+
     const primary = results[0];
     return NextResponse.json({
       subject: primary?.subject || "",
@@ -209,6 +239,7 @@ export async function POST(
         error: r.error,
       })),
       truncated: selected.length > targets.length,
+      saved: true,
     });
   } catch (error) {
     console.error("POST /api/gifts/[id]/contact-marques/generate:", error);

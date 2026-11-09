@@ -14,6 +14,10 @@ import {
   detectGiftMailLanguage,
   normalizeContactLanguage,
 } from "@/lib/gifts/contact-language";
+import {
+  personalizeGiftMailForContact,
+  tokenizeGiftPrenomGreeting,
+} from "@/lib/gifts/contact-marque-ai-scrub";
 import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
 import {
   getDestinatairesNotification,
@@ -47,6 +51,15 @@ export async function GET(
       include: {
         talent: { select: { prenom: true, nom: true } },
         accountManager: { select: { prenom: true, nom: true } },
+        marques: {
+          select: {
+            marqueId: true,
+            draftSubject: true,
+            draftBodyText: true,
+            draftUpdatedAt: true,
+            marque: { select: { id: true, nom: true } },
+          },
+        },
       },
     });
     if (!demande) {
@@ -56,11 +69,30 @@ export async function GET(
     const draft = buildGiftContactDraft(demande);
     const mailbox = await resolveGiftSenderMailbox(user.id);
 
+    const draftsByMarque: Record<
+      string,
+      { subject: string; bodyText: string; marqueNom: string; updatedAt: string | null }
+    > = {};
+    for (const row of demande.marques) {
+      const subject = (row.draftSubject || "").trim();
+      const bodyText = (row.draftBodyText || "").trim();
+      if (!subject || !bodyText) continue;
+      draftsByMarque[row.marqueId] = {
+        subject,
+        bodyText,
+        marqueNom: row.marque?.nom || "",
+        updatedAt: row.draftUpdatedAt
+          ? row.draftUpdatedAt.toISOString()
+          : null,
+      };
+    }
+
     return NextResponse.json({
       draft: {
         subject: draft.subject,
         bodyText: draft.bodyText,
       },
+      draftsByMarque,
       fromEmail: mailbox?.email || null,
       fromName: mailbox?.displayName || null,
       senderPrenom: mailbox?.prenom || null,
@@ -70,6 +102,88 @@ export async function GET(
     });
   } catch (error) {
     console.error("GET /api/gifts/[id]/contact-marques:", error);
+    return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
+  }
+}
+
+/** PATCH — sauvegarde brouillons wizard (sujet/corps par marque). */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
+    }
+    const user = session.user as { id: string; role: string };
+    if (!canContactGiftMarques(user.role)) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+
+    const body = (await req.json().catch(() => ({}))) as {
+      draftsByMarque?: Record<
+        string,
+        { subject?: string; bodyText?: string }
+      >;
+    };
+    const incoming =
+      body.draftsByMarque && typeof body.draftsByMarque === "object"
+        ? body.draftsByMarque
+        : null;
+    if (!incoming || Object.keys(incoming).length === 0) {
+      return NextResponse.json({ error: "Aucun brouillon." }, { status: 400 });
+    }
+
+    const demande = await prisma.demandeGift.findUnique({
+      where: { id },
+      select: { id: true, archivedAt: true },
+    });
+    if (!demande) {
+      return NextResponse.json({ error: "Demande non trouvée" }, { status: 404 });
+    }
+    if (demande.archivedAt) {
+      return NextResponse.json(
+        { error: "Cette demande est archivée." },
+        { status: 400 }
+      );
+    }
+
+    const now = new Date();
+    let saved = 0;
+    for (const [marqueId, draft] of Object.entries(incoming)) {
+      const mid = String(marqueId || "").trim();
+      if (!mid) continue;
+      const subject = String(draft?.subject || "").trim();
+      let bodyText = String(draft?.bodyText || "").trim();
+      if (!subject || !bodyText) continue;
+      // Toujours stocker l'accroche avec {{prenom}} (pas un prénom en dur)
+      const lang = detectGiftMailLanguage(subject, bodyText);
+      bodyText = tokenizeGiftPrenomGreeting(bodyText, lang);
+      await prisma.demandeGiftMarque.upsert({
+        where: {
+          demandeGiftId_marqueId: { demandeGiftId: id, marqueId: mid },
+        },
+        create: {
+          demandeGiftId: id,
+          marqueId: mid,
+          draftSubject: subject,
+          draftBodyText: bodyText,
+          draftUpdatedAt: now,
+        },
+        update: {
+          draftSubject: subject,
+          draftBodyText: bodyText,
+          draftUpdatedAt: now,
+        },
+      });
+      saved += 1;
+    }
+
+    return NextResponse.json({ ok: true, saved });
+  } catch (error) {
+    console.error("PATCH /api/gifts/[id]/contact-marques:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
   }
 }
@@ -305,6 +419,8 @@ export async function POST(
         continue;
       }
 
+      // Traduction d'abord (brouillon encore avec {{prenom}} si possible),
+      // puis résolution prénom CRM par destinataire.
       const draftLang = detectGiftMailLanguage(subject, bodyText);
       if (draftLang !== r.language) {
         const cacheKey = `${r.marqueId}:${r.language}`;
@@ -331,6 +447,13 @@ export async function POST(
           }
         }
       }
+
+      ({ subject, bodyText } = personalizeGiftMailForContact({
+        subject,
+        bodyText,
+        contactPrenom: r.contactPrenom,
+        language: r.language,
+      }));
 
       try {
         const html = ensureTalentExtralinksInHtml(
