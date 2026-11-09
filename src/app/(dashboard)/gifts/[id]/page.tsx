@@ -486,8 +486,16 @@ export default function GiftDetailPage() {
   const marquesList =
     demande.marques && demande.marques.length > 0
       ? demande.marques.map(
-          (row: { marque: { id: string; nom: string; contacts?: any[] } }) =>
-            row.marque
+          (row: {
+            marque: {
+              id: string;
+              nom: string;
+              contacts?: any[];
+              awaitingEnrichissement?: boolean;
+              contactsReady?: boolean;
+              emailableCount?: number;
+            };
+          }) => row.marque
         )
       : demande.marque
         ? [demande.marque]
@@ -1085,8 +1093,9 @@ export default function GiftDetailPage() {
 
             {activeTab === "brands" ? (
               <div className="px-7 pb-5 pt-2">
-                <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-zinc-100 py-3.5 text-xs font-medium text-zinc-500">
+                <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-zinc-100 py-3.5 text-xs font-medium text-zinc-500">
                   <span>Marque</span>
+                  <span>Contacts</span>
                   <span>Contactée le</span>
                   <span>Réponse</span>
                 </div>
@@ -1102,6 +1111,9 @@ export default function GiftDetailPage() {
                         id: string;
                         nom: string;
                         contacts?: any[];
+                        awaitingEnrichissement?: boolean;
+                        contactsReady?: boolean;
+                        emailableCount?: number;
                       }) => {
                         const contact = marque.contacts?.[0];
                         const contactLabel = contact
@@ -1109,13 +1121,18 @@ export default function GiftDetailPage() {
                               .filter(Boolean)
                               .join(" ") ||
                             contact.email ||
+                            contact.emailSuggested ||
                             "Contact"
-                          : "—";
+                          : null;
+                        const awaiting = Boolean(marque.awaitingEnrichissement);
+                        const contactsReady =
+                          Boolean(marque.contactsReady) ||
+                          (marque.emailableCount ?? 0) > 0;
                         const response = brandResponseFromStatut(demande.statut);
                         return (
                           <div
                             key={marque.id}
-                            className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-4 border-b border-zinc-100 py-4 text-sm"
+                            className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-4 border-b border-zinc-100 py-4 text-sm"
                           >
                             <div className="flex min-w-0 items-center gap-3">
                               <div className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-zinc-100 text-xs font-semibold text-zinc-600">
@@ -1128,10 +1145,36 @@ export default function GiftDetailPage() {
                                 >
                                   {marque.nom}
                                 </Link>
-                                <span className="truncate text-xs text-zinc-500">
-                                  {contactLabel}
-                                </span>
+                                {contactLabel && (
+                                  <span className="truncate text-xs text-zinc-500">
+                                    {contactLabel}
+                                  </span>
+                                )}
                               </div>
+                            </div>
+                            <div className="min-w-0">
+                              {awaiting ? (
+                                <Link
+                                  href="/enrichissement?tab=attente"
+                                  className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-[3px] text-xs font-medium text-amber-800 hover:bg-amber-100"
+                                  title="Voir la file d'enrichissement"
+                                >
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  Enrichissement en cours
+                                </Link>
+                              ) : contactsReady ? (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-[3px] text-xs font-medium text-emerald-800">
+                                  <CheckCircle className="h-3 w-3" />
+                                  Contacts dispos
+                                  {(marque.emailableCount ?? 0) > 1
+                                    ? ` · ${marque.emailableCount}`
+                                    : ""}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-[3px] text-xs font-medium text-zinc-600">
+                                  Aucun contact
+                                </span>
+                              )}
                             </div>
                             <span className="text-zinc-600">
                               {formatDate(demande.dateContactMarque) || "—"}
@@ -1157,7 +1200,7 @@ export default function GiftDetailPage() {
                       }) => (
                         <div
                           key={partner.id}
-                          className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-4 border-b border-zinc-100 py-4 text-sm last:border-0"
+                          className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-4 border-b border-zinc-100 py-4 text-sm last:border-0"
                         >
                           <div className="flex min-w-0 items-center gap-3">
                             <div className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-amber-50 text-xs font-semibold text-amber-800">
@@ -1181,6 +1224,7 @@ export default function GiftDetailPage() {
                               </span>
                             </div>
                           </div>
+                          <span className="text-xs text-zinc-400">—</span>
                           <span className="text-zinc-600">
                             {formatDate(demande.dateContactMarque) || "—"}
                           </span>

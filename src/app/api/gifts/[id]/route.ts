@@ -64,12 +64,38 @@ export async function GET(
           select: {
             id: true,
             nom: true,
-            contacts: true,
+            contacts: {
+              where: { outreachExcluded: false, diffusionOptOut: false },
+              select: {
+                id: true,
+                prenom: true,
+                nom: true,
+                email: true,
+                emailSuggested: true,
+                poste: true,
+              },
+            },
           },
         },
         marques: {
           select: {
-            marque: { select: { id: true, nom: true } },
+            marque: {
+              select: {
+                id: true,
+                nom: true,
+                contacts: {
+                  where: { outreachExcluded: false, diffusionOptOut: false },
+                  select: {
+                    id: true,
+                    prenom: true,
+                    nom: true,
+                    email: true,
+                    emailSuggested: true,
+                    poste: true,
+                  },
+                },
+              },
+            },
           },
         },
         partners: {
@@ -113,7 +139,61 @@ export async function GET(
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    return NextResponse.json(demande);
+    const marqueIds = Array.from(
+      new Set(
+        [
+          demande.marqueId,
+          ...demande.marques.map((row) => row.marque.id),
+        ].filter((id): id is string => Boolean(id))
+      )
+    );
+
+    const awaitingMarqueIds = new Set<string>();
+    if (marqueIds.length > 0) {
+      const awaitingMissions = await prisma.contactMission.findMany({
+        where: {
+          marqueId: { in: marqueIds },
+          awaitingContactsCompletion: true,
+          status: { not: "CANCELLED" },
+        },
+        select: { marqueId: true },
+      });
+      for (const m of awaitingMissions) {
+        if (m.marqueId) awaitingMarqueIds.add(m.marqueId);
+      }
+    }
+
+    const withEnrichmentStatus = <
+      T extends {
+        id: string;
+        contacts?: Array<{
+          email?: string | null;
+          emailSuggested?: string | null;
+        }>;
+      }
+    >(
+      marque: T
+    ) => {
+      const emailableCount = (marque.contacts || []).filter((c) => {
+        const email = (c.email || c.emailSuggested || "").trim();
+        return email.includes("@");
+      }).length;
+      return {
+        ...marque,
+        awaitingEnrichissement: awaitingMarqueIds.has(marque.id),
+        emailableCount,
+        contactsReady: emailableCount > 0,
+      };
+    };
+
+    return NextResponse.json({
+      ...demande,
+      marque: demande.marque ? withEnrichmentStatus(demande.marque) : null,
+      marques: demande.marques.map((row) => ({
+        ...row,
+        marque: withEnrichmentStatus(row.marque),
+      })),
+    });
   } catch (error) {
     console.error("Erreur GET /api/gifts/[id]:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });
