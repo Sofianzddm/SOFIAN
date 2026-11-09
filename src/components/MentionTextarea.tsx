@@ -40,6 +40,8 @@ interface MentionTextareaProps {
   disabled?: boolean;
   mentionableUsers: MentionableUser[];
   className?: string;
+  /** Ouvre la liste au-dessus du champ (ex. formulaire en bas de carte). */
+  dropdownPlacement?: "bottom" | "top";
   "data-testid"?: string;
 }
 
@@ -51,6 +53,7 @@ export function MentionTextarea({
   disabled,
   mentionableUsers,
   className = "",
+  dropdownPlacement = "bottom",
   "data-testid": dataTestId,
 }: MentionTextareaProps) {
   const [showDropdown, setShowDropdown] = useState(false);
@@ -188,7 +191,11 @@ export function MentionTextarea({
       />
       {showDropdown && (
         <div
-          className="absolute z-50 mt-1 w-full min-w-[240px] max-h-[220px] overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-xl py-1"
+          className={`absolute z-[80] w-full min-w-[240px] max-h-[220px] overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-xl py-1 ${
+            dropdownPlacement === "top"
+              ? "bottom-full mb-1"
+              : "top-full mt-1"
+          }`}
           role="listbox"
         >
           {filteredUsers.length === 0 ? (

@@ -34,6 +34,14 @@ import {
   renderCommentWithMentions,
 } from "@/components/MentionTextarea";
 
+function normalize(s: string) {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
 const TYPE_LABELS: Record<string, string> = {
   PRODUIT: "Produit",
   EXPERIENCE: "Expérience",
@@ -117,9 +125,11 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
+    <div className="flex min-w-0 flex-col gap-1.5 overflow-hidden">
       <span className="text-xs text-zinc-500">{label}</span>
-      <div className="text-sm leading-relaxed text-zinc-800">{children}</div>
+      <div className="min-w-0 break-words text-sm leading-relaxed text-zinc-800 [overflow-wrap:anywhere]">
+        {children}
+      </div>
     </div>
   );
 }
@@ -142,10 +152,21 @@ export default function GiftDetailPage() {
   const [editData, setEditData] = useState<any>({});
   const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
   const [activeTab, setActiveTab] = useState<"chat" | "brands">("chat");
-  const [enrichNom, setEnrichNom] = useState("");
   const [enriching, setEnriching] = useState(false);
   const [enrichFlash, setEnrichFlash] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
+  const [marqueQuery, setMarqueQuery] = useState("");
+  const [marqueSuggestions, setMarqueSuggestions] = useState<
+    Array<{
+      id: string;
+      nom: string;
+      exactMatch?: boolean;
+      matchedAlias?: string | null;
+    }>
+  >([]);
+  const [searchingMarques, setSearchingMarques] = useState(false);
+  const [showMarqueSuggestions, setShowMarqueSuggestions] = useState(false);
+  const [addingMarque, setAddingMarque] = useState(false);
 
   const user = session?.user as { id?: string; role?: string };
   const isAM = user?.role === "CM" || user?.role === "ADMIN";
@@ -193,6 +214,37 @@ export default function GiftDetailPage() {
     };
     fetchMentionable();
   }, []);
+
+  useEffect(() => {
+    const q = marqueQuery.trim();
+    if (q.length < 2) {
+      setMarqueSuggestions([]);
+      setSearchingMarques(false);
+      return;
+    }
+    let cancelled = false;
+    setSearchingMarques(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/marques/search?q=${encodeURIComponent(q)}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setMarqueSuggestions(Array.isArray(data.marques) ? data.marques : []);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        if (!cancelled) setSearchingMarques(false);
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [marqueQuery]);
 
   const fetchDemande = async () => {
     try {
@@ -333,9 +385,47 @@ export default function GiftDetailPage() {
     }
   };
 
-  const handleEnrichirMarque = async () => {
-    const nom = enrichNom.trim();
+  const handleAddExistingMarque = async (marque: {
+    id: string;
+    nom: string;
+  }) => {
+    try {
+      setAddingMarque(true);
+      setEnrichFlash(null);
+      const res = await fetch(`/api/gifts/${params.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marqueIds: [marque.id] }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Impossible d'ajouter la marque");
+      }
+      setMarqueQuery("");
+      setMarqueSuggestions([]);
+      setShowMarqueSuggestions(false);
+      setEnrichFlash(`${marque.nom} ajoutée à la demande.`);
+      setActiveTab("brands");
+      await fetchDemande();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erreur ajout marque");
+    } finally {
+      setAddingMarque(false);
+    }
+  };
+
+  const handleEnrichirMarque = async (nomOverride?: string) => {
+    const nom = (nomOverride ?? marqueQuery).trim();
     if (!nom) return;
+    const exact = marqueSuggestions.find(
+      (m) =>
+        m.exactMatch ||
+        normalize(m.nom) === normalize(nom)
+    );
+    if (exact) {
+      await handleAddExistingMarque(exact);
+      return;
+    }
     try {
       setEnriching(true);
       setEnrichFlash(null);
@@ -356,7 +446,9 @@ export default function GiftDetailPage() {
         data.message ||
           `${data.marque?.nom || nom} ajoutée et envoyée en enrichissement.`
       );
-      setEnrichNom("");
+      setMarqueQuery("");
+      setMarqueSuggestions([]);
+      setShowMarqueSuggestions(false);
       setActiveTab("brands");
       await fetchDemande();
     } catch (err) {
@@ -622,18 +714,20 @@ export default function GiftDetailPage() {
         {/* Colonne principale */}
         <div className="flex min-w-0 flex-[1_1_560px] flex-col gap-5">
           {/* Demande */}
-          <section className={`${cardClass} flex flex-col gap-6 p-7`}>
+          <section className={`${cardClass} flex min-w-0 flex-col gap-6 overflow-hidden p-7`}>
             <h2 className="m-0 text-[15px] font-semibold text-zinc-900">
               Demande
             </h2>
 
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               <Field label="Description">
-                <p className="m-0 whitespace-pre-wrap">{demande.description}</p>
+                <p className="m-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                  {demande.description}
+                </p>
               </Field>
               {demande.justification && (
                 <Field label="Justification">
-                  <p className="m-0 whitespace-pre-wrap">
+                  <p className="m-0 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                     {demande.justification}
                   </p>
                 </Field>
@@ -641,57 +735,131 @@ export default function GiftDetailPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-6 border-t border-zinc-100 pt-5 md:grid-cols-2">
-              {marquesLabel ? (
-                <Field label="Marque souhaitée">
-                  <span className="font-medium">{marquesLabel}</span>
-                </Field>
-              ) : (
-                <div className="md:col-span-2">
-                  <span className="mb-1.5 block text-xs text-zinc-500">
-                    Marque souhaitée
-                  </span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      type="text"
-                      value={enrichNom}
-                      onChange={(e) => setEnrichNom(e.target.value)}
-                      placeholder="Nom de la marque absente du CRM…"
-                      className={inputClass + " max-w-sm"}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void handleEnrichirMarque()}
-                      disabled={enriching || enrichNom.trim().length < 2}
-                      className="inline-flex h-[38px] items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 text-[13px] font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {enriching ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <ScanSearch className="h-3.5 w-3.5" />
-                      )}
-                      Enrichir
-                    </button>
-                  </div>
-                  <p className="mt-1.5 text-xs text-zinc-500">
-                    Ajoute la marque à la demande et l&apos;envoie en file
-                    d&apos;enrichissement.
+              <div className="md:col-span-2 min-w-0">
+                <span className="mb-1.5 block text-xs text-zinc-500">
+                  Marques / partenaires
+                </span>
+                {marquesLabel && (
+                  <p className="mb-3 break-words text-sm font-medium text-zinc-900 [overflow-wrap:anywhere]">
+                    {marquesLabel}
                   </p>
-                  {enrichFlash && (
-                    <p className="mt-2 text-xs font-medium text-amber-800">
-                      {enrichFlash}{" "}
-                      <Link
-                        href="/enrichissement?tab=attente"
-                        className="underline"
+                )}
+                {canEdit && (
+                  <div className="relative max-w-xl">
+                    <div className="flex flex-wrap gap-2">
+                      <div className="relative min-w-[200px] flex-1">
+                        <input
+                          type="text"
+                          value={marqueQuery}
+                          onChange={(e) => {
+                            setMarqueQuery(e.target.value);
+                            setShowMarqueSuggestions(true);
+                          }}
+                          onFocus={() => setShowMarqueSuggestions(true)}
+                          onBlur={() =>
+                            setTimeout(
+                              () => setShowMarqueSuggestions(false),
+                              150
+                            )
+                          }
+                          placeholder="Rechercher une marque CRM…"
+                          className={inputClass}
+                        />
+                        {showMarqueSuggestions &&
+                          marqueQuery.trim().length >= 2 && (
+                            <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-64 overflow-auto rounded-lg border border-zinc-200 bg-white shadow-lg">
+                              {searchingMarques && (
+                                <div className="flex items-center gap-2 px-3 py-3 text-sm text-zinc-500">
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  Recherche…
+                                </div>
+                              )}
+                              {!searchingMarques &&
+                                marqueSuggestions.length === 0 && (
+                                  <p className="px-3 py-3 text-sm text-zinc-500">
+                                    Aucune marque CRM pour « {marqueQuery.trim()} ».
+                                  </p>
+                                )}
+                              {marqueSuggestions
+                                .filter(
+                                  (m) =>
+                                    !marquesList.some(
+                                      (existing: { id: string }) =>
+                                        existing.id === m.id
+                                    )
+                                )
+                                .map((m) => (
+                                  <button
+                                    key={m.id}
+                                    type="button"
+                                    disabled={addingMarque}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() =>
+                                      void handleAddExistingMarque(m)
+                                    }
+                                    className="w-full border-b border-zinc-100 px-3 py-2.5 text-left last:border-0 hover:bg-zinc-50 disabled:opacity-50"
+                                  >
+                                    <p className="text-sm font-medium text-zinc-900">
+                                      {m.nom}
+                                    </p>
+                                    {m.matchedAlias &&
+                                      normalize(m.matchedAlias) !==
+                                        normalize(m.nom) && (
+                                        <p className="text-xs text-violet-600">
+                                          Alias : {m.matchedAlias}
+                                        </p>
+                                      )}
+                                  </button>
+                                ))}
+                            </div>
+                          )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleEnrichirMarque()}
+                        disabled={
+                          enriching ||
+                          addingMarque ||
+                          marqueQuery.trim().length < 2 ||
+                          marqueSuggestions.some(
+                            (m) =>
+                              m.exactMatch ||
+                              normalize(m.nom) ===
+                                normalize(marqueQuery.trim())
+                          )
+                        }
+                        className="inline-flex h-[38px] items-center gap-1.5 whitespace-nowrap rounded-lg border border-amber-300 bg-amber-50 px-3.5 text-[13px] font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Si absente du CRM : crée la fiche et envoie en enrichissement"
                       >
-                        Voir la file
-                      </Link>
+                        {enriching ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ScanSearch className="h-3.5 w-3.5" />
+                        )}
+                        Enrichir
+                      </button>
+                    </div>
+                    <p className="mt-1.5 text-xs text-zinc-500">
+                      Sélectionnez une fiche CRM, ou Enrichir si elle
+                      n&apos;existe pas encore.
                     </p>
-                  )}
-                </div>
-              )}
+                    {enrichFlash && (
+                      <p className="mt-2 text-xs font-medium text-amber-800">
+                        {enrichFlash}{" "}
+                        <Link
+                          href="/enrichissement?tab=attente"
+                          className="underline"
+                        >
+                          Voir la file
+                        </Link>
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
               {demande.adresseLivraison && (
                 <Field label="Adresse de livraison">
-                  <span className="whitespace-pre-wrap font-medium">
+                  <span className="whitespace-pre-wrap break-words font-medium [overflow-wrap:anywhere]">
                     {demande.adresseLivraison}
                   </span>
                 </Field>
@@ -836,7 +1004,7 @@ export default function GiftDetailPage() {
                   <FileText className="h-3.5 w-3.5" />
                   Notes internes
                 </p>
-                <p className="whitespace-pre-wrap text-sm text-zinc-700">
+                <p className="whitespace-pre-wrap break-words text-sm text-zinc-700 [overflow-wrap:anywhere]">
                   {demande.notesInternes}
                 </p>
               </div>
@@ -882,7 +1050,7 @@ export default function GiftDetailPage() {
             )}
 
           {/* Tabs Discussion / Marques */}
-          <section className={`${cardClass} flex flex-col overflow-hidden`}>
+          <section className={`${cardClass} flex flex-col overflow-visible`}>
             <div className="flex gap-6 border-b border-zinc-200 px-7">
               {(
                 [
@@ -923,38 +1091,10 @@ export default function GiftDetailPage() {
                   <span>Réponse</span>
                 </div>
                 {brandsCount === 0 ? (
-                  <div className="space-y-3 py-8 text-center">
-                    <p className="text-sm text-zinc-500">
-                      Aucune marque ou partenaire associé.
-                    </p>
-                    <div className="mx-auto flex max-w-md flex-wrap items-center justify-center gap-2">
-                      <input
-                        type="text"
-                        value={enrichNom}
-                        onChange={(e) => setEnrichNom(e.target.value)}
-                        placeholder="Nom de la marque…"
-                        className={inputClass + " max-w-xs text-left"}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void handleEnrichirMarque()}
-                        disabled={enriching || enrichNom.trim().length < 2}
-                        className="inline-flex h-[38px] items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 text-[13px] font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
-                      >
-                        {enriching ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <ScanSearch className="h-3.5 w-3.5" />
-                        )}
-                        Enrichir
-                      </button>
-                    </div>
-                    {enrichFlash && (
-                      <p className="text-xs font-medium text-amber-800">
-                        {enrichFlash}
-                      </p>
-                    )}
-                  </div>
+                  <p className="py-8 text-center text-sm text-zinc-500">
+                    Aucune marque associée. Utilisez la recherche dans la
+                    section Demande ci-dessus.
+                  </p>
                 ) : (
                   <>
                     {marquesList.map(
@@ -1074,15 +1214,16 @@ export default function GiftDetailPage() {
                 {demande.statut !== "ANNULE" && (
                   <form
                     onSubmit={handleSendComment}
-                    className="flex gap-2 border-t border-zinc-100 bg-zinc-50 px-7 py-4"
+                    className="relative z-20 flex gap-2 overflow-visible rounded-b-xl border-t border-zinc-100 bg-zinc-50 px-7 py-4"
                   >
-                    <div className="min-w-0 flex-1">
+                    <div className="relative z-20 min-w-0 flex-1 overflow-visible">
                       <MentionTextarea
                         value={commentaire}
                         onChange={setCommentaire}
                         placeholder="Écrire un message… (tapez @ pour mentionner)"
                         rows={2}
                         mentionableUsers={mentionableUsers}
+                        dropdownPlacement="top"
                         className="min-h-[38px] w-full border-zinc-300 bg-white focus:border-violet-600 focus:ring-violet-600/15"
                       />
                     </div>
@@ -1828,7 +1969,7 @@ function CommentRow({
             {formatDate(comment.createdAt)}
           </span>
         </div>
-        <div className="whitespace-pre-line text-sm leading-relaxed text-zinc-800">
+        <div className="min-w-0 break-words whitespace-pre-line text-sm leading-relaxed text-zinc-800 [overflow-wrap:anywhere]">
           {renderCommentWithMentions(comment.contenu, usersById, undefined, {
             accentColor: "#7c3aed",
           })}

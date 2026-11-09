@@ -164,6 +164,26 @@ export async function PATCH(
     // Construire les données à mettre à jour
     const updateData: any = {};
 
+    // Ajout de marques CRM (TM / AM) — append sans retirer les existantes
+    const marqueIdsToAdd = Array.isArray(body.marqueIds)
+      ? Array.from(
+          new Set(
+            body.marqueIds
+              .map((id: unknown) => String(id || "").trim())
+              .filter(Boolean)
+          )
+        )
+      : null;
+    const partnerIdsToAdd = Array.isArray(body.partnerIds)
+      ? Array.from(
+          new Set(
+            body.partnerIds
+              .map((id: unknown) => String(id || "").trim())
+              .filter(Boolean)
+          )
+        )
+      : null;
+
     // Champs modifiables par TM et AM
     if (body.description !== undefined) updateData.description = body.description;
     if (body.justification !== undefined) updateData.justification = body.justification;
@@ -254,30 +274,77 @@ export async function PATCH(
       }
     }
 
-    const demandeUpdated = await prisma.demandeGift.update({
-      where: { id },
-      data: updateData,
-      include: {
-        talent: {
-          select: {
-            id: true,
-            prenom: true,
-            nom: true,
-          },
-        },
-        marque: {
-          select: {
-            nom: true,
-          },
-        },
-        accountManager: {
-          select: {
-            prenom: true,
-            nom: true,
-          },
+    if (marqueIdsToAdd && marqueIdsToAdd.length > 0) {
+      const existing = await prisma.demandeGiftMarque.findMany({
+        where: { demandeGiftId: id },
+        select: { marqueId: true },
+      });
+      const existingIds = new Set(existing.map((m) => m.marqueId));
+      const fresh = marqueIdsToAdd.filter((mid) => !existingIds.has(mid));
+      if (fresh.length > 0) {
+        await prisma.demandeGiftMarque.createMany({
+          data: fresh.map((marqueId) => ({
+            demandeGiftId: id,
+            marqueId,
+          })),
+          skipDuplicates: true,
+        });
+        if (!demande.marqueId) {
+          updateData.marqueId = fresh[0];
+        }
+      }
+    }
+
+    if (partnerIdsToAdd && partnerIdsToAdd.length > 0) {
+      const existing = await prisma.demandeGiftPartner.findMany({
+        where: { demandeGiftId: id },
+        select: { partnerId: true },
+      });
+      const existingIds = new Set(existing.map((p) => p.partnerId));
+      const fresh = partnerIdsToAdd.filter((pid) => !existingIds.has(pid));
+      if (fresh.length > 0) {
+        await prisma.demandeGiftPartner.createMany({
+          data: fresh.map((partnerId) => ({
+            demandeGiftId: id,
+            partnerId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    }
+
+    const includeAfter = {
+      talent: {
+        select: {
+          id: true,
+          prenom: true,
+          nom: true,
         },
       },
-    });
+      marque: {
+        select: {
+          nom: true,
+        },
+      },
+      accountManager: {
+        select: {
+          prenom: true,
+          nom: true,
+        },
+      },
+    } as const;
+
+    const demandeUpdated =
+      Object.keys(updateData).length > 0
+        ? await prisma.demandeGift.update({
+            where: { id },
+            data: updateData,
+            include: includeAfter,
+          })
+        : await prisma.demandeGift.findUniqueOrThrow({
+            where: { id },
+            include: includeAfter,
+          });
 
     // Notifications de changement de statut
     try {
