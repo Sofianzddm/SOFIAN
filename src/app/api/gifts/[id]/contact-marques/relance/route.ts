@@ -14,10 +14,12 @@ import {
 import {
   buildGiftRelanceFallback,
   generateGiftRelanceBody,
+  injectGiftRelanceIgLinks,
 } from "@/lib/gifts/gift-relance-ai";
 import { normalizeContactLanguage } from "@/lib/gifts/contact-language";
 import { resolveGiftSenderMailbox } from "@/lib/gifts/gift-sender-mailbox";
 import { canContactGiftMarques } from "@/lib/gifts/gift-roles";
+import { ensureTalentExtralinksInHtml } from "@/lib/talent-email-links";
 
 // POST — relance ciblée (IA par défaut, comme casting) d'une marque déjà contactée
 export async function POST(
@@ -62,7 +64,9 @@ export async function POST(
     const demande = await prisma.demandeGift.findUnique({
       where: { id },
       include: {
-        talent: { select: { prenom: true, nom: true } },
+        talent: {
+          select: { id: true, prenom: true, nom: true, instagram: true },
+        },
         accountManager: { select: { prenom: true, nom: true } },
       },
     });
@@ -144,6 +148,7 @@ export async function POST(
           giftReference: demande.reference,
           typeGiftLabel: giftTypeLabel(demande.typeGift),
           conceptSnippet: demande.description,
+          talentId: demande.talentId || demande.talent?.id,
         });
         if (!subject) subject = ai.subject;
         if (!bodyText) bodyText = ai.bodyText;
@@ -158,6 +163,8 @@ export async function POST(
           talentName: draftMeta.talentName,
           contactPrenom: prenom,
           previousSubject: link.lastSubject,
+          instagram: demande.talent?.instagram,
+          typeGiftLabel: giftTypeLabel(demande.typeGift),
         });
         if (!subject) subject = fb.subject;
         if (!bodyText) bodyText = fb.bodyText;
@@ -171,27 +178,40 @@ export async function POST(
         talentName: draftMeta.talentName,
         contactPrenom: prenom,
         previousSubject: link.lastSubject,
+        instagram: demande.talent?.instagram,
+        typeGiftLabel: giftTypeLabel(demande.typeGift),
       });
       subject = subject || fb.subject;
       bodyText = bodyText || fb.bodyText;
     }
 
-    const html = await render(
-      React.createElement(GiftContactMarqueEmail, {
-        contactPrenom: prenom,
-        marqueNom: link.marque.nom,
-        amName: senderAmName,
-        talentName: draftMeta.talentName,
-        typeGiftLabel: draftMeta.typeGiftLabel,
-        reference: demande.reference,
-        description: demande.description,
-        contrepartieLabel: draftMeta.contrepartieLabel,
-        bodyText,
-        isHotel: draftMeta.isHotel,
-        hotelDates: draftMeta.hotelDates,
-        hotelVille: draftMeta.hotelVille,
-        language,
-      })
+    const talentLink = {
+      prenom: demande.talent?.prenom,
+      nom: demande.talent?.nom,
+      instagram: demande.talent?.instagram,
+    };
+    const html = injectGiftRelanceIgLinks(
+      ensureTalentExtralinksInHtml(
+        await render(
+          React.createElement(GiftContactMarqueEmail, {
+            contactPrenom: prenom,
+            marqueNom: link.marque.nom,
+            amName: senderAmName,
+            talentName: draftMeta.talentName,
+            typeGiftLabel: draftMeta.typeGiftLabel,
+            reference: demande.reference,
+            description: demande.description,
+            contrepartieLabel: draftMeta.contrepartieLabel,
+            bodyText,
+            isHotel: draftMeta.isHotel,
+            hotelDates: draftMeta.hotelDates,
+            hotelVille: draftMeta.hotelVille,
+            language,
+          })
+        ),
+        [talentLink]
+      ),
+      talentLink
     );
 
     // Fil Gmail : threadId API + Message-ID RFC822 (In-Reply-To) — jamais l'id API en In-Reply-To

@@ -21,6 +21,7 @@ import {
 } from "@/lib/delegations";
 import { resolveGiftSenderMailbox } from "@/lib/gifts/gift-sender-mailbox";
 import { canContactGiftMarques } from "@/lib/gifts/gift-roles";
+import { ensureTalentExtralinksInHtml } from "@/lib/talent-email-links";
 
 // GET — draft + boîte Gmail AM
 export async function GET(
@@ -148,6 +149,7 @@ export async function POST(
           select: {
             prenom: true,
             nom: true,
+            instagram: true,
             ...talentAccessForGiftSelect,
           },
         },
@@ -318,22 +320,31 @@ export async function POST(
       }
 
       try {
-        const html = await render(
-          React.createElement(GiftContactMarqueEmail, {
-            contactPrenom: r.contactPrenom,
-            marqueNom: r.marqueNom,
-            amName: senderAmName,
-            talentName: draftMeta.talentName,
-            typeGiftLabel: draftMeta.typeGiftLabel,
-            reference: demande.reference,
-            description: demande.description,
-            contrepartieLabel: draftMeta.contrepartieLabel,
-            bodyText,
-            isHotel: draftMeta.isHotel,
-            hotelDates: draftMeta.hotelDates,
-            hotelVille: draftMeta.hotelVille,
-            language: r.language,
-          })
+        const html = ensureTalentExtralinksInHtml(
+          await render(
+            React.createElement(GiftContactMarqueEmail, {
+              contactPrenom: r.contactPrenom,
+              marqueNom: r.marqueNom,
+              amName: senderAmName,
+              talentName: draftMeta.talentName,
+              typeGiftLabel: draftMeta.typeGiftLabel,
+              reference: demande.reference,
+              description: demande.description,
+              contrepartieLabel: draftMeta.contrepartieLabel,
+              bodyText,
+              isHotel: draftMeta.isHotel,
+              hotelDates: draftMeta.hotelDates,
+              hotelVille: draftMeta.hotelVille,
+              language: r.language,
+            })
+          ),
+          [
+            {
+              prenom: demande.talent?.prenom,
+              nom: demande.talent?.nom,
+              instagram: demande.talent?.instagram,
+            },
+          ]
         );
         // Anti-rafale : petit écart entre destinataires (deliverability)
         if (sendIndex > 0) {

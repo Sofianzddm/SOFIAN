@@ -20,10 +20,12 @@ import {
 import {
   buildGiftRelanceFallback,
   generateGiftRelanceBody,
+  injectGiftRelanceIgLinks,
 } from "@/lib/gifts/gift-relance-ai";
 import { normalizeContactLanguage } from "@/lib/gifts/contact-language";
 import { GIFT_RELANCE_BUSINESS_DAYS } from "@/lib/gifts/gift-relance-config";
 import { relanceDue } from "@/lib/business-days";
+import { ensureTalentExtralinksInHtml } from "@/lib/talent-email-links";
 
 export { GIFT_RELANCE_BUSINESS_DAYS };
 
@@ -68,7 +70,9 @@ export async function executeGiftRelance(opts: {
       },
       demandeGift: {
         include: {
-          talent: { select: { prenom: true, nom: true } },
+          talent: {
+            select: { id: true, prenom: true, nom: true, instagram: true },
+          },
           accountManager: { select: { id: true, prenom: true, nom: true } },
         },
       },
@@ -211,6 +215,8 @@ export async function executeGiftRelance(opts: {
       giftReference: link.demandeGift.reference,
       typeGiftLabel: giftTypeLabel(link.demandeGift.typeGift),
       conceptSnippet: link.demandeGift.description,
+      talentId:
+        link.demandeGift.talentId || link.demandeGift.talent?.id || null,
     });
     subject = ai.subject;
     bodyText = ai.bodyText;
@@ -225,27 +231,40 @@ export async function executeGiftRelance(opts: {
       talentName: draftMeta.talentName,
       contactPrenom: prenom,
       previousSubject: link.lastSubject,
+      instagram: link.demandeGift.talent?.instagram,
+      typeGiftLabel: giftTypeLabel(link.demandeGift.typeGift),
     });
     subject = fb.subject;
     bodyText = fb.bodyText;
   }
 
-  const html = await render(
-    React.createElement(GiftContactMarqueEmail, {
-      contactPrenom: prenom,
-      marqueNom,
-      amName: senderAmName,
-      talentName: draftMeta.talentName,
-      typeGiftLabel: draftMeta.typeGiftLabel,
-      reference: link.demandeGift.reference,
-      description: link.demandeGift.description,
-      contrepartieLabel: draftMeta.contrepartieLabel,
-      bodyText,
-      isHotel: draftMeta.isHotel,
-      hotelDates: draftMeta.hotelDates,
-      hotelVille: draftMeta.hotelVille,
-      language,
-    })
+  const talentLink = {
+    prenom: link.demandeGift.talent?.prenom,
+    nom: link.demandeGift.talent?.nom,
+    instagram: link.demandeGift.talent?.instagram,
+  };
+  const html = injectGiftRelanceIgLinks(
+    ensureTalentExtralinksInHtml(
+      await render(
+        React.createElement(GiftContactMarqueEmail, {
+          contactPrenom: prenom,
+          marqueNom,
+          amName: senderAmName,
+          talentName: draftMeta.talentName,
+          typeGiftLabel: draftMeta.typeGiftLabel,
+          reference: link.demandeGift.reference,
+          description: link.demandeGift.description,
+          contrepartieLabel: draftMeta.contrepartieLabel,
+          bodyText,
+          isHotel: draftMeta.isHotel,
+          hotelDates: draftMeta.hotelDates,
+          hotelVille: draftMeta.hotelVille,
+          language,
+        })
+      ),
+      [talentLink]
+    ),
+    talentLink
   );
 
   let threadId = link.lastThreadId || threadForCheck || undefined;
