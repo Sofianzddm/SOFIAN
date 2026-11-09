@@ -169,6 +169,11 @@ export function GiftContactWizard({
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN";
   const [generatingAi, setGeneratingAi] = useState(false);
+  const [aiProgress, setAiProgress] = useState<{
+    done: number;
+    total: number;
+    currentName: string;
+  } | null>(null);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sendResult, setSendResult] = useState<{
@@ -189,6 +194,8 @@ export function GiftContactWizard({
     setSelectedRecipients(new Set());
     setDraftsByMarque({});
     setActiveDraftMarqueId(null);
+    setAiProgress(null);
+    setGeneratingAi(false);
     setError(null);
     setSendResult(null);
     setLoadingDraft(true);
@@ -436,63 +443,98 @@ export function GiftContactWizard({
       // Uniquement les marques qui ont au moins 1 destinataire coché
       const marqueIdsWithRecipients = Array.from(
         new Set(
-          Array.from(selectedRecipients).map((k) => k.split(":")[0]).filter(Boolean)
+          Array.from(selectedRecipients)
+            .map((k) => k.split(":")[0])
+            .filter(Boolean)
         )
       );
-      const res = await fetch(
-        `/api/gifts/${giftId}/contact-marques/generate`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            marqueIds: marqueIdsWithRecipients,
-            prenomsByMarque,
-            languagesByMarque,
-          }),
+      if (marqueIdsWithRecipients.length === 0) {
+        throw new Error("Aucune marque à rédiger.");
+      }
+
+      const map: Record<
+        string,
+        { subject: string; bodyText: string; marqueNom: string }
+      > = {};
+      const fails: string[] = [];
+      const total = marqueIdsWithRecipients.length;
+      setAiProgress({ done: 0, total, currentName: "" });
+      setDraftsByMarque({});
+
+      for (let i = 0; i < marqueIdsWithRecipients.length; i++) {
+        const marqueId = marqueIdsWithRecipients[i];
+        const marqueNom =
+          marques.find((m) => m.id === marqueId)?.nom || "Marque";
+        setAiProgress({ done: i, total, currentName: marqueNom });
+
+        const res = await fetch(
+          `/api/gifts/${giftId}/contact-marques/generate`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              marqueIds: [marqueId],
+              prenomsByMarque: prenomsByMarque[marqueId]
+                ? { [marqueId]: prenomsByMarque[marqueId] }
+                : {},
+              languagesByMarque: languagesByMarque[marqueId]
+                ? { [marqueId]: languagesByMarque[marqueId] }
+                : {},
+            }),
+          }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          fails.push(marqueNom);
+          continue;
         }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Erreur rédaction IA");
 
-      const drafts: Array<{
-        marqueId: string;
-        marqueNom: string;
-        subject: string;
-        bodyText: string;
-        ai?: boolean;
-        error?: string | null;
-      }> = Array.isArray(data.drafts) ? data.drafts : [];
+        const drafts: Array<{
+          marqueId: string;
+          marqueNom: string;
+          subject: string;
+          bodyText: string;
+          ai?: boolean;
+          error?: string | null;
+        }> = Array.isArray(data.drafts) ? data.drafts : [];
 
-      if (drafts.length > 0) {
-        const map: Record<
-          string,
-          { subject: string; bodyText: string; marqueNom: string }
-        > = {};
-        for (const d of drafts) {
+        const d =
+          drafts.find((x) => x.marqueId === marqueId) || drafts[0] || null;
+        if (d?.subject && d?.bodyText) {
           map[d.marqueId] = {
             subject: d.subject,
             bodyText: d.bodyText,
-            marqueNom: d.marqueNom,
+            marqueNom: d.marqueNom || marqueNom,
           };
+          if (d.error) fails.push(d.marqueNom || marqueNom);
+        } else if (data.subject && data.bodyText) {
+          map[marqueId] = {
+            subject: data.subject,
+            bodyText: data.bodyText,
+            marqueNom,
+          };
+        } else {
+          fails.push(marqueNom);
+          continue;
         }
-        setDraftsByMarque(map);
-        syncActiveDraft(drafts[0].marqueId, map[drafts[0].marqueId]);
-        const warns: string[] = [];
-        const fails = drafts.filter((d) => d.error);
-        if (fails.length) {
-          warns.push(
-            `Draft de secours : ${fails.map((f) => f.marqueNom).join(", ")}`
-          );
+
+        setDraftsByMarque({ ...map });
+        if (i === 0) {
+          const firstId = Object.keys(map)[0];
+          if (firstId) syncActiveDraft(firstId, map[firstId]);
         }
-        if (data.truncated) {
-          warns.push(
-            "Max 4 marques générées d’un coup — régénère pour les autres."
-          );
-        }
-        if (warns.length) setError(warns.join(" · "));
-      } else {
-        if (data.subject) setSubject(data.subject);
-        if (data.bodyText) setBodyText(data.bodyText);
+        setAiProgress({ done: i + 1, total, currentName: marqueNom });
+      }
+
+      const ids = Object.keys(map);
+      if (ids.length === 0) {
+        throw new Error("Impossible de générer le message IA");
+      }
+      if (!activeDraftMarqueId || !map[activeDraftMarqueId]) {
+        syncActiveDraft(ids[0], map[ids[0]]);
+      }
+      if (fails.length) {
+        setError(`Draft de secours / échec : ${fails.join(", ")}`);
       }
     } catch (err) {
       setError(
@@ -502,6 +544,7 @@ export function GiftContactWizard({
       );
     } finally {
       setGeneratingAi(false);
+      setAiProgress(null);
     }
   }
 
@@ -1044,12 +1087,61 @@ export function GiftContactWizard({
                     </button>
                   </div>
                   {generatingAi ? (
-                    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 py-10 text-sm text-zinc-500">
-                      <Loader2 className="h-4 w-4 animate-spin text-violet-700" />
-                      <span>Rédaction en cours…</span>
-                      <span className="text-xs text-zinc-400">
-                        Ça peut prendre 1–2 min.
-                      </span>
+                    <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-6 text-sm text-zinc-600">
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin text-violet-700" />
+                        <span className="font-medium text-zinc-800">
+                          Rédaction en cours
+                          {aiProgress
+                            ? ` · ${aiProgress.done}/${aiProgress.total}`
+                            : "…"}
+                        </span>
+                      </div>
+                      {aiProgress?.currentName ? (
+                        <p className="text-xs text-zinc-500">
+                          {aiProgress.done < aiProgress.total
+                            ? `En cours : ${aiProgress.currentName}`
+                            : `Terminé : ${aiProgress.currentName}`}
+                        </p>
+                      ) : null}
+                      <div
+                        className="h-2 w-full overflow-hidden rounded-full bg-zinc-200"
+                        role="progressbar"
+                        aria-valuemin={0}
+                        aria-valuemax={aiProgress?.total || 100}
+                        aria-valuenow={aiProgress?.done || 0}
+                      >
+                        <div
+                          className="h-full rounded-full bg-violet-600 transition-[width] duration-300 ease-out"
+                          style={{
+                            width: `${
+                              aiProgress && aiProgress.total > 0
+                                ? Math.min(
+                                    100,
+                                    Math.round(
+                                      (aiProgress.done / aiProgress.total) * 100
+                                    )
+                                  )
+                                : 4
+                            }%`,
+                          }}
+                        />
+                      </div>
+                      {Object.keys(draftsByMarque).length > 0 ? (
+                        <p className="text-[11px] text-zinc-400">
+                          {Object.keys(draftsByMarque).length} brouillon
+                          {Object.keys(draftsByMarque).length > 1 ? "s" : ""}{" "}
+                          prêt
+                          {Object.keys(draftsByMarque).length > 1 ? "s" : ""} —{" "}
+                          {Object.values(draftsByMarque)
+                            .map((d) => d.marqueNom)
+                            .join(", ")}
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-zinc-400">
+                          Une marque à la fois (research + rédaction).
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <>

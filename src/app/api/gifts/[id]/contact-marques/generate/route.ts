@@ -119,8 +119,9 @@ export async function POST(
       );
     }
 
-    // Cap pour rester sous le timeout (research + draft séquentiel / parallèle limité)
-    const targets = selected.slice(0, 4);
+    // 1 marque / requête (le wizard enchaîne côté client + barre de progression)
+    // pour rester sous le timeout serverless (research + draft).
+    const targets = selected.slice(0, 1);
     const talent = demande.talent || {};
 
     const results = await Promise.all(
