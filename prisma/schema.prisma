@@ -372,6 +372,7 @@ model User {
   demandesGiftGerees   DemandeGift[] @relation("AMDemandeGift")
   demandesGiftArchivees DemandeGift[] @relation("GiftArchivedBy")
   commentairesGift   CommentaireGift[]
+  demandesGiftMarqueEnvoyees DemandeGiftMarque[] @relation("DemandeGiftMarqueSentBy")
 
   collabsGerees         Collaboration[]        @relation("AccountManagerCollabs")
   collabsCreees         Collaboration[]        @relation("CollaborationCreatedBy")
@@ -1044,8 +1045,9 @@ model MarqueContact {
   outreachTargetRef  String?
 
   createdAt       DateTime         @default(now())
-  quotes          Quote[]
-  outreachTargets OutreachTarget[]
+  quotes             Quote[]
+  outreachTargets    OutreachTarget[]
+  demandeGiftMarques DemandeGiftMarque[]
 
   // Sous-marques (marques filles) sur lesquelles ce contact intervient.
   // Un contact reste rattaché à sa marque (souvent la mère) mais peut couvrir
@@ -2649,10 +2651,41 @@ model DemandeGiftMarque {
   marqueId String
   marque   Marque @relation(fields: [marqueId], references: [id], onDelete: Cascade)
 
+  /// Suivi outreach AM : A_CONTACTER | CONTACTEE | RELANCEE | ACCEPTEE | REFUSEE | SANS_REPONSE
+  statutContact String @default("A_CONTACTER")
+
+  /// Contact CRM choisi au moment de l'envoi (snapshot + FK soft)
+  contactId    String?
+  contact      MarqueContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contactNom   String?
+  contactEmail String?
+
+  contactedAt   DateTime?
+  lastRelanceAt DateTime?
+  relanceCount  Int       @default(0)
+  lastSubject   String?
+  /// Corps texte du dernier mail parti (pour relance IA + citation).
+  lastBodyText  String?   @db.Text
+  /// Id interne Gmail du dernier message (messages.get / Message-ID RFC).
+  lastMessageId String?
+  /// Id thread Gmail — pour messages.send?threadId= (relance dans le fil).
+  lastThreadId  String?
+  /// Langue d'envoi captée depuis MarqueContact.language (fr|en).
+  contactLanguage String?
+  /// AM qui a envoyé (boîte Gmail utilisée pour relance auto).
+  sentById String?
+  sentBy   User?   @relation("DemandeGiftMarqueSentBy", fields: [sentById], references: [id], onDelete: SetNull)
+  /// Stop manuel des relances auto J+2.
+  relanceCancelledAt DateTime?
+  reponseNote   String?   @db.Text
+
   createdAt DateTime @default(now())
 
   @@id([demandeGiftId, marqueId])
   @@index([marqueId])
+  @@index([contactId])
+  @@index([statutContact])
+  @@index([contactedAt, lastRelanceAt, relanceCancelledAt])
   @@map("demande_gift_marques")
 }
 

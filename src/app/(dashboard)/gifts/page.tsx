@@ -59,10 +59,15 @@ export default function GiftsPage() {
 
   const user = session?.user as { role?: string };
   const isTM = user?.role === "TM";
-  const isAM = user?.role === "CM" || user?.role === "ADMIN";
+  const isAM =
+    user?.role === "CM" ||
+    user?.role === "ASSISTANTE_TM" ||
+    user?.role === "ADMIN";
   const canCreate =
     !!user?.role &&
-    ["TM", "CM", "ADMIN", "HEAD_OF_INFLUENCE"].includes(user.role);
+    ["TM", "CM", "ADMIN", "HEAD_OF_INFLUENCE", "ASSISTANTE_TM"].includes(
+      user.role
+    );
 
   useEffect(() => {
     fetchDemandes();

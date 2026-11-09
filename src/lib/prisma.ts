@@ -4,7 +4,7 @@ import { Pool } from "pg";
 import { withEmailNormalization } from "@/lib/prisma-email-guard";
 
 /** Bump uniquement si le singleton global doit être forcé après un `prisma generate`. */
-const PRISMA_CLIENT_REV = 5;
+const PRISMA_CLIENT_REV = 9;
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -31,6 +31,9 @@ function createPrismaClient(): PrismaClient {
       new Pool({
         connectionString,
         ssl: { rejectUnauthorized: false },
+        max: 10,
+        idleTimeoutMillis: 20_000,
+        connectionTimeoutMillis: 15_000,
         // Force IPv4 (évite le timeout IPv6 → Neon). `family` est supporté runtime par `pg`
         // mais absent des types PoolConfig selon les versions de @types/pg.
         ...({ family: 4 } as object),
@@ -79,6 +82,16 @@ function getClient(): PrismaClient {
   }
 
   // Ne jamais $disconnect() l’ancien client ici (casse les requêtes en cours).
+  // En revanche, si la rev change, on recrée le Pool (évite P1017 sur connexions Neon mortes).
+  if (
+    process.env.NODE_ENV !== "production" &&
+    !revOk &&
+    globalForPrisma.prismaPool
+  ) {
+    const oldPool = globalForPrisma.prismaPool;
+    globalForPrisma.prismaPool = undefined;
+    void oldPool.end().catch(() => {});
+  }
   const client = createPrismaClient();
   if (process.env.NODE_ENV !== "production") {
     globalForPrisma.prisma = client;

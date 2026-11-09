@@ -85,6 +85,7 @@ export default function DashboardLayout({
         !p.startsWith("/rh") &&
         !p.startsWith("/kit/") &&
         !p.startsWith("/simulateur-emv") &&
+        !p.startsWith("/gifts") &&
         !isCollabOk
       ) {
         router.replace("/talents");

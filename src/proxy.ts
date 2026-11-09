@@ -222,7 +222,7 @@ export async function proxy(request: NextRequest) {
         NextResponse.json({ error: "Non autorise" }, { status: 403 })
       );
     }
-    // Assistante TM : APIs talents/RH + lecture collabs + écriture stats/uploads uniquement
+    // Assistante TM : APIs talents/RH + gifts + lecture collabs + écriture stats/uploads
     if (effectiveRole === "ASSISTANTE_TM") {
       const method = request.method.toUpperCase();
       const isCollabListApi = pathname === "/api/collaborations";
@@ -234,7 +234,11 @@ export async function proxy(request: NextRequest) {
         pathname.startsWith("/api/talents") ||
         pathname.startsWith("/api/upload/") ||
         pathname === "/api/users" ||
+        pathname === "/api/users/mentionable" ||
         pathname.startsWith("/api/rh") ||
+        pathname.startsWith("/api/gifts") ||
+        pathname.startsWith("/api/marques") ||
+        pathname.startsWith("/api/partners") ||
         (isCollabListApi && method === "GET") ||
         (isCollabDetailApi && method === "GET") ||
         isCollabStatsApi;
@@ -263,7 +267,7 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // Assistante TM : Talents + Kit Media + Collaborations (liste/fiche) + RH salarié + Simulateur EMV
+  // Assistante TM : Talents + Kit Media + Collaborations (liste/fiche) + Gifts + RH + EMV
   // Collabs : pas de new / edit / facturer / contrat — stats + uploads via API
   if (effectiveRole === "ASSISTANTE_TM") {
     const isCollabListPath = pathname === "/collaborations";
@@ -281,10 +285,15 @@ export async function proxy(request: NextRequest) {
       pathname.startsWith("/api/kit/") ||
       pathname.startsWith("/api/upload/") ||
       pathname === "/api/users" ||
+      pathname === "/api/users/mentionable" ||
       pathname === "/rh" ||
       pathname.startsWith("/rh/") ||
       pathname.startsWith("/api/rh") ||
       pathname.startsWith("/simulateur-emv") ||
+      pathname.startsWith("/gifts") ||
+      pathname.startsWith("/api/gifts") ||
+      pathname.startsWith("/api/marques") ||
+      pathname.startsWith("/api/partners") ||
       isCollabListPath ||
       isCollabDetailPath;
     if (!allowed) {

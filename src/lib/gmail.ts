@@ -128,23 +128,67 @@ export async function getValidAccessToken(email: string): Promise<string> {
 }
 
 export async function getGmailSignature(email: string): Promise<string> {
-  const cached = SIGNATURE_CACHE.get(email);
+  const key = email.trim().toLowerCase();
+  const cached = SIGNATURE_CACHE.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
   try {
-    const accessToken = await getValidAccessToken(email);
-    const url = `${GMAIL_SEND_AS_URL}/${encodeURIComponent(email)}`;
-    const res = await fetch(url, {
+    const accessToken = await getValidAccessToken(key);
+
+    // 1) sendAs exact de la boîte
+    const directUrl = `${GMAIL_SEND_AS_URL}/${encodeURIComponent(key)}`;
+    const directRes = await fetch(directUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (!res.ok) {
-      SIGNATURE_CACHE.set(email, { value: "", expiresAt: Date.now() + SIGNATURE_TTL_MS });
-      return "";
+    if (directRes.ok) {
+      const json = (await directRes.json().catch(() => null)) as {
+        signature?: string;
+      } | null;
+      const signature =
+        typeof json?.signature === "string" ? json.signature.trim() : "";
+      if (signature) {
+        SIGNATURE_CACHE.set(key, {
+          value: signature,
+          expiresAt: Date.now() + SIGNATURE_TTL_MS,
+        });
+        return signature;
+      }
     }
-    const json = (await res.json().catch(() => null)) as { signature?: string } | null;
-    const signature = typeof json?.signature === "string" ? json.signature : "";
-    SIGNATURE_CACHE.set(email, { value: signature, expiresAt: Date.now() + SIGNATURE_TTL_MS });
-    return signature;
+
+    // 2) Fallback : liste sendAs → primaire / isDefault / même email
+    const listRes = await fetch(GMAIL_SEND_AS_URL, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (listRes.ok) {
+      const listJson = (await listRes.json().catch(() => null)) as {
+        sendAs?: Array<{
+          sendAsEmail?: string;
+          signature?: string;
+          isPrimary?: boolean;
+          isDefault?: boolean;
+        }>;
+      } | null;
+      const rows = Array.isArray(listJson?.sendAs) ? listJson!.sendAs! : [];
+      const match =
+        rows.find(
+          (r) => (r.sendAsEmail || "").toLowerCase() === key && r.signature?.trim()
+        ) ||
+        rows.find((r) => r.isDefault && r.signature?.trim()) ||
+        rows.find((r) => r.isPrimary && r.signature?.trim()) ||
+        rows.find((r) => r.signature?.trim());
+      const signature = match?.signature?.trim() || "";
+      SIGNATURE_CACHE.set(key, {
+        value: signature,
+        expiresAt: Date.now() + SIGNATURE_TTL_MS,
+      });
+      return signature;
+    }
+
+    SIGNATURE_CACHE.set(key, {
+      value: "",
+      expiresAt: Date.now() + SIGNATURE_TTL_MS,
+    });
+    return "";
   } catch {
     return "";
   }
@@ -157,8 +201,13 @@ export function clearGmailSignatureCache(email?: string): void {
 
 function appendSignature(htmlBody: string, signature: string): string {
   if (!signature.trim()) return htmlBody;
+  const block = `<br><br><div class="gmail-signature">${signature}</div>`;
   const trimmedBody = htmlBody.trimEnd();
-  return `${trimmedBody}<br><br>${signature}`;
+  // Injecte avant </body> si HTML complet (react-email), sinon à la fin
+  if (/<\/body>/i.test(trimmedBody)) {
+    return trimmedBody.replace(/<\/body>/i, `${block}</body>`);
+  }
+  return `${trimmedBody}${block}`;
 }
 
 export type GmailAttachment = {
@@ -297,12 +346,18 @@ export function buildMimeMessage(options: {
     `To: ${options.to}`,
     `Subject: ${encodeMimeHeader(options.subject)}`,
   ];
+  // Date + Reply-To : signaux deliverability / réponses directes sur la même boîte
+  headers.push(`Date: ${new Date().toUTCString()}`);
+  headers.push(`Reply-To: ${encodeMimeHeader(options.fromName)} <${options.fromEmail}>`);
   if (options.inReplyTo) {
-    headers.push(`In-Reply-To: ${options.inReplyTo}`);
-    headers.push(`References: ${options.inReplyTo}`);
+    // RFC822 Message-ID (ex. <...>@mail.gmail.com) — pas l'id API Gmail
+    const rfcId = options.inReplyTo.trim();
+    headers.push(`In-Reply-To: ${rfcId}`);
+    headers.push(`References: ${rfcId}`);
   }
   headers.push(...listUnsubscribeHeaders(options.fromEmail, options.to));
   headers.push("MIME-Version: 1.0");
+  headers.push("X-Mailer: Glow Up Platform");
 
   const attachments = options.attachments?.filter((a) => a.content?.length) ?? [];
   const altBoundary = mimeBoundary("alt");
@@ -344,7 +399,7 @@ export function buildMimeMessage(options: {
   return parts.join("\r\n");
 }
 
-export async function sendGmail(options: {
+export type SendGmailOptions = {
   fromEmail: string;
   to: string;
   subject: string;
@@ -359,7 +414,19 @@ export async function sendGmail(options: {
   inReplyTo?: string;
   /** Pièces jointes (ex. PDF de présentation projet outreach). */
   attachments?: GmailAttachment[];
-}): Promise<string> {
+};
+
+export type SendGmailResult = {
+  /** Id interne Gmail du message. */
+  id: string;
+  /** Id du thread Gmail (pour messages.send?threadId= + check activité). */
+  threadId: string;
+};
+
+/** Envoi Gmail — retourne id + threadId (préférer pour relances / suivi fil). */
+export async function sendGmailDetailed(
+  options: SendGmailOptions
+): Promise<SendGmailResult> {
   const accessToken = await getValidAccessToken(options.fromEmail);
 
   const shouldAppend = options.includeSignature !== false;
@@ -392,6 +459,7 @@ export async function sendGmail(options: {
   const rawText = await sendResponse.text();
   type GmailSendResponse = {
     id?: string;
+    threadId?: string;
     error?: { code?: number; message?: string; status?: string };
   };
   let sendJson: GmailSendResponse | null = null;
@@ -418,7 +486,15 @@ export async function sendGmail(options: {
     throw new Error(`Gmail a refusé l'envoi (${gmailStatus}) : ${gmailMessage}`);
   }
 
-  return sendJson.id;
+  return {
+    id: sendJson.id,
+    threadId: sendJson.threadId || sendJson.id,
+  };
+}
+
+export async function sendGmail(options: SendGmailOptions): Promise<string> {
+  const result = await sendGmailDetailed(options);
+  return result.id;
 }
 
 async function enrichGmailMessagesMinimal(
@@ -503,14 +579,13 @@ export async function findRecentMessagesByQuery(
 }
 
 /**
- * Récupère l'en-tête Message-ID RFC822 d'un mail déjà envoyé (à partir de son
- * id interne Gmail). Indispensable pour qu'une relance pose un In-Reply-To
- * valide et soit threadée côté destinataire. Renvoie null si introuvable.
+ * Meta d'un mail déjà envoyé (id API Gmail) : threadId + Message-ID RFC822.
+ * Indispensable pour relancer dans le même fil (In-Reply-To + threadId).
  */
-export async function getMessageRfcId(
+export async function getGmailMessageMeta(
   fromEmail: string,
   gmailMessageId: string
-): Promise<string | null> {
+): Promise<{ threadId: string | null; rfcMessageId: string | null }> {
   try {
     const accessToken = await getValidAccessToken(fromEmail);
     const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(
@@ -520,17 +595,34 @@ export async function getMessageRfcId(
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     const json = (await res.json().catch(() => null)) as {
+      threadId?: string;
       payload?: { headers?: { name: string; value: string }[] };
     } | null;
-    if (!res.ok || !json?.payload?.headers) return null;
-    const header = json.payload.headers.find(
+    if (!res.ok || !json) return { threadId: null, rfcMessageId: null };
+    const header = json.payload?.headers?.find(
       (h) => h.name.toLowerCase() === "message-id"
     );
-    return header?.value?.trim() || null;
+    return {
+      threadId: json.threadId?.trim() || null,
+      rfcMessageId: header?.value?.trim() || null,
+    };
   } catch (error) {
-    console.warn(`[gmail] Message-ID introuvable pour ${gmailMessageId}:`, error);
-    return null;
+    console.warn(`[gmail] meta introuvable pour ${gmailMessageId}:`, error);
+    return { threadId: null, rfcMessageId: null };
   }
+}
+
+/**
+ * Récupère l'en-tête Message-ID RFC822 d'un mail déjà envoyé (à partir de son
+ * id interne Gmail). Indispensable pour qu'une relance pose un In-Reply-To
+ * valide et soit threadée côté destinataire. Renvoie null si introuvable.
+ */
+export async function getMessageRfcId(
+  fromEmail: string,
+  gmailMessageId: string
+): Promise<string | null> {
+  const meta = await getGmailMessageMeta(fromEmail, gmailMessageId);
+  return meta.rfcMessageId;
 }
 
 /**

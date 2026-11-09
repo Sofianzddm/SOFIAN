@@ -21,6 +21,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/gift-relances",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/marque-dedupe-ai",
       "schedule": "0 3 * * *"
     },

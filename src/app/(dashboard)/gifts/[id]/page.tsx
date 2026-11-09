@@ -33,6 +33,7 @@ import {
   type MentionableUser,
   renderCommentWithMentions,
 } from "@/components/MentionTextarea";
+import { GiftContactWizard } from "@/components/gifts/GiftContactWizard";
 
 function normalize(s: string) {
   return s
@@ -167,9 +168,14 @@ export default function GiftDetailPage() {
   const [searchingMarques, setSearchingMarques] = useState(false);
   const [showMarqueSuggestions, setShowMarqueSuggestions] = useState(false);
   const [addingMarque, setAddingMarque] = useState(false);
+  const [contactWizardOpen, setContactWizardOpen] = useState(false);
+  const [marqueActionBusy, setMarqueActionBusy] = useState<string | null>(null);
 
   const user = session?.user as { id?: string; role?: string };
-  const isAM = user?.role === "CM" || user?.role === "ADMIN";
+  const isAM =
+    user?.role === "CM" ||
+    user?.role === "ASSISTANTE_TM" ||
+    user?.role === "ADMIN";
   const isTM = user?.role === "TM";
   const isTmSurDemande =
     !!user?.id &&
@@ -320,6 +326,76 @@ export default function GiftDetailPage() {
       await fetchDemande();
     } catch {
       alert("Erreur lors de la mise à jour du statut");
+    }
+  };
+
+  const handleMarqueStatut = async (
+    marqueId: string,
+    statutContact: string,
+    updateGiftStatut = false
+  ) => {
+    try {
+      setMarqueActionBusy(`${marqueId}:${statutContact}`);
+      const res = await fetch(`/api/gifts/${params.id}/marques/${marqueId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ statutContact, updateGiftStatut }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Erreur");
+      }
+      await fetchDemande();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erreur mise à jour marque");
+    } finally {
+      setMarqueActionBusy(null);
+    }
+  };
+
+  const handleMarqueCancelRelance = async (
+    marqueId: string,
+    cancelRelance: boolean
+  ) => {
+    try {
+      setMarqueActionBusy(`${marqueId}:cancel-relance`);
+      const res = await fetch(`/api/gifts/${params.id}/marques/${marqueId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancelRelance }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Erreur");
+      }
+      await fetchDemande();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erreur relance auto");
+    } finally {
+      setMarqueActionBusy(null);
+    }
+  };
+
+  const handleMarqueRelance = async (marqueId: string) => {
+    try {
+      setMarqueActionBusy(`${marqueId}:relance`);
+      const res = await fetch(
+        `/api/gifts/${params.id}/contact-marques/relance`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ marqueId }),
+        }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Erreur relance");
+      }
+      await fetchDemande();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erreur relance");
+    } finally {
+      setMarqueActionBusy(null);
     }
   };
 
@@ -487,6 +563,15 @@ export default function GiftDetailPage() {
     demande.marques && demande.marques.length > 0
       ? demande.marques.map(
           (row: {
+            statutContact?: string;
+            contactNom?: string | null;
+            contactEmail?: string | null;
+            contactedAt?: string | null;
+            lastRelanceAt?: string | null;
+            relanceCount?: number;
+            relanceCancelledAt?: string | null;
+            contactLanguage?: string | null;
+            reponseNote?: string | null;
             marque: {
               id: string;
               nom: string;
@@ -495,11 +580,40 @@ export default function GiftDetailPage() {
               contactsReady?: boolean;
               emailableCount?: number;
             };
-          }) => row.marque
+          }) => ({
+            ...row.marque,
+            statutContact: row.statutContact || "A_CONTACTER",
+            contactNom: row.contactNom,
+            contactEmail: row.contactEmail,
+            contactedAt: row.contactedAt,
+            lastRelanceAt: row.lastRelanceAt,
+            relanceCount: row.relanceCount || 0,
+            relanceCancelledAt: row.relanceCancelledAt || null,
+            contactLanguage: row.contactLanguage || null,
+            reponseNote: row.reponseNote,
+          })
         )
       : demande.marque
-        ? [demande.marque]
+        ? [
+            {
+              ...demande.marque,
+              statutContact: "A_CONTACTER",
+              contactNom: null,
+              contactEmail: null,
+              contactedAt: null,
+              lastRelanceAt: null,
+              relanceCount: 0,
+              relanceCancelledAt: null,
+              contactLanguage: null,
+              reponseNote: null,
+            },
+          ]
         : [];
+  const canContactMarques =
+    isAM &&
+    !demande.archivedAt &&
+    demande.statut !== "ANNULE" &&
+    marquesList.length > 0;
   const partnersList = (demande.partners || []).map(
     (row: { partner: { id: string; name: string; slug?: string } }) =>
       row.partner
@@ -549,6 +663,19 @@ export default function GiftDetailPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {canContactMarques && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("brands");
+                  setContactWizardOpen(true);
+                }}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-violet-700 px-3.5 text-sm font-medium text-white transition hover:bg-violet-800"
+              >
+                <Mail className="h-4 w-4" />
+                Contacter les marques
+              </button>
+            )}
             {canEdit && (
               <button
                 type="button"
@@ -1093,7 +1220,19 @@ export default function GiftDetailPage() {
 
             {activeTab === "brands" ? (
               <div className="px-7 pb-5 pt-2">
-                <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-zinc-100 py-3.5 text-xs font-medium text-zinc-500">
+                {canContactMarques && (
+                  <div className="mb-2 flex justify-end pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setContactWizardOpen(true)}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-medium text-violet-800 hover:bg-violet-100"
+                    >
+                      <Mail className="h-3.5 w-3.5" />
+                      Contacter / Relancer
+                    </button>
+                  </div>
+                )}
+                <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)_minmax(0,0.85fr)_minmax(0,1.2fr)] gap-3 border-b border-zinc-100 py-3.5 text-xs font-medium text-zinc-500">
                   <span>Marque</span>
                   <span>Contacts</span>
                   <span>Contactée le</span>
@@ -1114,25 +1253,50 @@ export default function GiftDetailPage() {
                         awaitingEnrichissement?: boolean;
                         contactsReady?: boolean;
                         emailableCount?: number;
+                        statutContact?: string;
+                        contactNom?: string | null;
+                        contactEmail?: string | null;
+                        contactedAt?: string | null;
+                        relanceCount?: number;
+                        relanceCancelledAt?: string | null;
+                        contactLanguage?: string | null;
                       }) => {
-                        const contact = marque.contacts?.[0];
-                        const contactLabel = contact
-                          ? [contact.prenom, contact.nom]
-                              .filter(Boolean)
-                              .join(" ") ||
-                            contact.email ||
-                            contact.emailSuggested ||
-                            "Contact"
-                          : null;
+                        const outreachContact =
+                          marque.contactNom ||
+                          marque.contactEmail ||
+                          null;
+                        const crmContact = marque.contacts?.[0];
+                        const contactLabel =
+                          outreachContact ||
+                          (crmContact
+                            ? [crmContact.prenom, crmContact.nom]
+                                .filter(Boolean)
+                                .join(" ") ||
+                              crmContact.email ||
+                              crmContact.emailSuggested ||
+                              "Contact"
+                            : null);
                         const awaiting = Boolean(marque.awaitingEnrichissement);
                         const contactsReady =
                           Boolean(marque.contactsReady) ||
                           (marque.emailableCount ?? 0) > 0;
-                        const response = brandResponseFromStatut(demande.statut);
+                        const response = brandResponseFromStatutContact(
+                          marque.statutContact,
+                          demande.statut
+                        );
+                        const contactedAt =
+                          marque.contactedAt || demande.dateContactMarque;
+                        const canQuickActions =
+                          isAM &&
+                          !demande.archivedAt &&
+                          (marque.statutContact === "CONTACTEE" ||
+                            marque.statutContact === "RELANCEE" ||
+                            marque.statutContact === "SANS_REPONSE");
+                        const busy = marqueActionBusy?.startsWith(marque.id);
                         return (
                           <div
                             key={marque.id}
-                            className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-4 border-b border-zinc-100 py-4 text-sm"
+                            className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)_minmax(0,0.85fr)_minmax(0,1.2fr)] items-center gap-3 border-b border-zinc-100 py-4 text-sm"
                           >
                             <div className="flex min-w-0 items-center gap-3">
                               <div className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-zinc-100 text-xs font-semibold text-zinc-600">
@@ -1177,17 +1341,95 @@ export default function GiftDetailPage() {
                               )}
                             </div>
                             <span className="text-zinc-600">
-                              {formatDate(demande.dateContactMarque) || "—"}
+                              {formatDate(contactedAt) || "—"}
+                              {(marque.relanceCount || 0) > 0 ? (
+                                <span className="mt-0.5 block text-[11px] text-zinc-400">
+                                  {marque.relanceCount} relance
+                                  {(marque.relanceCount || 0) > 1 ? "s" : ""}
+                                </span>
+                              ) : marque.statutContact === "CONTACTEE" &&
+                                !marque.relanceCancelledAt ? (
+                                <span className="mt-0.5 block text-[11px] text-violet-500">
+                                  Auto J+2 prévue
+                                  {marque.contactLanguage === "en"
+                                    ? " · EN"
+                                    : ""}
+                                </span>
+                              ) : marque.statutContact === "CONTACTEE" &&
+                                marque.relanceCancelledAt ? (
+                                <span className="mt-0.5 block text-[11px] text-zinc-400">
+                                  Auto stoppée
+                                </span>
+                              ) : null}
                             </span>
-                            <span
-                              className="justify-self-start rounded-full px-2.5 py-[3px] text-xs font-medium"
-                              style={{
-                                color: response.color,
-                                background: response.bg,
-                              }}
-                            >
-                              {response.label}
-                            </span>
+                            <div className="flex min-w-0 flex-col items-start gap-1.5">
+                              <span
+                                className="rounded-full px-2.5 py-[3px] text-xs font-medium"
+                                style={{
+                                  color: response.color,
+                                  background: response.bg,
+                                }}
+                              >
+                                {response.label}
+                              </span>
+                              {canQuickActions && (
+                                <div className="flex flex-wrap gap-1">
+                                  <button
+                                    type="button"
+                                    disabled={!!busy}
+                                    onClick={() =>
+                                      handleMarqueRelance(marque.id)
+                                    }
+                                    className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                                  >
+                                    Relancer
+                                  </button>
+                                  {marque.statutContact === "CONTACTEE" &&
+                                    !(marque.relanceCount || 0) && (
+                                      <button
+                                        type="button"
+                                        disabled={!!busy}
+                                        onClick={() =>
+                                          handleMarqueCancelRelance(
+                                            marque.id,
+                                            !marque.relanceCancelledAt
+                                          )
+                                        }
+                                        className="rounded border border-zinc-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
+                                        title={
+                                          marque.relanceCancelledAt
+                                            ? "Réactiver la relance auto J+2"
+                                            : "Stopper la relance auto J+2"
+                                        }
+                                      >
+                                        {marque.relanceCancelledAt
+                                          ? "Réactiver auto"
+                                          : "Stop auto"}
+                                      </button>
+                                    )}
+                                  <button
+                                    type="button"
+                                    disabled={!!busy}
+                                    onClick={() =>
+                                      handleMarqueStatut(marque.id, "ACCEPTEE", true)
+                                    }
+                                    className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                                  >
+                                    OK
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={!!busy}
+                                    onClick={() =>
+                                      handleMarqueStatut(marque.id, "REFUSEE")
+                                    }
+                                    className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-800 hover:bg-red-100 disabled:opacity-50"
+                                  >
+                                    Refus
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         );
                       }
@@ -1200,7 +1442,7 @@ export default function GiftDetailPage() {
                       }) => (
                         <div
                           key={partner.id}
-                          className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-4 border-b border-zinc-100 py-4 text-sm last:border-0"
+                          className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)_minmax(0,0.85fr)_minmax(0,1.2fr)] items-center gap-3 border-b border-zinc-100 py-4 text-sm last:border-0"
                         >
                           <div className="flex min-w-0 items-center gap-3">
                             <div className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-amber-50 text-xs font-semibold text-amber-800">
@@ -1225,9 +1467,7 @@ export default function GiftDetailPage() {
                             </div>
                           </div>
                           <span className="text-xs text-zinc-400">—</span>
-                          <span className="text-zinc-600">
-                            {formatDate(demande.dateContactMarque) || "—"}
-                          </span>
+                          <span className="text-zinc-600">—</span>
                           <span className="justify-self-start rounded-full bg-zinc-100 px-2.5 py-[3px] text-xs font-medium text-zinc-600">
                             Partenaire
                           </span>
@@ -1334,6 +1574,19 @@ export default function GiftDetailPage() {
           )}
         </aside>
       </div>
+
+      <GiftContactWizard
+        open={contactWizardOpen}
+        onClose={() => setContactWizardOpen(false)}
+        onDone={() => {
+          fetchDemande();
+        }}
+        giftId={demande.id}
+        reference={demande.reference}
+        talentName={`${demande.talent?.prenom || ""} ${demande.talent?.nom || ""}`.trim()}
+        talentPhoto={demande.talent?.photo}
+        marques={marquesList}
+      />
     </div>
   );
 }
@@ -1963,17 +2216,30 @@ function buildProgressSteps(demande: any) {
   return steps;
 }
 
-function brandResponseFromStatut(statut: string) {
-  if (statut === "ACCEPTE" || statut === "ENVOYE" || statut === "RECU") {
+function brandResponseFromStatutContact(
+  statutContact: string | undefined,
+  giftStatut: string
+) {
+  const map: Record<string, { label: string; color: string; bg: string }> = {
+    A_CONTACTER: { label: "À contacter", color: "#a16207", bg: "#fef9c3" },
+    CONTACTEE: { label: "Contactée", color: "#6d28d9", bg: "#f5f3ff" },
+    RELANCEE: { label: "Relancée", color: "#1d4ed8", bg: "#dbeafe" },
+    ACCEPTEE: { label: "Acceptée", color: "#15803d", bg: "#f0fdf4" },
+    REFUSEE: { label: "Refusée", color: "#b91c1c", bg: "#fef2f2" },
+    SANS_REPONSE: { label: "Sans réponse", color: "#52525b", bg: "#f4f4f5" },
+  };
+  if (statutContact && map[statutContact]) return map[statutContact];
+  // Fallback legacy si jamais contacté via le wizard
+  if (giftStatut === "ACCEPTE" || giftStatut === "ENVOYE" || giftStatut === "RECU") {
     return { label: "Partante", color: "#15803d", bg: "#f0fdf4" };
   }
-  if (statut === "REFUSE") {
+  if (giftStatut === "REFUSE") {
     return { label: "Refusée", color: "#b91c1c", bg: "#fef2f2" };
   }
-  if (statut === "ATTENTE_MARQUE" || statut === "EN_COURS") {
+  if (giftStatut === "ATTENTE_MARQUE" || giftStatut === "EN_COURS") {
     return { label: "Sans réponse", color: "#52525b", bg: "#f4f4f5" };
   }
-  return { label: "En attente", color: "#a16207", bg: "#fef9c3" };
+  return { label: "À contacter", color: "#a16207", bg: "#fef9c3" };
 }
 
 function CommentRow({

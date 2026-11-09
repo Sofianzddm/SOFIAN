@@ -65,7 +65,12 @@ export async function GET(
             id: true,
             nom: true,
             contacts: {
-              where: { outreachExcluded: false, diffusionOptOut: false },
+              // Hors Achats/AO : ces contacts ne sont pas destinataires gift
+              where: {
+                outreachExcluded: false,
+                diffusionOptOut: false,
+                OR: [{ source: null }, { source: { not: "AO" } }],
+              },
               select: {
                 id: true,
                 prenom: true,
@@ -73,18 +78,35 @@ export async function GET(
                 email: true,
                 emailSuggested: true,
                 poste: true,
+                source: true,
+                language: true,
               },
             },
           },
         },
         marques: {
           select: {
+            statutContact: true,
+            contactId: true,
+            contactNom: true,
+            contactEmail: true,
+            contactedAt: true,
+            lastRelanceAt: true,
+            relanceCount: true,
+            lastSubject: true,
+            contactLanguage: true,
+            relanceCancelledAt: true,
+            reponseNote: true,
             marque: {
               select: {
                 id: true,
                 nom: true,
                 contacts: {
-                  where: { outreachExcluded: false, diffusionOptOut: false },
+                  where: {
+                    outreachExcluded: false,
+                    diffusionOptOut: false,
+                    OR: [{ source: null }, { source: { not: "AO" } }],
+                  },
                   select: {
                     id: true,
                     prenom: true,
@@ -92,6 +114,8 @@ export async function GET(
                     email: true,
                     emailSuggested: true,
                     poste: true,
+                    source: true,
+                    language: true,
                   },
                 },
               },
@@ -132,6 +156,7 @@ export async function GET(
       user.role === "HEAD_OF" ||
       user.role === "HEAD_OF_INFLUENCE" ||
       user.role === "CM" ||
+      user.role === "ASSISTANTE_TM" ||
       demande.accountManagerId === user.id ||
       isTmSurGift(user.id, demande);
 
@@ -175,8 +200,9 @@ export async function GET(
       marque: T
     ) => {
       const emailableCount = (marque.contacts || []).filter((c) => {
-        const email = (c.email || c.emailSuggested || "").trim();
-        return email.includes("@");
+        // Email réel uniquement (pas suggestion) — AO déjà exclus du select
+        const email = (c.email || "").trim();
+        return email.includes("@") && !email.includes(" ");
       }).length;
       return {
         ...marque,
@@ -235,6 +261,7 @@ export async function PATCH(
     const canEdit =
       user.role === "ADMIN" ||
       user.role === "CM" ||
+      user.role === "ASSISTANTE_TM" ||
       (user.role === "TM" && isTmSurGift(user.id, demande));
 
     if (!canEdit) {
@@ -287,7 +314,11 @@ export async function PATCH(
     if (body.demandesSpeciales !== undefined) updateData.demandesSpeciales = body.demandesSpeciales;
 
     // Champs modifiables uniquement par AM (Account Manager / Admin)
-    if (user.role === "CM" || user.role === "ADMIN") {
+    if (
+      user.role === "CM" ||
+      user.role === "ASSISTANTE_TM" ||
+      user.role === "ADMIN"
+    ) {
       if (body.statut !== undefined) {
         updateData.statut = body.statut;
 
@@ -360,7 +391,7 @@ export async function PATCH(
         select: { marqueId: true },
       });
       const existingIds = new Set(existing.map((m) => m.marqueId));
-      const fresh = marqueIdsToAdd.filter((mid) => !existingIds.has(mid));
+      const fresh = marqueIdsToAdd.filter((mid: string) => !existingIds.has(mid));
       if (fresh.length > 0) {
         await prisma.demandeGiftMarque.createMany({
           data: fresh.map((marqueId) => ({
@@ -381,7 +412,7 @@ export async function PATCH(
         select: { partnerId: true },
       });
       const existingIds = new Set(existing.map((p) => p.partnerId));
-      const fresh = partnerIdsToAdd.filter((pid) => !existingIds.has(pid));
+      const fresh = partnerIdsToAdd.filter((pid: string) => !existingIds.has(pid));
       if (fresh.length > 0) {
         await prisma.demandeGiftPartner.createMany({
           data: fresh.map((partnerId) => ({
@@ -679,9 +710,10 @@ export async function DELETE(
       );
     }
 
-    // Seul le TM créateur ou un ADMIN peut annuler
+    // TM créateur, Assistante TM ou ADMIN
     const canDelete =
       user.role === "ADMIN" ||
+      user.role === "ASSISTANTE_TM" ||
       (user.role === "TM" && isTmSurGift(user.id, demande));
 
     if (!canDelete) {

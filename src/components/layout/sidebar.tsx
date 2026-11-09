@@ -276,7 +276,15 @@ const menuItems = [
     label: "Gifts",
     href: "/gifts",
     icon: Gift,
-    roles: ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"],
+    roles: [
+      "ADMIN",
+      "HEAD_OF",
+      "HEAD_OF_INFLUENCE",
+      "HEAD_OF_SALES",
+      "TM",
+      "CM",
+      "ASSISTANTE_TM",
+    ],
   },
   {
     label: "Stats activations",
@@ -512,7 +520,7 @@ export function Sidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userRole]);
 
-  // Assistante TM : menu réduit — Talents + Collaborations (stats/uploads) + EMV + RH
+  // Assistante TM : menu réduit — Talents + Collaborations + Gifts + EMV + RH
   if (userRole === "ASSISTANTE_TM") {
     return (
       <aside
@@ -561,6 +569,23 @@ export function Sidebar({
               }`}
             />
             {!collapsed && <span className="font-medium text-sm">Collaborations</span>}
+          </Link>
+          <Link
+            href="/gifts"
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${
+              pathname === "/gifts" || pathname?.startsWith("/gifts/")
+                ? "bg-glowup-rose text-white"
+                : "text-gray-600 hover:bg-glowup-lace hover:text-glowup-licorice"
+            }`}
+          >
+            <Gift
+              className={`w-5 h-5 flex-shrink-0 ${
+                pathname === "/gifts" || pathname?.startsWith("/gifts/")
+                  ? "text-white"
+                  : "text-gray-400 group-hover:text-glowup-rose"
+              }`}
+            />
+            {!collapsed && <span className="font-medium text-sm">Gifts</span>}
           </Link>
           <Link
             href="/simulateur-emv"

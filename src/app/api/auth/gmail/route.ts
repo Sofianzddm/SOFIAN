@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { isMailerRole } from "@/lib/requireMailerAccess";
 
+const RETURN_COOKIE = "gmail_oauth_return";
+
+function safeReturnPath(raw: string | null): string | null {
+  if (!raw) return null;
+  const path = raw.trim();
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("://")) {
+    return null;
+  }
+  return path.slice(0, 500);
+}
+
 export async function GET(request: NextRequest) {
   const session = await getAppSession(request);
   if (!session?.user) {
@@ -41,5 +52,19 @@ export async function GET(request: NextRequest) {
     authUrl.searchParams.set("login_hint", emailHint);
   }
 
-  return NextResponse.redirect(authUrl.toString());
+  const returnTo = safeReturnPath(
+    request.nextUrl.searchParams.get("returnTo")
+  );
+  const res = NextResponse.redirect(authUrl.toString());
+  if (returnTo) {
+    res.cookies.set(RETURN_COOKIE, returnTo, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 15,
+    });
+  } else {
+    res.cookies.delete(RETURN_COOKIE);
+  }
+  return res;
 }

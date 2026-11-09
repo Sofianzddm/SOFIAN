@@ -27,7 +27,11 @@ export async function GET(req: NextRequest) {
 
     // Mode spécial: récupération des talents filtrés pour le formulaire de création
     if (mode === "talents") {
-      if (!["TM", "CM", "ADMIN", "HEAD_OF_INFLUENCE"].includes(user.role)) {
+      if (
+        !["TM", "CM", "ADMIN", "HEAD_OF_INFLUENCE", "ASSISTANTE_TM"].includes(
+          user.role
+        )
+      ) {
         return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
       }
 
@@ -92,10 +96,8 @@ export async function GET(req: NextRequest) {
           },
         },
       ];
-    } else if (role === "CM") {
-      // Account Manager (CM) voit toutes les demandes
-      // Optionnel : filtrer celles qui lui sont assignées
-      // where.accountManagerId = user.id;
+    } else if (role === "CM" || role === "ASSISTANTE_TM") {
+      // CM / Assistante TM : toutes les demandes
     } else if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(role)) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
@@ -201,12 +203,16 @@ export async function POST(req: NextRequest) {
 
     const user = session.user as { id: string; role: string };
 
-    // Seuls les TM, CM, ADMIN et Head of Influence peuvent créer des demandes
-    if (!["TM", "CM", "ADMIN", "HEAD_OF_INFLUENCE"].includes(user.role)) {
+    // TM, Assistante TM, CM, ADMIN, Head of Influence
+    if (
+      !["TM", "CM", "ADMIN", "HEAD_OF_INFLUENCE", "ASSISTANTE_TM"].includes(
+        user.role
+      )
+    ) {
       return NextResponse.json(
         {
           error:
-            "Seuls les Talent Managers, Account Managers, Head of Influence et Admin peuvent créer des demandes de gifts",
+            "Seuls les Talent Managers, Assistantes TM, Account Managers, Head of Influence et Admin peuvent créer des demandes de gifts",
         },
         { status: 403 }
       );

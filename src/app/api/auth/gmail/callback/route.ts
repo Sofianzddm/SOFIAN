@@ -74,9 +74,19 @@ export async function GET(request: NextRequest) {
   if (!isAdmin) {
     const userEmail = (session.user.email || "").trim().toLowerCase();
     if (userEmail && connectedEmail !== userEmail) {
+      const returnCookie = request.cookies
+        .get("gmail_oauth_return")
+        ?.value?.trim();
+      const errPath =
+        returnCookie &&
+        returnCookie.startsWith("/") &&
+        !returnCookie.startsWith("//")
+          ? returnCookie
+          : "/settings/gmail";
+      const sep = errPath.includes("?") ? "&" : "?";
       return NextResponse.redirect(
         new URL(
-          `/admin/mailer?gmail_error=${encodeURIComponent(
+          `${errPath}${sep}gmail_error=${encodeURIComponent(
             `Connecte ta propre boîte (${userEmail}), pas ${connectedEmail}.`
           )}`,
           request.url
@@ -106,6 +116,16 @@ export async function GET(request: NextRequest) {
     linkUserId = session.user.id;
   }
 
+  // Nom d'affichage = personne connectée (Ambre, pas Sofian)
+  const sessionUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { prenom: true, nom: true },
+  });
+  const sessionDisplayName = [sessionUser?.prenom, sessionUser?.nom]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
   await prisma.gmailToken.upsert({
     where: { email: connectedEmail },
     create: {
@@ -114,18 +134,36 @@ export async function GET(request: NextRequest) {
       refreshToken: tokenJson.refresh_token,
       expiresAt: new Date(Date.now() + tokenJson.expires_in * 1000),
       ...(linkUserId ? { userId: linkUserId } : {}),
+      ...(sessionDisplayName && linkUserId === session.user.id
+        ? { displayName: sessionDisplayName }
+        : {}),
     },
     update: {
       accessToken: tokenJson.access_token,
       refreshToken: tokenJson.refresh_token,
       expiresAt: new Date(Date.now() + tokenJson.expires_in * 1000),
       ...(linkUserId ? { userId: linkUserId } : {}),
+      ...(sessionDisplayName && linkUserId === session.user.id
+        ? { displayName: sessionDisplayName }
+        : {}),
     },
   });
 
-  const redirectPath = isAdmin
-    ? `/settings/gmail?connected=${encodeURIComponent(connectedEmail)}`
-    : `/admin/mailer?connected=${encodeURIComponent(connectedEmail)}`;
+  const returnCookie = request.cookies.get("gmail_oauth_return")?.value?.trim();
+  const safeReturn =
+    returnCookie &&
+    returnCookie.startsWith("/") &&
+    !returnCookie.startsWith("//") &&
+    !returnCookie.includes("://")
+      ? returnCookie
+      : null;
 
-  return NextResponse.redirect(new URL(redirectPath, request.url));
+  const defaultPath = `/settings/gmail?connected=${encodeURIComponent(connectedEmail)}`;
+  const redirectPath = safeReturn
+    ? `${safeReturn}${safeReturn.includes("?") ? "&" : "?"}gmail=connected`
+    : defaultPath;
+
+  const res = NextResponse.redirect(new URL(redirectPath, request.url));
+  res.cookies.delete("gmail_oauth_return");
+  return res;
 }

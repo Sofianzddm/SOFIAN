@@ -12,7 +12,14 @@ import { normalizeMissionBrandKey } from "@/lib/contact-missions";
  *
  * Body: { nom: string, talentId?: string, giftId?: string, secteur?: string, siteWeb?: string }
  */
-const ALLOWED = ["TM", "CM", "ADMIN", "HEAD_OF_INFLUENCE", "HEAD_OF"] as const;
+const ALLOWED = [
+  "TM",
+  "CM",
+  "ADMIN",
+  "HEAD_OF_INFLUENCE",
+  "HEAD_OF",
+  "ASSISTANTE_TM",
+] as const;
 
 export async function POST(req: NextRequest) {
   try {

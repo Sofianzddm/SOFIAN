@@ -63,6 +63,7 @@ export async function POST(
       user.role === "HEAD_OF" ||
       user.role === "HEAD_OF_INFLUENCE" ||
       user.role === "CM" ||
+      user.role === "ASSISTANTE_TM" ||
       demande.accountManagerId === user.id ||
       isTmSurGift(user.id, demande);
 
