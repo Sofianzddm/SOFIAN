@@ -22,10 +22,10 @@ import {
   generateGiftRelanceBody,
 } from "@/lib/gifts/gift-relance-ai";
 import { normalizeContactLanguage } from "@/lib/gifts/contact-language";
+import { GIFT_RELANCE_BUSINESS_DAYS } from "@/lib/gifts/gift-relance-config";
 import { relanceDue } from "@/lib/business-days";
 
-/** J+2 ouvrés après le 1er contact (demande user — casting est en J+3). */
-export const GIFT_RELANCE_BUSINESS_DAYS = 2;
+export { GIFT_RELANCE_BUSINESS_DAYS };
 
 export type GiftRelanceOutcome = {
   demandeGiftId: string;

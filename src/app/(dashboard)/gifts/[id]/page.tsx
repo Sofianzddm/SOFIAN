@@ -34,6 +34,8 @@ import {
   renderCommentWithMentions,
 } from "@/components/MentionTextarea";
 import { GiftContactWizard } from "@/components/gifts/GiftContactWizard";
+import { businessDaysAfter } from "@/lib/business-days";
+import { GIFT_RELANCE_BUSINESS_DAYS } from "@/lib/gifts/gift-relance-config";
 
 function normalize(s: string) {
   return s
@@ -112,6 +114,21 @@ function formatDateLong(date: string | Date | null | undefined) {
     month: "long",
     year: "numeric",
   });
+}
+
+function formatDayShort(date: string | Date | null | undefined) {
+  if (!date) return null;
+  return new Date(date).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function giftRelanceDueAt(contactedAt: string | Date) {
+  return businessDaysAfter(
+    new Date(contactedAt),
+    GIFT_RELANCE_BUSINESS_DAYS
+  );
 }
 
 function initials(prenom?: string, nom?: string) {
@@ -1232,10 +1249,10 @@ export default function GiftDetailPage() {
                     </button>
                   </div>
                 )}
-                <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)_minmax(0,0.85fr)_minmax(0,1.2fr)] gap-3 border-b border-zinc-100 py-3.5 text-xs font-medium text-zinc-500">
+                <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)_minmax(0,0.95fr)_minmax(0,1.1fr)] gap-3 border-b border-zinc-100 py-3.5 text-xs font-medium text-zinc-500">
                   <span>Marque</span>
                   <span>Contacts</span>
-                  <span>Contactée le</span>
+                  <span>Contact / Relance</span>
                   <span>Réponse</span>
                 </div>
                 {brandsCount === 0 ? (
@@ -1257,6 +1274,7 @@ export default function GiftDetailPage() {
                         contactNom?: string | null;
                         contactEmail?: string | null;
                         contactedAt?: string | null;
+                        lastRelanceAt?: string | null;
                         relanceCount?: number;
                         relanceCancelledAt?: string | null;
                         contactLanguage?: string | null;
@@ -1286,6 +1304,17 @@ export default function GiftDetailPage() {
                         );
                         const contactedAt =
                           marque.contactedAt || demande.dateContactMarque;
+                        const contactedLabel = formatDayShort(contactedAt);
+                        const relanceDueLabel =
+                          contactedAt &&
+                          marque.statutContact === "CONTACTEE" &&
+                          !(marque.relanceCount || 0) &&
+                          !marque.relanceCancelledAt
+                            ? formatDayShort(giftRelanceDueAt(contactedAt))
+                            : null;
+                        const lastRelanceLabel = formatDayShort(
+                          marque.lastRelanceAt
+                        );
                         const canQuickActions =
                           isAM &&
                           !demande.archivedAt &&
@@ -1296,7 +1325,7 @@ export default function GiftDetailPage() {
                         return (
                           <div
                             key={marque.id}
-                            className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)_minmax(0,0.85fr)_minmax(0,1.2fr)] items-center gap-3 border-b border-zinc-100 py-4 text-sm"
+                            className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,0.9fr)_minmax(0,0.95fr)_minmax(0,1.1fr)] items-center gap-3 border-b border-zinc-100 py-4 text-sm"
                           >
                             <div className="flex min-w-0 items-center gap-3">
                               <div className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-zinc-100 text-xs font-semibold text-zinc-600">
@@ -1340,28 +1369,50 @@ export default function GiftDetailPage() {
                                 </span>
                               )}
                             </div>
-                            <span className="text-zinc-600">
-                              {formatDate(contactedAt) || "—"}
-                              {(marque.relanceCount || 0) > 0 ? (
-                                <span className="mt-0.5 block text-[11px] text-zinc-400">
-                                  {marque.relanceCount} relance
-                                  {(marque.relanceCount || 0) > 1 ? "s" : ""}
-                                </span>
-                              ) : marque.statutContact === "CONTACTEE" &&
-                                !marque.relanceCancelledAt ? (
-                                <span className="mt-0.5 block text-[11px] text-violet-500">
-                                  Auto J+2 prévue
+                            <div className="flex min-w-0 flex-col items-start gap-1">
+                              {contactedLabel ? (
+                                <span
+                                  className="inline-flex items-center rounded-full bg-violet-50 px-2.5 py-[3px] text-[11px] font-medium text-violet-800"
+                                  title={
+                                    formatDate(contactedAt) || undefined
+                                  }
+                                >
+                                  Contactée · {contactedLabel}
                                   {marque.contactLanguage === "en"
                                     ? " · EN"
                                     : ""}
                                 </span>
+                              ) : (
+                                <span className="text-xs text-zinc-400">—</span>
+                              )}
+                              {(marque.relanceCount || 0) > 0 ||
+                              lastRelanceLabel ? (
+                                <span
+                                  className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-[3px] text-[11px] font-medium text-blue-800"
+                                  title={
+                                    formatDate(marque.lastRelanceAt) ||
+                                    undefined
+                                  }
+                                >
+                                  Relancée
+                                  {lastRelanceLabel
+                                    ? ` · ${lastRelanceLabel}`
+                                    : ` · ${marque.relanceCount}×`}
+                                </span>
+                              ) : relanceDueLabel ? (
+                                <span
+                                  className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-[3px] text-[11px] font-medium text-amber-900"
+                                  title={`Relance auto J+${GIFT_RELANCE_BUSINESS_DAYS} jours ouvrés`}
+                                >
+                                  Relance · {relanceDueLabel}
+                                </span>
                               ) : marque.statutContact === "CONTACTEE" &&
                                 marque.relanceCancelledAt ? (
-                                <span className="mt-0.5 block text-[11px] text-zinc-400">
+                                <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-[3px] text-[11px] font-medium text-zinc-600">
                                   Auto stoppée
                                 </span>
                               ) : null}
-                            </span>
+                            </div>
                             <div className="flex min-w-0 flex-col items-start gap-1.5">
                               <span
                                 className="rounded-full px-2.5 py-[3px] text-xs font-medium"

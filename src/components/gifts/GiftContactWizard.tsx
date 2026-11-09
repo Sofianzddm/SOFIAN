@@ -13,6 +13,8 @@ import {
   X,
   AlertTriangle,
 } from "lucide-react";
+import { businessDaysAfter } from "@/lib/business-days";
+import { GIFT_RELANCE_BUSINESS_DAYS } from "@/lib/gifts/gift-relance-config";
 
 type Contact = {
   id: string;
@@ -62,6 +64,21 @@ const STATUT_CONTACT_STYLE: Record<
   REFUSEE: { label: "Refusée", color: "#b91c1c", bg: "#fef2f2" },
   SANS_REPONSE: { label: "Sans réponse", color: "#52525b", bg: "#f4f4f5" },
 };
+
+function formatDayShort(date: string | Date | null | undefined) {
+  if (!date) return null;
+  return new Date(date).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function giftRelanceDueAt(contactedAt: string | Date) {
+  return businessDaysAfter(
+    new Date(contactedAt),
+    GIFT_RELANCE_BUSINESS_DAYS
+  );
+}
 
 function isAoContact(c: Contact) {
   return (c.source || "").toUpperCase() === "AO";
@@ -985,9 +1002,12 @@ export function GiftContactWizard({
 
                   <div className="overflow-hidden rounded-lg border border-zinc-200">
                     {selectedMarques.map((m) => {
-                      const style =
-                        STATUT_CONTACT_STYLE.CONTACTEE;
                       const busy = actionBusy?.startsWith(m.id);
+                      const contactedAt = m.contactedAt || new Date();
+                      const contactedLabel = formatDayShort(contactedAt);
+                      const relanceDueLabel = formatDayShort(
+                        giftRelanceDueAt(contactedAt)
+                      );
                       return (
                         <div
                           key={m.id}
@@ -997,15 +1017,17 @@ export function GiftContactWizard({
                             <p className="truncate text-sm font-semibold text-zinc-900">
                               {m.nom}
                             </p>
-                            <span
-                              className="mt-1 inline-flex rounded-full px-2 py-[2px] text-[11px] font-medium"
-                              style={{
-                                color: style.color,
-                                background: style.bg,
-                              }}
-                            >
-                              {style.label}
-                            </span>
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              <span className="inline-flex rounded-full bg-violet-50 px-2 py-[2px] text-[11px] font-medium text-violet-800">
+                                Contactée · {contactedLabel}
+                              </span>
+                              <span
+                                className="inline-flex rounded-full bg-amber-50 px-2 py-[2px] text-[11px] font-medium text-amber-900"
+                                title={`Relance auto J+${GIFT_RELANCE_BUSINESS_DAYS} jours ouvrés`}
+                              >
+                                Relance · {relanceDueLabel}
+                              </span>
+                            </div>
                           </div>
                           <div className="flex flex-wrap gap-1.5">
                             <button
