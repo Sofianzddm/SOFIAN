@@ -19,7 +19,10 @@ import {
   getDestinatairesNotification,
   talentAccessForGiftSelect,
 } from "@/lib/delegations";
-import { resolveGiftSenderMailbox } from "@/lib/gifts/gift-sender-mailbox";
+import {
+  resolveGiftSenderMailbox,
+  resolveGiftSenderMailboxByEmail,
+} from "@/lib/gifts/gift-sender-mailbox";
 import { canContactGiftMarques } from "@/lib/gifts/gift-roles";
 import { ensureTalentExtralinksInHtml } from "@/lib/talent-email-links";
 
@@ -62,6 +65,8 @@ export async function GET(
       fromName: mailbox?.displayName || null,
       senderPrenom: mailbox?.prenom || null,
       gmailConnected: Boolean(mailbox?.email),
+      /** Admin peut choisir une autre boîte connectée dans le wizard. */
+      canPickMailbox: user.role === "ADMIN",
     });
   } catch (error) {
     console.error("GET /api/gifts/[id]/contact-marques:", error);
@@ -97,6 +102,8 @@ export async function POST(
       subject?: string;
       bodyText?: string;
       html?: string;
+      /** Override ADMIN : envoyer depuis une autre boîte connectée (ex. Noémie). */
+      fromEmail?: string;
       /** Sujet/corps personnalisés par marque (pipeline). */
       draftsByMarque?: Record<
         string,
@@ -128,19 +135,25 @@ export async function POST(
       );
     }
 
-    // Toujours la boîte de la personne connectée (Ambre → Ambre, jamais Sofian)
-    const mailbox = await resolveGiftSenderMailbox(user.id);
+    const overrideFrom =
+      user.role === "ADMIN" ? (body.fromEmail || "").trim() : "";
+    // AM / Assistante : toujours sa boîte. Admin : peut basculer (Noémie, Ambre…).
+    const mailbox = overrideFrom
+      ? await resolveGiftSenderMailboxByEmail(overrideFrom)
+      : await resolveGiftSenderMailbox(user.id);
     if (!mailbox?.email) {
       return NextResponse.json(
         {
-          error:
-            "Aucune boîte Gmail connectée à ton compte. Clique sur « Connecter ma boîte mail ».",
+          error: overrideFrom
+            ? `Boîte Gmail introuvable pour ${overrideFrom}.`
+            : "Aucune boîte Gmail connectée à ton compte. Clique sur « Connecter ma boîte mail ».",
         },
         { status: 400 }
       );
     }
     const fromEmail = mailbox.email;
     const senderAmName = mailbox.displayName;
+    const sentByUserId = mailbox.userId || user.id;
 
     const demande = await prisma.demandeGift.findUnique({
       where: { id },
@@ -430,7 +443,7 @@ export async function POST(
           lastMessageId: primaryMessage.messageId,
           lastThreadId: primaryMessage.threadId,
           contactLanguage: snapLang,
-          sentById: user.id,
+          sentById: sentByUserId,
           relanceCancelledAt: null,
           lastRelanceAt: null,
           relanceCount: 0,
@@ -446,7 +459,7 @@ export async function POST(
           lastMessageId: primaryMessage.messageId,
           lastThreadId: primaryMessage.threadId,
           contactLanguage: snapLang,
-          sentById: user.id,
+          sentById: sentByUserId,
           // Nouvel envoi → réarme la relance auto J+2
           relanceCancelledAt: null,
           lastRelanceAt: null,
@@ -471,7 +484,7 @@ export async function POST(
       giftUpdate.statut = "ATTENTE_MARQUE";
     }
     if (!demande.accountManagerId) {
-      giftUpdate.accountManagerId = user.id;
+      giftUpdate.accountManagerId = sentByUserId;
     }
     if (Object.keys(giftUpdate).length > 0) {
       await prisma.demandeGift.update({

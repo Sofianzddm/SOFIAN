@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   CheckCircle,
   ChevronLeft,
@@ -15,6 +16,12 @@ import {
 } from "lucide-react";
 import { businessDaysAfter } from "@/lib/business-days";
 import { GIFT_RELANCE_BUSINESS_DAYS } from "@/lib/gifts/gift-relance-config";
+
+type GmailAccountOption = {
+  email: string;
+  displayName?: string | null;
+  user?: { prenom?: string | null; nom?: string | null } | null;
+};
 
 type Contact = {
   id: string;
@@ -154,7 +161,13 @@ export function GiftContactWizard({
   const [fromName, setFromName] = useState<string | null>(null);
   const [senderPrenom, setSenderPrenom] = useState<string | null>(null);
   const [gmailConnected, setGmailConnected] = useState(true);
+  const [canPickMailbox, setCanPickMailbox] = useState(false);
+  const [mailboxOptions, setMailboxOptions] = useState<GmailAccountOption[]>(
+    []
+  );
   const [loadingDraft, setLoadingDraft] = useState(false);
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "ADMIN";
   const [generatingAi, setGeneratingAi] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -201,6 +214,7 @@ export function GiftContactWizard({
         setFromName(data.fromName || null);
         setSenderPrenom(data.senderPrenom || null);
         setGmailConnected(Boolean(data.gmailConnected));
+        setCanPickMailbox(Boolean(data.canPickMailbox));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -215,6 +229,53 @@ export function GiftContactWizard({
     // Intentionnel : reset uniquement à l'ouverture / changement de gift
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, giftId]);
+
+  // Admin : charge toutes les boîtes Gmail pour basculer (Noémie, Ambre…)
+  useEffect(() => {
+    if (!open || !canPickMailbox) {
+      setMailboxOptions([]);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/gmail/accounts", { credentials: "include" })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Boîtes Gmail");
+        if (cancelled) return;
+        const accounts = (Array.isArray(data.accounts) ? data.accounts : [])
+          .map(
+            (a: {
+              email?: string;
+              displayName?: string | null;
+              user?: GmailAccountOption["user"];
+            }) => ({
+              email: String(a.email || "").trim(),
+              displayName: a.displayName || null,
+              user: a.user || null,
+            })
+          )
+          .filter((a: GmailAccountOption) => a.email.includes("@"));
+        setMailboxOptions(accounts);
+        // Si admin sans boîte perso : pré-sélectionne une boîte dispo
+        setFromEmail((current) => {
+          if (current) return current;
+          const first = accounts[0]?.email || null;
+          if (first) {
+            const opt = accounts[0];
+            setFromName(opt.displayName || null);
+            setSenderPrenom(opt.user?.prenom?.trim() || null);
+            setGmailConnected(true);
+          }
+          return first;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setMailboxOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, canPickMailbox]);
 
   const selectedMarques = useMemo(
     () => marques.filter((m) => selectedMarqueIds.has(m.id)),
@@ -254,6 +315,68 @@ export function GiftContactWizard({
       else next.add(key);
       return next;
     });
+  }
+
+  const allEmailableKeys = useMemo(() => {
+    const keys: RecipientKey[] = [];
+    for (const m of selectedMarques) {
+      for (const c of giftVisibleContacts(m.contacts)) {
+        if (isEmailable(c)) keys.push(recipientKey(m.id, c.id));
+      }
+    }
+    return keys;
+  }, [selectedMarques]);
+
+  const allEmailableSelected =
+    allEmailableKeys.length > 0 &&
+    allEmailableKeys.every((k) => selectedRecipients.has(k));
+
+  function toggleSelectAllContacts() {
+    setSelectedRecipients((prev) => {
+      if (
+        allEmailableKeys.length > 0 &&
+        allEmailableKeys.every((k) => prev.has(k))
+      ) {
+        return new Set();
+      }
+      return new Set(allEmailableKeys);
+    });
+  }
+
+  function toggleSelectAllForMarque(marqueId: string) {
+    const marque = selectedMarques.find((m) => m.id === marqueId);
+    if (!marque) return;
+    const keys = giftVisibleContacts(marque.contacts)
+      .filter(isEmailable)
+      .map((c) => recipientKey(marqueId, c.id));
+    if (keys.length === 0) return;
+    setSelectedRecipients((prev) => {
+      const next = new Set(prev);
+      const allOn = keys.every((k) => next.has(k));
+      if (allOn) {
+        for (const k of keys) next.delete(k);
+      } else {
+        for (const k of keys) next.add(k);
+      }
+      return next;
+    });
+  }
+
+  function mailboxLabel(a: GmailAccountOption) {
+    const name =
+      a.displayName?.trim() ||
+      [a.user?.prenom, a.user?.nom].filter(Boolean).join(" ").trim();
+    return name ? `${name} · ${a.email}` : a.email;
+  }
+
+  function onPickMailbox(email: string) {
+    const opt = mailboxOptions.find(
+      (a) => a.email.toLowerCase() === email.toLowerCase()
+    );
+    setFromEmail(email);
+    setFromName(opt?.displayName || null);
+    setSenderPrenom(opt?.user?.prenom?.trim() || null);
+    setGmailConnected(true);
   }
 
   function syncActiveDraft(
@@ -437,7 +560,7 @@ export function GiftContactWizard({
 
   async function handleSend() {
     setError(null);
-    if (!gmailConnected) {
+    if (!gmailConnected && !(canPickMailbox && fromEmail)) {
       setError(
         "Aucune boîte mail connectée. Clique sur « Connecter ma boîte mail »."
       );
@@ -490,6 +613,9 @@ export function GiftContactWizard({
           subject: subject.trim(),
           bodyText: bodyText.trim(),
           draftsByMarque: draftsPayload,
+          ...(canPickMailbox && fromEmail
+            ? { fromEmail }
+            : {}),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -649,21 +775,42 @@ export function GiftContactWizard({
               {step !== "suivi" && (
                 <div
                   className={`mb-4 flex flex-col gap-2 rounded-lg border px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between ${
-                    gmailConnected
+                    gmailConnected ||
+                    (canPickMailbox && mailboxOptions.length > 0)
                       ? "border-emerald-200 bg-emerald-50/60"
                       : "border-amber-200 bg-amber-50"
                   }`}
                 >
-                  <div className="min-w-0 text-sm">
-                    {gmailConnected ? (
+                  <div className="min-w-0 flex-1 text-sm">
+                    {gmailConnected ||
+                    (canPickMailbox && mailboxOptions.length > 0) ? (
                       <>
                         <p className="font-medium text-emerald-900">
                           Connectée
                           {senderPrenom ? ` · ${senderPrenom}` : fromName ? ` · ${fromName}` : ""}
                         </p>
-                        <p className="truncate text-emerald-800/80">
-                          Envoi depuis {fromEmail}
-                        </p>
+                        {canPickMailbox && mailboxOptions.length > 0 ? (
+                          <label className="mt-1.5 flex flex-col gap-1">
+                            <span className="text-xs text-emerald-800/80">
+                              Envoyer depuis (admin)
+                            </span>
+                            <select
+                              value={fromEmail || ""}
+                              onChange={(e) => onPickMailbox(e.target.value)}
+                              className="h-9 max-w-md rounded-lg border border-emerald-300 bg-white px-2.5 text-sm text-zinc-900 outline-none focus:border-violet-600 focus:ring-[3px] focus:ring-violet-600/15"
+                            >
+                              {mailboxOptions.map((a) => (
+                                <option key={a.email} value={a.email}>
+                                  {mailboxLabel(a)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : (
+                          <p className="truncate text-emerald-800/80">
+                            Envoi depuis {fromEmail}
+                          </p>
+                        )}
                       </>
                     ) : (
                       <>
@@ -673,6 +820,9 @@ export function GiftContactWizard({
                         <p className="text-amber-900/80">
                           Chaque AM envoie depuis son Gmail (Ambre → Ambre, pas
                           celle d&apos;un autre).
+                          {isAdmin
+                            ? " En admin, connecte d'abord une boîte puis bascule."
+                            : ""}
                         </p>
                       </>
                     )}
@@ -682,7 +832,7 @@ export function GiftContactWizard({
                       href={gmailConnectHref}
                       className="inline-flex h-9 flex-none items-center justify-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 text-xs font-medium text-emerald-900 hover:bg-emerald-50"
                     >
-                      Changer de boîte
+                      {canPickMailbox ? "Connecter une boîte" : "Changer de boîte"}
                     </a>
                   ) : (
                     <a
@@ -750,27 +900,59 @@ export function GiftContactWizard({
 
               {step === "contacts" && (
                 <div className="flex flex-col gap-5">
-                  <p className="text-sm text-zinc-600">
-                    Choisissez les destinataires. Seuls les contacts avec un
-                    email enrichi sont cochables (hors Achats / AO).
-                  </p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm text-zinc-600">
+                      Choisissez les destinataires. Seuls les contacts avec un
+                      email enrichi sont cochables (hors Achats / AO).
+                    </p>
+                    {allEmailableKeys.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={toggleSelectAllContacts}
+                        className="text-xs font-semibold text-violet-700 hover:underline"
+                      >
+                        {allEmailableSelected
+                          ? "Tout désélectionner"
+                          : `Tout sélectionner (${allEmailableKeys.length})`}
+                      </button>
+                    )}
+                  </div>
                   {selectedMarques.map((m) => {
                     const contacts = giftVisibleContacts(m.contacts);
+                    const emailableKeys = contacts
+                      .filter(isEmailable)
+                      .map((c) => recipientKey(m.id, c.id));
+                    const marqueAllSelected =
+                      emailableKeys.length > 0 &&
+                      emailableKeys.every((k) => selectedRecipients.has(k));
                     return (
                       <div key={m.id}>
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <h3 className="text-[13px] font-semibold text-zinc-900">
                             {m.nom}
                           </h3>
-                          {contacts.every((c) => !isEmailable(c)) && (
-                            <Link
-                              href="/enrichissement?tab=attente"
-                              className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 hover:underline"
-                            >
-                              <ScanSearch className="h-3 w-3" />
-                              Enrichir
-                            </Link>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {emailableKeys.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => toggleSelectAllForMarque(m.id)}
+                                className="text-[11px] font-semibold text-violet-700 hover:underline"
+                              >
+                                {marqueAllSelected
+                                  ? "Désélectionner"
+                                  : `Tous (${emailableKeys.length})`}
+                              </button>
+                            )}
+                            {contacts.every((c) => !isEmailable(c)) && (
+                              <Link
+                                href="/enrichissement?tab=attente"
+                                className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 hover:underline"
+                              >
+                                <ScanSearch className="h-3 w-3" />
+                                Enrichir
+                              </Link>
+                            )}
+                          </div>
                         </div>
                         <div className="flex flex-col gap-1">
                           {contacts.length === 0 ? (

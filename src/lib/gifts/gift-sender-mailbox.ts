@@ -6,6 +6,8 @@ export type GiftSenderMailbox = {
   nom: string;
   /** Prénom Nom — pour signature template + From. */
   displayName: string;
+  /** User lié à la boîte (pour sentById / relance auto). */
+  userId: string | null;
 };
 
 /**
@@ -37,6 +39,7 @@ export async function resolveGiftSenderMailbox(
       prenom,
       nom,
       displayName: user.gmailToken.displayName?.trim() || platformName,
+      userId: user.id,
     };
   }
 
@@ -67,5 +70,43 @@ export async function resolveGiftSenderMailbox(
     prenom,
     nom,
     displayName: byEmail.displayName?.trim() || platformName,
+    userId: user.id,
+  };
+}
+
+/**
+ * Boîte Gmail par adresse (override ADMIN dans le wizard gift).
+ * Utilise le user lié au token si présent, sinon le displayName du token.
+ */
+export async function resolveGiftSenderMailboxByEmail(
+  emailRaw: string
+): Promise<GiftSenderMailbox | null> {
+  const email = emailRaw.trim().toLowerCase();
+  if (!email.includes("@")) return null;
+
+  const token = await prisma.gmailToken.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+    select: {
+      email: true,
+      displayName: true,
+      userId: true,
+      user: { select: { id: true, prenom: true, nom: true } },
+    },
+  });
+  if (!token) return null;
+
+  const prenom = (token.user?.prenom || "").trim();
+  const nom = (token.user?.nom || "").trim();
+  const platformName =
+    [prenom, nom].filter(Boolean).join(" ") ||
+    token.displayName?.trim() ||
+    token.email;
+
+  return {
+    email: token.email,
+    prenom: prenom || platformName.split(/\s+/)[0] || "Glow",
+    nom: nom || "",
+    displayName: token.displayName?.trim() || platformName,
+    userId: token.userId || token.user?.id || null,
   };
 }
