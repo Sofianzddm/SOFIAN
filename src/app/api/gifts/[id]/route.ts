@@ -243,6 +243,15 @@ export async function PATCH(
         updateData.horaireCheckIn = body.horaireCheckIn;
       if (body.horaireCheckOut !== undefined)
         updateData.horaireCheckOut = body.horaireCheckOut;
+
+      // Archive / désarchive (sans changer le statut métier)
+      if (body.archived === true) {
+        updateData.archivedAt = new Date();
+        updateData.archivedById = user.id;
+      } else if (body.archived === false) {
+        updateData.archivedAt = null;
+        updateData.archivedById = null;
+      }
     }
 
     const demandeUpdated = await prisma.demandeGift.update({

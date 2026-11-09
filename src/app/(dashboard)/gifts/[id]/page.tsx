@@ -5,39 +5,128 @@ import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import {
-  Gift,
-  ArrowLeft,
   Loader2,
   AlertCircle,
   User,
   Building2,
   Package,
-  Calendar,
-  MapPin,
-  DollarSign,
   MessageSquare,
   Send,
   Clock,
   CheckCircle,
-  XCircle,
   Truck,
   TrendingUp,
   Edit,
   Save,
   X,
   AlertTriangle,
-  Phone,
   Mail,
   FileText,
-  ArrowRight,
   Plus,
   Ban,
+  ScanSearch,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import {
   MentionTextarea,
   type MentionableUser,
   renderCommentWithMentions,
 } from "@/components/MentionTextarea";
+
+const TYPE_LABELS: Record<string, string> = {
+  PRODUIT: "Produit",
+  EXPERIENCE: "Expérience",
+  SERVICE: "Service",
+  HOTEL: "Hôtel",
+  AUTRE: "Autre",
+};
+
+const PRIORITE_LABEL: Record<string, string> = {
+  BASSE: "Basse",
+  NORMALE: "Normale",
+  HAUTE: "Haute",
+  URGENTE: "Urgente",
+};
+
+const PRIORITE_CLASS: Record<string, string> = {
+  BASSE: "text-zinc-600 bg-zinc-50 border-zinc-200",
+  NORMALE: "text-blue-700 bg-blue-50 border-blue-200",
+  HAUTE: "text-orange-700 bg-orange-50 border-orange-200",
+  URGENTE: "text-red-700 bg-red-50 border-red-200",
+};
+
+const STATUT_STYLE: Record<string, { label: string; color: string; bg: string }> = {
+  BROUILLON: { label: "Brouillon", color: "#52525b", bg: "#f4f4f5" },
+  EN_ATTENTE: { label: "En attente", color: "#a16207", bg: "#fef9c3" },
+  EN_COURS: { label: "En cours", color: "#1d4ed8", bg: "#dbeafe" },
+  ATTENTE_MARQUE: { label: "Attente marque", color: "#6d28d9", bg: "#f5f3ff" },
+  ACCEPTE: { label: "Accepté", color: "#047857", bg: "#d1fae5" },
+  REFUSE: { label: "Refusé", color: "#b91c1c", bg: "#fee2e2" },
+  ENVOYE: { label: "Envoyé", color: "#4338ca", bg: "#e0e7ff" },
+  RECU: { label: "Reçu", color: "#15803d", bg: "#dcfce7" },
+  ANNULE: { label: "Annulé", color: "#52525b", bg: "#f4f4f5" },
+};
+
+const CONTREPARTIE_LABELS: Record<string, string> = {
+  STORY: "Story",
+  POST_FEED: "Post feed",
+  REEL_TIKTOK: "Reel / TikTok",
+  MENTION_STORY: "Mention story",
+  CHOIX_TALENT: "Au choix du talent",
+};
+
+const inputClass =
+  "w-full h-[38px] rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-violet-600 focus:ring-[3px] focus:ring-violet-600/15";
+const textareaClass =
+  "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 outline-none transition focus:border-violet-600 focus:ring-[3px] focus:ring-violet-600/15 resize-none";
+const cardClass =
+  "rounded-xl border border-zinc-200 bg-white shadow-sm";
+
+function formatDate(
+  date: string | Date | null | undefined,
+  opts?: Intl.DateTimeFormatOptions
+) {
+  if (!date) return null;
+  return new Date(date).toLocaleDateString("fr-FR", opts || {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDateLong(date: string | Date | null | undefined) {
+  if (!date) return null;
+  return new Date(date).toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function initials(prenom?: string, nom?: string) {
+  return `${prenom?.[0] || ""}${nom?.[0] || ""}`.toUpperCase() || "?";
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className="text-xs text-zinc-500">{label}</span>
+      <div className="text-sm leading-relaxed text-zinc-800">{children}</div>
+    </div>
+  );
+}
+
+function EmptyVal() {
+  return <span className="text-zinc-400">Non renseigné</span>;
+}
 
 export default function GiftDetailPage() {
   const router = useRouter();
@@ -52,6 +141,11 @@ export default function GiftDetailPage() {
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState<any>({});
   const [mentionableUsers, setMentionableUsers] = useState<MentionableUser[]>([]);
+  const [activeTab, setActiveTab] = useState<"chat" | "brands">("chat");
+  const [enrichNom, setEnrichNom] = useState("");
+  const [enriching, setEnriching] = useState(false);
+  const [enrichFlash, setEnrichFlash] = useState<string | null>(null);
+  const [archiving, setArchiving] = useState(false);
 
   const user = session?.user as { id?: string; role?: string };
   const isAM = user?.role === "CM" || user?.role === "ADMIN";
@@ -67,8 +161,16 @@ export default function GiftDetailPage() {
   const canCancel =
     demande &&
     demande.statut !== "ANNULE" &&
+    !demande.archivedAt &&
     (user?.role === "ADMIN" || (isTM && isTmSurDemande));
-  const isHotelAcceptedOrBeyond = !!demande &&
+  const canArchive = !!demande && isAM;
+  const canEdit =
+    !!demande &&
+    demande.statut !== "ANNULE" &&
+    !demande.archivedAt &&
+    (isAM || (isTM && isTmSurDemande));
+  const isHotelAcceptedOrBeyond =
+    !!demande &&
     demande.typeGift === "HOTEL" &&
     (demande.statut === "ACCEPTE" ||
       demande.statut === "ENVOYE" ||
@@ -83,8 +185,7 @@ export default function GiftDetailPage() {
       try {
         const res = await fetch("/api/users/mentionable");
         if (res.ok) {
-          const data = await res.json();
-          setMentionableUsers(data);
+          setMentionableUsers(await res.json());
         }
       } catch {
         // silencieux
@@ -105,15 +206,10 @@ export default function GiftDetailPage() {
         priorite: data.priorite,
         numeroSuivi: data.numeroSuivi || "",
         notesInternes: data.notesInternes || "",
-        // Contreparties (nouveau système JSON)
-        contreparties: Array.isArray(data.contreparties)
-          ? data.contreparties
-          : [],
-        // Retour marque
+        contreparties: Array.isArray(data.contreparties) ? data.contreparties : [],
         contactMarqueNom: data.contactMarqueNom || "",
         contactMarqueEmail: data.contactMarqueEmail || "",
         dateExpeditionPrevue: data.dateExpeditionPrevue || "",
-        // Retour hôtel
         numeroReservation: data.numeroReservation || "",
         nomReservation: data.nomReservation || "",
         adresseHotel: data.adresseHotel || "",
@@ -136,7 +232,7 @@ export default function GiftDetailPage() {
       });
       if (!res.ok) throw new Error("Erreur");
       await fetchDemande();
-    } catch (err) {
+    } catch {
       alert("Erreur lors de la prise en charge");
     }
   };
@@ -144,7 +240,6 @@ export default function GiftDetailPage() {
   const handleSendComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentaire.trim()) return;
-
     try {
       setSending(true);
       const res = await fetch(`/api/gifts/${params.id}/commentaires`, {
@@ -152,11 +247,10 @@ export default function GiftDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contenu: commentaire, interne: false }),
       });
-
       if (!res.ok) throw new Error("Erreur");
       setCommentaire("");
       await fetchDemande();
-    } catch (err) {
+    } catch {
       alert("Erreur lors de l'envoi du commentaire");
     } finally {
       setSending(false);
@@ -170,10 +264,9 @@ export default function GiftDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ statut: newStatut }),
       });
-
       if (!res.ok) throw new Error("Erreur");
       await fetchDemande();
-    } catch (err) {
+    } catch {
       alert("Erreur lors de la mise à jour du statut");
     }
   };
@@ -185,11 +278,10 @@ export default function GiftDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(editData),
       });
-
       if (!res.ok) throw new Error("Erreur");
       await fetchDemande();
       setEditing(false);
-    } catch (err) {
+    } catch {
       alert("Erreur lors de la sauvegarde");
     }
   };
@@ -199,38 +291,97 @@ export default function GiftDetailPage() {
       "Confirmer l'annulation de cette demande de gift ?"
     );
     if (!confirmed) return;
-
     try {
       setCancelling(true);
-      const res = await fetch(`/api/gifts/${params.id}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(`/api/gifts/${params.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Erreur");
       router.push("/gifts");
       router.refresh();
-    } catch (err) {
+    } catch {
       alert("Erreur lors de l'annulation de la demande");
     } finally {
       setCancelling(false);
     }
   };
 
+  const handleToggleArchive = async () => {
+    if (!demande) return;
+    const willArchive = !demande.archivedAt;
+    const confirmed = window.confirm(
+      willArchive
+        ? "Archiver cette demande ? Elle sortira du pipeline actif."
+        : "Désarchiver cette demande ? Elle reviendra dans le pipeline actif."
+    );
+    if (!confirmed) return;
+    try {
+      setArchiving(true);
+      const res = await fetch(`/api/gifts/${params.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: willArchive }),
+      });
+      if (!res.ok) throw new Error("Erreur");
+      await fetchDemande();
+    } catch {
+      alert(
+        willArchive
+          ? "Erreur lors de l'archivage"
+          : "Erreur lors du désarchivage"
+      );
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const handleEnrichirMarque = async () => {
+    const nom = enrichNom.trim();
+    if (!nom) return;
+    try {
+      setEnriching(true);
+      setEnrichFlash(null);
+      const res = await fetch("/api/gifts/enrich-marque", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nom,
+          giftId: params.id,
+          talentId: demande?.talentId || demande?.talent?.id,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Impossible d'envoyer en enrichissement");
+      }
+      setEnrichFlash(
+        data.message ||
+          `${data.marque?.nom || nom} ajoutée et envoyée en enrichissement.`
+      );
+      setEnrichNom("");
+      setActiveTab("brands");
+      await fetchDemande();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erreur enrichissement");
+    } finally {
+      setEnriching(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+        <Loader2 className="h-7 w-7 animate-spin text-violet-700" />
       </div>
     );
   }
 
   if (error || !demande) {
     return (
-      <div className="max-w-2xl mx-auto py-12 text-center">
-        <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-        <h2 className="text-2xl font-bold text-glowup-licorice mb-2">{error}</h2>
+      <div className="mx-auto max-w-lg py-16 text-center">
+        <AlertCircle className="mx-auto mb-3 h-10 w-10 text-red-500" />
+        <h2 className="mb-2 text-lg font-semibold text-zinc-900">{error}</h2>
         <Link
           href="/gifts"
-          className="inline-flex items-center gap-2 px-6 py-3 bg-glowup-rose text-white rounded-xl font-semibold hover:bg-glowup-rose-dark transition-colors mt-4"
+          className="mt-4 inline-flex h-9 items-center rounded-lg bg-violet-700 px-4 text-sm font-medium text-white hover:bg-violet-800"
         >
           Retour aux demandes
         </Link>
@@ -238,775 +389,485 @@ export default function GiftDetailPage() {
     );
   }
 
+  const statut = STATUT_STYLE[demande.statut] || STATUT_STYLE.EN_ATTENTE;
+  const progressSteps = buildProgressSteps(demande);
+  const marquesList =
+    demande.marques && demande.marques.length > 0
+      ? demande.marques.map(
+          (row: { marque: { id: string; nom: string; contacts?: any[] } }) =>
+            row.marque
+        )
+      : demande.marque
+        ? [demande.marque]
+        : [];
+  const partnersList = (demande.partners || []).map(
+    (row: { partner: { id: string; name: string; slug?: string } }) =>
+      row.partner
+  );
+  const brandsCount = marquesList.length + partnersList.length;
+  const commentsCount = demande.commentaires?.length || 0;
+  const marquesLabel =
+    [
+      ...marquesList.map((m: { nom: string }) => m.nom),
+      ...partnersList.map((p: { name: string }) => p.name),
+    ].join(", ") || null;
+
   return (
-    <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 rounded-2xl p-4 sm:p-8 text-white">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-        
-        <div className="relative">
-          <Link
-            href="/gifts"
-            className="inline-flex items-center gap-2 text-white/80 hover:text-white mb-4 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Retour aux demandes
-          </Link>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-sm">
-                <Gift className="w-8 h-8" />
-              </div>
-              <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <h1 className="text-3xl font-extrabold">{demande.reference}</h1>
-                  <StatutBadge statut={demande.statut} large />
-                </div>
-                <p className="text-white/80">
-                  Créée le {new Date(demande.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <PrioriteBadge priorite={demande.priorite} large />
-              {canCancel && (
-                <button
-                  type="button"
-                  onClick={handleCancelDemande}
-                  disabled={cancelling}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/90 text-white font-semibold hover:bg-red-500 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                >
-                  {cancelling ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Ban className="w-4 h-4" />
-                  )}
-                  Annuler la demande
-                </button>
-              )}
-            </div>
+    <div className="mx-auto flex max-w-[1120px] flex-col gap-5 pb-16 pt-1">
+      {/* Header + progress */}
+      <section className={`${cardClass} flex flex-col gap-6 px-7 py-6`}>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/gifts"
+              className="text-sm text-zinc-500 transition hover:text-zinc-800"
+            >
+              ← Gifts
+            </Link>
+            <h1 className="m-0 text-2xl font-semibold tracking-tight text-zinc-900">
+              {demande.reference}
+            </h1>
+            <span className="rounded-md bg-violet-50 px-2 py-[3px] text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+              {TYPE_LABELS[demande.typeGift] || demande.typeGift}
+            </span>
+            <span
+              className="rounded-full px-2.5 py-[3px] text-xs font-medium"
+              style={{ color: statut.color, background: statut.bg }}
+            >
+              {statut.label}
+            </span>
+            <span
+              className={`rounded-full border px-2.5 py-[3px] text-xs font-medium ${
+                PRIORITE_CLASS[demande.priorite] || PRIORITE_CLASS.NORMALE
+              }`}
+            >
+              {PRIORITE_LABEL[demande.priorite] || demande.priorite}
+            </span>
+            <span className="text-[13px] text-zinc-500">
+              · créée le {formatDateLong(demande.createdAt)}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (editing) {
+                    setEditing(false);
+                    fetchDemande();
+                  } else {
+                    setEditing(true);
+                  }
+                }}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3.5 text-sm font-medium text-zinc-800 transition hover:bg-zinc-100"
+              >
+                {editing ? (
+                  <>
+                    <X className="h-4 w-4" />
+                    Fermer
+                  </>
+                ) : (
+                  <>
+                    <Edit className="h-4 w-4" />
+                    Modifier
+                  </>
+                )}
+              </button>
+            )}
+            {editing && (
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-violet-700 px-3.5 text-sm font-medium text-white transition hover:bg-violet-800"
+              >
+                <Save className="h-4 w-4" />
+                Enregistrer
+              </button>
+            )}
+            {canArchive && (
+              <button
+                type="button"
+                onClick={() => void handleToggleArchive()}
+                disabled={archiving}
+                className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-zinc-300 bg-white px-3.5 text-sm font-medium text-zinc-800 transition hover:bg-zinc-100 disabled:opacity-60"
+              >
+                {archiving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : demande.archivedAt ? (
+                  <ArchiveRestore className="h-4 w-4" />
+                ) : (
+                  <Archive className="h-4 w-4" />
+                )}
+                {demande.archivedAt ? "Désarchiver" : "Archiver"}
+              </button>
+            )}
+            {canCancel && (
+              <button
+                type="button"
+                onClick={handleCancelDemande}
+                disabled={cancelling}
+                className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-red-200 bg-white px-3.5 text-sm font-medium text-red-700 transition hover:bg-red-50 disabled:opacity-60"
+              >
+                {cancelling ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Ban className="h-4 w-4" />
+                )}
+                Annuler la demande
+              </button>
+            )}
           </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Colonne principale */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Workflow - Account Manager uniquement */}
-          {isAM && demande.statut !== "ANNULE" && demande.statut !== "REFUSE" && demande.statut !== "RECU" && (
-            <WorkflowPanel
-              demande={demande}
-              onUpdate={handleUpdateStatut}
-              onPrendreEnCharge={handlePrendreEnCharge}
-            />
-          )}
+        {demande.archivedAt && (
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2.5 text-sm text-zinc-600">
+            Archivée le {formatDateLong(demande.archivedAt)}
+            {" — "}visible dans le filtre « Archivés ».
+          </div>
+        )}
 
-          {/* Vue lecture seule pour TM : statut + timeline simple */}
-          {!isAM && isTM && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
-              <h2 className="text-lg font-bold text-glowup-licorice mb-4 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-purple-600" />
-                Suivi de la demande
-              </h2>
-              <div className="space-y-4">
-                {/* Statut actuel */}
-                <div className="flex items-center gap-3">
-                  <p className="text-sm font-semibold text-gray-500">Statut actuel</p>
-                  <StatutBadge statut={demande.statut} />
-                </div>
-
-                {/* Timeline simple basée sur les dates de suivi */}
-                <div className="space-y-2">
-                  {demande.datePriseEnCharge && (
-                    <div className="flex items-center gap-2 text-sm text-gray-700">
-                      <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      <span>
-                        Prise en charge le{" "}
-                        {new Date(demande.datePriseEnCharge).toLocaleDateString("fr-FR", {
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })}
-                      </span>
-                    </div>
-                  )}
-                  {demande.dateContactMarque && (
-                    <div className="flex items-center gap-2 text-sm text-gray-700">
-                      <Mail className="w-4 h-4 text-blue-500" />
-                      <span>
-                        Marque contactée le{" "}
-                        {new Date(demande.dateContactMarque).toLocaleDateString("fr-FR", {
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })}
-                      </span>
-                    </div>
-                  )}
-                  {demande.dateReponseMarque && (
-                    <div className="flex items-center gap-2 text-sm text-gray-700">
-                      <MessageSquare className="w-4 h-4 text-purple-500" />
-                      <span>
-                        Réponse de la marque le{" "}
-                        {new Date(demande.dateReponseMarque).toLocaleDateString("fr-FR", {
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })}
-                      </span>
-                    </div>
-                  )}
-                  {demande.dateEnvoi && (
-                    <div className="flex items-center gap-2 text-sm text-gray-700">
-                      <Truck className="w-4 h-4 text-indigo-500" />
-                      <span>
-                        Gift envoyé le{" "}
-                        {new Date(demande.dateEnvoi).toLocaleDateString("fr-FR", {
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })}
-                      </span>
-                    </div>
-                  )}
-                  {demande.dateReception && (
-                    <div className="flex items-center gap-2 text-sm text-gray-700">
-                      <CheckCircle className="w-4 h-4 text-emerald-600" />
-                      <span>
-                        Gift reçu le{" "}
-                        {new Date(demande.dateReception).toLocaleDateString("fr-FR", {
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })}
-                      </span>
-                    </div>
-                  )}
-                  {!demande.datePriseEnCharge &&
-                    !demande.dateContactMarque &&
-                    !demande.dateReponseMarque &&
-                    !demande.dateEnvoi &&
-                    !demande.dateReception && (
-                      <p className="text-sm text-gray-500">
-                        Aucune étape de suivi enregistrée pour le moment.
-                      </p>
-                    )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Détails de la demande */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
-              <h2 className="text-xl font-bold text-glowup-licorice flex items-center gap-2">
-                <Package className="w-5 h-5 text-purple-600" />
-                Détails de la demande
-              </h2>
-              {(isAM || (isTM && isTmSurDemande)) && demande.statut !== "ANNULE" && (
-                <button
-                  onClick={() => setEditing(!editing)}
-                  className="flex items-center gap-2 px-4 py-2 text-purple-600 hover:bg-purple-50 rounded-xl transition-colors font-semibold"
-                >
-                  {editing ? (
-                    <>
-                      <X className="w-4 h-4" />
-                      Annuler
-                    </>
-                  ) : (
-                    <>
-                      <Edit className="w-4 h-4" />
-                      Modifier
-                    </>
-                  )}
-                </button>
-              )}
-            </div>
-
-            <div className="space-y-6">
-              {/* Type */}
-              <div>
-                <p className="text-sm font-semibold text-gray-500 mb-2">Type de Gift</p>
-                <span className="inline-flex px-4 py-2 bg-purple-100 text-purple-700 rounded-xl font-bold">
-                  {demande.typeGift}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          {progressSteps.map((s) => (
+            <div key={s.label} className="flex flex-col gap-2.5">
+              <div
+                className="h-1 rounded-full"
+                style={{ background: s.done ? s.bar : "#e4e4e7" }}
+              />
+              <div className="flex flex-col">
+                <span className="text-[13px] font-medium text-zinc-900">
+                  {s.label}
                 </span>
+                <span className="text-xs text-zinc-400">{s.at || "—"}</span>
               </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
-              {/* Description */}
-              <div>
-                <p className="text-sm font-semibold text-gray-500 mb-2">Description</p>
-                <p className="text-gray-700 whitespace-pre-wrap">{demande.description}</p>
-              </div>
+      {/* Workflow AM */}
+      {isAM &&
+        !demande.archivedAt &&
+        demande.statut !== "ANNULE" &&
+        demande.statut !== "REFUSE" &&
+        demande.statut !== "RECU" && (
+          <WorkflowPanel
+            demande={demande}
+            onUpdate={handleUpdateStatut}
+            onPrendreEnCharge={handlePrendreEnCharge}
+          />
+        )}
 
-              {/* Justification */}
+      {/* Suivi TM lecture seule */}
+      {!isAM && isTM && (
+        <section className={`${cardClass} px-7 py-6`}>
+          <h2 className="mb-4 text-[15px] font-semibold text-zinc-900">
+            Suivi de la demande
+          </h2>
+          <div className="mb-4 flex items-center gap-3">
+            <span className="text-sm text-zinc-500">Statut actuel</span>
+            <span
+              className="rounded-full px-2.5 py-[3px] text-xs font-medium"
+              style={{ color: statut.color, background: statut.bg }}
+            >
+              {statut.label}
+            </span>
+          </div>
+          <div className="space-y-2 text-sm text-zinc-700">
+            {demande.datePriseEnCharge && (
+              <p className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-emerald-500" />
+                Prise en charge le {formatDateLong(demande.datePriseEnCharge)}
+              </p>
+            )}
+            {demande.dateContactMarque && (
+              <p className="flex items-center gap-2">
+                <Mail className="h-4 w-4 text-blue-500" />
+                Marque contactée le {formatDateLong(demande.dateContactMarque)}
+              </p>
+            )}
+            {demande.dateReponseMarque && (
+              <p className="flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-violet-500" />
+                Réponse de la marque le{" "}
+                {formatDateLong(demande.dateReponseMarque)}
+              </p>
+            )}
+            {demande.dateEnvoi && (
+              <p className="flex items-center gap-2">
+                <Truck className="h-4 w-4 text-indigo-500" />
+                Gift envoyé le {formatDateLong(demande.dateEnvoi)}
+              </p>
+            )}
+            {demande.dateReception && (
+              <p className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-emerald-600" />
+                Gift reçu le {formatDateLong(demande.dateReception)}
+              </p>
+            )}
+            {!demande.datePriseEnCharge &&
+              !demande.dateContactMarque &&
+              !demande.dateReponseMarque &&
+              !demande.dateEnvoi &&
+              !demande.dateReception && (
+                <p className="text-zinc-500">
+                  Aucune étape de suivi enregistrée pour le moment.
+                </p>
+              )}
+          </div>
+        </section>
+      )}
+
+      <div className="flex flex-wrap items-start gap-5">
+        {/* Colonne principale */}
+        <div className="flex min-w-0 flex-[1_1_560px] flex-col gap-5">
+          {/* Demande */}
+          <section className={`${cardClass} flex flex-col gap-6 p-7`}>
+            <h2 className="m-0 text-[15px] font-semibold text-zinc-900">
+              Demande
+            </h2>
+
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              <Field label="Description">
+                <p className="m-0 whitespace-pre-wrap">{demande.description}</p>
+              </Field>
               {demande.justification && (
-                <div>
-                  <p className="text-sm font-semibold text-gray-500 mb-2">Justification</p>
-                  <p className="text-gray-700 whitespace-pre-wrap">{demande.justification}</p>
-                </div>
-              )}
-
-              {/* Valeur estimée */}
-              {demande.valeurEstimee && (
-                <div>
-                  <p className="text-sm font-semibold text-gray-500 mb-2">Valeur estimée</p>
-                  <p className="text-2xl font-bold text-emerald-600">
-                    {new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(demande.valeurEstimee)}
+                <Field label="Justification">
+                  <p className="m-0 whitespace-pre-wrap">
+                    {demande.justification}
                   </p>
-                </div>
+                </Field>
               )}
+            </div>
 
-              {/* Date souhaitée */}
-              {demande.datesouhaitee && (
-                <div>
-                  <p className="text-sm font-semibold text-gray-500 mb-2">Date souhaitée</p>
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-5 h-5 text-gray-400" />
-                    <p className="text-gray-700 font-semibold">
-                      {new Date(demande.datesouhaitee).toLocaleDateString("fr-FR", {
-                        day: "numeric",
-                        month: "long",
-                        year: "numeric",
-                      })}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Détails hébergement (HOTEL) */}
-              {demande.typeGift === "HOTEL" && (
-                <div className="border border-purple-100 rounded-2xl p-6 bg-purple-50/40 space-y-4">
-                  <h3 className="text-sm font-bold text-glowup-licorice mb-2 flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-purple-600" />
-                    Détails hébergement
-                  </h3>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {demande.destination && (
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 mb-1">Destination</p>
-                        <p className="text-sm text-gray-800">{demande.destination}</p>
-                      </div>
-                    )}
-
-                    {demande.nombrePersonnes && (
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 mb-1">Nombre de personnes</p>
-                        <p className="text-sm text-gray-800">{demande.nombrePersonnes}</p>
-                      </div>
-                    )}
-
-                    {demande.dateArrivee && (
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 mb-1">Date d'arrivée</p>
-                        <p className="text-sm text-gray-800">
-                          {new Date(demande.dateArrivee).toLocaleDateString("fr-FR", {
-                            day: "numeric",
-                            month: "long",
-                            year: "numeric",
-                          })}
-                        </p>
-                      </div>
-                    )}
-
-                    {demande.dateDepart && (
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 mb-1">Date de départ</p>
-                        <p className="text-sm text-gray-800">
-                          {new Date(demande.dateDepart).toLocaleDateString("fr-FR", {
-                            day: "numeric",
-                            month: "long",
-                            year: "numeric",
-                          })}
-                        </p>
-                      </div>
-                    )}
-
-                    {demande.typeHebergement && (
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 mb-1">Type d'hébergement</p>
-                        <p className="text-sm text-gray-800">
-                          {demande.typeHebergement === "HOTEL"
-                            ? "Hôtel"
-                            : demande.typeHebergement === "APPARTEMENT"
-                            ? "Appartement"
-                            : demande.typeHebergement === "VILLA"
-                            ? "Villa"
-                            : demande.typeHebergement}
-                        </p>
-                      </div>
-                    )}
-
-                    {demande.categorie && (
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 mb-1">Catégorie</p>
-                        <p className="text-sm text-gray-800">
-                          {demande.categorie === "LUXE" ? "Luxe" : demande.categorie}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {demande.demandesSpeciales && (
-                    <div>
-                      <p className="text-xs font-semibold text-gray-500 mb-1">Demandes spéciales</p>
-                      <p className="text-sm text-gray-800 whitespace-pre-wrap">
-                        {demande.demandesSpeciales}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Adresse */}
-              {demande.adresseLivraison && (
-                <div>
-                  <p className="text-sm font-semibold text-gray-500 mb-2">Adresse de livraison</p>
-                  <div className="flex items-start gap-2">
-                    <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
-                    <p className="text-gray-700 whitespace-pre-wrap">{demande.adresseLivraison}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Édition - Notes internes et numéro de suivi (AM uniquement) */}
-              {isAM && editing && (
-                <>
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Numéro de suivi
-                    </label>
+            <div className="grid grid-cols-1 gap-6 border-t border-zinc-100 pt-5 md:grid-cols-2">
+              {marquesLabel ? (
+                <Field label="Marque souhaitée">
+                  <span className="font-medium">{marquesLabel}</span>
+                </Field>
+              ) : (
+                <div className="md:col-span-2">
+                  <span className="mb-1.5 block text-xs text-zinc-500">
+                    Marque souhaitée
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
                     <input
                       type="text"
-                      value={editData.numeroSuivi}
-                      onChange={(e) => setEditData({ ...editData, numeroSuivi: e.target.value })}
-                      placeholder="Ex: FR123456789"
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                      value={enrichNom}
+                      onChange={(e) => setEnrichNom(e.target.value)}
+                      placeholder="Nom de la marque absente du CRM…"
+                      className={inputClass + " max-w-sm"}
                     />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Notes internes (visibles uniquement par l'équipe)
-                    </label>
-                    <textarea
-                      value={editData.notesInternes}
-                      onChange={(e) => setEditData({ ...editData, notesInternes: e.target.value })}
-                      rows={4}
-                      placeholder="Notes privées pour le suivi..."
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
-                    />
-                  </div>
-
-                  {!isHotelAcceptedOrBeyond && (
                     <button
-                      onClick={handleSaveEdit}
-                      className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all"
+                      type="button"
+                      onClick={() => void handleEnrichirMarque()}
+                      disabled={enriching || enrichNom.trim().length < 2}
+                      className="inline-flex h-[38px] items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 text-[13px] font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <Save className="w-5 h-5" />
-                      Enregistrer les modifications
+                      {enriching ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ScanSearch className="h-3.5 w-3.5" />
+                      )}
+                      Enrichir
                     </button>
+                  </div>
+                  <p className="mt-1.5 text-xs text-zinc-500">
+                    Ajoute la marque à la demande et l&apos;envoie en file
+                    d&apos;enrichissement.
+                  </p>
+                  {enrichFlash && (
+                    <p className="mt-2 text-xs font-medium text-amber-800">
+                      {enrichFlash}{" "}
+                      <Link
+                        href="/enrichissement?tab=attente"
+                        className="underline"
+                      >
+                        Voir la file
+                      </Link>
+                    </p>
                   )}
-                </>
-              )}
-
-              {/* Notes internes (lecture seule si pas en édition) */}
-              {isAM && !editing && demande.notesInternes && (
-                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                  <p className="text-sm font-semibold text-amber-700 mb-2 flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    Notes internes
-                  </p>
-                  <p className="text-gray-700 text-sm whitespace-pre-wrap">{demande.notesInternes}</p>
                 </div>
               )}
-
-              {/* Numéro de suivi */}
-              {demande.numeroSuivi && (
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                  <p className="text-sm font-semibold text-blue-700 mb-2 flex items-center gap-2">
-                    <Truck className="w-4 h-4" />
-                    Numéro de suivi
-                  </p>
-                  <p className="text-lg font-bold text-gray-900">{demande.numeroSuivi}</p>
-                </div>
+              {demande.adresseLivraison && (
+                <Field label="Adresse de livraison">
+                  <span className="whitespace-pre-wrap font-medium">
+                    {demande.adresseLivraison}
+                  </span>
+                </Field>
+              )}
+              {demande.valeurEstimee != null && demande.valeurEstimee !== "" && (
+                <Field label="Valeur estimée">
+                  <span className="font-medium text-emerald-700">
+                    {new Intl.NumberFormat("fr-FR", {
+                      style: "currency",
+                      currency: "EUR",
+                    }).format(Number(demande.valeurEstimee))}
+                  </span>
+                </Field>
+              )}
+              {demande.datesouhaitee && (
+                <Field label="Date souhaitée">
+                  <span className="font-medium">
+                    {formatDateLong(demande.datesouhaitee)}
+                  </span>
+                </Field>
               )}
             </div>
-          </div>
 
-          {/* Informations de réservation (AM/ADMIN) */}
-          {isAM && isHotelAcceptedOrBeyond && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
-                <h2 className="text-xl font-bold text-glowup-licorice flex items-center gap-2">
-                  <span className="text-lg">🏨</span>
-                  Informations de réservation
-                </h2>
-                {demande.statut !== "ANNULE" && (
-                  <div className="flex items-center gap-3">
-                    {editing && (
-                      <button
-                        type="button"
-                        onClick={() => setEditing(false)}
-                        className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-xl transition-colors text-sm font-semibold"
-                      >
-                        <X className="w-4 h-4" />
-                        Annuler
-                      </button>
-                    )}
-                    {!editing && (
-                      <button
-                        type="button"
-                        onClick={() => setEditing(true)}
-                        className="flex items-center gap-2 px-4 py-2 text-purple-600 hover:bg-purple-50 rounded-xl transition-colors text-sm font-semibold"
-                      >
-                        <Edit className="w-4 h-4" />
-                        Modifier
-                      </button>
-                    )}
-                    {editing && (
-                      <button
-                        type="button"
-                        onClick={handleSaveEdit}
-                        className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all text-sm"
-                      >
-                        <Save className="w-4 h-4" />
-                        Sauvegarder
-                      </button>
-                    )}
+            {/* Détails hôtel */}
+            {demande.typeGift === "HOTEL" && (
+              <div className="rounded-lg border border-zinc-100 bg-zinc-50/70 p-5">
+                <h3 className="mb-4 text-[13px] font-semibold text-zinc-900">
+                  Détails hébergement
+                </h3>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {demande.destination && (
+                    <Field label="Destination">
+                      <span className="font-medium">{demande.destination}</span>
+                    </Field>
+                  )}
+                  {demande.nombrePersonnes && (
+                    <Field label="Nombre de personnes">
+                      <span className="font-medium">
+                        {demande.nombrePersonnes}
+                      </span>
+                    </Field>
+                  )}
+                  {demande.dateArrivee && (
+                    <Field label="Date d'arrivée">
+                      <span className="font-medium">
+                        {formatDateLong(demande.dateArrivee)}
+                      </span>
+                    </Field>
+                  )}
+                  {demande.dateDepart && (
+                    <Field label="Date de départ">
+                      <span className="font-medium">
+                        {formatDateLong(demande.dateDepart)}
+                      </span>
+                    </Field>
+                  )}
+                  {demande.typeHebergement && (
+                    <Field label="Type d'hébergement">
+                      <span className="font-medium">
+                        {demande.typeHebergement === "HOTEL"
+                          ? "Hôtel"
+                          : demande.typeHebergement === "APPARTEMENT"
+                            ? "Appartement"
+                            : demande.typeHebergement === "VILLA"
+                              ? "Villa"
+                              : demande.typeHebergement}
+                      </span>
+                    </Field>
+                  )}
+                  {demande.categorie && (
+                    <Field label="Catégorie">
+                      <span className="font-medium">
+                        {demande.categorie === "LUXE"
+                          ? "Luxe"
+                          : demande.categorie}
+                      </span>
+                    </Field>
+                  )}
+                </div>
+                {demande.demandesSpeciales && (
+                  <div className="mt-4">
+                    <Field label="Demandes spéciales">
+                      <span className="whitespace-pre-wrap">
+                        {demande.demandesSpeciales}
+                      </span>
+                    </Field>
                   </div>
                 )}
               </div>
+            )}
 
-              <div className="space-y-6">
-                {/* Numéro de réservation & Nom réservation */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-500 mb-1">
-                      Numéro de réservation
-                    </p>
-                    {editing ? (
-                      <input
-                        type="text"
-                        value={editData.numeroReservation}
-                        onChange={(e) =>
-                          setEditData({
-                            ...editData,
-                            numeroReservation: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                        placeholder="Ex : ABC123456"
-                      />
-                    ) : (
-                      <p className="text-sm text-gray-800">
-                        {demande.numeroReservation || (
-                          <span className="text-gray-400">Non renseigné</span>
-                        )}
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <p className="text-sm font-semibold text-gray-500 mb-1">
-                      Nom de la réservation
-                    </p>
-                    {editing ? (
-                      <input
-                        type="text"
-                        value={editData.nomReservation}
-                        onChange={(e) =>
-                          setEditData({
-                            ...editData,
-                            nomReservation: e.target.value,
-                          })
-                        }
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                        placeholder="Nom sous lequel la réservation est faite"
-                      />
-                    ) : (
-                      <p className="text-sm text-gray-800">
-                        {demande.nomReservation || (
-                          <span className="text-gray-400">Non renseigné</span>
-                        )}
-                      </p>
-                    )}
-                  </div>
+            {/* Édition AM : notes + suivi */}
+            {isAM && editing && (
+              <div className="space-y-4 border-t border-zinc-100 pt-5">
+                <div>
+                  <label className="mb-1.5 block text-xs text-zinc-500">
+                    Numéro de suivi
+                  </label>
+                  <input
+                    type="text"
+                    value={editData.numeroSuivi}
+                    onChange={(e) =>
+                      setEditData({ ...editData, numeroSuivi: e.target.value })
+                    }
+                    placeholder="Ex: FR123456789"
+                    className={inputClass}
+                  />
                 </div>
-
-                {/* Adresse + contact sur place */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <p className="text-sm font-semibold text-gray-500 mb-1">
-                      Adresse de l'hôtel
-                    </p>
-                    {editing ? (
-                      <textarea
-                        value={editData.adresseHotel}
-                        onChange={(e) =>
-                          setEditData({
-                            ...editData,
-                            adresseHotel: e.target.value,
-                          })
-                        }
-                        rows={4}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
-                        placeholder="Adresse complète de l'hôtel..."
-                      />
-                    ) : (
-                      <p className="text-sm text-gray-800 whitespace-pre-wrap">
-                        {demande.adresseHotel || (
-                          <span className="text-gray-400">Non renseigné</span>
-                        )}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-4">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-500 mb-1">
-                        Contact sur place / accueil
-                      </p>
-                      {editing ? (
-                        <input
-                          type="text"
-                          value={editData.contactSurPlace}
-                          onChange={(e) =>
-                            setEditData({
-                              ...editData,
-                              contactSurPlace: e.target.value,
-                            })
-                          }
-                          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                          placeholder="Nom / service à demander à l'accueil"
-                        />
-                      ) : (
-                        <p className="text-sm text-gray-800">
-                          {demande.contactSurPlace || (
-                            <span className="text-gray-400">Non renseigné</span>
-                          )}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-500 mb-1">
-                          Horaire check-in
-                        </p>
-                        {editing ? (
-                          <input
-                            type="text"
-                            value={editData.horaireCheckIn}
-                            onChange={(e) =>
-                              setEditData({
-                                ...editData,
-                                horaireCheckIn: e.target.value,
-                              })
-                            }
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                            placeholder="Ex : À partir de 15h"
-                          />
-                        ) : (
-                          <p className="text-sm text-gray-800">
-                            {demande.horaireCheckIn || (
-                              <span className="text-gray-400">
-                                Non renseigné
-                              </span>
-                            )}
-                          </p>
-                        )}
-                      </div>
-
-                      <div>
-                        <p className="text-sm font-semibold text-gray-500 mb-1">
-                          Horaire check-out
-                        </p>
-                        {editing ? (
-                          <input
-                            type="text"
-                            value={editData.horaireCheckOut}
-                            onChange={(e) =>
-                              setEditData({
-                                ...editData,
-                                horaireCheckOut: e.target.value,
-                              })
-                            }
-                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                            placeholder="Ex : Avant 12h"
-                          />
-                        ) : (
-                          <p className="text-sm text-gray-800">
-                            {demande.horaireCheckOut || (
-                              <span className="text-gray-400">
-                                Non renseigné
-                              </span>
-                            )}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                <div>
+                  <label className="mb-1.5 block text-xs text-zinc-500">
+                    Notes internes (visibles uniquement par l&apos;équipe)
+                  </label>
+                  <textarea
+                    value={editData.notesInternes}
+                    onChange={(e) =>
+                      setEditData({
+                        ...editData,
+                        notesInternes: e.target.value,
+                      })
+                    }
+                    rows={4}
+                    placeholder="Notes privées pour le suivi..."
+                    className={textareaClass}
+                  />
                 </div>
-
-                {/* Séparateur */}
-                <div className="h-px bg-gray-100" />
-
-                {/* Contreparties attendues (multi-lignes) */}
-                <div className="space-y-4">
-                  <h3 className="text-sm font-bold text-glowup-licorice">
-                    Contreparties attendues
-                  </h3>
-
-                  {editing ? (
-                    <div className="space-y-3">
-                      {(editData.contreparties || []).map(
-                        (c: any, index: number) => (
-                          <div
-                            key={index}
-                            className="flex flex-col md:flex-row gap-3 items-stretch md:items-center"
-                          >
-                            <select
-                              value={c.type || "STORY"}
-                              onChange={(e) => {
-                                const next = [...(editData.contreparties || [])];
-                                next[index] = {
-                                  ...next[index],
-                                  type: e.target.value,
-                                };
-                                setEditData({
-                                  ...editData,
-                                  contreparties: next,
-                                });
-                              }}
-                              className="w-full md:w-1/2 px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                            >
-                              <option value="STORY">Story</option>
-                              <option value="POST_FEED">Post feed</option>
-                              <option value="REEL_TIKTOK">Reel / TikTok</option>
-                              <option value="MENTION_STORY">
-                                Mention story
-                              </option>
-                              <option value="CHOIX_TALENT">
-                                Au choix du talent
-                              </option>
-                            </select>
-
-                            <div className="flex items-center gap-2 md:w-1/3">
-                              <input
-                                type="number"
-                                min={0}
-                                value={
-                                  c.delai === undefined || c.delai === null
-                                    ? ""
-                                    : c.delai
-                                }
-                                onChange={(e) => {
-                                  const value =
-                                    e.target.value === ""
-                                      ? null
-                                      : Number(e.target.value);
-                                  const next = [
-                                    ...(editData.contreparties || []),
-                                  ];
-                                  next[index] = {
-                                    ...next[index],
-                                    delai: value,
-                                  };
-                                  setEditData({
-                                    ...editData,
-                                    contreparties: next,
-                                  });
-                                }}
-                                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                                placeholder="Jours"
-                              />
-                              <span className="text-sm text-gray-500">
-                                j
-                              </span>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const next = [
-                                  ...(editData.contreparties || []),
-                                ];
-                                next.splice(index, 1);
-                                setEditData({
-                                  ...editData,
-                                  contreparties: next,
-                                });
-                              }}
-                              className="inline-flex items-center justify-center px-3 py-2 rounded-xl border border-gray-200 text-gray-500 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        )
-                      )}
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = Array.isArray(editData.contreparties)
-                            ? [...editData.contreparties]
-                            : [];
-                          next.push({ type: "STORY", delai: 7 });
-                          setEditData({
-                            ...editData,
-                            contreparties: next,
-                          });
-                        }}
-                        className="inline-flex items-center gap-2 px-4 py-2 text-purple-600 hover:bg-purple-50 rounded-xl text-sm font-semibold transition-colors"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Ajouter une contrepartie
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {Array.isArray(demande.contreparties) &&
-                      demande.contreparties.length > 0 ? (
-                        (demande.contreparties as any[]).map(
-                          (c: any, index: number) => {
-                            const labels: Record<string, string> = {
-                              STORY: "Story",
-                              POST_FEED: "Post feed",
-                              REEL_TIKTOK: "Reel / TikTok",
-                              MENTION_STORY: "Mention story",
-                              CHOIX_TALENT: "Au choix du talent",
-                            };
-                            const label =
-                              labels[c.type] || c.type || "Contrepartie";
-                            const suffix =
-                              c.delai != null && c.delai !== ""
-                                ? ` dans ${c.delai}j`
-                                : "";
-                            return (
-                              <span
-                                key={index}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-purple-50 text-purple-700 text-xs font-semibold"
-                              >
-                                {label}
-                                {suffix}
-                              </span>
-                            );
-                          }
-                        )
-                      ) : (
-                        <span className="text-sm text-gray-400">
-                          Aucune contrepartie renseignée
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
+                {!isHotelAcceptedOrBeyond && (
+                  <button
+                    type="button"
+                    onClick={handleSaveEdit}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-violet-700 px-4 text-sm font-medium text-white hover:bg-violet-800"
+                  >
+                    <Save className="h-4 w-4" />
+                    Enregistrer les modifications
+                  </button>
+                )}
               </div>
-            </div>
+            )}
+
+            {isAM && !editing && demande.notesInternes && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-amber-700">
+                  <FileText className="h-3.5 w-3.5" />
+                  Notes internes
+                </p>
+                <p className="whitespace-pre-wrap text-sm text-zinc-700">
+                  {demande.notesInternes}
+                </p>
+              </div>
+            )}
+
+            {demande.numeroSuivi && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-blue-700">
+                  <Truck className="h-3.5 w-3.5" />
+                  Numéro de suivi
+                </p>
+                <p className="text-base font-semibold text-zinc-900">
+                  {demande.numeroSuivi}
+                </p>
+              </div>
+            )}
+          </section>
+
+          {/* Réservation hôtel AM */}
+          {isAM && isHotelAcceptedOrBeyond && (
+            <ReservationPanel
+              demande={demande}
+              editing={editing}
+              editData={editData}
+              setEditData={setEditData}
+              setEditing={setEditing}
+              onSave={handleSaveEdit}
+            />
           )}
 
-          {/* Informations de réservation (Vue TM lecture seule) */}
+          {/* Réservation hôtel TM lecture seule */}
           {isTM &&
             isHotelAcceptedOrBeyond &&
             (demande.numeroReservation ||
@@ -1017,451 +878,719 @@ export default function GiftDetailPage() {
               demande.horaireCheckOut ||
               (Array.isArray(demande.contreparties) &&
                 demande.contreparties.length > 0)) && (
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8">
-                <h2 className="text-xl font-bold text-glowup-licorice mb-4 flex items-center gap-2">
-                  <span className="text-lg">🏨</span>
-                  Informations de réservation
-                </h2>
-
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {demande.numeroReservation && (
-                      <div>
-                        <p className="text-sm font-semibold text-gray-500 mb-1">
-                          Numéro de réservation
-                        </p>
-                        <p className="text-sm text-gray-800">
-                          {demande.numeroReservation}
-                        </p>
-                      </div>
-                    )}
-
-                    {demande.nomReservation && (
-                      <div>
-                        <p className="text-sm font-semibold text-gray-500 mb-1">
-                          Nom de la réservation
-                        </p>
-                        <p className="text-sm text-gray-800">
-                          {demande.nomReservation}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {demande.adresseHotel && (
-                    <div>
-                      <p className="text-sm font-semibold text-gray-500 mb-1">
-                        Adresse de l'hôtel
-                      </p>
-                      <p className="text-sm text-gray-800 whitespace-pre-wrap">
-                        {demande.adresseHotel}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {demande.contactSurPlace && (
-                      <div>
-                        <p className="text-sm font-semibold text-gray-500 mb-1">
-                          Contact sur place / accueil
-                        </p>
-                        <p className="text-sm text-gray-800">
-                          {demande.contactSurPlace}
-                        </p>
-                      </div>
-                    )}
-
-                    {(demande.horaireCheckIn || demande.horaireCheckOut) && (
-                      <div className="grid grid-cols-1 gap-3">
-                        {demande.horaireCheckIn && (
-                          <div>
-                            <p className="text-sm font-semibold text-gray-500 mb-1">
-                              Horaire check-in
-                            </p>
-                            <p className="text-sm text-gray-800">
-                              {demande.horaireCheckIn}
-                            </p>
-                          </div>
-                        )}
-                        {demande.horaireCheckOut && (
-                          <div>
-                            <p className="text-sm font-semibold text-gray-500 mb-1">
-                              Horaire check-out
-                            </p>
-                            <p className="text-sm text-gray-800">
-                              {demande.horaireCheckOut}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {Array.isArray(demande.contreparties) &&
-                    demande.contreparties.length > 0 && (
-                      <div className="pt-2 border-t border-gray-100 mt-2">
-                        <p className="text-sm font-semibold text-gray-500 mb-1">
-                          Contreparties attendues
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                          {(demande.contreparties as any[]).map(
-                            (c: any, index: number) => {
-                              const labels: Record<string, string> = {
-                                STORY: "Story",
-                                POST_FEED: "Post feed",
-                                REEL_TIKTOK: "Reel / TikTok",
-                                MENTION_STORY: "Mention story",
-                                CHOIX_TALENT: "Au choix du talent",
-                              };
-                              const label =
-                                labels[c.type] || c.type || "Contrepartie";
-                              const suffix =
-                                c.delai != null && c.delai !== ""
-                                  ? ` dans ${c.delai}j`
-                                  : "";
-                              return (
-                                <span
-                                  key={index}
-                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-purple-50 text-purple-700 text-xs font-semibold"
-                                >
-                                  {label}
-                                  {suffix}
-                                </span>
-                              );
-                            }
-                          )}
-                        </div>
-                      </div>
-                    )}
-                </div>
-              </div>
+              <ReservationReadOnly demande={demande} />
             )}
 
-          {/* Commentaires */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8 md:p-10 space-y-6">
-            <h2 className="text-xl font-bold text-glowup-licorice mb-6 flex items-center gap-2">
-              <MessageSquare className="w-5 h-5 text-purple-600" />
-              Discussion ({demande.commentaires?.length || 0})
-            </h2>
-
-            {/* Liste des commentaires */}
-            <div className="space-y-5 mb-8">
-              {demande.commentaires && demande.commentaires.length > 0 ? (
-                demande.commentaires.map((comment: any) => (
-                  <CommentCard
-                    key={comment.id}
-                    comment={comment}
-                    mentionableUsers={mentionableUsers}
-                  />
-                ))
-              ) : (
-                <p className="text-gray-500 text-center py-8">
-                  Aucun commentaire pour le moment
-                </p>
-              )}
+          {/* Tabs Discussion / Marques */}
+          <section className={`${cardClass} flex flex-col overflow-hidden`}>
+            <div className="flex gap-6 border-b border-zinc-200 px-7">
+              {(
+                [
+                  { key: "chat" as const, label: "Discussion", n: commentsCount },
+                  {
+                    key: "brands" as const,
+                    label: "Marques contactées",
+                    n: brandsCount,
+                  },
+                ] as const
+              ).map((t) => {
+                const on = activeTab === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    onClick={() => setActiveTab(t.key)}
+                    className={`-mb-px flex items-center gap-2 border-b-2 py-4 text-sm font-medium transition ${
+                      on
+                        ? "border-zinc-900 text-zinc-900"
+                        : "border-transparent text-zinc-500 hover:text-zinc-700"
+                    }`}
+                  >
+                    {t.label}
+                    <span className="rounded-full bg-zinc-100 px-2 py-px text-xs text-zinc-400">
+                      {t.n}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Formulaire de commentaire avec mentions */}
-            {demande.statut !== "ANNULE" && (
-              <form
-                onSubmit={handleSendComment}
-                className="border-t border-gray-100 pt-6"
-              >
-                <div className="space-y-3">
-                  <MentionTextarea
-                    value={commentaire}
-                    onChange={setCommentaire}
-                    placeholder="Ajouter un commentaire... (tapez @ pour mentionner)"
-                    rows={3}
-                    mentionableUsers={mentionableUsers}
-                    className="w-full min-h-[100px] border-gray-200 focus:ring-2 focus:ring-purple-500/20 resize-y"
-                  />
-                  <div className="flex justify-end">
+            {activeTab === "brands" ? (
+              <div className="px-7 pb-5 pt-2">
+                <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] gap-4 border-b border-zinc-100 py-3.5 text-xs font-medium text-zinc-500">
+                  <span>Marque</span>
+                  <span>Contactée le</span>
+                  <span>Réponse</span>
+                </div>
+                {brandsCount === 0 ? (
+                  <div className="space-y-3 py-8 text-center">
+                    <p className="text-sm text-zinc-500">
+                      Aucune marque ou partenaire associé.
+                    </p>
+                    <div className="mx-auto flex max-w-md flex-wrap items-center justify-center gap-2">
+                      <input
+                        type="text"
+                        value={enrichNom}
+                        onChange={(e) => setEnrichNom(e.target.value)}
+                        placeholder="Nom de la marque…"
+                        className={inputClass + " max-w-xs text-left"}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleEnrichirMarque()}
+                        disabled={enriching || enrichNom.trim().length < 2}
+                        className="inline-flex h-[38px] items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 text-[13px] font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        {enriching ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ScanSearch className="h-3.5 w-3.5" />
+                        )}
+                        Enrichir
+                      </button>
+                    </div>
+                    {enrichFlash && (
+                      <p className="text-xs font-medium text-amber-800">
+                        {enrichFlash}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    {marquesList.map(
+                      (marque: {
+                        id: string;
+                        nom: string;
+                        contacts?: any[];
+                      }) => {
+                        const contact = marque.contacts?.[0];
+                        const contactLabel = contact
+                          ? [contact.prenom, contact.nom]
+                              .filter(Boolean)
+                              .join(" ") ||
+                            contact.email ||
+                            "Contact"
+                          : "—";
+                        const response = brandResponseFromStatut(demande.statut);
+                        return (
+                          <div
+                            key={marque.id}
+                            className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-4 border-b border-zinc-100 py-4 text-sm"
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-zinc-100 text-xs font-semibold text-zinc-600">
+                                {marque.nom.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div className="flex min-w-0 flex-col">
+                                <Link
+                                  href={`/marques/${marque.id}`}
+                                  className="truncate font-semibold text-zinc-900 hover:text-violet-700"
+                                >
+                                  {marque.nom}
+                                </Link>
+                                <span className="truncate text-xs text-zinc-500">
+                                  {contactLabel}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="text-zinc-600">
+                              {formatDate(demande.dateContactMarque) || "—"}
+                            </span>
+                            <span
+                              className="justify-self-start rounded-full px-2.5 py-[3px] text-xs font-medium"
+                              style={{
+                                color: response.color,
+                                background: response.bg,
+                              }}
+                            >
+                              {response.label}
+                            </span>
+                          </div>
+                        );
+                      }
+                    )}
+                    {partnersList.map(
+                      (partner: {
+                        id: string;
+                        name: string;
+                        slug?: string;
+                      }) => (
+                        <div
+                          key={partner.id}
+                          className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] items-center gap-4 border-b border-zinc-100 py-4 text-sm last:border-0"
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-amber-50 text-xs font-semibold text-amber-800">
+                              {partner.name.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="flex min-w-0 flex-col">
+                              {partner.slug ? (
+                                <Link
+                                  href={`/partners/manage/${partner.id}`}
+                                  className="truncate font-semibold text-zinc-900 hover:text-amber-700"
+                                >
+                                  {partner.name}
+                                </Link>
+                              ) : (
+                                <span className="truncate font-semibold text-zinc-900">
+                                  {partner.name}
+                                </span>
+                              )}
+                              <span className="text-xs text-amber-700">
+                                Partenaire
+                              </span>
+                            </div>
+                          </div>
+                          <span className="text-zinc-600">
+                            {formatDate(demande.dateContactMarque) || "—"}
+                          </span>
+                          <span className="justify-self-start rounded-full bg-zinc-100 px-2.5 py-[3px] text-xs font-medium text-zinc-600">
+                            Partenaire
+                          </span>
+                        </div>
+                      )
+                    )}
+                  </>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col px-7">
+                  {demande.commentaires && demande.commentaires.length > 0 ? (
+                    demande.commentaires.map((comment: any) => (
+                      <CommentRow
+                        key={comment.id}
+                        comment={comment}
+                        mentionableUsers={mentionableUsers}
+                      />
+                    ))
+                  ) : (
+                    <p className="py-10 text-center text-sm text-zinc-500">
+                      Aucun commentaire pour le moment
+                    </p>
+                  )}
+                </div>
+
+                {demande.statut !== "ANNULE" && (
+                  <form
+                    onSubmit={handleSendComment}
+                    className="flex gap-2 border-t border-zinc-100 bg-zinc-50 px-7 py-4"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <MentionTextarea
+                        value={commentaire}
+                        onChange={setCommentaire}
+                        placeholder="Écrire un message… (tapez @ pour mentionner)"
+                        rows={2}
+                        mentionableUsers={mentionableUsers}
+                        className="min-h-[38px] w-full border-zinc-300 bg-white focus:border-violet-600 focus:ring-violet-600/15"
+                      />
+                    </div>
                     <button
                       type="submit"
                       disabled={sending || !commentaire.trim()}
-                      className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      className="inline-flex h-[38px] flex-none items-center gap-1.5 self-end rounded-lg bg-violet-700 px-4 text-sm font-medium text-white transition hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {sending ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
-                        <Send className="w-5 h-5" />
+                        <Send className="h-4 w-4" />
                       )}
+                      Envoyer
                     </button>
-                  </div>
-                </div>
-              </form>
+                  </form>
+                )}
+              </>
             )}
-          </div>
+          </section>
         </div>
 
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Talent */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
-            <h3 className="font-bold text-glowup-licorice mb-4 flex items-center gap-2">
-              <User className="w-5 h-5 text-purple-600" />
-              Talent
-            </h3>
-            <div className="flex items-center gap-3 mb-4">
-              {demande.talent.photo ? (
-                <img
-                  src={demande.talent.photo}
-                  alt={`${demande.talent.prenom} ${demande.talent.nom}`}
-                  className="w-12 h-12 rounded-xl object-cover"
-                />
-              ) : (
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold">
-                  {demande.talent.prenom[0]}{demande.talent.nom[0]}
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <Link
-                  href={`/talents/${demande.talent.id}`}
-                  className="font-bold text-glowup-licorice hover:text-purple-600 transition-colors truncate block"
-                >
-                  {demande.talent.prenom} {demande.talent.nom}
-                </Link>
-                {demande.talent.instagram && (
-                  <p className="text-sm text-gray-500">@{demande.talent.instagram}</p>
-                )}
-              </div>
-            </div>
-            {demande.talent.email && (
-              <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
-                <Mail className="w-4 h-4" />
-                <a href={`mailto:${demande.talent.email}`} className="hover:text-purple-600">
-                  {demande.talent.email}
-                </a>
-              </div>
-            )}
-            {demande.talent.telephone && (
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <Phone className="w-4 h-4" />
-                <a href={`tel:${demande.talent.telephone}`} className="hover:text-purple-600">
-                  {demande.talent.telephone}
-                </a>
-              </div>
-            )}
-          </div>
-
-          {/* TM */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
-            <h3 className="font-bold text-glowup-licorice mb-4 flex items-center gap-2">
-              <User className="w-5 h-5 text-blue-600" />
-              Talent Manager
-            </h3>
-            <p className="font-bold text-glowup-licorice mb-1">
-              {demande.tm.prenom} {demande.tm.nom}
-            </p>
-            <div className="space-y-2 mt-3">
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <Mail className="w-4 h-4" />
-                <a href={`mailto:${demande.tm.email}`} className="hover:text-blue-600">
-                  {demande.tm.email}
-                </a>
-              </div>
-              {demande.tm.telephone && (
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Phone className="w-4 h-4" />
-                  <a href={`tel:${demande.tm.telephone}`} className="hover:text-blue-600">
-                    {demande.tm.telephone}
-                  </a>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Account Manager */}
-          {demande.accountManager && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
-              <h3 className="font-bold text-glowup-licorice mb-4 flex items-center gap-2">
-                <User className="w-5 h-5 text-emerald-600" />
+        {/* Sidebar people */}
+        <aside
+          className={`${cardClass} sticky top-6 w-full flex-[0_0_300px] px-5 py-2`}
+        >
+          <PersonBlock
+            role="Talent"
+            prenom={demande.talent.prenom}
+            nom={demande.talent.nom}
+            email={demande.talent.email}
+            telephone={demande.talent.telephone}
+            photo={demande.talent.photo}
+            subtitle={
+              demande.talent.instagram
+                ? `@${demande.talent.instagram}`
+                : undefined
+            }
+            href={`/talents/${demande.talent.id}`}
+          />
+          <PersonBlock
+            role="Talent Manager"
+            prenom={demande.tm.prenom}
+            nom={demande.tm.nom}
+            email={demande.tm.email}
+            telephone={demande.tm.telephone}
+          />
+          {demande.accountManager ? (
+            <PersonBlock
+              role="Account Manager"
+              prenom={demande.accountManager.prenom}
+              nom={demande.accountManager.nom}
+              email={demande.accountManager.email}
+              telephone={demande.accountManager.telephone}
+              last
+            />
+          ) : (
+            <div className="border-t border-zinc-100 py-4 last:border-0">
+              <div className="mb-2.5 text-xs font-medium text-zinc-500">
                 Account Manager
-              </h3>
-              <p className="font-bold text-glowup-licorice mb-1">
-                {demande.accountManager.prenom} {demande.accountManager.nom}
-              </p>
-              <div className="space-y-2 mt-3">
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Mail className="w-4 h-4" />
-                  <a href={`mailto:${demande.accountManager.email}`} className="hover:text-emerald-600">
-                    {demande.accountManager.email}
-                  </a>
-                </div>
-                {demande.accountManager.telephone && (
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <Phone className="w-4 h-4" />
-                    <a href={`tel:${demande.accountManager.telephone}`} className="hover:text-emerald-600">
-                      {demande.accountManager.telephone}
-                    </a>
-                  </div>
-                )}
               </div>
+              <p className="text-sm text-zinc-400">Non assigné</p>
             </div>
           )}
+        </aside>
+      </div>
+    </div>
+  );
+}
 
-          {/* Marques / partenaires */}
-          {((demande.marques && demande.marques.length > 0) ||
-            (demande.partners && demande.partners.length > 0) ||
-            demande.marque) && (
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
-              <h3 className="font-bold text-glowup-licorice mb-4 flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-orange-600" />
-                Marques ou partenaires
-              </h3>
-              <div className="space-y-3">
-                {(demande.marques && demande.marques.length > 0
-                  ? demande.marques.map(
-                      (row: { marque: { id: string; nom: string } }) => row.marque
-                    )
-                  : demande.marque
-                    ? [demande.marque]
-                    : []
-                ).map((marque: { id: string; nom: string; contacts?: any[] }) => (
-                  <div key={marque.id}>
-                    <Link
-                      href={`/marques/${marque.id}`}
-                      className="font-bold text-glowup-licorice hover:text-orange-600 transition-colors block"
-                    >
-                      {marque.nom}
-                    </Link>
-                    <p className="text-[11px] uppercase tracking-wide text-purple-600 font-semibold mt-0.5">
-                      Marque
-                    </p>
-                    {marque.contacts && marque.contacts.length > 0 && (
-                      <div className="space-y-1 mt-2">
-                        {marque.contacts.slice(0, 2).map((contact: any) => (
-                          <div key={contact.id} className="text-sm">
-                            <p className="font-medium text-gray-700">
-                              {contact.prenom} {contact.nom}
-                            </p>
-                            {contact.email && (
-                              <a
-                                href={`mailto:${contact.email}`}
-                                className="text-gray-500 hover:text-orange-600 text-xs"
-                              >
-                                {contact.email}
-                              </a>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {(demande.partners || []).map(
-                  (row: { partner: { id: string; name: string; slug?: string } }) => (
-                    <div key={row.partner.id}>
-                      {row.partner.slug ? (
-                        <Link
-                          href={`/partners/manage/${row.partner.id}`}
-                          className="font-bold text-glowup-licorice hover:text-amber-700 transition-colors block"
-                        >
-                          {row.partner.name}
-                        </Link>
-                      ) : (
-                        <p className="font-bold text-glowup-licorice">
-                          {row.partner.name}
-                        </p>
-                      )}
-                      <p className="text-[11px] uppercase tracking-wide text-amber-700 font-semibold mt-0.5">
-                        Partenaire
-                      </p>
-                    </div>
-                  )
-                )}
-              </div>
+function PersonBlock({
+  role,
+  prenom,
+  nom,
+  email,
+  telephone,
+  photo,
+  subtitle,
+  href,
+  last,
+}: {
+  role: string;
+  prenom: string;
+  nom: string;
+  email?: string | null;
+  telephone?: string | null;
+  photo?: string | null;
+  subtitle?: string;
+  href?: string;
+  last?: boolean;
+}) {
+  const name = (
+    <span className="truncate text-sm font-semibold text-zinc-900">
+      {prenom} {nom}
+    </span>
+  );
+
+  return (
+    <div
+      className={`flex flex-col gap-2.5 py-4 ${
+        last ? "" : "border-b border-zinc-100"
+      }`}
+    >
+      <div className="text-xs font-medium text-zinc-500">{role}</div>
+      <div className="flex items-center gap-3">
+        <div className="h-9 w-9 flex-none overflow-hidden rounded-full bg-zinc-100">
+          {photo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={photo}
+              alt={`${prenom} ${nom}`}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="grid h-full w-full place-items-center text-xs font-semibold text-zinc-600">
+              {initials(prenom, nom)}
             </div>
           )}
-
-          {/* Timeline */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
-            <h3 className="font-bold text-glowup-licorice mb-4 flex items-center gap-2">
-              <Clock className="w-5 h-5 text-gray-600" />
-              Timeline
-            </h3>
-            <div className="space-y-3">
-              <TimelineItem
-                label="Créée"
-                date={demande.createdAt}
-                icon={<Package className="w-4 h-4" />}
-                active
-              />
-              {demande.datePriseEnCharge && (
-                <TimelineItem
-                  label="Prise en charge"
-                  date={demande.datePriseEnCharge}
-                  icon={<User className="w-4 h-4" />}
-                  active
-                />
-              )}
-              {demande.dateContactMarque && (
-                <TimelineItem
-                  label="Marque contactée"
-                  date={demande.dateContactMarque}
-                  icon={<Building2 className="w-4 h-4" />}
-                  active
-                />
-              )}
-              {demande.dateReponseMarque && (
-                <TimelineItem
-                  label="Réponse marque"
-                  date={demande.dateReponseMarque}
-                  icon={<MessageSquare className="w-4 h-4" />}
-                  active
-                />
-              )}
-              {demande.dateEnvoi && (
-                <TimelineItem
-                  label="Envoyé"
-                  date={demande.dateEnvoi}
-                  icon={<Truck className="w-4 h-4" />}
-                  active
-                />
-              )}
-              {demande.dateReception && (
-                <TimelineItem
-                  label="Reçu"
-                  date={demande.dateReception}
-                  icon={<CheckCircle className="w-4 h-4" />}
-                  active
-                />
-              )}
-            </div>
-          </div>
+        </div>
+        <div className="flex min-w-0 flex-col">
+          {href ? (
+            <Link href={href} className="hover:text-violet-700">
+              {name}
+            </Link>
+          ) : (
+            name
+          )}
+          {subtitle && (
+            <span className="truncate text-xs text-zinc-500">{subtitle}</span>
+          )}
+          {email && (
+            <a
+              href={`mailto:${email}`}
+              className="truncate text-xs text-zinc-500 hover:text-violet-700"
+            >
+              {email}
+            </a>
+          )}
+          {telephone && (
+            <a
+              href={`tel:${telephone}`}
+              className="truncate text-xs text-zinc-500 hover:text-violet-700"
+            >
+              {telephone}
+            </a>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// Composants utilitaires
+function ReservationPanel({
+  demande,
+  editing,
+  editData,
+  setEditData,
+  setEditing,
+  onSave,
+}: any) {
+  return (
+    <section className={`${cardClass} p-7`}>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="m-0 text-[15px] font-semibold text-zinc-900">
+          Informations de réservation
+        </h2>
+        {demande.statut !== "ANNULE" && (
+          <div className="flex gap-2">
+            {editing ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setEditing(false)}
+                  className="inline-flex h-8 items-center gap-1 rounded-lg border border-zinc-300 px-3 text-[13px] font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={onSave}
+                  className="inline-flex h-8 items-center gap-1 rounded-lg bg-violet-700 px-3 text-[13px] font-medium text-white hover:bg-violet-800"
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  Sauvegarder
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="inline-flex h-8 items-center gap-1 rounded-lg border border-zinc-300 px-3 text-[13px] font-medium text-zinc-700 hover:bg-zinc-50"
+              >
+                <Edit className="h-3.5 w-3.5" />
+                Modifier
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-5">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <Field label="Numéro de réservation">
+            {editing ? (
+              <input
+                type="text"
+                value={editData.numeroReservation}
+                onChange={(e) =>
+                  setEditData({
+                    ...editData,
+                    numeroReservation: e.target.value,
+                  })
+                }
+                className={inputClass}
+                placeholder="Ex : ABC123456"
+              />
+            ) : (
+              demande.numeroReservation || <EmptyVal />
+            )}
+          </Field>
+          <Field label="Nom de la réservation">
+            {editing ? (
+              <input
+                type="text"
+                value={editData.nomReservation}
+                onChange={(e) =>
+                  setEditData({ ...editData, nomReservation: e.target.value })
+                }
+                className={inputClass}
+                placeholder="Nom sous lequel la réservation est faite"
+              />
+            ) : (
+              demande.nomReservation || <EmptyVal />
+            )}
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <Field label="Adresse de l'hôtel">
+            {editing ? (
+              <textarea
+                value={editData.adresseHotel}
+                onChange={(e) =>
+                  setEditData({ ...editData, adresseHotel: e.target.value })
+                }
+                rows={4}
+                className={textareaClass}
+                placeholder="Adresse complète de l'hôtel..."
+              />
+            ) : (
+              <span className="whitespace-pre-wrap">
+                {demande.adresseHotel || <EmptyVal />}
+              </span>
+            )}
+          </Field>
+          <div className="space-y-4">
+            <Field label="Contact sur place / accueil">
+              {editing ? (
+                <input
+                  type="text"
+                  value={editData.contactSurPlace}
+                  onChange={(e) =>
+                    setEditData({
+                      ...editData,
+                      contactSurPlace: e.target.value,
+                    })
+                  }
+                  className={inputClass}
+                  placeholder="Nom / service à demander à l'accueil"
+                />
+              ) : (
+                demande.contactSurPlace || <EmptyVal />
+              )}
+            </Field>
+            <Field label="Horaire check-in">
+              {editing ? (
+                <input
+                  type="text"
+                  value={editData.horaireCheckIn}
+                  onChange={(e) =>
+                    setEditData({
+                      ...editData,
+                      horaireCheckIn: e.target.value,
+                    })
+                  }
+                  className={inputClass}
+                  placeholder="Ex : À partir de 15h"
+                />
+              ) : (
+                demande.horaireCheckIn || <EmptyVal />
+              )}
+            </Field>
+            <Field label="Horaire check-out">
+              {editing ? (
+                <input
+                  type="text"
+                  value={editData.horaireCheckOut}
+                  onChange={(e) =>
+                    setEditData({
+                      ...editData,
+                      horaireCheckOut: e.target.value,
+                    })
+                  }
+                  className={inputClass}
+                  placeholder="Ex : Avant 12h"
+                />
+              ) : (
+                demande.horaireCheckOut || <EmptyVal />
+              )}
+            </Field>
+          </div>
+        </div>
+
+        <div className="border-t border-zinc-100 pt-5">
+          <h3 className="mb-3 text-[13px] font-semibold text-zinc-900">
+            Contreparties attendues
+          </h3>
+          {editing ? (
+            <div className="space-y-3">
+              {(editData.contreparties || []).map((c: any, index: number) => (
+                <div
+                  key={index}
+                  className="flex flex-col items-stretch gap-2 md:flex-row md:items-center"
+                >
+                  <select
+                    value={c.type || "STORY"}
+                    onChange={(e) => {
+                      const next = [...(editData.contreparties || [])];
+                      next[index] = { ...next[index], type: e.target.value };
+                      setEditData({ ...editData, contreparties: next });
+                    }}
+                    className={`${inputClass} md:w-1/2`}
+                  >
+                    <option value="STORY">Story</option>
+                    <option value="POST_FEED">Post feed</option>
+                    <option value="REEL_TIKTOK">Reel / TikTok</option>
+                    <option value="MENTION_STORY">Mention story</option>
+                    <option value="CHOIX_TALENT">Au choix du talent</option>
+                  </select>
+                  <div className="flex items-center gap-2 md:w-1/3">
+                    <input
+                      type="number"
+                      min={0}
+                      value={
+                        c.delai === undefined || c.delai === null ? "" : c.delai
+                      }
+                      onChange={(e) => {
+                        const value =
+                          e.target.value === "" ? null : Number(e.target.value);
+                        const next = [...(editData.contreparties || [])];
+                        next[index] = { ...next[index], delai: value };
+                        setEditData({ ...editData, contreparties: next });
+                      }}
+                      className={inputClass}
+                      placeholder="Jours"
+                    />
+                    <span className="text-sm text-zinc-500">j</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = [...(editData.contreparties || [])];
+                      next.splice(index, 1);
+                      setEditData({ ...editData, contreparties: next });
+                    }}
+                    className="inline-flex h-[38px] items-center justify-center rounded-lg border border-zinc-200 px-3 text-zinc-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  const next = Array.isArray(editData.contreparties)
+                    ? [...editData.contreparties]
+                    : [];
+                  next.push({ type: "STORY", delai: 7 });
+                  setEditData({ ...editData, contreparties: next });
+                }}
+                className="inline-flex items-center gap-1.5 text-[13px] font-medium text-violet-700 hover:text-violet-800"
+              >
+                <Plus className="h-4 w-4" />
+                Ajouter une contrepartie
+              </button>
+            </div>
+          ) : (
+            <ContrepartieChips list={demande.contreparties} />
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ReservationReadOnly({ demande }: { demande: any }) {
+  return (
+    <section className={`${cardClass} p-7`}>
+      <h2 className="mb-4 text-[15px] font-semibold text-zinc-900">
+        Informations de réservation
+      </h2>
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {demande.numeroReservation && (
+            <Field label="Numéro de réservation">
+              <span className="font-medium">{demande.numeroReservation}</span>
+            </Field>
+          )}
+          {demande.nomReservation && (
+            <Field label="Nom de la réservation">
+              <span className="font-medium">{demande.nomReservation}</span>
+            </Field>
+          )}
+        </div>
+        {demande.adresseHotel && (
+          <Field label="Adresse de l'hôtel">
+            <span className="whitespace-pre-wrap font-medium">
+              {demande.adresseHotel}
+            </span>
+          </Field>
+        )}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {demande.contactSurPlace && (
+            <Field label="Contact sur place / accueil">
+              <span className="font-medium">{demande.contactSurPlace}</span>
+            </Field>
+          )}
+          {(demande.horaireCheckIn || demande.horaireCheckOut) && (
+            <div className="space-y-3">
+              {demande.horaireCheckIn && (
+                <Field label="Horaire check-in">
+                  <span className="font-medium">{demande.horaireCheckIn}</span>
+                </Field>
+              )}
+              {demande.horaireCheckOut && (
+                <Field label="Horaire check-out">
+                  <span className="font-medium">{demande.horaireCheckOut}</span>
+                </Field>
+              )}
+            </div>
+          )}
+        </div>
+        {Array.isArray(demande.contreparties) &&
+          demande.contreparties.length > 0 && (
+            <div className="border-t border-zinc-100 pt-4">
+              <Field label="Contreparties attendues">
+                <ContrepartieChips list={demande.contreparties} />
+              </Field>
+            </div>
+          )}
+      </div>
+    </section>
+  );
+}
+
+function ContrepartieChips({ list }: { list: any }) {
+  if (!Array.isArray(list) || list.length === 0) {
+    return <span className="text-sm text-zinc-400">Aucune contrepartie renseignée</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {list.map((c: any, index: number) => {
+        const label = CONTREPARTIE_LABELS[c.type] || c.type || "Contrepartie";
+        const suffix =
+          c.delai != null && c.delai !== "" ? ` dans ${c.delai}j` : "";
+        return (
+          <span
+            key={index}
+            className="inline-flex items-center rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700"
+          >
+            {label}
+            {suffix}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function WorkflowPanel({ demande, onUpdate, onPrendreEnCharge }: any) {
   const workflow = getWorkflowSteps(demande.statut, demande.typeGift);
-  
+
   return (
-    <div className="bg-white rounded-2xl shadow-sm border-2 border-purple-200 p-4 sm:p-8">
-      <h2 className="text-xl font-bold text-glowup-licorice mb-6 flex items-center gap-2">
-        <TrendingUp className="w-5 h-5 text-purple-600" />
+    <section className={`${cardClass} p-7`}>
+      <h2 className="mb-5 flex items-center gap-2 text-[15px] font-semibold text-zinc-900">
+        <TrendingUp className="h-4 w-4 text-violet-700" />
         Workflow de suivi
       </h2>
 
-      {/* Si pas encore pris en charge */}
       {!demande.accountManagerId && demande.statut === "EN_ATTENTE" && (
-        <div className="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-6 mb-6">
-          <div className="flex items-start gap-4">
-            <AlertTriangle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-1" />
+        <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-5">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 flex-none text-amber-600" />
             <div className="flex-1">
-              <h3 className="font-bold text-yellow-800 mb-2">Demande en attente de prise en charge</h3>
-              <p className="text-yellow-700 text-sm mb-4">
-                Cette demande n'a pas encore été attribuée à un Account Manager. Prenez-la en charge pour commencer le traitement.
+              <h3 className="mb-1 text-sm font-semibold text-amber-900">
+                Demande en attente de prise en charge
+              </h3>
+              <p className="mb-3 text-sm text-amber-800">
+                Cette demande n&apos;a pas encore été attribuée à un Account
+                Manager. Prenez-la en charge pour commencer le traitement.
               </p>
               <button
+                type="button"
                 onClick={onPrendreEnCharge}
-                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl font-semibold hover:shadow-lg transition-all"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-amber-500 px-4 text-sm font-medium text-white hover:bg-amber-600"
               >
-                <User className="w-5 h-5" />
+                <User className="h-4 w-4" />
                 Prendre en charge cette demande
               </button>
             </div>
@@ -1469,74 +1598,66 @@ function WorkflowPanel({ demande, onUpdate, onPrendreEnCharge }: any) {
         </div>
       )}
 
-      {/* Étapes du workflow */}
-      <div className="space-y-4">
-        {workflow.steps.map((step: any, index: number) => (
-          <WorkflowStep
-            key={step.statut}
-            step={step}
-            isActive={step.statut === demande.statut}
-            isCompleted={workflow.completedSteps.includes(step.statut)}
-            onSelect={() => onUpdate(step.statut)}
-            canSelect={demande.accountManagerId !== null}
-          />
-        ))}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {workflow.steps.map((step: any) => {
+          const isActive = step.statut === demande.statut;
+          const isCompleted = workflow.completedSteps.includes(step.statut);
+          const canSelect = demande.accountManagerId !== null;
+          const Icon = step.icon;
+          return (
+            <button
+              key={step.statut}
+              type="button"
+              disabled={!canSelect}
+              onClick={() => canSelect && onUpdate(step.statut)}
+              className={`flex items-start gap-3 rounded-lg border p-3.5 text-left transition ${
+                isActive
+                  ? "border-violet-500 bg-violet-50"
+                  : isCompleted
+                    ? "border-emerald-200 bg-emerald-50"
+                    : canSelect
+                      ? "border-zinc-200 hover:border-violet-300"
+                      : "cursor-not-allowed border-zinc-200 opacity-50"
+              }`}
+            >
+              <div
+                className={`mt-0.5 grid h-8 w-8 flex-none place-items-center rounded-lg ${
+                  isActive
+                    ? "bg-violet-700 text-white"
+                    : isCompleted
+                      ? "bg-emerald-500 text-white"
+                      : "bg-zinc-100 text-zinc-400"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p
+                  className={`text-sm font-semibold ${
+                    isActive
+                      ? "text-violet-800"
+                      : isCompleted
+                        ? "text-emerald-800"
+                        : "text-zinc-800"
+                  }`}
+                >
+                  {step.label}
+                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">{step.description}</p>
+              </div>
+              {isCompleted && !isActive && (
+                <CheckCircle className="h-4 w-4 flex-none text-emerald-500" />
+              )}
+            </button>
+          );
+        })}
       </div>
-    </div>
-  );
-}
-
-function WorkflowStep({ step, isActive, isCompleted, onSelect, canSelect }: any) {
-  const Icon = step.icon;
-  
-  return (
-    <div
-      onClick={canSelect ? onSelect : undefined}
-      className={`group flex items-center gap-4 p-4 rounded-xl border-2 transition-all ${
-        isActive
-          ? "bg-purple-50 border-purple-500 shadow-md"
-          : isCompleted
-          ? "bg-emerald-50 border-emerald-300"
-          : canSelect
-          ? "border-gray-200 hover:border-purple-300 hover:shadow-md cursor-pointer"
-          : "border-gray-200 opacity-50 cursor-not-allowed"
-      }`}
-    >
-      <div
-        className={`p-3 rounded-xl ${
-          isActive
-            ? "bg-purple-500 text-white"
-            : isCompleted
-            ? "bg-emerald-500 text-white"
-            : "bg-gray-100 text-gray-400 group-hover:bg-purple-100 group-hover:text-purple-600"
-        }`}
-      >
-        <Icon className="w-5 h-5" />
-      </div>
-      <div className="flex-1">
-        <p className={`font-bold ${isActive ? "text-purple-700" : isCompleted ? "text-emerald-700" : "text-gray-700"}`}>
-          {step.label}
-        </p>
-        <p className="text-sm text-gray-500">{step.description}</p>
-      </div>
-      {isActive && (
-        <div className="px-3 py-1 bg-purple-500 text-white rounded-lg text-xs font-bold">
-          EN COURS
-        </div>
-      )}
-      {isCompleted && !isActive && (
-        <CheckCircle className="w-6 h-6 text-emerald-500" />
-      )}
-      {!isActive && !isCompleted && canSelect && (
-        <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-purple-600 group-hover:translate-x-1 transition-all" />
-      )}
-    </div>
+    </section>
   );
 }
 
 function getWorkflowSteps(currentStatut: string, typeGift: string) {
   const isHotel = typeGift === "HOTEL";
-
   const allSteps = isHotel
     ? [
         {
@@ -1566,13 +1687,13 @@ function getWorkflowSteps(currentStatut: string, typeGift: string) {
         {
           statut: "ENVOYE",
           label: "Réservation confirmée",
-          description: "Les informations de réservation ont été transmises au talent",
+          description: "Infos transmises au talent",
           icon: Truck,
         },
         {
           statut: "RECU",
           label: "Séjour effectué",
-          description: "Le talent a bien effectué son séjour",
+          description: "Le talent a effectué son séjour",
           icon: Package,
         },
       ]
@@ -1580,7 +1701,7 @@ function getWorkflowSteps(currentStatut: string, typeGift: string) {
         {
           statut: "EN_ATTENTE",
           label: "En attente",
-          description: "Demande soumise, en attente de prise en charge",
+          description: "Demande soumise",
           icon: Clock,
         },
         {
@@ -1618,13 +1739,59 @@ function getWorkflowSteps(currentStatut: string, typeGift: string) {
   const currentIndex = allSteps.findIndex((s) => s.statut === currentStatut);
   const completedSteps = allSteps.slice(0, currentIndex).map((s) => s.statut);
 
-  return {
-    steps: allSteps,
-    completedSteps,
-  };
+  return { steps: allSteps, completedSteps };
 }
 
-function CommentCard({
+function buildProgressSteps(demande: any) {
+  const steps = [
+    {
+      label: "Créée",
+      at: formatDate(demande.createdAt),
+      done: true,
+      bar: "#6d28d9",
+    },
+    {
+      label: "Prise en charge",
+      at: formatDate(demande.datePriseEnCharge),
+      done: !!demande.datePriseEnCharge,
+      bar: "#6d28d9",
+    },
+    {
+      label: "Marque contactée",
+      at: formatDate(demande.dateContactMarque),
+      done: !!demande.dateContactMarque,
+      bar: "#6d28d9",
+    },
+    {
+      label: "Réponse marque",
+      at: formatDate(demande.dateReponseMarque),
+      done: !!demande.dateReponseMarque,
+      bar: "#6d28d9",
+    },
+    {
+      label: demande.dateReception ? "Reçu" : "Envoyé",
+      at: formatDate(demande.dateReception || demande.dateEnvoi),
+      done: !!(demande.dateReception || demande.dateEnvoi),
+      bar: demande.dateReception ? "#16a34a" : "#6d28d9",
+    },
+  ];
+  return steps;
+}
+
+function brandResponseFromStatut(statut: string) {
+  if (statut === "ACCEPTE" || statut === "ENVOYE" || statut === "RECU") {
+    return { label: "Partante", color: "#15803d", bg: "#f0fdf4" };
+  }
+  if (statut === "REFUSE") {
+    return { label: "Refusée", color: "#b91c1c", bg: "#fef2f2" };
+  }
+  if (statut === "ATTENTE_MARQUE" || statut === "EN_COURS") {
+    return { label: "Sans réponse", color: "#52525b", bg: "#f4f4f5" };
+  }
+  return { label: "En attente", color: "#a16207", bg: "#fef9c3" };
+}
+
+function CommentRow({
   comment,
   mentionableUsers,
 }: {
@@ -1633,120 +1800,40 @@ function CommentCard({
 }) {
   const isSystem =
     comment.auteur.role === "CM" || comment.auteur.role === "ADMIN";
-
-  const usersById = new Map<
-    string,
-    { firstName: string; lastName: string }
-  >();
+  const usersById = new Map<string, { firstName: string; lastName: string }>();
   for (const u of mentionableUsers || []) {
     usersById.set(u.id, { firstName: u.firstName, lastName: u.lastName });
   }
-  
+
   return (
-    <div
-      className={`p-5 md:p-6 rounded-2xl ${
-        isSystem
-          ? "bg-blue-50 border border-blue-200"
-          : "bg-gray-50 border border-gray-100"
-      }`}
-    >
-      <div className="flex items-start gap-4">
-        <div
-          className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold ${
-            isSystem
-              ? "bg-gradient-to-br from-blue-500 to-indigo-600"
-              : "bg-gradient-to-br from-gray-400 to-gray-600"
-          }`}
-        >
-          {comment.auteur.prenom[0]}{comment.auteur.nom[0]}
-        </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1.5">
-            <p className="font-bold text-glowup-licorice">
-              {comment.auteur.prenom} {comment.auteur.nom}
-            </p>
-            {isSystem && (
-              <span className="px-2 py-0.5 bg-blue-200 text-blue-700 rounded text-xs font-bold">
-                Account Manager
-              </span>
-            )}
-            <span className="text-xs text-gray-500">
-              {new Date(comment.createdAt).toLocaleDateString("fr-FR", { 
-                day: "numeric", 
-                month: "short", 
-                hour: "2-digit", 
-                minute: "2-digit" 
-              })}
+    <div className="flex gap-3.5 border-b border-zinc-100 py-[18px] last:border-0">
+      <div
+        className={`grid h-8 w-8 flex-none place-items-center rounded-full text-xs font-semibold text-white ${
+          isSystem ? "bg-indigo-600" : "bg-zinc-500"
+        }`}
+      >
+        {initials(comment.auteur.prenom, comment.auteur.nom)}
+      </div>
+      <div className="flex min-w-0 flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-2 text-[13px]">
+          <span className="font-semibold text-zinc-900">
+            {comment.auteur.prenom} {comment.auteur.nom}
+          </span>
+          {isSystem && (
+            <span className="rounded bg-indigo-50 px-1.5 py-px text-[11px] font-medium text-indigo-700">
+              Account Manager
             </span>
-          </div>
-          <p className="text-gray-700 whitespace-pre-wrap">
-            {renderCommentWithMentions(
-              comment.contenu,
-              usersById,
-              undefined,
-              { accentColor: "#C08B8B" }
-            )}
-          </p>
+          )}
+          <span className="text-xs text-zinc-400">
+            {formatDate(comment.createdAt)}
+          </span>
+        </div>
+        <div className="whitespace-pre-line text-sm leading-relaxed text-zinc-800">
+          {renderCommentWithMentions(comment.contenu, usersById, undefined, {
+            accentColor: "#7c3aed",
+          })}
         </div>
       </div>
     </div>
-  );
-}
-
-function TimelineItem({ label, date, icon, active }: any) {
-  return (
-    <div className="flex items-start gap-3">
-      <div className={`p-2 rounded-lg ${active ? "bg-purple-100 text-purple-600" : "bg-gray-100 text-gray-400"}`}>
-        {icon}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className={`text-sm font-semibold ${active ? "text-glowup-licorice" : "text-gray-500"}`}>
-          {label}
-        </p>
-        <p className="text-xs text-gray-500">
-          {new Date(date).toLocaleDateString("fr-FR", {
-            day: "numeric",
-            month: "short",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function StatutBadge({ statut, large }: { statut: string; large?: boolean }) {
-  const config: Record<string, { label: string; color: string }> = {
-    BROUILLON: { label: "Brouillon", color: "bg-gray-100 text-gray-600" },
-    EN_ATTENTE: { label: "En attente", color: "bg-yellow-100 text-yellow-700" },
-    EN_COURS: { label: "En cours", color: "bg-blue-100 text-blue-700" },
-    ATTENTE_MARQUE: { label: "Attente marque", color: "bg-purple-100 text-purple-700" },
-    ACCEPTE: { label: "Accepté", color: "bg-emerald-100 text-emerald-700" },
-    REFUSE: { label: "Refusé", color: "bg-red-100 text-red-700" },
-    ENVOYE: { label: "Envoyé", color: "bg-indigo-100 text-indigo-700" },
-    RECU: { label: "Reçu", color: "bg-green-100 text-green-700" },
-    ANNULE: { label: "Annulé", color: "bg-gray-100 text-gray-600" },
-  };
-  const c = config[statut] || config.EN_ATTENTE;
-  return (
-    <span className={`inline-flex items-center gap-1.5 ${large ? "px-4 py-2 text-sm" : "px-3 py-1 text-xs"} rounded-xl font-bold ${c.color}`}>
-      {c.label}
-    </span>
-  );
-}
-
-function PrioriteBadge({ priorite, large }: { priorite: string; large?: boolean }) {
-  const config: Record<string, { label: string; color: string }> = {
-    BASSE: { label: "Basse", color: "bg-gray-100 text-gray-600" },
-    NORMALE: { label: "Normale", color: "bg-blue-100 text-blue-600" },
-    HAUTE: { label: "Haute", color: "bg-orange-100 text-orange-600" },
-    URGENTE: { label: "Urgente", color: "bg-red-100 text-red-600" },
-  };
-  const c = config[priorite] || config.NORMALE;
-  return (
-    <span className={`inline-flex items-center ${large ? "px-4 py-2 text-sm" : "px-3 py-1.5 text-xs"} rounded-xl font-bold ${c.color}`}>
-      {c.label}
-    </span>
   );
 }

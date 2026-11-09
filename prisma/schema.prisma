@@ -368,8 +368,9 @@ model User {
   prospections     Prospection[]
   documentsCreated Document[]    @relation("DocumentCreateur")
 
-  demandesGiftCreees DemandeGift[]     @relation("TMDemandeGift")
-  demandesGiftGerees DemandeGift[]     @relation("AMDemandeGift")
+  demandesGiftCreees   DemandeGift[] @relation("TMDemandeGift")
+  demandesGiftGerees   DemandeGift[] @relation("AMDemandeGift")
+  demandesGiftArchivees DemandeGift[] @relation("GiftArchivedBy")
   commentairesGift   CommentaireGift[]
 
   collabsGerees         Collaboration[]        @relation("AccountManagerCollabs")
@@ -2615,6 +2616,11 @@ model DemandeGift {
 
   numeroSuivi String? // Numéro de suivi du colis
 
+  // Archive manuelle (AM) — hors pipeline actif sans changer le statut
+  archivedAt   DateTime?
+  archivedById String?
+  archivedBy   User?     @relation("GiftArchivedBy", fields: [archivedById], references: [id], onDelete: SetNull)
+
   // Timestamps
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2631,6 +2637,7 @@ model DemandeGift {
   @@index([statut])
   @@index([priorite])
   @@index([createdAt])
+  @@index([archivedAt])
   @@map("demandes_gift")
 }
 

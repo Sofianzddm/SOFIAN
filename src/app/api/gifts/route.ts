@@ -100,8 +100,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
-    if (statut && statut !== "TOUS") {
-      where.statut = statut;
+    // TOUS / statut = pipeline actif (non archivé)
+    // ARCHIVES = archivées manuellement par l'AM
+    if (statut === "ARCHIVES") {
+      where.archivedAt = { not: null };
+    } else {
+      where.archivedAt = null;
+      if (statut && statut !== "TOUS") {
+        where.statut = statut;
+      }
     }
 
     if (talentId) {

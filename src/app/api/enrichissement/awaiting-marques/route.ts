@@ -10,7 +10,7 @@ import { formatAwaitingSourcesLabel } from "@/lib/resolve-awaiting-enrichissemen
  */
 const ALLOWED = ["ADMIN", "CASTING_MANAGER"] as const;
 
-type SourceKind = "pipeline" | "projet";
+type SourceKind = "pipeline" | "projet" | "gift";
 
 export async function GET(request: NextRequest) {
   try {
@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
         updatedAt: true,
         marqueId: true,
         campaignId: true,
+        // strategyReason « Gift … » → source gift (hors pipeline casting)
         marque: {
           select: {
             id: true,
@@ -105,7 +106,15 @@ export async function GET(request: NextRequest) {
       }).length;
       const brandName = m.marque?.nom || m.targetBrand;
       const marqueId = m.marqueId || m.marque?.id || null;
-      const kind: SourceKind = m.campaignId ? "projet" : "pipeline";
+      const reason = String(m.strategyReason || "");
+      const isGift =
+        /^gift\b/i.test(reason.trim()) ||
+        reason.toLowerCase().includes("demande gift");
+      const kind: SourceKind = m.campaignId
+        ? "projet"
+        : isGift
+          ? "gift"
+          : "pipeline";
       const key = marqueId || `mission:${m.id}`;
       const campaignTalent = m.campaign?.talent;
       const soloTalent = m.talent;
@@ -119,15 +128,19 @@ export async function GET(request: NextRequest) {
         : "";
       const requestedAt = m.contactsCompletionRequestedAt?.toISOString() ?? null;
       const contextLabel =
-        kind === "pipeline"
-          ? "Pipeline Casting"
-          : m.campaign?.title
-            ? `Projet « ${m.campaign.title} »`
-            : "Projet outreach";
+        kind === "gift"
+          ? reason.split("—")[0]?.trim() || "Demande Gift"
+          : kind === "pipeline"
+            ? "Pipeline Casting"
+            : m.campaign?.title
+              ? `Projet « ${m.campaign.title} »`
+              : "Projet outreach";
       const contextPath =
-        kind === "pipeline"
-          ? "/strategy/projet-individuel-talent/pipeline"
-          : `/projets-outreach/${m.campaignId}`;
+        kind === "gift"
+          ? "/gifts"
+          : kind === "pipeline"
+            ? "/strategy/projet-individuel-talent/pipeline"
+            : `/projets-outreach/${m.campaignId}`;
 
       let group = groups.get(key);
       if (!group) {

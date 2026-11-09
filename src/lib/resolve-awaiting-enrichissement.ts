@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { notifyMarqueCompletionResolved } from "@/lib/emails/notify-enrichissement";
 
-export type AwaitingSourceKind = "pipeline" | "projet";
+export type AwaitingSourceKind = "pipeline" | "projet" | "gift";
 
 export type ResolvedAwaitingMission = {
   missionId: string;
@@ -40,20 +40,21 @@ export function formatAwaitingSourcesLabel(
 ): string {
   const hasPipeline = sources.includes("pipeline");
   const hasProjet = sources.includes("projet");
-  if (hasPipeline && hasProjet) {
-    const titles = projetTitles.filter(Boolean);
-    return titles.length
-      ? `Pipeline Casting + projet${titles.length > 1 ? "s" : ""} (${titles.join(", ")})`
-      : "Pipeline Casting + projet";
-  }
+  const hasGift = sources.includes("gift");
+  const parts: string[] = [];
+  if (hasPipeline) parts.push("Pipeline Casting");
   if (hasProjet) {
     const titles = projetTitles.filter(Boolean);
-    return titles.length
-      ? `Projet${titles.length > 1 ? "s" : ""} (${titles.join(", ")})`
-      : "Projet outreach";
+    parts.push(
+      titles.length
+        ? `projet${titles.length > 1 ? "s" : ""} (${titles.join(", ")})`
+        : "Projet outreach"
+    );
   }
-  if (hasPipeline) return "Pipeline Casting";
-  return "";
+  if (hasGift) parts.push("Demande Gift");
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0];
+  return parts.join(" + ");
 }
 
 export function contextsFromResolvedMissions(
@@ -66,7 +67,9 @@ export function contextsFromResolvedMissions(
     const key =
       m.source === "projet"
         ? `projet:${m.campaignId || m.missionId}`
-        : "pipeline";
+        : m.source === "gift"
+          ? `gift:${m.missionId}`
+          : "pipeline";
     if (seen.has(key)) continue;
     seen.add(key);
     if (m.source === "projet" && m.campaignId) {
@@ -76,6 +79,12 @@ export function contextsFromResolvedMissions(
           ? `Projet « ${m.campaignTitle} »`
           : "Projet outreach",
         path: `/projets-outreach/${m.campaignId}`,
+      });
+    } else if (m.source === "gift") {
+      contexts.push({
+        kind: "gift",
+        label: "Demande Gift",
+        path: "/gifts",
       });
     } else if (m.source === "pipeline") {
       contexts.push({
@@ -207,6 +216,7 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
       select: {
         id: true,
         targetBrand: true,
+        strategyReason: true,
         campaignId: true,
         campaign: { select: { id: true, title: true } },
       },
@@ -222,13 +232,19 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
       data: { awaitingContactsCompletion: false },
     });
 
-    const missions: ResolvedAwaitingMission[] = awaiting.map((m) => ({
-      missionId: m.id,
-      brandName: marque.nom || m.targetBrand,
-      source: m.campaignId ? "projet" : "pipeline",
-      campaignId: m.campaign?.id ?? null,
-      campaignTitle: m.campaign?.title ?? null,
-    }));
+    const missions: ResolvedAwaitingMission[] = awaiting.map((m) => {
+      const reason = String(m.strategyReason || "");
+      const isGift =
+        /^gift\b/i.test(reason.trim()) ||
+        reason.toLowerCase().includes("demande gift");
+      return {
+        missionId: m.id,
+        brandName: marque.nom || m.targetBrand,
+        source: m.campaignId ? "projet" : isGift ? "gift" : "pipeline",
+        campaignId: m.campaign?.id ?? null,
+        campaignTitle: m.campaign?.title ?? null,
+      };
+    });
 
     const sourceSet = new Set<AwaitingSourceKind>(missions.map((m) => m.source));
     const sources = Array.from(sourceSet);

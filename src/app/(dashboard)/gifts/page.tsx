@@ -3,26 +3,51 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import {
-  Gift,
-  Plus,
-  Loader2,
-  AlertTriangle,
-  Package,
-  Clock,
-  CheckCircle,
-  XCircle,
-  Filter,
-  Search,
-  ChevronRight,
-  Truck,
-  User,
-  Calendar,
-  TrendingUp,
-  Building2,
-  MessageSquare,
-  DollarSign,
-} from "lucide-react";
+import { Loader2, AlertTriangle, Gift, Plus } from "lucide-react";
+
+const FILTERS = [
+  { value: "TOUS", label: "Tous" },
+  { value: "EN_ATTENTE", label: "En attente" },
+  { value: "EN_COURS", label: "En cours" },
+  { value: "ATTENTE_MARQUE", label: "Attente marque" },
+  { value: "ACCEPTE", label: "Accepté" },
+  { value: "ENVOYE", label: "Envoyé" },
+  { value: "ARCHIVES", label: "Archivés" },
+] as const;
+
+const TYPE_LABELS: Record<string, string> = {
+  PRODUIT: "Produit",
+  EXPERIENCE: "Expérience",
+  SERVICE: "Service",
+  HOTEL: "Hôtel",
+  AUTRE: "Autre",
+};
+
+const PRIORITE_STYLE: Record<string, string> = {
+  BASSE: "text-zinc-600 bg-zinc-50 border-zinc-200",
+  NORMALE: "text-blue-700 bg-blue-50 border-blue-200",
+  HAUTE: "text-orange-700 bg-orange-50 border-orange-200",
+  URGENTE: "text-red-700 bg-red-50 border-red-200",
+};
+
+const PRIORITE_LABEL: Record<string, string> = {
+  BASSE: "Basse",
+  NORMALE: "Normale",
+  HAUTE: "Haute",
+  URGENTE: "Urgente",
+};
+
+const STATUT_STYLE: Record<string, { label: string; color: string; bg: string }> = {
+  BROUILLON: { label: "Brouillon", color: "#52525b", bg: "#f4f4f5" },
+  EN_ATTENTE: { label: "En attente", color: "#a16207", bg: "#fef9c3" },
+  EN_COURS: { label: "En cours", color: "#1d4ed8", bg: "#dbeafe" },
+  ATTENTE_MARQUE: { label: "Attente marque", color: "#6d28d9", bg: "#f5f3ff" },
+  ACCEPTE: { label: "Accepté", color: "#047857", bg: "#d1fae5" },
+  REFUSE: { label: "Refusé", color: "#b91c1c", bg: "#fee2e2" },
+  ENVOYE: { label: "Envoyé", color: "#4338ca", bg: "#e0e7ff" },
+  RECU: { label: "Reçu", color: "#15803d", bg: "#dcfce7" },
+  ANNULE: { label: "Annulé", color: "#52525b", bg: "#f4f4f5" },
+};
 
 export default function GiftsPage() {
   const { data: session } = useSession();
@@ -48,9 +73,7 @@ export default function GiftsPage() {
       setLoading(true);
       setError(null);
       const params = new URLSearchParams();
-      if (filtreStatut !== "TOUS") {
-        params.append("statut", filtreStatut);
-      }
+      params.append("statut", filtreStatut);
       const res = await fetch(`/api/gifts?${params.toString()}`);
       if (!res.ok) throw new Error("Erreur de chargement");
       const data = await res.json();
@@ -72,160 +95,150 @@ export default function GiftsPage() {
     );
   });
 
-  // Stats
-  const stats = {
-    total: demandes.length,
-    enAttente: demandes.filter((d) => d.statut === "EN_ATTENTE").length,
-    enCours: demandes.filter((d) => d.statut === "EN_COURS" || d.statut === "ATTENTE_MARQUE").length,
-    accepte: demandes.filter((d) => d.statut === "ACCEPTE" || d.statut === "ENVOYE").length,
-    termine: demandes.filter((d) => d.statut === "RECU").length,
-  };
+  const stats = [
+    { label: "Total", value: demandes.length, dot: "#71717a" },
+    {
+      label: "En attente",
+      value: demandes.filter((d) => d.statut === "EN_ATTENTE").length,
+      dot: "#eab308",
+    },
+    {
+      label: "En cours",
+      value: demandes.filter(
+        (d) => d.statut === "EN_COURS" || d.statut === "ATTENTE_MARQUE"
+      ).length,
+      dot: "#3b82f6",
+    },
+    {
+      label: "Accepté",
+      value: demandes.filter(
+        (d) => d.statut === "ACCEPTE" || d.statut === "ENVOYE"
+      ).length,
+      dot: "#10b981",
+    },
+    {
+      label: "Reçu",
+      value: demandes.filter((d) => d.statut === "RECU").length,
+      dot: "#8b5cf6",
+    },
+  ];
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="w-8 h-8 animate-spin text-glowup-rose" />
+        <Loader2 className="h-7 w-7 animate-spin text-violet-700" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="mx-auto flex max-w-[1080px] flex-col gap-7 pb-16 pt-2">
       {/* Header */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-glowup-licorice via-gray-900 to-glowup-licorice rounded-2xl p-4 sm:p-8 text-white">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-pink-500/10 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
-        
-        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-3 bg-purple-500/20 rounded-xl backdrop-blur-sm">
-                <Gift className="w-6 h-6" />
-              </div>
-              <h1 className="text-3xl font-extrabold">Demandes de Gifts</h1>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col gap-1.5">
+          <h1 className="m-0 text-2xl font-semibold tracking-tight text-zinc-900">
+            Demandes de Gifts
+          </h1>
+          <p className="m-0 text-sm text-zinc-500">
+            {isTM
+              ? "Demandez des produits ou services pour vos talents. L'Account Manager prendra en charge votre demande."
+              : "Gérez toutes les demandes de gifts des Talent Managers."}
+          </p>
+        </div>
+        {canCreate && (
+          <Link
+            href="/gifts/new"
+            className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg bg-violet-700 px-4 text-sm font-medium text-white transition-colors hover:bg-violet-800"
+          >
+            <Plus className="h-4 w-4" />
+            Nouvelle demande
+          </Link>
+        )}
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm sm:grid-cols-3 lg:grid-cols-5">
+        {stats.map((s, i) => (
+          <div
+            key={s.label}
+            className={`flex flex-col gap-2 px-6 py-5 ${
+              i < stats.length - 1 ? "border-r border-zinc-100" : ""
+            }`}
+          >
+            <div className="flex items-center gap-2 text-[13px] text-zinc-500">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ background: s.dot }}
+              />
+              {s.label}
             </div>
-            <p className="text-white/70 mt-2 max-w-2xl">
-              {isTM
-                ? "Demandez des produits ou services pour vos talents. L'Account Manager prendra en charge votre demande."
-                : "Gérez toutes les demandes de gifts des Talent Managers."}
-            </p>
+            <div className="text-[28px] font-semibold tracking-tight text-zinc-900">
+              {s.value}
+            </div>
           </div>
-          {canCreate && (
+        ))}
+      </div>
+
+      {/* Search + filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Rechercher par référence, talent ou description…"
+          className="h-[38px] min-w-[240px] flex-1 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-violet-600 focus:ring-[3px] focus:ring-violet-600/15"
+        />
+        <div className="inline-flex flex-wrap gap-0.5 rounded-lg bg-zinc-100 p-[3px]">
+          {FILTERS.map((f) => {
+            const on = filtreStatut === f.value;
+            return (
+              <button
+                key={f.value}
+                type="button"
+                onClick={() => setFiltreStatut(f.value)}
+                className={`h-8 rounded-md px-3 text-[13px] font-medium transition-colors ${
+                  on
+                    ? "bg-white text-zinc-900 shadow-sm"
+                    : "bg-transparent text-zinc-500 hover:text-zinc-700"
+                }`}
+              >
+                {f.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Liste */}
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
+          <AlertTriangle className="mx-auto mb-2 h-8 w-8 text-red-500" />
+          <p className="text-sm font-medium text-red-700">{error}</p>
+        </div>
+      ) : demandesFiltrees.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-zinc-300 bg-white px-6 py-12 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-violet-50">
+            <Gift className="h-6 w-6 text-violet-700" />
+          </div>
+          <p className="text-sm text-zinc-500">
+            {searchTerm
+              ? "Aucune demande ne correspond."
+              : isTM
+              ? "Créez votre première demande de gift pour vos talents."
+              : "Aucune demande de gift pour le moment."}
+          </p>
+          {canCreate && !searchTerm && (
             <Link
               href="/gifts/new"
-              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all hover:scale-105"
+              className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-lg bg-violet-700 px-4 text-sm font-medium text-white hover:bg-violet-800"
             >
-              <Plus className="w-5 h-5" />
+              <Plus className="h-4 w-4" />
               Nouvelle demande
             </Link>
           )}
         </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <StatCard
-          label="Total"
-          value={stats.total}
-          icon={<Package className="w-5 h-5" />}
-          gradient="from-gray-500 to-gray-600"
-        />
-        <StatCard
-          label="En attente"
-          value={stats.enAttente}
-          icon={<Clock className="w-5 h-5" />}
-          gradient="from-yellow-500 to-orange-500"
-        />
-        <StatCard
-          label="En cours"
-          value={stats.enCours}
-          icon={<TrendingUp className="w-5 h-5" />}
-          gradient="from-blue-500 to-indigo-600"
-        />
-        <StatCard
-          label="Accepté"
-          value={stats.accepte}
-          icon={<CheckCircle className="w-5 h-5" />}
-          gradient="from-emerald-500 to-teal-600"
-        />
-        <StatCard
-          label="Reçu"
-          value={stats.termine}
-          icon={<Truck className="w-5 h-5" />}
-          gradient="from-purple-500 to-pink-600"
-        />
-      </div>
-
-      {/* Filtres et recherche */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          {/* Recherche */}
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Rechercher par référence, talent ou description..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-glowup-rose/20 focus:border-glowup-rose transition-all"
-            />
-          </div>
-
-          {/* Filtre statut */}
-          <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-400" />
-            <select
-              value={filtreStatut}
-              onChange={(e) => setFiltreStatut(e.target.value)}
-              className="px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-glowup-rose/20 focus:border-glowup-rose transition-all"
-            >
-              <option value="TOUS">Tous les statuts</option>
-              <option value="EN_ATTENTE">En attente</option>
-              <option value="EN_COURS">En cours</option>
-              <option value="ATTENTE_MARQUE">Attente marque</option>
-              <option value="ACCEPTE">Accepté</option>
-              <option value="REFUSE">Refusé</option>
-              <option value="ENVOYE">Envoyé</option>
-              <option value="RECU">Reçu</option>
-              <option value="ANNULE">Annulé</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Liste des demandes */}
-      {error ? (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
-          <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-3" />
-          <p className="text-red-700 font-medium">{error}</p>
-        </div>
-      ) : demandesFiltrees.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
-          <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-purple-100 to-pink-100 flex items-center justify-center">
-            <Gift className="w-10 h-10 text-purple-500" />
-          </div>
-          <h3 className="text-xl font-bold text-glowup-licorice mb-2">
-            {searchTerm ? "Aucun résultat" : "Aucune demande"}
-          </h3>
-          <p className="text-gray-500 mb-6">
-            {searchTerm
-              ? "Essayez de modifier vos critères de recherche"
-              : isTM
-              ? "Créez votre première demande de gift pour vos talents"
-              : "Aucune demande de gift n'a été créée pour le moment"}
-          </p>
-          {isTM && !searchTerm && (
-            <Link
-              href="/gifts/new"
-              className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all"
-            >
-              <Plus className="w-5 h-5" />
-              Créer ma première demande
-            </Link>
-          )}
-        </div>
       ) : (
-        <div className="space-y-4">
+        <div className="flex flex-col gap-3">
           {demandesFiltrees.map((demande) => (
             <DemandeCard key={demande.id} demande={demande} isAM={isAM} />
           ))}
@@ -235,22 +248,7 @@ export default function GiftsPage() {
   );
 }
 
-function StatCard({ label, value, icon, gradient }: any) {
-  return (
-    <div className={`relative overflow-hidden bg-gradient-to-br ${gradient} rounded-2xl p-5 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105 cursor-pointer group`}>
-      <div className="absolute top-0 right-0 w-20 h-20 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-500" />
-      <div className="relative">
-        <div className="p-2 bg-white/20 rounded-lg inline-flex mb-3">
-          {icon}
-        </div>
-        <p className="text-3xl font-extrabold mb-1">{value}</p>
-        <p className="text-white/80 text-sm">{label}</p>
-      </div>
-    </div>
-  );
-}
-
-function DemandeCard({ demande, isAM }: any) {
+function DemandeCard({ demande, isAM }: { demande: any; isAM: boolean }) {
   const villeLivraison = demande.adresseLivraison
     ? demande.adresseLivraison
         .split("\n")
@@ -263,14 +261,13 @@ function DemandeCard({ demande, isAM }: any) {
     if (!val) return null;
     const n = typeof val === "number" ? val : parseFloat(val);
     if (Number.isNaN(n)) return null;
-    return `~${n.toLocaleString("fr-FR")}€`;
+    return `~${n.toLocaleString("fr-FR")} €`;
   };
 
   const formatContrepartie = () => {
     const type = demande.contrepartieType as string | null;
     const delai = demande.contrepartieDelai as number | null;
     const notes = demande.contrepartieNotes as string | null;
-
     if (!type && !notes) return null;
 
     const labels: Record<string, string> = {
@@ -279,306 +276,185 @@ function DemandeCard({ demande, isAM }: any) {
       REEL_TIKTOK: "Reel / TikTok",
       MENTION_STORY: "Mention story",
       CHOIX_TALENT: "Au choix du talent",
-      AUCUNE: "Aucune contrepartie",
+      AUCUNE: "Aucune",
     };
 
     const baseLabel = type ? labels[type] || type : "Contrepartie";
     const withDelai =
       delai && delai > 0 ? `${baseLabel} dans ${delai}j` : baseLabel;
-
-    if (notes) {
-      return `${withDelai} • ${notes}`;
-    }
-
-    return withDelai;
+    return notes ? `${withDelai} · ${notes}` : withDelai;
   };
 
-  const contrepartieLabel = formatContrepartie();
-  const valeurEstimeeLabel = formatValeurEstimee(demande.valeurEstimee);
+  const marquesLabels = (() => {
+    const labels = [
+      ...(demande.marques || []).map(
+        (m: { marque: { nom: string } }) => m.marque.nom
+      ),
+      ...(demande.partners || []).map(
+        (p: { partner: { name: string } }) => p.partner.name
+      ),
+    ];
+    if (labels.length === 0 && demande.marque?.nom) {
+      labels.push(demande.marque.nom);
+    }
+    return labels.length > 0 ? labels.join(", ") : "Aucun";
+  })();
+
+  const fields: { k: string; v: string }[] = [
+    {
+      k: "Talent",
+      v: `${demande.talent.prenom} ${demande.talent.nom}`,
+    },
+  ];
+
+  if (isAM) {
+    fields.push({
+      k: "TM",
+      v: `${demande.tm.prenom} ${demande.tm.nom}`,
+    });
+  }
+
+  fields.push(
+    {
+      k: "Account Manager",
+      v: demande.accountManager
+        ? `${demande.accountManager.prenom} ${demande.accountManager.nom}`
+        : "Non assigné",
+    },
+    { k: "Marques / partenaires", v: marquesLabels },
+    {
+      k: "Créée le",
+      v: new Date(demande.createdAt).toLocaleDateString("fr-FR"),
+    }
+  );
+
+  const valeur = formatValeurEstimee(demande.valeurEstimee);
+  if (valeur) fields.push({ k: "Valeur estimée", v: valeur });
+
+  const contrepartie = formatContrepartie();
+  if (contrepartie) fields.push({ k: "Contrepartie", v: contrepartie });
+
+  if (demande.typeGift === "HOTEL") {
+    if (demande.destination)
+      fields.push({ k: "Destination", v: demande.destination });
+    if (demande.dateArrivee || demande.dateDepart) {
+      fields.push({
+        k: "Séjour",
+        v: [
+          demande.dateArrivee &&
+            `Du ${new Date(demande.dateArrivee).toLocaleDateString("fr-FR")}`,
+          demande.dateDepart &&
+            `au ${new Date(demande.dateDepart).toLocaleDateString("fr-FR")}`,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      });
+    }
+    if (demande.nombrePersonnes)
+      fields.push({ k: "Personnes", v: String(demande.nombrePersonnes) });
+    if (demande.categorie)
+      fields.push({ k: "Catégorie", v: demande.categorie });
+  } else {
+    if (demande.datesouhaitee) {
+      fields.push({
+        k: "Réception souhaitée",
+        v: new Date(demande.datesouhaitee).toLocaleDateString("fr-FR"),
+      });
+    }
+    if (villeLivraison) {
+      fields.push({ k: "Ville de livraison", v: villeLivraison });
+    }
+  }
+
+  const statut = STATUT_STYLE[demande.statut] || STATUT_STYLE.EN_ATTENTE;
+  const prioClass =
+    PRIORITE_STYLE[demande.priorite] || PRIORITE_STYLE.NORMALE;
+  const initials = `${demande.talent.prenom?.[0] || ""}${
+    demande.talent.nom?.[0] || ""
+  }`.toUpperCase();
+
+  const lastComment = demande.commentaires?.[0];
 
   return (
     <Link
       href={`/gifts/${demande.id}`}
-      className="group block bg-white rounded-2xl shadow-sm border-2 border-gray-100 hover:border-purple-300 hover:shadow-lg transition-all p-4 sm:p-6"
+      className="group flex cursor-pointer flex-col gap-[18px] rounded-xl border border-zinc-200 bg-white p-6 shadow-sm transition-colors hover:border-violet-300"
     >
-      <div className="flex items-start gap-6">
-        {/* Badge priorité + statut */}
-        <div className="flex flex-col items-center gap-2">
-          <PrioriteBadge priorite={demande.priorite} />
-          <StatutBadge statut={demande.statut} />
-        </div>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-4">
+          {/* Photo talent */}
+          <div className="h-14 w-14 flex-none overflow-hidden rounded-xl bg-zinc-100 ring-1 ring-zinc-200">
+            {demande.talent.photo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={demande.talent.photo}
+                alt={`${demande.talent.prenom} ${demande.talent.nom}`}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-violet-50 text-sm font-semibold text-violet-700">
+                {initials || "?"}
+              </div>
+            )}
+          </div>
 
-        {/* Contenu principal */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-4 mb-3">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <h3 className="text-xl font-bold text-glowup-licorice group-hover:text-purple-600 transition-colors">
-                  {demande.reference}
-                </h3>
-                <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold uppercase">
-                  {demande.typeGift}
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="text-base font-semibold tracking-tight text-zinc-900">
+                {demande.reference}
+              </span>
+              <span className="rounded-md bg-violet-50 px-2 py-[3px] text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+                {TYPE_LABELS[demande.typeGift] || demande.typeGift}
+              </span>
+              {demande.archivedAt && (
+                <span className="rounded-full bg-zinc-100 px-2.5 py-[3px] text-xs font-medium text-zinc-600">
+                  Archivée
                 </span>
-                {contrepartieLabel && (
-                  <span className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-medium inline-flex items-center gap-1">
-                    <Gift className="w-3.5 h-3.5" />
-                    {`Contrepartie : ${contrepartieLabel}`}
-                  </span>
-                )}
-              </div>
-              <p className="text-gray-600 line-clamp-2">{demande.description}</p>
+              )}
             </div>
+            <p className="m-0 line-clamp-2 text-sm leading-relaxed text-zinc-600">
+              {demande.description}
+            </p>
           </div>
-
-          {/* Infos principales */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 pt-4 border-t border-gray-100">
-            {/* Talent */}
-            <div className="flex items-center gap-2">
-              <User className="w-4 h-4 text-gray-400" />
-              <div className="min-w-0">
-                <p className="text-xs text-gray-500">Talent</p>
-                <p className="font-semibold text-sm truncate">
-                  {demande.talent.prenom} {demande.talent.nom}
-                </p>
-              </div>
-            </div>
-
-            {/* TM (visible pour AM / admin) */}
-            {isAM && (
-              <div className="flex items-center gap-2">
-                <User className="w-4 h-4 text-gray-400" />
-                <div className="min-w-0">
-                  <p className="text-xs text-gray-500">TM</p>
-                  <p className="font-semibold text-sm truncate">
-                    {demande.tm.prenom} {demande.tm.nom}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Account Manager */}
-            <div className="flex items-center gap-2">
-              <User className="w-4 h-4 text-gray-400" />
-              <div className="min-w-0">
-                <p className="text-xs text-gray-500">Account Manager</p>
-                <p className="font-semibold text-sm truncate">
-                  {demande.accountManager
-                    ? `${demande.accountManager.prenom} ${demande.accountManager.nom}`
-                    : "Non assigné"}
-                </p>
-              </div>
-            </div>
-
-            {/* Marque */}
-            <div className="flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-gray-400" />
-              <div className="min-w-0">
-                <p className="text-xs text-gray-500">Marques / partenaires</p>
-                <p className="font-semibold text-sm truncate">
-                  {(() => {
-                    const labels = [
-                      ...(demande.marques || []).map(
-                        (m: { marque: { nom: string } }) => m.marque.nom
-                      ),
-                      ...(demande.partners || []).map(
-                        (p: { partner: { name: string } }) => p.partner.name
-                      ),
-                    ];
-                    if (labels.length === 0 && demande.marque?.nom) {
-                      labels.push(demande.marque.nom);
-                    }
-                    return labels.length > 0
-                      ? labels.join(", ")
-                      : "Aucun";
-                  })()}
-                </p>
-              </div>
-            </div>
-
-            {/* Date */}
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-gray-400" />
-              <div className="min-w-0">
-                <p className="text-xs text-gray-500">Créée le</p>
-                <p className="font-semibold text-sm">
-                  {new Date(demande.createdAt).toLocaleDateString("fr-FR")}
-                </p>
-              </div>
-            </div>
-
-            {/* Valeur estimée */}
-            {valeurEstimeeLabel && (
-              <div className="flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-gray-400" />
-                <div className="min-w-0">
-                  <p className="text-xs text-gray-500">Valeur estimée</p>
-                  <p className="font-semibold text-sm truncate">
-                    {valeurEstimeeLabel}
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Bloc spécifique hôtel */}
-          {demande.typeGift === "HOTEL" && (
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
-              {/* Destination */}
-              {demande.destination && (
-                <div className="flex items-center gap-2">
-                  <Building2 className="w-4 h-4 text-gray-400" />
-                  <div className="min-w-0">
-                    <p className="text-xs text-gray-500">Destination</p>
-                    <p className="font-semibold text-sm truncate">
-                      {demande.destination}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Dates */}
-              {(demande.dateArrivee || demande.dateDepart) && (
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-gray-400" />
-                  <div className="min-w-0">
-                    <p className="text-xs text-gray-500">Séjour</p>
-                    <p className="font-semibold text-sm truncate">
-                      {demande.dateArrivee &&
-                        `Du ${new Date(
-                          demande.dateArrivee
-                        ).toLocaleDateString("fr-FR")}`}
-                      {demande.dateDepart &&
-                        ` au ${new Date(
-                          demande.dateDepart
-                        ).toLocaleDateString("fr-FR")}`}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Nombre de personnes */}
-              {demande.nombrePersonnes && (
-                <div className="flex items-center gap-2">
-                  <User className="w-4 h-4 text-gray-400" />
-                  <div className="min-w-0">
-                    <p className="text-xs text-gray-500">Personnes</p>
-                    <p className="font-semibold text-sm truncate">
-                      {demande.nombrePersonnes}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Catégorie */}
-              {demande.categorie && (
-                <div className="flex items-center gap-2">
-                  <Gift className="w-4 h-4 text-gray-400" />
-                  <div className="min-w-0">
-                    <p className="text-xs text-gray-500">Catégorie</p>
-                    <p className="font-semibold text-sm truncate">
-                      {demande.categorie}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Bloc pour autres types : date souhaitée + ville livraison */}
-          {demande.typeGift !== "HOTEL" &&
-            (demande.datesouhaitee || villeLivraison) && (
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                {demande.datesouhaitee && (
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-gray-400" />
-                    <div className="min-w-0">
-                      <p className="text-xs text-gray-500">
-                        Date de réception souhaitée
-                      </p>
-                      <p className="font-semibold text-sm truncate">
-                        {new Date(
-                          demande.datesouhaitee
-                        ).toLocaleDateString("fr-FR")}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {villeLivraison && (
-                  <div className="flex items-center gap-2">
-                    <Building2 className="w-4 h-4 text-gray-400" />
-                    <div className="min-w-0">
-                      <p className="text-xs text-gray-500">
-                        Ville de livraison
-                      </p>
-                      <p className="font-semibold text-sm truncate">
-                        {villeLivraison}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-          {/* Dernier commentaire */}
-          {demande.commentaires && demande.commentaires.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-gray-100">
-              <div className="flex items-start gap-2">
-                <MessageSquare className="w-4 h-4 text-gray-400 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-gray-500 mb-1">
-                    {demande.commentaires[0].auteur.prenom} {demande.commentaires[0].auteur.nom} •{" "}
-                    {new Date(demande.commentaires[0].createdAt).toLocaleDateString("fr-FR")}
-                  </p>
-                  <p className="text-sm text-gray-600 line-clamp-1">
-                    {demande.commentaires[0].contenu}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Flèche */}
-        <ChevronRight className="w-6 h-6 text-gray-400 group-hover:text-purple-600 group-hover:translate-x-1 transition-all flex-shrink-0" />
+        <div className="flex flex-none flex-wrap justify-end gap-1.5">
+          <span
+            className={`rounded-full border px-2.5 py-[3px] text-xs font-medium ${prioClass}`}
+          >
+            {PRIORITE_LABEL[demande.priorite] || demande.priorite}
+          </span>
+          <span
+            className="rounded-full px-2.5 py-[3px] text-xs font-medium"
+            style={{ color: statut.color, background: statut.bg }}
+          >
+            {statut.label}
+          </span>
+        </div>
       </div>
+
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-x-6 gap-y-4 border-t border-zinc-100 pt-[18px]">
+        {fields.map((f) => (
+          <div key={f.k} className="flex min-w-0 flex-col gap-0.5">
+            <span className="text-xs text-zinc-500">{f.k}</span>
+            <span className="truncate text-sm font-medium text-zinc-900">
+              {f.v}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {lastComment && (
+        <div className="flex items-baseline gap-2.5 rounded-lg bg-zinc-50 px-3 py-2.5 text-[13px] leading-relaxed text-zinc-600">
+          <span className="whitespace-nowrap font-semibold text-zinc-900">
+            {lastComment.auteur.prenom} {lastComment.auteur.nom}
+          </span>
+          <span className="whitespace-nowrap text-zinc-400">
+            {new Date(lastComment.createdAt).toLocaleDateString("fr-FR")}
+          </span>
+          <span className="line-clamp-1">{lastComment.contenu}</span>
+        </div>
+      )}
     </Link>
-  );
-}
-
-function PrioriteBadge({ priorite }: { priorite: string }) {
-  const config: Record<string, { label: string; color: string }> = {
-    BASSE: { label: "Basse", color: "bg-gray-100 text-gray-600" },
-    NORMALE: { label: "Normale", color: "bg-blue-100 text-blue-600" },
-    HAUTE: { label: "Haute", color: "bg-orange-100 text-orange-600" },
-    URGENTE: { label: "Urgente", color: "bg-red-100 text-red-600" },
-  };
-  const c = config[priorite] || config.NORMALE;
-  return (
-    <span className={`px-3 py-1.5 rounded-xl text-xs font-bold ${c.color}`}>
-      {c.label}
-    </span>
-  );
-}
-
-function StatutBadge({ statut }: { statut: string }) {
-  const config: Record<string, { label: string; color: string; icon: any }> = {
-    BROUILLON: { label: "Brouillon", color: "bg-gray-100 text-gray-600", icon: Clock },
-    EN_ATTENTE: { label: "En attente", color: "bg-yellow-100 text-yellow-700", icon: Clock },
-    EN_COURS: { label: "En cours", color: "bg-blue-100 text-blue-700", icon: TrendingUp },
-    ATTENTE_MARQUE: { label: "Attente marque", color: "bg-purple-100 text-purple-700", icon: Building2 },
-    ACCEPTE: { label: "Accepté", color: "bg-emerald-100 text-emerald-700", icon: CheckCircle },
-    REFUSE: { label: "Refusé", color: "bg-red-100 text-red-700", icon: XCircle },
-    ENVOYE: { label: "Envoyé", color: "bg-indigo-100 text-indigo-700", icon: Truck },
-    RECU: { label: "Reçu", color: "bg-green-100 text-green-700", icon: Package },
-    ANNULE: { label: "Annulé", color: "bg-gray-100 text-gray-600", icon: XCircle },
-  };
-  const c = config[statut] || config.EN_ATTENTE;
-  const Icon = c.icon;
-  return (
-    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold ${c.color}`}>
-      <Icon className="w-3.5 h-3.5" />
-      {c.label}
-    </div>
   );
 }

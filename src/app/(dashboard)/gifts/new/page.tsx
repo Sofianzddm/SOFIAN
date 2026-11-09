@@ -4,8 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { Loader2, AlertCircle, AlertTriangle, X } from "lucide-react";
-import QuickMarqueModal from "@/components/QuickMarqueModal";
+import { Loader2, AlertCircle, AlertTriangle, X, ScanSearch } from "lucide-react";
 
 type MarqueOption = { id: string; nom: string; raisonSociale?: string | null };
 type PartnerOption = { id: string; name: string; market?: string };
@@ -140,7 +139,8 @@ export default function NewGiftPage() {
   const [searchingCibles, setSearchingCibles] = useState(false);
   const [selectedCibles, setSelectedCibles] = useState<CibleSelection[]>([]);
   const [showCibleSuggestions, setShowCibleSuggestions] = useState(false);
-  const [showQuickMarque, setShowQuickMarque] = useState(false);
+  const [enrichingMarque, setEnrichingMarque] = useState(false);
+  const [enrichFlash, setEnrichFlash] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     talentId: "",
@@ -288,7 +288,12 @@ export default function NewGiftPage() {
     );
   };
 
-  const handleOpenCreateMarque = () => {
+  const handleEnrichirMarque = async () => {
+    const nom = cibleQuery.trim();
+    if (!nom) {
+      setError("Saisissez le nom de la marque à enrichir");
+      return;
+    }
     if (exactMarqueMatch) {
       addCible({
         type: "MARQUE",
@@ -297,7 +302,44 @@ export default function NewGiftPage() {
       });
       return;
     }
-    setShowQuickMarque(true);
+    if (!formData.talentId) {
+      setError("Sélectionnez d'abord un talent");
+      return;
+    }
+
+    try {
+      setEnrichingMarque(true);
+      setError(null);
+      setEnrichFlash(null);
+      const res = await fetch("/api/gifts/enrich-marque", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nom,
+          talentId: formData.talentId,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "Impossible d'envoyer en enrichissement");
+      }
+      const marque = data.marque as { id: string; nom: string };
+      setMarques((prev) =>
+        prev.some((m) => m.id === marque.id) ? prev : [...prev, marque]
+      );
+      addCible({ type: "MARQUE", id: marque.id, label: marque.nom });
+      setEnrichFlash(
+        data.message ||
+          `${marque.nom} ajoutée et envoyée en enrichissement.`
+      );
+      setCibleQuery("");
+      setMarqueSuggestions([]);
+      setShowCibleSuggestions(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur enrichissement");
+    } finally {
+      setEnrichingMarque(false);
+    }
   };
 
   const setField = (name: string, value: string) => {
@@ -770,17 +812,40 @@ export default function NewGiftPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={handleOpenCreateMarque}
-                  disabled={!!exactMarqueMatch}
-                  className="h-[38px] whitespace-nowrap rounded-lg border border-zinc-300 bg-white px-3.5 text-[13px] font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => void handleEnrichirMarque()}
+                  disabled={
+                    enrichingMarque ||
+                    cibleQuery.trim().length < 2 ||
+                    !!exactMarqueMatch
+                  }
+                  className="inline-flex h-[38px] items-center gap-1.5 whitespace-nowrap rounded-lg border border-amber-300 bg-amber-50 px-3.5 text-[13px] font-semibold text-amber-900 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Crée la fiche si besoin et l'envoie en enrichissement"
                 >
-                  + Créer une marque
+                  {enrichingMarque ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ScanSearch className="h-3.5 w-3.5" />
+                  )}
+                  Enrichir
                 </button>
               </div>
 
+              {enrichFlash && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+                  {enrichFlash}{" "}
+                  <a
+                    href="/enrichissement?tab=attente"
+                    className="font-semibold underline"
+                  >
+                    Voir la file
+                  </a>
+                </div>
+              )}
+
               <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700">
-                Ne créez pas de doublon : si la marque existe déjà dans le CRM,
-                sélectionnez sa fiche.
+                Si la marque existe déjà dans le CRM, sélectionnez sa fiche. Sinon
+                utilisez <strong>Enrichir</strong> : la marque est ajoutée et
+                part en file d&apos;enrichissement.
                 {exactMarqueMatch && (
                   <>
                     {" "}
@@ -1019,24 +1084,6 @@ export default function NewGiftPage() {
         </div>
       </div>
 
-      <QuickMarqueModal
-        isOpen={showQuickMarque}
-        onClose={() => setShowQuickMarque(false)}
-        defaultNom={cibleQuery}
-        existingMarques={marques}
-        onSelectExisting={(marque) => {
-          addCible({ type: "MARQUE", id: marque.id, label: marque.nom });
-          setShowQuickMarque(false);
-        }}
-        onCreated={(marque) => {
-          const created = { id: marque.id, nom: marque.nom };
-          setMarques((prev) =>
-            prev.some((m) => m.id === created.id) ? prev : [...prev, created]
-          );
-          addCible({ type: "MARQUE", id: created.id, label: created.nom });
-          setShowQuickMarque(false);
-        }}
-      />
     </div>
   );
 }

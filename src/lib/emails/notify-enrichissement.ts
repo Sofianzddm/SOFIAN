@@ -153,7 +153,7 @@ export async function notifyMarqueCompletionResolved(opts: {
   resolvedByName?: string | null;
   emailableCount?: number;
   contexts: Array<{
-    kind: "projet" | "pipeline";
+    kind: "projet" | "pipeline" | "gift";
     label: string;
     path: string;
   }>;

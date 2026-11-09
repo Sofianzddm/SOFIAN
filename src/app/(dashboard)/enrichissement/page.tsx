@@ -85,13 +85,13 @@ type AwaitingMarqueItem = {
   emailableCount: number;
   contactCount: number;
   requestedAt: string | null;
-  sources: Array<"projet" | "pipeline">;
+  sources: Array<"projet" | "pipeline" | "gift">;
   sourceLabel: string;
   both: boolean;
   fichePath: string | null;
   contexts: Array<{
     missionId: string;
-    kind: "projet" | "pipeline";
+    kind: "projet" | "pipeline" | "gift";
     label: string;
     path: string;
     talentName: string;
@@ -1688,7 +1688,11 @@ export default function EnrichissementPage() {
                             >
                               {item.both
                                 ? "Pipeline + Projet"
-                                : item.sourceLabel || "Demande enrichissement"}
+                                : item.sources.includes("gift") &&
+                                    !item.sources.includes("pipeline") &&
+                                    !item.sources.includes("projet")
+                                  ? "Demande Gift"
+                                  : item.sourceLabel || "Demande enrichissement"}
                             </span>
                           </div>
                           <p className="text-xs text-gray-500">
