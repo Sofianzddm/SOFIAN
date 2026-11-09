@@ -835,6 +835,7 @@ model Marque {
   negociations         Negociation[]
   prospections         Prospection[]
   demandesGift         DemandeGift[]
+  demandesGiftCibles   DemandeGiftMarque[]
   quotes               Quote[]
   inboundOpportunities InboundOpportunity[]
   contactMissions      ContactMission[]
@@ -2559,6 +2560,7 @@ model DemandeGift {
   accountManagerId String?
   accountManager   User?   @relation("AMDemandeGift", fields: [accountManagerId], references: [id])
 
+  // Marque principale (rétrocompat) — synchronisée avec la 1ère entrée de `marques`.
   marqueId String?
   marque   Marque? @relation(fields: [marqueId], references: [id])
 
@@ -2619,6 +2621,8 @@ model DemandeGift {
 
   // Relations
   commentaires CommentaireGift[]
+  marques      DemandeGiftMarque[]
+  partners     DemandeGiftPartner[]
 
   @@index([talentId])
   @@index([tmId])
@@ -2628,6 +2632,36 @@ model DemandeGift {
   @@index([priorite])
   @@index([createdAt])
   @@map("demandes_gift")
+}
+
+/// Marques CRM ciblées par une demande de gift (multi-sélection).
+model DemandeGiftMarque {
+  demandeGiftId String
+  demandeGift   DemandeGift @relation(fields: [demandeGiftId], references: [id], onDelete: Cascade)
+
+  marqueId String
+  marque   Marque @relation(fields: [marqueId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([demandeGiftId, marqueId])
+  @@index([marqueId])
+  @@map("demande_gift_marques")
+}
+
+/// Partenaires / agences ciblés par une demande de gift (multi-sélection).
+model DemandeGiftPartner {
+  demandeGiftId String
+  demandeGift   DemandeGift @relation(fields: [demandeGiftId], references: [id], onDelete: Cascade)
+
+  partnerId String
+  partner   Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([demandeGiftId, partnerId])
+  @@index([partnerId])
+  @@map("demande_gift_partners")
 }
 
 model CommentaireGift {
@@ -2817,6 +2851,8 @@ model Partner {
 
   // Marques représentées / contactées via cette agence (lien CRM uniquement).
   marques MarquePartner[]
+
+  demandesGift DemandeGiftPartner[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

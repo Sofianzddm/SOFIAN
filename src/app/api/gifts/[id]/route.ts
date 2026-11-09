@@ -67,6 +67,16 @@ export async function GET(
             contacts: true,
           },
         },
+        marques: {
+          select: {
+            marque: { select: { id: true, nom: true } },
+          },
+        },
+        partners: {
+          select: {
+            partner: { select: { id: true, name: true, slug: true } },
+          },
+        },
         commentaires: {
           orderBy: { createdAt: "asc" },
           include: {

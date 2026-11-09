@@ -38,6 +38,7 @@ export interface GiftNouvelleDemandeEmailProps {
   hotelCategorie?: string | null;
   description?: string | null;
   dateSouhaiteeLabel?: string | null;
+  marqueName?: string | null;
 }
 
 export function GiftNouvelleDemandeEmail({
@@ -54,6 +55,7 @@ export function GiftNouvelleDemandeEmail({
   hotelCategorie,
   description,
   dateSouhaiteeLabel,
+  marqueName,
 }: GiftNouvelleDemandeEmailProps) {
   const preview = `Nouvelle demande de gift ${reference} pour ${talentName}`;
 
@@ -84,6 +86,11 @@ export function GiftNouvelleDemandeEmail({
               <Text style={infoRow}>
                 <strong>Type de gift :</strong> {typeGift}
               </Text>
+              {marqueName && (
+                <Text style={infoRow}>
+                  <strong>Marque :</strong> {marqueName}
+                </Text>
+              )}
               <Text style={infoRow}>
                 <strong>Priorité :</strong> {priorite}
               </Text>

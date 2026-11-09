@@ -1,13 +1,128 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import {
-  Gift, ArrowLeft, Loader2, AlertCircle, User, Building2,
-  Package, Calendar, MapPin, DollarSign, AlertTriangle,
-} from "lucide-react";
+import { Loader2, AlertCircle, AlertTriangle, X } from "lucide-react";
+import QuickMarqueModal from "@/components/QuickMarqueModal";
+
+type MarqueOption = { id: string; nom: string; raisonSociale?: string | null };
+type PartnerOption = { id: string; name: string; market?: string };
+
+type CibleSelection =
+  | { type: "MARQUE"; id: string; label: string }
+  | { type: "PARTNER"; id: string; label: string };
+
+type MarqueSuggestion = MarqueOption & {
+  matchedAlias?: string | null;
+  exactMatch?: boolean;
+  ville?: string;
+};
+
+const TYPES_GIFT = [
+  { value: "PRODUIT", label: "Produit" },
+  { value: "EXPERIENCE", label: "Expérience" },
+  { value: "SERVICE", label: "Service" },
+  { value: "HOTEL", label: "Hôtel" },
+  { value: "AUTRE", label: "Autre" },
+] as const;
+
+const PRIORITES = [
+  { value: "BASSE", label: "Basse" },
+  { value: "NORMALE", label: "Normale" },
+  { value: "HAUTE", label: "Haute" },
+  { value: "URGENTE", label: "Urgente" },
+] as const;
+
+function normalize(s: string) {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function SegmentedControl<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="inline-flex flex-wrap self-start gap-0.5 rounded-lg bg-zinc-100 p-[3px]">
+      {options.map((opt) => {
+        const on = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={`h-8 rounded-md px-3.5 text-[13px] font-medium transition-colors ${
+              on
+                ? "bg-white text-zinc-900 shadow-sm"
+                : "bg-transparent text-zinc-500 hover:text-zinc-700"
+            }`}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FieldLabel({
+  children,
+  required,
+  optional,
+}: {
+  children: React.ReactNode;
+  required?: boolean;
+  optional?: boolean;
+}) {
+  return (
+    <div className="text-[13px] font-medium text-zinc-900">
+      {children}
+      {required && <span className="text-red-600"> *</span>}
+      {optional && (
+        <span className="font-normal text-zinc-400"> (optionnel)</span>
+      )}
+    </div>
+  );
+}
+
+function Section({
+  title,
+  description,
+  children,
+  last,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  last?: boolean;
+}) {
+  return (
+    <div className={`p-5 sm:p-7 ${last ? "" : "border-b border-zinc-200"}`}>
+      <div className="mb-5">
+        <div className="text-sm font-semibold text-zinc-900">{title}</div>
+        <div className="mt-1 text-[13px] leading-relaxed text-zinc-500">
+          {description}
+        </div>
+      </div>
+      <div className="flex flex-col gap-5">{children}</div>
+    </div>
+  );
+}
+
+const inputClass =
+  "h-[38px] w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-violet-600 focus:ring-[3px] focus:ring-violet-600/15";
+const textareaClass =
+  "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 outline-none transition placeholder:text-zinc-400 focus:border-violet-600 focus:ring-[3px] focus:ring-violet-600/15 resize-y";
 
 export default function NewGiftPage() {
   const router = useRouter();
@@ -16,10 +131,19 @@ export default function NewGiftPage() {
   const [error, setError] = useState<string | null>(null);
   const [talents, setTalents] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(true);
+  const [marques, setMarques] = useState<MarqueOption[]>([]);
+  const [partners, setPartners] = useState<PartnerOption[]>([]);
+  const [cibleQuery, setCibleQuery] = useState("");
+  const [marqueSuggestions, setMarqueSuggestions] = useState<MarqueSuggestion[]>(
+    []
+  );
+  const [searchingCibles, setSearchingCibles] = useState(false);
+  const [selectedCibles, setSelectedCibles] = useState<CibleSelection[]>([]);
+  const [showCibleSuggestions, setShowCibleSuggestions] = useState(false);
+  const [showQuickMarque, setShowQuickMarque] = useState(false);
 
   const [formData, setFormData] = useState({
     talentId: "",
-    marqueNom: "",
     typeGift: "PRODUIT",
     description: "",
     justification: "",
@@ -27,7 +151,6 @@ export default function NewGiftPage() {
     priorite: "NORMALE",
     dateSouhaitee: "",
     adresseLivraison: "",
-    // Champs hébergement (HOTEL)
     destination: "",
     dateArrivee: "",
     dateDepart: "",
@@ -38,17 +161,26 @@ export default function NewGiftPage() {
   });
 
   const user = session?.user as { role?: string; id?: string };
+  const isHotel = formData.typeGift === "HOTEL";
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoadingData(true);
-        // Récupère les talents filtrés côté API selon le rôle
-        const talentsRes = await fetch("/api/gifts?mode=talents");
+        const [talentsRes, marquesRes, partnersRes] = await Promise.all([
+          fetch("/api/gifts?mode=talents"),
+          fetch("/api/marques/options"),
+          fetch("/api/partners/options"),
+        ]);
 
-        if (talentsRes.ok) {
-          const talentsData = await talentsRes.json();
-          setTalents(talentsData);
+        if (talentsRes.ok) setTalents(await talentsRes.json());
+        if (marquesRes.ok) {
+          const data = await marquesRes.json();
+          setMarques(Array.isArray(data.marques) ? data.marques : []);
+        }
+        if (partnersRes.ok) {
+          const data = await partnersRes.json();
+          setPartners(Array.isArray(data.partners) ? data.partners : []);
         }
       } catch (err) {
         console.error(err);
@@ -56,15 +188,141 @@ export default function NewGiftPage() {
         setLoadingData(false);
       }
     };
-
     fetchData();
   }, []);
 
+  useEffect(() => {
+    const q = cibleQuery.trim();
+    if (q.length < 2) {
+      setMarqueSuggestions([]);
+      setSearchingCibles(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSearchingCibles(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/marques/search?q=${encodeURIComponent(q)}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setMarqueSuggestions(Array.isArray(data.marques) ? data.marques : []);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        if (!cancelled) setSearchingCibles(false);
+      }
+    }, 200);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [cibleQuery]);
+
+  const selectedMarqueIds = useMemo(
+    () =>
+      new Set(
+        selectedCibles.filter((c) => c.type === "MARQUE").map((c) => c.id)
+      ),
+    [selectedCibles]
+  );
+  const selectedPartnerIds = useMemo(
+    () =>
+      new Set(
+        selectedCibles.filter((c) => c.type === "PARTNER").map((c) => c.id)
+      ),
+    [selectedCibles]
+  );
+
+  const partnerSuggestions = useMemo(() => {
+    const q = normalize(cibleQuery);
+    if (q.length < 2) return [];
+    return partners
+      .filter(
+        (p) => !selectedPartnerIds.has(p.id) && normalize(p.name).includes(q)
+      )
+      .sort((a, b) => {
+        const an = normalize(a.name);
+        const bn = normalize(b.name);
+        const aExact = an === q ? 0 : an.startsWith(q) ? 1 : 2;
+        const bExact = bn === q ? 0 : bn.startsWith(q) ? 1 : 2;
+        if (aExact !== bExact) return aExact - bExact;
+        return a.name.localeCompare(b.name, "fr");
+      })
+      .slice(0, 8);
+  }, [partners, cibleQuery, selectedPartnerIds]);
+
+  const exactMarqueMatch = useMemo(() => {
+    const q = normalize(cibleQuery);
+    if (!q) return null;
+    const fromSearch = marqueSuggestions.find((m) => m.exactMatch);
+    if (fromSearch) return fromSearch;
+    return (
+      marques.find(
+        (m) =>
+          normalize(m.nom) === q ||
+          (!!m.raisonSociale && normalize(m.raisonSociale) === q)
+      ) || null
+    );
+  }, [marques, cibleQuery, marqueSuggestions]);
+
+  const addCible = (cible: CibleSelection) => {
+    setSelectedCibles((prev) =>
+      prev.some((c) => c.type === cible.type && c.id === cible.id)
+        ? prev
+        : [...prev, cible]
+    );
+    setCibleQuery("");
+    setMarqueSuggestions([]);
+    setShowCibleSuggestions(false);
+  };
+
+  const removeCible = (cible: CibleSelection) => {
+    setSelectedCibles((prev) =>
+      prev.filter((c) => !(c.type === cible.type && c.id === cible.id))
+    );
+  };
+
+  const handleOpenCreateMarque = () => {
+    if (exactMarqueMatch) {
+      addCible({
+        type: "MARQUE",
+        id: exactMarqueMatch.id,
+        label: exactMarqueMatch.nom,
+      });
+      return;
+    }
+    setShowQuickMarque(true);
+  };
+
+  const setField = (name: string, value: string) => {
+    setFormData((prev) => {
+      const next = { ...prev, [name]: value };
+      if (name === "talentId" && value) {
+        const talent = talents.find((t) => t.id === value);
+        if (talent?.adresse) {
+          next.adresseLivraison =
+            `${talent.adresse || ""}\n${talent.codePostal || ""} ${talent.ville || ""}\n${talent.pays || "France"}`.trim();
+        }
+      }
+      return next;
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!formData.talentId || !formData.typeGift || !formData.description) {
+
+    if (!formData.talentId || !formData.typeGift) {
       setError("Veuillez remplir tous les champs obligatoires");
+      return;
+    }
+    if (formData.typeGift !== "HOTEL" && !formData.description.trim()) {
+      setError("Veuillez remplir la description");
       return;
     }
 
@@ -73,7 +331,6 @@ export default function NewGiftPage() {
       setError(null);
 
       const {
-        marqueNom,
         destination,
         dateArrivee,
         dateDepart,
@@ -84,17 +341,20 @@ export default function NewGiftPage() {
         ...rest
       } = formData;
 
-      let justification = rest.justification;
-      if (marqueNom) {
-        justification = justification
-          ? `${justification}\n\nMarque souhaitée : ${marqueNom}`
-          : `Marque souhaitée : ${marqueNom}`;
-      }
-
-      const payload: any = {
+      const payload: Record<string, unknown> = {
         ...rest,
-        justification,
-        statut: "EN_ATTENTE", // Soumise directement
+        description:
+          rest.description.trim() ||
+          (rest.typeGift === "HOTEL"
+            ? `Demande d'hébergement${destination ? ` — ${destination}` : ""}`
+            : rest.description),
+        marqueIds: selectedCibles
+          .filter((c) => c.type === "MARQUE")
+          .map((c) => c.id),
+        partnerIds: selectedCibles
+          .filter((c) => c.type === "PARTNER")
+          .map((c) => c.id),
+        statut: "EN_ATTENTE",
       };
 
       if (rest.typeGift === "HOTEL") {
@@ -120,43 +380,30 @@ export default function NewGiftPage() {
 
       const demande = await res.json();
       router.push(`/gifts/${demande.id}`);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError(err.message || "Erreur lors de la création de la demande");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Erreur lors de la création de la demande"
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
-  ) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-
-    // Auto-remplir l'adresse si un talent est sélectionné
-    if (name === "talentId" && value) {
-      const talent = talents.find((t) => t.id === value);
-      if (talent && talent.adresse) {
-        const adresse = `${talent.adresse || ""}\n${talent.codePostal || ""} ${talent.ville || ""}\n${talent.pays || "France"}`.trim();
-        setFormData((prev) => ({ ...prev, adresseLivraison: adresse }));
-      }
-    }
-  };
-
   if (!user?.role || !["TM", "CM", "ADMIN", "HEAD_OF_INFLUENCE"].includes(user.role)) {
     return (
-      <div className="max-w-2xl mx-auto py-12 text-center">
-        <AlertTriangle className="w-16 h-16 text-orange-500 mx-auto mb-4" />
-        <h2 className="text-2xl font-bold text-glowup-licorice mb-2">
-          Accès réservé aux Talent Managers, Account Managers, Head of Influence et Admin
-        </h2>
-        <p className="text-gray-600 mb-6">
-          Seuls les Talent Managers, Account Managers, Head of Influence et Admin peuvent créer des demandes de gifts.
+      <div className="mx-auto max-w-lg py-16 text-center">
+        <AlertTriangle className="mx-auto mb-4 h-10 w-10 text-amber-500" />
+        <h2 className="mb-2 text-xl font-semibold text-zinc-900">Accès réservé</h2>
+        <p className="mb-6 text-sm text-zinc-500">
+          Seuls les Talent Managers, Account Managers, Head of Influence et Admin
+          peuvent créer des demandes de gifts.
         </p>
         <Link
           href="/gifts"
-          className="inline-flex items-center gap-2 px-6 py-3 bg-glowup-rose text-white rounded-xl font-semibold hover:bg-glowup-rose-dark transition-colors"
+          className="inline-flex h-9 items-center rounded-lg border border-zinc-300 px-4 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
         >
           Retour aux demandes
         </Link>
@@ -164,405 +411,632 @@ export default function NewGiftPage() {
     );
   }
 
+  const showSuggestions =
+    showCibleSuggestions &&
+    cibleQuery.trim().length >= 2 &&
+    (searchingCibles ||
+      marqueSuggestions.length > 0 ||
+      partnerSuggestions.length > 0);
+
+  const selectedTalent = talents.find((t) => t.id === formData.talentId) || null;
+  const typeLabel =
+    TYPES_GIFT.find((t) => t.value === formData.typeGift)?.label ||
+    formData.typeGift;
+  const prioriteLabel =
+    PRIORITES.find((p) => p.value === formData.priorite)?.label ||
+    formData.priorite;
+  const talentInitials = selectedTalent
+    ? `${selectedTalent.prenom?.[0] || ""}${selectedTalent.nom?.[0] || ""}`.toUpperCase()
+    : "";
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 rounded-2xl p-4 sm:p-8 text-white">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-        
-        <div className="relative">
-          <Link
-            href="/gifts"
-            className="inline-flex items-center gap-2 text-white/80 hover:text-white mb-4 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Retour aux demandes
-          </Link>
-          <div className="flex items-center gap-4">
-            <div className="p-4 bg-white/20 rounded-2xl backdrop-blur-sm">
-              <Gift className="w-8 h-8" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-extrabold">Nouvelle demande de Gift</h1>
-              <p className="text-white/80 mt-1">
-                Demandez un produit ou service pour l'un de vos talents
-              </p>
-            </div>
-          </div>
-        </div>
+    <div className="-mx-4 -mt-4 min-h-[calc(100vh-4rem)] bg-zinc-50 pb-28 sm:-mx-6 sm:-mt-6 lg:-mx-8">
+      {/* Breadcrumb */}
+      <div className="flex h-14 items-center gap-2 border-b border-zinc-200 bg-white px-5 text-sm text-zinc-500 sm:px-8">
+        <Link href="/gifts" className="hover:text-zinc-900">
+          Demandes
+        </Link>
+        <span>/</span>
+        <Link href="/gifts" className="hover:text-zinc-900">
+          Gifts
+        </Link>
+        <span>/</span>
+        <span className="font-medium text-zinc-900">Nouvelle demande</span>
       </div>
 
-      {/* Formulaire */}
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Erreur */}
+      <form
+        id="new-gift-form"
+        onSubmit={handleSubmit}
+        className="mx-auto flex max-w-[1100px] flex-col gap-8 px-5 pt-8 sm:px-8"
+      >
+        <div className="flex flex-col gap-1.5">
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
+            Nouvelle demande de Gift
+          </h1>
+          <p className="text-sm text-zinc-500">
+            Demandez un produit ou un service pour l&apos;un de vos talents.
+          </p>
+        </div>
+
         {error && (
-          <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
             <div>
-              <p className="font-semibold text-red-700">Erreur</p>
-              <p className="text-red-600 text-sm">{error}</p>
+              <p className="font-semibold">Erreur</p>
+              <p>{error}</p>
             </div>
           </div>
         )}
 
-        {/* Informations principales */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-8">
-          <h2 className="text-xl font-bold text-glowup-licorice mb-6 flex items-center gap-2">
-            <Package className="w-5 h-5 text-purple-600" />
-            Informations principales
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Talent */}
-            <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                Talent <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <select
-                  name="talentId"
-                  value={formData.talentId}
-                  onChange={handleChange}
-                  required
-                  disabled={loadingData}
-                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                >
-                  <option value="">Sélectionner un talent</option>
-                  {talents.map((talent) => (
-                    <option key={talent.id} value={talent.id}>
-                      {talent.prenom} {talent.nom}
-                      {talent.instagram ? ` (@${talent.instagram})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Type de gift */}
-            <div>
-              <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                Type de Gift <span className="text-red-500">*</span>
-              </label>
-              <select
-                name="typeGift"
-                value={formData.typeGift}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-              >
-                <option value="PRODUIT">Produit</option>
-                <option value="EXPERIENCE">Expérience</option>
-                <option value="SERVICE">Service</option>
-                <option value="HOTEL">Hôtel</option>
-                <option value="AUTRE">Autre</option>
-              </select>
-            </div>
-
-            {/* Priorité */}
-            <div>
-              <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                Priorité
-              </label>
-              <select
-                name="priorite"
-                value={formData.priorite}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-              >
-                <option value="BASSE">Basse</option>
-                <option value="NORMALE">Normale</option>
-                <option value="HAUTE">Haute</option>
-                <option value="URGENTE">Urgente</option>
-              </select>
-            </div>
-
-            {/* Marque (optionnel) */}
-            <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                Marque souhaitée (optionnel)
-              </label>
-              <div className="relative">
-                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  name="marqueNom"
-                  value={formData.marqueNom}
-                  onChange={handleChange}
-                  placeholder="Aucune marque spécifique"
-                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                />
-              </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Si vous connaissez déjà la marque auprès de laquelle demander le gift
-              </p>
-            </div>
-
-            {/* Détails hébergement (HOTEL uniquement) */}
-            {formData.typeGift === "HOTEL" && (
-              <>
-                <div className="md:col-span-2 border border-purple-100 rounded-2xl p-6 bg-purple-50/40 space-y-4">
-                  <h3 className="text-sm font-bold text-glowup-licorice mb-2">
-                    Détails hébergement
-                  </h3>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Destination */}
-                    <div>
-                      <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                        Destination
-                      </label>
-                      <input
-                        type="text"
-                        name="destination"
-                        value={formData.destination}
-                        onChange={handleChange}
-                        placeholder="Ville / pays"
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                      />
-                    </div>
-
-                    {/* Nombre de personnes */}
-                    <div>
-                      <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                        Nombre de personnes
-                      </label>
-                      <input
-                        type="number"
-                        name="nombrePersonnes"
-                        value={formData.nombrePersonnes}
-                        onChange={handleChange}
-                        min={1}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                      />
-                    </div>
-
-                    {/* Date d'arrivée */}
-                    <div>
-                      <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                        Date d'arrivée
-                      </label>
-                      <div className="relative">
-                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <input
-                          type="date"
-                          name="dateArrivee"
-                          value={formData.dateArrivee}
-                          onChange={handleChange}
-                          className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Date de départ */}
-                    <div>
-                      <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                        Date de départ
-                      </label>
-                      <div className="relative">
-                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                        <input
-                          type="date"
-                          name="dateDepart"
-                          value={formData.dateDepart}
-                          onChange={handleChange}
-                          className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Type d'hébergement */}
-                    <div>
-                      <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                        Type d'hébergement
-                      </label>
-                      <select
-                        name="typeHebergement"
-                        value={formData.typeHebergement}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                      >
-                        <option value="">Sélectionner</option>
-                        <option value="HOTEL">Hôtel</option>
-                        <option value="APPARTEMENT">Appartement</option>
-                        <option value="VILLA">Villa</option>
-                        <option value="AUTRE">Autre</option>
-                      </select>
-                    </div>
-
-                    {/* Catégorie */}
-                    <div>
-                      <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                        Catégorie
-                      </label>
-                      <select
-                        name="categorie"
-                        value={formData.categorie}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                      >
-                        <option value="">Sélectionner</option>
-                        <option value="3*">3★</option>
-                        <option value="4*">4★</option>
-                        <option value="5*">5★</option>
-                        <option value="LUXE">Luxe</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Demandes spéciales */}
-                  <div>
-                    <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                      Demandes spéciales
-                    </label>
-                    <textarea
-                      name="demandesSpeciales"
-                      value={formData.demandesSpeciales}
-                      onChange={handleChange}
-                      rows={3}
-                      placeholder="Suite, vue mer, petit-déjeuner inclus, late check-out..."
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
+        <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-[260px_minmax(0,1fr)]">
+          {/* Récap gauche */}
+          <aside className="order-first md:sticky md:top-4 md:self-start">
+            <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+              {selectedTalent ? (
+                <div className="relative">
+                  {selectedTalent.photo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={selectedTalent.photo}
+                      alt={`${selectedTalent.prenom} ${selectedTalent.nom}`}
+                      className="aspect-[4/5] w-full object-cover"
                     />
+                  ) : (
+                    <div className="flex aspect-[4/5] w-full items-center justify-center bg-gradient-to-br from-violet-100 to-zinc-100">
+                      <span className="text-4xl font-semibold text-violet-400">
+                        {talentInitials || "?"}
+                      </span>
+                    </div>
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-4 pt-12">
+                    <p className="font-semibold text-white">
+                      {selectedTalent.prenom} {selectedTalent.nom}
+                    </p>
+                    {selectedTalent.instagram && (
+                      <p className="text-sm text-white/80">
+                        @{selectedTalent.instagram}
+                      </p>
+                    )}
                   </div>
                 </div>
-              </>
+              ) : (
+                <div className="flex aspect-[4/5] w-full flex-col items-center justify-center gap-2 bg-zinc-100 px-4 text-center">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-2xl text-zinc-300 ring-1 ring-zinc-200">
+                    ?
+                  </div>
+                  <p className="text-sm font-medium text-zinc-500">
+                    Aucun talent
+                  </p>
+                  <p className="text-xs text-zinc-400">
+                    Sélectionnez un bénéficiaire
+                  </p>
+                </div>
+              )}
+
+              <div className="space-y-3 border-t border-zinc-100 px-4 py-4 text-sm">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Récapitulatif
+                </p>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-zinc-500">Type</span>
+                  <span className="text-right font-medium text-zinc-900">
+                    {typeLabel}
+                  </span>
+                </div>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="text-zinc-500">Priorité</span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                      formData.priorite === "URGENTE"
+                        ? "bg-red-50 text-red-700"
+                        : formData.priorite === "HAUTE"
+                          ? "bg-amber-50 text-amber-700"
+                          : formData.priorite === "BASSE"
+                            ? "bg-zinc-100 text-zinc-600"
+                            : "bg-violet-50 text-violet-700"
+                    }`}
+                  >
+                    {prioriteLabel}
+                  </span>
+                </div>
+                <div className="flex items-start justify-between gap-3">
+                  <span className="shrink-0 text-zinc-500">Cibles</span>
+                  <span className="text-right font-medium text-zinc-900">
+                    {selectedCibles.length > 0
+                      ? selectedCibles.map((c) => c.label).join(", ")
+                      : "—"}
+                  </span>
+                </div>
+                {!isHotel && formData.dateSouhaitee && (
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-zinc-500">Réception</span>
+                    <span className="text-right font-medium text-zinc-900">
+                      {new Date(formData.dateSouhaitee).toLocaleDateString(
+                        "fr-FR"
+                      )}
+                    </span>
+                  </div>
+                )}
+                {isHotel && formData.destination && (
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-zinc-500">Destination</span>
+                    <span className="text-right font-medium text-zinc-900">
+                      {formData.destination}
+                    </span>
+                  </div>
+                )}
+                {formData.valeurEstimee && (
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-zinc-500">
+                      {isHotel ? "Budget" : "Valeur"}
+                    </span>
+                    <span className="text-right font-medium text-zinc-900">
+                      {Number(formData.valeurEstimee).toLocaleString("fr-FR", {
+                        style: "currency",
+                        currency: "EUR",
+                      })}
+                    </span>
+                  </div>
+                )}
+                {formData.description.trim() && (
+                  <div className="border-t border-zinc-100 pt-3">
+                    <p className="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-400">
+                      Description
+                    </p>
+                    <p className="line-clamp-4 text-[13px] leading-relaxed text-zinc-600">
+                      {formData.description.trim()}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </aside>
+
+          <div className="min-w-0 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+          {/* Demande */}
+          <Section
+            title="Demande"
+            description="Bénéficiaire, nature et niveau de priorité."
+          >
+            <label className="flex flex-col gap-1.5">
+              <FieldLabel required>Talent</FieldLabel>
+              <select
+                name="talentId"
+                value={formData.talentId}
+                onChange={(e) => setField("talentId", e.target.value)}
+                required
+                disabled={loadingData}
+                className={`${inputClass} ${!formData.talentId ? "text-zinc-500" : ""}`}
+              >
+                <option value="">Sélectionner un talent</option>
+                {talents.map((talent) => (
+                  <option key={talent.id} value={talent.id}>
+                    {talent.prenom} {talent.nom}
+                    {talent.instagram ? ` (@${talent.instagram})` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel required>Type de Gift</FieldLabel>
+              <SegmentedControl
+                options={TYPES_GIFT}
+                value={formData.typeGift as (typeof TYPES_GIFT)[number]["value"]}
+                onChange={(v) => setField("typeGift", v)}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel>Priorité</FieldLabel>
+              <SegmentedControl
+                options={PRIORITES}
+                value={
+                  formData.priorite as (typeof PRIORITES)[number]["value"]
+                }
+                onChange={(v) => setField("priorite", v)}
+              />
+            </div>
+          </Section>
+
+          {/* Contenu */}
+          <Section
+            title="Contenu"
+            description="Ce que vous demandez, et pourquoi."
+          >
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel optional>Marques ou partenaires</FieldLabel>
+
+              {selectedCibles.length > 0 && (
+                <div className="mb-1 flex flex-wrap gap-1.5">
+                  {selectedCibles.map((c) => (
+                    <span
+                      key={`${c.type}-${c.id}`}
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+                        c.type === "MARQUE"
+                          ? "bg-violet-50 text-violet-800"
+                          : "bg-amber-50 text-amber-800"
+                      }`}
+                    >
+                      <span className="text-[10px] uppercase opacity-60">
+                        {c.type === "MARQUE" ? "Marque" : "Partenaire"}
+                      </span>
+                      {c.label}
+                      <button
+                        type="button"
+                        onClick={() => removeCible(c)}
+                        className="rounded-full p-0.5 hover:bg-black/10"
+                        aria-label={`Retirer ${c.label}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-2">
+                <div className="relative min-w-[200px] flex-1">
+                  <input
+                    type="text"
+                    value={cibleQuery}
+                    onChange={(e) => {
+                      setCibleQuery(e.target.value);
+                      setShowCibleSuggestions(true);
+                    }}
+                    onFocus={() => setShowCibleSuggestions(true)}
+                    onBlur={() =>
+                      setTimeout(() => setShowCibleSuggestions(false), 150)
+                    }
+                    placeholder="Rechercher une marque du CRM…"
+                    autoComplete="off"
+                    className={inputClass}
+                  />
+                  {showSuggestions && (
+                    <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-lg border border-zinc-200 bg-white shadow-lg">
+                      {searchingCibles &&
+                        marqueSuggestions.length === 0 &&
+                        partnerSuggestions.length === 0 && (
+                          <div className="flex items-center gap-2 px-3 py-3 text-sm text-zinc-500">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Recherche…
+                          </div>
+                        )}
+                      {marqueSuggestions.filter(
+                        (m) => !selectedMarqueIds.has(m.id)
+                      ).length > 0 && (
+                        <>
+                          <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                            Marques CRM
+                          </p>
+                          {marqueSuggestions
+                            .filter((m) => !selectedMarqueIds.has(m.id))
+                            .map((m) => (
+                              <button
+                                key={`m-${m.id}`}
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() =>
+                                  addCible({
+                                    type: "MARQUE",
+                                    id: m.id,
+                                    label: m.nom,
+                                  })
+                                }
+                                className="w-full border-b border-zinc-100 px-3 py-2.5 text-left last:border-0 hover:bg-zinc-50"
+                              >
+                                <p className="text-sm font-medium text-zinc-900">
+                                  {m.nom}
+                                </p>
+                                {m.matchedAlias &&
+                                  normalize(m.matchedAlias) !==
+                                    normalize(m.nom) && (
+                                    <p className="text-xs text-violet-600">
+                                      Alias : {m.matchedAlias}
+                                    </p>
+                                  )}
+                              </button>
+                            ))}
+                        </>
+                      )}
+                      {partnerSuggestions.length > 0 && (
+                        <>
+                          <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                            Partenaires / agences
+                          </p>
+                          {partnerSuggestions.map((p) => (
+                            <button
+                              key={`p-${p.id}`}
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() =>
+                                addCible({
+                                  type: "PARTNER",
+                                  id: p.id,
+                                  label: p.name,
+                                })
+                              }
+                              className="w-full border-b border-zinc-100 px-3 py-2.5 text-left last:border-0 hover:bg-amber-50/60"
+                            >
+                              <p className="text-sm font-medium text-zinc-900">
+                                {p.name}
+                              </p>
+                            </button>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleOpenCreateMarque}
+                  disabled={!!exactMarqueMatch}
+                  className="h-[38px] whitespace-nowrap rounded-lg border border-zinc-300 bg-white px-3.5 text-[13px] font-medium text-zinc-900 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  + Créer une marque
+                </button>
+              </div>
+
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-700">
+                Ne créez pas de doublon : si la marque existe déjà dans le CRM,
+                sélectionnez sa fiche.
+                {exactMarqueMatch && (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        addCible({
+                          type: "MARQUE",
+                          id: exactMarqueMatch.id,
+                          label: exactMarqueMatch.nom,
+                        })
+                      }
+                      className="font-semibold underline"
+                    >
+                      Ajouter {exactMarqueMatch.nom}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {isHotel && (
+              <div className="grid grid-cols-1 gap-4 rounded-lg border border-zinc-200 bg-zinc-50/70 p-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5">
+                  <FieldLabel>Destination</FieldLabel>
+                  <input
+                    type="text"
+                    value={formData.destination}
+                    onChange={(e) => setField("destination", e.target.value)}
+                    placeholder="Ville / pays"
+                    className={inputClass}
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <FieldLabel>Nombre de personnes</FieldLabel>
+                  <input
+                    type="number"
+                    min={1}
+                    value={formData.nombrePersonnes}
+                    onChange={(e) =>
+                      setField("nombrePersonnes", e.target.value)
+                    }
+                    className={inputClass}
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <FieldLabel>Date d&apos;arrivée</FieldLabel>
+                  <input
+                    type="date"
+                    value={formData.dateArrivee}
+                    onChange={(e) => setField("dateArrivee", e.target.value)}
+                    className={inputClass}
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <FieldLabel>Date de départ</FieldLabel>
+                  <input
+                    type="date"
+                    value={formData.dateDepart}
+                    onChange={(e) => setField("dateDepart", e.target.value)}
+                    className={inputClass}
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <FieldLabel>Type d&apos;hébergement</FieldLabel>
+                  <select
+                    value={formData.typeHebergement}
+                    onChange={(e) =>
+                      setField("typeHebergement", e.target.value)
+                    }
+                    className={inputClass}
+                  >
+                    <option value="">Sélectionner</option>
+                    <option value="HOTEL">Hôtel</option>
+                    <option value="APPARTEMENT">Appartement</option>
+                    <option value="VILLA">Villa</option>
+                    <option value="AUTRE">Autre</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <FieldLabel>Catégorie</FieldLabel>
+                  <select
+                    value={formData.categorie}
+                    onChange={(e) => setField("categorie", e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Sélectionner</option>
+                    <option value="3*">3★</option>
+                    <option value="4*">4★</option>
+                    <option value="5*">5★</option>
+                    <option value="LUXE">Luxe</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1.5 sm:col-span-2">
+                  <FieldLabel>Demandes spéciales</FieldLabel>
+                  <textarea
+                    rows={2}
+                    value={formData.demandesSpeciales}
+                    onChange={(e) =>
+                      setField("demandesSpeciales", e.target.value)
+                    }
+                    placeholder="Suite, vue mer, petit-déjeuner inclus…"
+                    className={textareaClass}
+                  />
+                </label>
+              </div>
             )}
 
-            {/* Description / Informations complémentaires */}
-            <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                {formData.typeGift === "HOTEL"
-                  ? "Informations complémentaires"
-                  : "Description du gift"}{" "}
-                {formData.typeGift === "HOTEL" ? "" : <span className="text-red-500">*</span>}
-              </label>
+            <label className="flex flex-col gap-1.5">
+              <FieldLabel required={!isHotel}>
+                {isHotel ? "Informations complémentaires" : "Description"}
+              </FieldLabel>
               <textarea
                 name="description"
                 value={formData.description}
-                onChange={handleChange}
+                onChange={(e) => setField("description", e.target.value)}
                 rows={4}
+                required={!isHotel}
                 placeholder={
-                  formData.typeGift === "HOTEL"
-                    ? "Informations complémentaires sur l'hôtel, le séjour, etc. (optionnel)"
-                    : "Décrivez précisément le produit/service demandé..."
+                  isHotel
+                    ? "Informations complémentaires sur l'hôtel, le séjour…"
+                    : "Décrivez précisément le produit ou le service demandé…"
                 }
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
-                {...(formData.typeGift === "HOTEL" ? {} : { required: true })}
+                className={textareaClass}
               />
-            </div>
+            </label>
 
-            {/* Justification / Contexte */}
-            <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                {formData.typeGift === "HOTEL"
-                  ? "Contexte / pourquoi cet hôtel ?"
-                  : "Justification"}
-              </label>
+            <label className="flex flex-col gap-1.5">
+              <FieldLabel>
+                {isHotel ? "Contexte / pourquoi cet hôtel ?" : "Justification"}
+              </FieldLabel>
               <textarea
                 name="justification"
                 value={formData.justification}
-                onChange={handleChange}
+                onChange={(e) => setField("justification", e.target.value)}
                 rows={3}
                 placeholder={
-                  formData.typeGift === "HOTEL"
+                  isHotel
                     ? "Pourquoi cet hôtel ? Quel est le contexte du séjour ?"
-                    : "Pourquoi ce gift est important ? Quel est le contexte ?"
+                    : "Pourquoi ce gift est-il important ? Quel est le contexte ?"
                 }
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
+                className={textareaClass}
               />
-            </div>
+            </label>
+          </Section>
 
-            {/* Valeur / Budget estimé */}
-            <div>
-              <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                {formData.typeGift === "HOTEL" ? "Budget estimé (€)" : "Valeur estimée (€)"}
+          {/* Livraison */}
+          <Section
+            title="Livraison"
+            description={
+              isHotel
+                ? "Budget estimé pour le séjour."
+                : "Valeur, échéance et adresse."
+            }
+            last
+          >
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="flex flex-col gap-1.5">
+                <FieldLabel>
+                  {isHotel ? "Budget estimé" : "Valeur estimée"}
+                </FieldLabel>
+                <div className="flex h-[38px] items-center gap-2 rounded-lg border border-zinc-300 px-3 focus-within:border-violet-600 focus-within:ring-[3px] focus-within:ring-violet-600/15">
+                  <input
+                    type="number"
+                    name="valeurEstimee"
+                    value={formData.valeurEstimee}
+                    onChange={(e) => setField("valeurEstimee", e.target.value)}
+                    step="0.01"
+                    min="0"
+                    placeholder="0,00"
+                    className="min-w-0 flex-1 border-0 bg-transparent text-sm outline-none placeholder:text-zinc-400"
+                  />
+                  <span className="text-sm text-zinc-500">€</span>
+                </div>
               </label>
-              <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="number"
-                  name="valeurEstimee"
-                  value={formData.valeurEstimee}
-                  onChange={handleChange}
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
-                />
-              </div>
-            </div>
 
-            {/* Date souhaitée */}
-            {formData.typeGift !== "HOTEL" && (
-              <div>
-                <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                  Date de réception souhaitée
-                </label>
-                <div className="relative">
-                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              {!isHotel && (
+                <label className="flex flex-col gap-1.5">
+                  <FieldLabel>Date de réception souhaitée</FieldLabel>
                   <input
                     type="date"
                     name="dateSouhaitee"
                     value={formData.dateSouhaitee}
-                    onChange={handleChange}
-                    className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
+                    onChange={(e) => setField("dateSouhaitee", e.target.value)}
+                    className={inputClass}
                   />
-                </div>
-              </div>
-            )}
-
-            {/* Adresse de livraison */}
-            {formData.typeGift !== "HOTEL" && (
-              <div className="md:col-span-2">
-                <label className="block text-sm font-semibold text-glowup-licorice mb-2">
-                  Adresse de livraison
                 </label>
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
-                  <textarea
-                    name="adresseLivraison"
-                    value={formData.adresseLivraison}
-                    onChange={handleChange}
-                    rows={3}
-                    placeholder="Adresse complète de livraison..."
-                    className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
-                  />
-                </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  L'adresse du talent sera pré-remplie automatiquement
-                </p>
-              </div>
+              )}
+            </div>
+
+            {!isHotel && (
+              <label className="flex flex-col gap-1.5">
+                <FieldLabel>Adresse de livraison</FieldLabel>
+                <textarea
+                  name="adresseLivraison"
+                  value={formData.adresseLivraison}
+                  onChange={(e) => setField("adresseLivraison", e.target.value)}
+                  rows={2}
+                  placeholder="Adresse complète de livraison…"
+                  className={textareaClass}
+                />
+                <span className="text-xs font-normal text-zinc-500">
+                  Pré-remplie automatiquement avec l&apos;adresse du talent.
+                </span>
+              </label>
             )}
+          </Section>
           </div>
         </div>
+      </form>
 
-        {/* Actions */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/* Sticky footer */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-zinc-200 bg-white px-5 py-3.5 sm:px-8">
+        <div className="mx-auto flex max-w-[1100px] justify-end gap-2">
           <Link
             href="/gifts"
-            className="px-6 py-3 border-2 border-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-50 transition-colors"
+            className="inline-flex h-9 items-center rounded-lg border border-zinc-300 bg-white px-3.5 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
           >
             Annuler
           </Link>
           <button
             type="submit"
+            form="new-gift-form"
             disabled={loading || loadingData}
-            className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-lg bg-violet-700 px-4 text-sm font-medium text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? (
               <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Création en cours...
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Création…
               </>
             ) : (
-              <>
-                <Gift className="w-5 h-5" />
-                Créer la demande
-              </>
+              "Créer la demande"
             )}
           </button>
         </div>
-      </form>
+      </div>
+
+      <QuickMarqueModal
+        isOpen={showQuickMarque}
+        onClose={() => setShowQuickMarque(false)}
+        defaultNom={cibleQuery}
+        existingMarques={marques}
+        onSelectExisting={(marque) => {
+          addCible({ type: "MARQUE", id: marque.id, label: marque.nom });
+          setShowQuickMarque(false);
+        }}
+        onCreated={(marque) => {
+          const created = { id: marque.id, nom: marque.nom };
+          setMarques((prev) =>
+            prev.some((m) => m.id === created.id) ? prev : [...prev, created]
+          );
+          addCible({ type: "MARQUE", id: created.id, label: created.nom });
+          setShowQuickMarque(false);
+        }}
+      />
     </div>
   );
 }

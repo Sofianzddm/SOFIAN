@@ -373,9 +373,24 @@ function DemandeCard({ demande, isAM }: any) {
             <div className="flex items-center gap-2">
               <Building2 className="w-4 h-4 text-gray-400" />
               <div className="min-w-0">
-                <p className="text-xs text-gray-500">Marque</p>
+                <p className="text-xs text-gray-500">Marques / partenaires</p>
                 <p className="font-semibold text-sm truncate">
-                  {demande.marque?.nom || "Aucune marque spécifique"}
+                  {(() => {
+                    const labels = [
+                      ...(demande.marques || []).map(
+                        (m: { marque: { nom: string } }) => m.marque.nom
+                      ),
+                      ...(demande.partners || []).map(
+                        (p: { partner: { name: string } }) => p.partner.name
+                      ),
+                    ];
+                    if (labels.length === 0 && demande.marque?.nom) {
+                      labels.push(demande.marque.nom);
+                    }
+                    return labels.length > 0
+                      ? labels.join(", ")
+                      : "Aucun";
+                  })()}
                 </p>
               </div>
             </div>

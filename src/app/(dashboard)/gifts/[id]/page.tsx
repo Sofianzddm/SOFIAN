@@ -1301,36 +1301,77 @@ export default function GiftDetailPage() {
             </div>
           )}
 
-          {/* Marque */}
-          {demande.marque && (
+          {/* Marques / partenaires */}
+          {((demande.marques && demande.marques.length > 0) ||
+            (demande.partners && demande.partners.length > 0) ||
+            demande.marque) && (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6">
               <h3 className="font-bold text-glowup-licorice mb-4 flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-orange-600" />
-                Marque
+                Marques ou partenaires
               </h3>
-              <Link
-                href={`/marques/${demande.marque.id}`}
-                className="font-bold text-glowup-licorice hover:text-orange-600 transition-colors block mb-3"
-              >
-                {demande.marque.nom}
-              </Link>
-              {demande.marque.contacts && demande.marque.contacts.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-gray-500 uppercase">Contacts</p>
-                  {demande.marque.contacts.slice(0, 2).map((contact: any) => (
-                    <div key={contact.id} className="text-sm">
-                      <p className="font-medium text-gray-700">
-                        {contact.prenom} {contact.nom}
-                      </p>
-                      {contact.email && (
-                        <a href={`mailto:${contact.email}`} className="text-gray-500 hover:text-orange-600 text-xs">
-                          {contact.email}
-                        </a>
+              <div className="space-y-3">
+                {(demande.marques && demande.marques.length > 0
+                  ? demande.marques.map(
+                      (row: { marque: { id: string; nom: string } }) => row.marque
+                    )
+                  : demande.marque
+                    ? [demande.marque]
+                    : []
+                ).map((marque: { id: string; nom: string; contacts?: any[] }) => (
+                  <div key={marque.id}>
+                    <Link
+                      href={`/marques/${marque.id}`}
+                      className="font-bold text-glowup-licorice hover:text-orange-600 transition-colors block"
+                    >
+                      {marque.nom}
+                    </Link>
+                    <p className="text-[11px] uppercase tracking-wide text-purple-600 font-semibold mt-0.5">
+                      Marque
+                    </p>
+                    {marque.contacts && marque.contacts.length > 0 && (
+                      <div className="space-y-1 mt-2">
+                        {marque.contacts.slice(0, 2).map((contact: any) => (
+                          <div key={contact.id} className="text-sm">
+                            <p className="font-medium text-gray-700">
+                              {contact.prenom} {contact.nom}
+                            </p>
+                            {contact.email && (
+                              <a
+                                href={`mailto:${contact.email}`}
+                                className="text-gray-500 hover:text-orange-600 text-xs"
+                              >
+                                {contact.email}
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {(demande.partners || []).map(
+                  (row: { partner: { id: string; name: string; slug?: string } }) => (
+                    <div key={row.partner.id}>
+                      {row.partner.slug ? (
+                        <Link
+                          href={`/partners/manage/${row.partner.id}`}
+                          className="font-bold text-glowup-licorice hover:text-amber-700 transition-colors block"
+                        >
+                          {row.partner.name}
+                        </Link>
+                      ) : (
+                        <p className="font-bold text-glowup-licorice">
+                          {row.partner.name}
+                        </p>
                       )}
+                      <p className="text-[11px] uppercase tracking-wide text-amber-700 font-semibold mt-0.5">
+                        Partenaire
+                      </p>
                     </div>
-                  ))}
-                </div>
-              )}
+                  )
+                )}
+              </div>
             </div>
           )}
 

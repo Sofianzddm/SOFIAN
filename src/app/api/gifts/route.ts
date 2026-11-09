@@ -54,6 +54,7 @@ export async function GET(req: NextRequest) {
           id: true,
           prenom: true,
           nom: true,
+          photo: true,
           instagram: true,
           adresse: true,
           codePostal: true,
@@ -141,6 +142,16 @@ export async function GET(req: NextRequest) {
             nom: true,
           },
         },
+        marques: {
+          select: {
+            marque: { select: { id: true, nom: true } },
+          },
+        },
+        partners: {
+          select: {
+            partner: { select: { id: true, name: true } },
+          },
+        },
         commentaires: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -198,6 +209,8 @@ export async function POST(req: NextRequest) {
     const {
       talentId,
       marqueId,
+      marqueIds,
+      partnerIds,
       typeGift,
       description,
       justification,
@@ -223,6 +236,52 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    const uniqueMarqueIds: string[] = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(marqueIds) ? marqueIds : []),
+          ...(marqueId ? [marqueId] : []),
+        ]
+          .map((id: unknown) => String(id || "").trim())
+          .filter(Boolean)
+      )
+    );
+    const uniquePartnerIds: string[] = Array.from(
+      new Set(
+        (Array.isArray(partnerIds) ? partnerIds : [])
+          .map((id: unknown) => String(id || "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (uniqueMarqueIds.length > 0) {
+      const found = await prisma.marque.findMany({
+        where: { id: { in: uniqueMarqueIds } },
+        select: { id: true },
+      });
+      if (found.length !== uniqueMarqueIds.length) {
+        return NextResponse.json(
+          { error: "Une ou plusieurs marques sont introuvables" },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (uniquePartnerIds.length > 0) {
+      const found = await prisma.partner.findMany({
+        where: { id: { in: uniquePartnerIds } },
+        select: { id: true },
+      });
+      if (found.length !== uniquePartnerIds.length) {
+        return NextResponse.json(
+          { error: "Un ou plusieurs partenaires sont introuvables" },
+          { status: 400 }
+        );
+      }
+    }
+
+    const primaryMarqueId = uniqueMarqueIds[0] || null;
 
     // Vérifier les droits talent selon le rôle créateur
     let talent;
@@ -287,14 +346,14 @@ export async function POST(req: NextRequest) {
       user.role === "TM" ? user.id : talent.managerId ?? user.id;
     const tmId = await resolveTmIdPourGift(talentId, fallbackTmId);
 
-    // Créer la demande
+    // Créer la demande (+ cibles multi marques / partenaires)
     const demande = await prisma.demandeGift.create({
       data: {
         reference,
         talentId,
         // Relai actif → TM relai ; sinon TM principale du talent.
         tmId,
-        marqueId: marqueId || null,
+        marqueId: primaryMarqueId,
         typeGift,
         description,
         justification: justification || null,
@@ -311,6 +370,18 @@ export async function POST(req: NextRequest) {
         typeHebergement: typeHebergement || null,
         categorie: categorie || null,
         demandesSpeciales: demandesSpeciales || null,
+        marques:
+          uniqueMarqueIds.length > 0
+            ? {
+                create: uniqueMarqueIds.map((id) => ({ marqueId: id })),
+              }
+            : undefined,
+        partners:
+          uniquePartnerIds.length > 0
+            ? {
+                create: uniquePartnerIds.map((id) => ({ partnerId: id })),
+              }
+            : undefined,
       },
       include: {
         talent: {
@@ -323,6 +394,12 @@ export async function POST(req: NextRequest) {
           select: {
             nom: true,
           },
+        },
+        marques: {
+          select: { marque: { select: { id: true, nom: true } } },
+        },
+        partners: {
+          select: { partner: { select: { id: true, name: true } } },
         },
       },
     });
@@ -355,7 +432,21 @@ export async function POST(req: NextRequest) {
       });
 
       const talentName = `${demande.talent.prenom} ${demande.talent.nom}`.trim();
-      const message = `Nouvelle demande de gift ${demande.reference} pour ${talentName} — ${typeGift}`;
+      const cibleLabels = [
+        ...(demande.marques || []).map(
+          (row: { marque: { nom: string } }) => row.marque.nom
+        ),
+        ...(demande.partners || []).map(
+          (row: { partner: { name: string } }) => row.partner.name
+        ),
+      ];
+      if (cibleLabels.length === 0 && demande.marque?.nom) {
+        cibleLabels.push(demande.marque.nom);
+      }
+      const marqueName = cibleLabels.length > 0 ? cibleLabels.join(", ") : null;
+      const message = marqueName
+        ? `Nouvelle demande de gift ${demande.reference} pour ${talentName} — ${typeGift} (${marqueName})`
+        : `Nouvelle demande de gift ${demande.reference} pour ${talentName} — ${typeGift}`;
 
       for (const dest of destinataires) {
         await prisma.notification.create({
@@ -367,7 +458,7 @@ export async function POST(req: NextRequest) {
             lien: `/gifts/${demande.id}`,
             actorId: user.id,
             talentId: talentId,
-            marqueId: marqueId || null,
+            marqueId: primaryMarqueId,
           },
         });
       }
@@ -450,6 +541,7 @@ export async function POST(req: NextRequest) {
                 hotelCategorie: demande.categorie || null,
                 description: demande.description,
                 dateSouhaiteeLabel,
+                marqueName,
               })
             );
             await resend.emails.send({
