@@ -173,26 +173,33 @@ export async function notifyGiftContactsReady(opts: {
   const path = opts.giftPath.startsWith("/") ? opts.giftPath : `/${opts.giftPath}`;
   const url = `${baseUrl}${path}`;
   const who = opts.resolvedByName?.trim() || "Quelqu’un";
+  const talent = opts.talentName?.trim() || "";
   const giftLabel = opts.giftReference?.trim() || "Demande Gift";
-  const talentNote = opts.talentName?.trim()
-    ? ` · talent ${escapeHtml(opts.talentName.trim())}`
+  const forWhom = talent
+    ? ` pour <strong>${escapeHtml(talent)}</strong>`
     : "";
   const contactNote =
     typeof opts.emailableCount === "number" && opts.emailableCount > 0
       ? `${opts.emailableCount} contact${opts.emailableCount > 1 ? "s" : ""} prêt${opts.emailableCount > 1 ? "s" : ""} à envoyer`
       : "contacts prêts à envoyer";
 
-  const subject = `Gift prêt à envoyer — ${opts.marqueName}${opts.giftReference ? ` (${opts.giftReference})` : ""}`;
+  const subjectParts = [
+    talent ? `${talent} · ${opts.marqueName}` : opts.marqueName,
+    opts.giftReference?.trim() || null,
+  ].filter(Boolean);
+  const subject = `Gift prêt à envoyer — ${subjectParts.join(" · ")}`;
 
   const html = `
   <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1A1110">
     <h2 style="font-size:18px;margin:0 0 8px">Gift — contact prêt à envoyer</h2>
     <p style="font-size:14px;line-height:1.5;margin:0 0 12px">
       <strong>${escapeHtml(who)}</strong> a enrichi
-      <strong>${escapeHtml(opts.marqueName)}</strong>${talentNote}.
+      <strong>${escapeHtml(opts.marqueName)}</strong>${forWhom}.
     </p>
     <p style="font-size:14px;line-height:1.5;margin:0 0 16px">
-      <strong>${escapeHtml(giftLabel)}</strong> — ${escapeHtml(contactNote)}.
+      <strong>${escapeHtml(giftLabel)}</strong>${
+        talent ? ` · ${escapeHtml(talent)}` : ""
+      } — ${escapeHtml(contactNote)}.<br/>
       Tu peux contacter la marque depuis la demande gift.
     </p>
     <a href="${url}"

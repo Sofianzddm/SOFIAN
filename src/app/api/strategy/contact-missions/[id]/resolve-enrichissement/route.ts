@@ -106,7 +106,8 @@ export async function POST(
 
     let notifiedTo = mail.to;
     let mailSent = mail.sent;
-    if (source === "gift" && mission.marqueId) {
+    // Assistante TM uniquement si la marque est liée à un vrai gift.
+    if (mission.marqueId) {
       const giftMail = await notifyAssistanteTmGiftReady({
         marqueId: mission.marqueId,
         marqueName: name,
@@ -114,9 +115,9 @@ export async function POST(
           {
             missionId,
             brandName: name,
-            source: "gift",
-            campaignId: null,
-            campaignTitle: null,
+            source,
+            campaignId: mission.campaignId,
+            campaignTitle,
             giftReference,
           },
         ],

@@ -14,6 +14,8 @@ export type ResolvedAwaitingMission = {
   campaignTitle: string | null;
   giftId?: string | null;
   giftReference?: string | null;
+  talentId?: string | null;
+  talentName?: string | null;
 };
 
 export type ResolveAwaitingResult = {
@@ -175,6 +177,10 @@ type LinkedGift = {
   talentName: string;
 };
 
+function giftTalentName(talent?: { prenom?: string | null; nom?: string | null } | null) {
+  return `${talent?.prenom || ""} ${talent?.nom || ""}`.trim();
+}
+
 /** Retrouve les demandes gift liées à une marque (lien multi + marque principale). */
 export async function findGiftsLinkedToMarque(
   marqueId: string
@@ -211,7 +217,7 @@ export async function findGiftsLinkedToMarque(
     byId.set(g.id, {
       id: g.id,
       reference: g.reference,
-      talentName: `${g.talent?.prenom || ""} ${g.talent?.nom || ""}`.trim(),
+      talentName: giftTalentName(g.talent),
     });
   }
   for (const g of principal) {
@@ -219,7 +225,7 @@ export async function findGiftsLinkedToMarque(
     byId.set(g.id, {
       id: g.id,
       reference: g.reference,
-      talentName: `${g.talent?.prenom || ""} ${g.talent?.nom || ""}`.trim(),
+      talentName: giftTalentName(g.talent),
     });
   }
   return Array.from(byId.values());
@@ -227,7 +233,9 @@ export async function findGiftsLinkedToMarque(
 
 /**
  * Notifie les Assistantes TM (mail + in-app) qu'un gift est enrichi
- * et prêt à envoyer. Best-effort.
+ * et prêt à envoyer.
+ * Gate stricte : la marque doit être liée à au moins une demande gift
+ * (demandeGiftMarque ou marque principale). Sinon → no-op.
  */
 export async function notifyAssistanteTmGiftReady(opts: {
   marqueId: string;
@@ -238,6 +246,12 @@ export async function notifyAssistanteTmGiftReady(opts: {
   resolvedByName?: string | null;
 }): Promise<{ sent: boolean; to: string[] }> {
   try {
+    const linked = await findGiftsLinkedToMarque(opts.marqueId);
+    if (linked.length === 0) {
+      // Marque enrichie hors gift (ou pas encore rattachée) → pas de mail Noémie.
+      return { sent: false, to: [] };
+    }
+
     const assistantes = await prisma.user.findMany({
       where: { role: "ASSISTANTE_TM", actif: true },
       select: { id: true, email: true },
@@ -259,33 +273,10 @@ export async function notifyAssistanteTmGiftReady(opts: {
         null;
     }
 
-    const giftsFromMissions = (opts.missions || [])
-      .filter((m) => m.source === "gift" && m.giftId)
-      .map((m) => ({
-        id: m.giftId as string,
-        reference: m.giftReference || "",
-        talentName: "",
-      }));
-
-    const linked = await findGiftsLinkedToMarque(opts.marqueId);
-    const giftsById = new Map<string, LinkedGift>();
-    for (const g of [...linked, ...giftsFromMissions]) {
-      if (!g.id) continue;
-      const prev = giftsById.get(g.id);
-      giftsById.set(g.id, {
-        id: g.id,
-        reference: g.reference || prev?.reference || "",
-        talentName: g.talentName || prev?.talentName || "",
-      });
-    }
-    const gifts = Array.from(giftsById.values());
-    const primary = gifts[0] || null;
-    const giftPath = primary ? `/gifts/${primary.id}` : "/gifts";
-    const giftReference =
-      primary?.reference ||
-      opts.missions?.find((m) => m.source === "gift")?.giftReference ||
-      null;
-    const talentName = primary?.talentName || null;
+    const primary = linked[0];
+    const giftPath = `/gifts/${primary.id}`;
+    const giftReference = primary.reference || null;
+    const talentName = primary.talentName || null;
     const toEmails = recipients.map((u) => u.email).filter(Boolean);
 
     const mail = await notifyGiftContactsReady({
@@ -302,6 +293,9 @@ export async function notifyAssistanteTmGiftReady(opts: {
       typeof opts.emailableCount === "number" && opts.emailableCount > 0
         ? `${opts.emailableCount} contact${opts.emailableCount > 1 ? "s" : ""} prêt${opts.emailableCount > 1 ? "s" : ""} à envoyer`
         : "contacts prêts à envoyer";
+    const titre = talentName
+      ? `Gift prêt — ${talentName} · ${opts.marqueName}`
+      : `Gift prêt — ${opts.marqueName}`;
 
     await Promise.all(
       recipients.map((u) =>
@@ -309,10 +303,10 @@ export async function notifyAssistanteTmGiftReady(opts: {
           data: {
             userId: u.id,
             type: "GENERAL",
-            titre: `Gift prêt — ${opts.marqueName}`,
+            titre,
             message: `${resolvedByName || "Quelqu’un"} a enrichi ${opts.marqueName}${
-              giftReference ? ` (${giftReference})` : ""
-            } — ${contactNote}.`,
+              talentName ? ` pour ${talentName}` : ""
+            }${giftReference ? ` (${giftReference})` : ""} — ${contactNote}.`,
             lien: giftPath,
           },
         })
@@ -471,17 +465,16 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
       notifiedTo = mail.to;
     }
 
-    if (sources.includes("gift")) {
-      const giftMail = await notifyAssistanteTmGiftReady({
-        marqueId,
-        marqueName: marque.nom,
-        emailableCount,
-        missions,
-        actorId: opts.actorId,
-      });
-      mailSent = mailSent || giftMail.sent;
-      notifiedTo = Array.from(new Set([...notifiedTo, ...giftMail.to]));
-    }
+    // Assistante TM uniquement si la marque est liée à un vrai gift.
+    const giftMail = await notifyAssistanteTmGiftReady({
+      marqueId,
+      marqueName: marque.nom,
+      emailableCount,
+      missions,
+      actorId: opts.actorId,
+    });
+    mailSent = mailSent || giftMail.sent;
+    notifiedTo = Array.from(new Set([...notifiedTo, ...giftMail.to]));
 
     return {
       resolvedCount: missions.length,
