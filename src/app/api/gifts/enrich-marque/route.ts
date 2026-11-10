@@ -102,7 +102,8 @@ export async function POST(req: NextRequest) {
         id: true,
         nom: true,
         contacts: {
-          where: { outreachExcluded: false, diffusionOptOut: false },
+          // Gift : contacts masqués outreach OK, hors Achats/AO
+          where: { OR: [{ source: null }, { source: { not: "AO" } }] },
           select: { email: true, emailSuggested: true },
         },
       },

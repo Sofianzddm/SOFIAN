@@ -329,8 +329,7 @@ export async function POST(
         where: {
           id: contactId,
           marqueId,
-          outreachExcluded: false,
-          diffusionOptOut: false,
+          // Gift : on autorise les contacts masqués outreach, on bloque seulement Achats/AO
           OR: [{ source: null }, { source: { not: "AO" } }],
         },
         select: {

@@ -65,10 +65,8 @@ export async function GET(
             id: true,
             nom: true,
             contacts: {
-              // Hors Achats/AO : ces contacts ne sont pas destinataires gift
+              // Hors Achats/AO uniquement — les contacts masqués outreach restent contactables en gift
               where: {
-                outreachExcluded: false,
-                diffusionOptOut: false,
                 OR: [{ source: null }, { source: { not: "AO" } }],
               },
               select: {
@@ -103,8 +101,6 @@ export async function GET(
                 nom: true,
                 contacts: {
                   where: {
-                    outreachExcluded: false,
-                    diffusionOptOut: false,
                     OR: [{ source: null }, { source: { not: "AO" } }],
                   },
                   select: {
