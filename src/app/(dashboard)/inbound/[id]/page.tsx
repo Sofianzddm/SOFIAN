@@ -716,7 +716,10 @@ export default function InboundDetailPage() {
   }, [opportunity]);
 
   const runGenerateEmail = useCallback(async () => {
-    if (!opportunity || !brandResearch) return;
+    if (!opportunity || !brandResearch) {
+      showToast("Lance d'abord l'analyse de la marque.", "error");
+      return;
+    }
     if (selectedTalentsRaw.length === 0) {
       showToast("Sélectionne au moins un talent.", "error");
       return;
@@ -727,35 +730,59 @@ export default function InboundDetailPage() {
         .trim()
         .split(/\s+/)[0]
         ?.trim();
-      const res = await fetch("/api/casting/generate-email", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          language: emailLanguage,
-          brandName: opportunity.extractedBrand || opportunity.senderDomain,
-          brandResearch,
-          recipient: {
-            firstName: senderFirstName || undefined,
-            brandName: opportunity.extractedBrand || opportunity.senderDomain,
-          },
-          talents: selectedTalentsRaw.map((t) => {
-            const followers = Math.max(t.igFollowers || 0, t.ttFollowers || 0);
-            const eng = t.igEngagement > 0 ? t.igEngagement : t.ttEngagement > 0 ? t.ttEngagement : undefined;
-            return {
-              talentId: t.id,
-              name: `${t.prenom} ${t.nom}`.trim(),
-              niche: (t.niches || []).join(", ") || "—",
-              followers,
-              igFollowers: t.igFollowers || 0,
-              ttFollowers: t.ttFollowers || 0,
-              instagram: t.instagram ?? null,
-              ...(typeof eng === "number" ? { engagementRate: eng } : {}),
-            };
-          }),
-        }),
+      const senderEmail = String(opportunity.senderEmail || "")
+        .trim()
+        .toLowerCase();
+      const brandName =
+        opportunity.extractedBrand || opportunity.senderDomain || "Marque";
+      const talentsPayload = selectedTalentsRaw.map((t) => {
+        const followers = Math.max(t.igFollowers || 0, t.ttFollowers || 0);
+        const eng =
+          t.igEngagement > 0
+            ? t.igEngagement
+            : t.ttEngagement > 0
+              ? t.ttEngagement
+              : undefined;
+        return {
+          talentId: t.id,
+          name: `${t.prenom} ${t.nom}`.trim(),
+          niche: (t.niches || []).join(", ") || "—",
+          followers,
+          igFollowers: t.igFollowers || 0,
+          ttFollowers: t.ttFollowers || 0,
+          instagram: t.instagram ?? null,
+          ...(typeof eng === "number" ? { engagementRate: eng } : {}),
+        };
       });
-      const data = await res.json().catch(() => ({}));
+      const payloadBase = {
+        language: emailLanguage,
+        brandName,
+        brandResearch,
+        requireLeynaScan: false,
+        recipient: {
+          firstName: senderFirstName || undefined,
+          brandName,
+        },
+        ...(senderEmail.includes("@") ? { recipientEmails: [senderEmail] } : {}),
+        talents: talentsPayload,
+      };
+      const genOnce = async (ackNego: boolean) => {
+        const res = await fetch("/api/casting/generate-email", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...payloadBase,
+            ...(ackNego ? { negotiationReviewAcknowledged: true } : {}),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        return { res, data };
+      };
+      let { res, data } = await genOnce(false);
+      if (!res.ok && data?.code === "NEEDS_NEGOTIATION_REVIEW") {
+        ({ res, data } = await genOnce(true));
+      }
       if (!res.ok) {
         throw new Error(typeof data.error === "string" ? data.error : "Génération impossible.");
       }

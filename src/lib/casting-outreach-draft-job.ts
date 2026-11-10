@@ -461,6 +461,7 @@ async function processOneOutreachItem(itemId: string): Promise<{
       },
       talents: talentsPayload,
       recipientEmails,
+      requireLeynaScan: true,
       talentResearch,
       negotiationReviewAcknowledged: ackNego || undefined,
       leynaExchangeCache: leyna,

@@ -1671,6 +1671,7 @@ export default function OutreachCastingWizard({
             brandResearch,
             talents: talentsPayload,
             recipientEmails,
+            requireLeynaScan: true,
             talentResearch:
               talentResearchWithAngles.length > 0
                 ? talentResearchWithAngles

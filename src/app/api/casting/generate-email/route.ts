@@ -217,6 +217,12 @@ export interface GenerateEmailBody {
     }>;
   } | null;
   forceLeynaRefresh?: boolean;
+  /**
+   * Si true : un scan Leyna en échec (sans historique) bloque la rédaction (503).
+   * Par défaut false — on rédige sans contexte Leyna plutôt que d’inventer
+   * (Demandes entrantes / Inbound). Les flux casting & outreach passent true.
+   */
+  requireLeynaScan?: boolean;
   /** Stage pipeline (IN_NEGOTIATION → revue, pas de prospection auto). */
   missionStage?: string | null;
   missionReplied?: boolean;
@@ -626,6 +632,9 @@ INTERDITS :
 - Salut (Bonjour + J'espère…) une seule fois ; clôture Cordialement, (sans prénom / sans variable owner).
 - INTERDIT absolu : talentbook, roster, catalogue, book de talents, lien app.glowupagence.fr/talentbook.
 - INTERDIT absolu : « paid », « payé », « rémunéré », « collaboration paid ». Parle d’une collaboration / d’un projet.
+- INTERDIT ABSOLU : « couple lesbien », « lesbienne », « gay », « LGBTQ », ou tout label d'orientation / identité.
+- INTERDIT ABSOLU : prix / tarifs / budgets.
+- INTERDIT ABSOLU : citer une autre marque / concurrent / collab passée du talent. Seule marque = ${brandName}.
 `
         : `
 BRIEF CONDENSATION MULTI-PROJETS (OBLIGATOIRE) :
@@ -650,6 +659,9 @@ INTERDITS :
 - Salut (Bonjour + J'espère…) une seule fois ; clôture Cordialement, (sans prénom / sans variable owner).
 - INTERDIT absolu : talentbook, roster, catalogue, book de talents, lien app.glowupagence.fr/talentbook, « découvrir nos autres talents ».
 - INTERDIT absolu : les mots « paid », « payé », « rémunéré », « collaboration paid », « collab paid ». Parle d’une collaboration / d’un projet, sans qualifier le modèle économique.
+- INTERDIT ABSOLU : « couple lesbien », « lesbienne », « gay », « LGBTQ », ou tout label d'orientation / identité.
+- INTERDIT ABSOLU : prix / tarifs / budgets.
+- INTERDIT ABSOLU : citer une autre marque / concurrent / collab passée du talent. Seule marque = ${brandName}.
 `
       : "";
 
@@ -745,6 +757,9 @@ INTERDITS PROSPECTION TALENT (absolus) :
 - INTERDIT : « paid », « collaboration paid », « collab paid », « payé », « rémunéré » — écris « collaboration » / « opportunité ».
 - INTERDIT : répéter le salut — une seule fois en tête.
 - INTERDIT : clôturer par « Belle journée, » — utiliser exactement la clôture indiquée plus bas (Cordialement, sans prénom).
+- INTERDIT ABSOLU : « couple lesbien », « lesbienne », « gay », « LGBTQ », ou tout label d'orientation / identité — couple & famille OK en neutre, sans étiquette.
+- INTERDIT ABSOLU : prix / tarifs / budgets / « X € ».
+- INTERDIT ABSOLU : citer une autre marque / concurrent / collab passée du talent (ex. Biotherm, Sephora). Seule marque = ${brandName}.
 `
         : `
 BRIEF PROJET (OBLIGATOIRE — priorité absolue sur le pitch générique casting) :
@@ -792,6 +807,9 @@ INTERDITS PROJET (absolus) :
 - INTERDIT : « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Même si l'objectif du brief dit Paid, écris seulement « collaboration » / « projet » / « opportunité » — jamais le modèle économique.
 - INTERDIT : répéter le salut (« Bonjour… » / « J'espère que vous allez bien ? ») — une seule fois en tête.
 - INTERDIT : clôturer par « Belle journée, » — utiliser exactement la clôture indiquée plus bas (Cordialement, sans prénom).
+- INTERDIT ABSOLU : « couple lesbien », « lesbienne », « gay », « LGBTQ », ou tout label d'orientation / identité — couple & famille OK en neutre, sans étiquette.
+- INTERDIT ABSOLU : prix / tarifs / budgets / « X € ».
+- INTERDIT ABSOLU : citer une autre marque / concurrent / collab passée du talent. Seule marque = ${brandName}.
 `
       : "";
     const projectBriefBlockEn = !isCondensation && projectBrief
@@ -830,6 +848,9 @@ TALENT PROSPECTING PROHIBITIONS (absolute):
 - FORBIDDEN: "paid" / "paid collaboration" — write "collaboration" / "opportunity".
 - FORBIDDEN: repeating the greeting — once at the top only.
 - FORBIDDEN: closing with "Have a nice day," — use the exact closing below (Best regards, no first name).
+- ABSOLUTE BAN: "lesbian couple", "lesbian", "gay", "LGBTQ", or any orientation/identity label — neutral couple/family wording only, no labels.
+- ABSOLUTE BAN: prices / rates / budgets / "€X".
+- ABSOLUTE BAN: naming another brand / competitor / past collab of the talent. Only brand = ${brandName}.
 `
         : `
 PROJECT BRIEF (MANDATORY — overrides the generic casting pitch) :
@@ -877,6 +898,8 @@ PROJECT PROHIBITIONS (absolute):
 - FORBIDDEN: "paid", "paid collab", "paid collaboration". Even if the brief objective says Paid, write only "collaboration" / "project" / "opportunity" — never the commercial model.
 - FORBIDDEN: repeating the greeting ("Hi…" / "I hope you are doing well?") — exactly once at the top.
 - FORBIDDEN: closing with a casual "Have a nice day," — use exactly the closing specified below (Best regards, no first name).
+- ABSOLUTE BAN: prices / rates / budgets / "€X".
+- ABSOLUTE BAN: naming another brand / competitor / past collab of the talent. Only brand = ${brandName}.
 `
       : "";
 
@@ -1209,7 +1232,7 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
       ? `- Transition BEFORE the talent list — MANDATORY: always include an observation showing you analyzed the market and their current collaborations, based on the "Current influence strategy of the brand". Something like: "Looking at the market, I noticed you currently work mostly with [profile types from the analysis, e.g. mom / lifestyle / beauty] creators" then continue with "at our agency we have several creators who could be a fit:". Use the REAL profile types inferred from the provided strategy (do not invent them). If the strategy is "—" or empty, use instead: "Looking at the market and your positioning, at our agency we have several creators who could be a fit:". Keep it measured and natural, 1-2 sentences max.
 - List the talents in a clear, airy bullet format — ONE full sentence per talent:
   <a href="..."><strong>Firstname Lastname</strong></a> — [what they actually do from CREATOR RESEARCH] + [why that fits how ${brandName} already works with creators, from brand research${hasCastingAngles ? " — and if CASTING ANGLE is provided, anchor the sentence on it" : ""}].
-  Example shape (do NOT copy verbatim): "Julie — she creates hiking and ski content outdoors and has worked with Rossignol; that outdoor / lived-in angle could fit the types of creator partnerships you already run."
+  Example shape (do NOT copy verbatim): "Julie — she creates hiking and ski content outdoors; that outdoor / lived-in angle could fit the types of creator partnerships you already run."
   Rules for each sentence:
   - Real sentence (subject + verb), natural, scannable.
   - Fit MUST cross CREATOR RESEARCH × brand research (influenceStrategy / recentCampaigns / brandPositioning) — what the brand ACTUALLY does with creators.
@@ -1217,7 +1240,7 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
     ? `- If "CASTING ANGLE" is provided for that talent: PRIORITIZE that angle (validated casting brief). You may soften wording for email tone, but do not replace it with a generic fit. Formats cited in the angle (unboxing, tutorial, local store…) are ALLOWED because they come from casting.`
     : `- FORBIDDEN: inventing a campaign format the brand may not run (e.g. "costume teaser for a series drop", "unboxing", "haul", "GRWM for your launch") unless clearly supported by brand research.
   - Prefer sober fit ("could fit the lifestyle / entertainment creators you already work with") over invented creative briefs.`}
-  - Never invent collabs; no follower counts; no TikTok/Instagram/Category stats block.
+  - FORBIDDEN: naming another brand / competitor / past collab of the talent. No follower counts; no TikTok/Instagram/Category stats block. No prices.
   - Exception: if "REACH MUST" is present for that talent, weave in the real view/reach proof (e.g. millions of TikTok views) in the same sentence — never invent numbers.
   - 1 sentence per talent (max 2), no marketing fluff.
 - A short sentence after the list that simply states what these profiles can bring — without stacking qualities. Keep it factual and vary the wording every time.`
@@ -1232,7 +1255,7 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
       ? `- Transition AVANT la liste — OBLIGATOIRE : inclure systématiquement une observation qui montre que vous avez analysé le marché et leurs collaborations actuelles, en vous appuyant sur la "Stratégie d'influence actuelle de la marque". Formule du type : "En regardant le marché, j'ai vu qu'en ce moment vous travaillez surtout avec des profils [type de profils issus de l'analyse, ex. mamans / lifestyle / beauté]" puis enchaîne sur "dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reprends le type de profils RÉEL déduit de la stratégie fournie (ne l'invente pas). Si la stratégie est "—" ou vide, formule plutôt : "En regardant le marché et votre positionnement, dans notre agence nous avons plusieurs créateurs qui peuvent correspondre :". Reste sobre et naturel, 1 à 2 phrases max.
 - Lister les talents en format clair et aéré avec des tirets — UNE vraie phrase par talent :
   <a href="..."><strong>Prénom Nom</strong></a> — [ce qu'il/elle fait vraiment issu de la RECHERCHE CRÉATEUR] + [pourquoi ça colle à la façon dont ${brandName} travaille DÉJÀ avec les créateurs, d'après la recherche marque${hasCastingAngles ? " — et si ANGLE CASTING fourni, ancre la phrase dessus" : ""}].
-  Forme type (à NE PAS recopier) : « Julie — elle crée du contenu randonnée / ski outdoor et a déjà collabé avec Rossignol ; cet angle outdoor vécu peut coller aux partenariats créateurs que vous menez déjà. »
+  Forme type (à NE PAS recopier) : « Julie — elle crée du contenu randonnée / ski outdoor vécu ; cet angle outdoor peut coller aux partenariats créateurs que vous menez déjà. »
   Règles pour chaque phrase :
   - Vraie phrase (sujet + verbe), naturelle, scannable.
   - Le FIT doit croiser RECHERCHE CRÉATEUR × recherche marque (influenceStrategy / recentCampaigns / brandPositioning) — ce que la marque FAIT vraiment en influence.
@@ -1240,7 +1263,7 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
     ? `- Si « ANGLE CASTING » est fourni pour ce talent : PRIORITÉ à cet angle (c'est le brief casting validé). Tu peux le reformuler en ton mail, mais tu ne le remplaces pas par un fit générique. Les formats cités dans l'angle (unboxing, tutoriel, magasin local…) sont AUTORISÉS car issus du casting.`
     : `- INTERDIT d'inventer un format de campagne que la marque ne fait pas forcément (ex. « teaser costume pour une sortie de série », « unboxing », « haul », « GRWM pour votre lancement ») sauf si ce format est clairement supporté par la recherche marque.
   - Préférer un fit sobre (« pourrait coller aux profils lifestyle / entertainment avec lesquels vous travaillez déjà ») plutôt qu'un brief créatif inventé.`}
-  - N'invente aucune collab ; pas d'abonnés ; pas de bloc TikTok / Instagram / Catégorie.
+  - INTERDIT de nommer une autre marque / concurrent / collab passée du talent. Pas d'abonnés ; pas de bloc TikTok / Instagram / Catégorie. Pas de prix.
   - Exception : si « PORTÉE OBLIGATOIRE » est présente pour ce talent, intègre la preuve de vues/portée réelle (ex. millions de vues TikTok) dans la même phrase — n'invente aucun chiffre.
   - 1 phrase par talent (2 max), sans bla-bla marketing.
 - Une courte phrase après la liste qui dit, simplement, ce que ces profils peuvent apporter — sans empiler les qualités. Reste factuel et varie la formulation à chaque mail.`
@@ -1480,14 +1503,21 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
     }
 
     if (leynaExchange?.scanStatus === "failed" && !hasLeynaHistory) {
-      return NextResponse.json(
-        {
-          error:
-            "Scan Leyna échoué — impossible de rédiger sans risque d’inventer l’historique. Réessaie le scan.",
-          code: "LEYNA_SCAN_FAILED",
-          draftPrepBrief: prepBrief,
-        },
-        { status: 503 }
+      // Sans historique récupéré, rédiger reste sûr (aucun contexte inventé).
+      // On ne bloque que les flux qui exigent explicitement un scan OK.
+      if (body.requireLeynaScan === true) {
+        return NextResponse.json(
+          {
+            error:
+              "Scan Leyna échoué — impossible de rédiger sans risque d’inventer l’historique. Réessaie le scan.",
+            code: "LEYNA_SCAN_FAILED",
+            draftPrepBrief: prepBrief,
+          },
+          { status: 503 }
+        );
+      }
+      console.warn(
+        "[generate-email] scan Leyna failed — rédaction sans historique (requireLeynaScan=false)"
       );
     }
 
@@ -1677,7 +1707,7 @@ ${
 - Present the talent(s) + the project(s) only — no casting roster.
 - Each talent's full name MUST appear as a clickable Instagram HTML link: <a href="https://www.instagram.com/HANDLE"><strong>Firstname Lastname</strong></a>.
 - If the brief cites companions, one sentence "She will be accompanied by…" with clean Instagram links.
-- CREATOR RESEARCH (mandatory when provided): the pitch MUST use concrete facts from whoTheyAre / whatTheyDo / whyRelevant, AND weave in 1–2 proof points (named past collabs, giveaways, concrete formats) when available in "Proof points". Do NOT dump follower counts or engagement %. Never invent a collab not listed in the research.
+- CREATOR RESEARCH (mandatory when provided): the pitch MUST use concrete facts from whoTheyAre / whatTheyDo / whyRelevant, AND weave in 1–2 proof points (formats, reach, content themes — NEVER named competitor brands / past collabs with other brands) when available in "Proof points". Do NOT dump follower counts or engagement %. Never name another brand.
 - FORBIDDEN: any talentbook / roster / catalog link or mention (including https://app.glowupagence.fr/talentbook).
 - FORBIDDEN: the words "paid", "paid collab", "paid collaboration". Say "collaboration" / "project" only.
 - CTA MANDATORY: last body sentence before Best regards = question CTA (e.g. "Would this project be of interest to you?"). Never media kits for a full roster.`
@@ -1714,6 +1744,9 @@ STRICT PROHIBITIONS:
 - Never invent facts, campaigns, or details.
 - Never use Markdown other than the allowed bold text.
 - Never use a disparaging comparison like "rather than mega influencers", "instead of big accounts", "unlike macro-influencers". Never compare our talents to other profiles.
+- ABSOLUTE BAN — privacy / identity labels: NEVER write "lesbian couple", "lesbian", "gay", "LGBTQ", "queer", or any sexual-orientation / gender-identity label. Neutral couple/family wording is OK ("with her wife/partner", "couple humour", "young mum") WITHOUT labeling. No intimate medical sensationalism unless the ops context explicitly asks for it.
+- ABSOLUTE BAN — pricing: NEVER mention a price, rate, budget, "€X", product value, or any paid/fee figure.
+- ABSOLUTE BAN — competitors / past collabs: NEVER name another brand the talent has already worked with (e.g. "with Biotherm", "Petit Bateau collab", "for Sephora"). The only brand name allowed in the email is ${brandNameToken}. If research cites other brands, DROP the names; keep only content type / proof (views, format) without naming the competitor.
 
 Critical completeness rule:
 - You must mention ALL talents provided in "Available talents" (no omissions).
@@ -1816,7 +1849,7 @@ ${
 - Présente le(s) talent(s) + le(s) projet(s) uniquement — pas de roster casting.
 - Chaque nom de talent DOIT apparaître en lien Instagram HTML cliquable : <a href="https://www.instagram.com/HANDLE"><strong>Prénom Nom</strong></a>.
 - Si le brief cite des accompagnatrices, une phrase « Elle sera accompagnée de … » avec liens Instagram propres.
-- RECHERCHE CRÉATEUR (obligatoire si fournie) : le pitch DOIT s'appuyer sur des faits concrets de qui c'est / ce qu'il·elle fait / whyRelevant, ET intégrer 1–2 preuves (collabs nommées, giveaways, formats concrets) quand elles figurent dans « Preuves ». PAS de dump d'abonnés ni de % d'engagement. N'invente aucune collab absente de la recherche.
+- RECHERCHE CRÉATEUR (obligatoire si fournie) : le pitch DOIT s'appuyer sur des faits concrets de qui c'est / ce qu'il·elle fait / whyRelevant, ET intégrer 1–2 preuves (formats, portée, thèmes — JAMAIS de marques concurrentes / collabs passées nommées) quand elles figurent dans « Preuves ». PAS de dump d'abonnés ni de % d'engagement. Ne nomme aucune autre marque.
 - INTERDIT : toute mention ou lien talentbook / book / roster / catalogue (y compris https://app.glowupagence.fr/talentbook).
 - INTERDIT : les mots « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Dis seulement « collaboration » / « projet ».
 - CTA OBLIGATOIRE : dernière phrase avant Cordialement = question (ex. « Le projet serait-il intéressant pour vous ? »). Jamais les médias kits d’un roster complet.`
@@ -1853,6 +1886,9 @@ INTERDITS STRICTS :
 - Jamais inventer de faits, de campagnes ou de détails.
 - Jamais d’autres Markdown que les gras autorisés.
 - Jamais d'opposition/comparaison dévalorisante du type "plutôt que des méga influenceuses", "au lieu des gros comptes", "à l'inverse des macro-influenceurs". Ne compare jamais nos talents à d'autres profils.
+- INTERDIT ABSOLU — étiquettes vie privée / identité : ne JAMAIS écrire « couple lesbien », « lesbienne », « gay », « LGBTQ », « queer », ni aucun label d'orientation sexuelle ou d'identité de genre. Tu peux parler de couple / famille / parentalité de façon neutre (« avec sa femme / son compagnon », « humour de couple », « jeune maman ») SANS labelliser. Pas de sensationalisme intime (PMA, parcours médical) sauf si le contexte ops le demande explicitement.
+- INTERDIT ABSOLU — prix : ne JAMAIS mentionner un prix, tarif, budget, « à X € », fourchette, valeur produit, « collab paid » / rémunération chiffrée.
+- INTERDIT ABSOLU — concurrents / collabs passées : ne JAMAIS citer une autre marque avec laquelle le talent a déjà collaboré (ex. « avec Biotherm », « collab Petit Bateau », « pour Typology », « déjà travaillé avec Sephora »). Seule marque nommable dans le mail = ${brandNameToken}. Si la recherche cite d'autres marques, DROP les noms ; garde seulement le type de contenu / la preuve (vues, format) sans nommer le concurrent.
 
 Règle critique de complétude :
 - Tu dois mentionner TOUS les talents transmis dans "Talents disponibles" (aucun oubli).

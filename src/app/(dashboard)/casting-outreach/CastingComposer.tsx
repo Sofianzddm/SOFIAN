@@ -1742,6 +1742,7 @@ export default function CastingComposer({
           brandResearch,
           talents: talentsPayload,
           recipientEmails: selectedRecipientEmails,
+          requireLeynaScan: true,
           missionStage: contact.missionBrief?.stage || null,
           draftPrepBrief: draftPrepBrief || undefined,
           // Revue négo lue + bouton « Revue faite » → autorise la rédaction manuelle.

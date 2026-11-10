@@ -532,50 +532,75 @@ export default function DemandeModal({
       return;
     }
     if (selectedTalentsRaw.length === 0) {
-      onError("Selectionne au moins un talent.");
+      onError("Sélectionne au moins un talent.");
       return;
     }
     setIsGenerating(true);
     try {
       const fromHeader = (demande?.from || "").trim();
+      const angleMatch = fromHeader.match(/<([^>]+)>/);
+      const senderEmail = (
+        angleMatch?.[1] ||
+        (fromHeader.includes("@") ? fromHeader : "")
+      )
+        .trim()
+        .toLowerCase();
       const senderDisplayName = fromHeader.includes("<")
         ? fromHeader.split("<")[0].trim().replace(/^"|"$/g, "")
         : fromHeader.split("@")[0]?.trim() || "";
       const senderFirstName = senderDisplayName.split(/\s+/)[0]?.trim();
-      const res = await fetch("/api/casting/generate-email", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          language: emailLanguage,
-          brandName,
-          brandResearch: briefAsBrandResearch,
-          recipient: {
-            firstName: senderFirstName || undefined,
-            brandName,
-          },
-          talents: selectedTalentsRaw.map((t) => {
-            const followers = Math.max(t.igFollowers || 0, t.ttFollowers || 0);
-            const eng =
-              t.igEngagement > 0
-                ? t.igEngagement
-                : t.ttEngagement > 0
-                  ? t.ttEngagement
-                  : undefined;
-            return {
-              talentId: t.id,
-              name: `${t.prenom} ${t.nom}`.trim(),
-              niche: (t.niches || []).join(", ") || "—",
-              followers,
-              igFollowers: typeof t.igFollowers === "number" ? t.igFollowers : 0,
-              ttFollowers: typeof t.ttFollowers === "number" ? t.ttFollowers : 0,
-              instagram: t.instagram ?? null,
-              ...(typeof eng === "number" ? { engagementRate: eng } : {}),
-            };
-          }),
-        }),
+      const talentsPayload = selectedTalentsRaw.map((t) => {
+        const followers = Math.max(t.igFollowers || 0, t.ttFollowers || 0);
+        const eng =
+          t.igEngagement > 0
+            ? t.igEngagement
+            : t.ttEngagement > 0
+              ? t.ttEngagement
+              : undefined;
+        return {
+          talentId: t.id,
+          name: `${t.prenom} ${t.nom}`.trim(),
+          niche: (t.niches || []).join(", ") || "—",
+          followers,
+          igFollowers: typeof t.igFollowers === "number" ? t.igFollowers : 0,
+          ttFollowers: typeof t.ttFollowers === "number" ? t.ttFollowers : 0,
+          instagram: t.instagram ?? null,
+          ...(typeof eng === "number" ? { engagementRate: eng } : {}),
+        };
       });
-      const data = await res.json().catch(() => ({}));
+      const payloadBase = {
+        language: emailLanguage,
+        brandName,
+        brandResearch: briefAsBrandResearch,
+        // Réponse manuelle à un casting reçu : ne pas bloquer si Gmail Leyna est down.
+        requireLeynaScan: false,
+        recipient: {
+          firstName: senderFirstName || undefined,
+          brandName,
+        },
+        ...(senderEmail.includes("@") ? { recipientEmails: [senderEmail] } : {}),
+        talents: talentsPayload,
+      };
+
+      const genOnce = async (ackNego: boolean) => {
+        const res = await fetch("/api/casting/generate-email", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...payloadBase,
+            ...(ackNego ? { negotiationReviewAcknowledged: true } : {}),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        return { res, data };
+      };
+
+      let { res, data } = await genOnce(false);
+      // Parcours manuel : si revue négo signalée, on autorise quand même la rédaction.
+      if (!res.ok && data?.code === "NEEDS_NEGOTIATION_REVIEW") {
+        ({ res, data } = await genOnce(true));
+      }
       if (!res.ok) {
         throw new Error(typeof data.error === "string" ? data.error : "Génération impossible.");
       }
@@ -916,6 +941,20 @@ export default function DemandeModal({
           </div>
 
           <div className="lg:col-span-2 p-4 pb-24 flex flex-col">
+            {(!briefAsBrandResearch || selectedTalents.length === 0) && (
+              <p
+                className="mb-2 text-xs rounded-lg border px-2.5 py-2"
+                style={{
+                  borderColor: `color-mix(in srgb, ${OLD_ROSE} 40%, transparent)`,
+                  color: LICORICE,
+                  backgroundColor: OLD_LACE,
+                }}
+              >
+                {!briefAsBrandResearch
+                  ? "Avant « Rédiger » : lance d’abord « Analyser le brief automatiquement »."
+                  : "Avant « Rédiger » : sélectionne au moins un talent à gauche."}
+              </p>
+            )}
             <EmailComposer
               subject={subject}
               onSubjectChange={setSubject}

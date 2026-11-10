@@ -395,6 +395,7 @@ async function processOneMissionItem(itemId: string): Promise<{
       },
     ],
     recipientEmails,
+    requireLeynaScan: true,
     talentResearch,
     draftPrepBrief: prepBrief,
     leynaExchangeCache: leyna,

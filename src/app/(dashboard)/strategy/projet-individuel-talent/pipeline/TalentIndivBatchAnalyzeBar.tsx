@@ -1549,6 +1549,7 @@ export function TalentIndivBatchAnalyzeBar({
           brandResearch,
           talents: talentsPayload,
           recipientEmails,
+          requireLeynaScan: true,
           talentResearch,
           draftPrepBrief: prepBrief,
           leynaExchangeCache: leynaHit || undefined,

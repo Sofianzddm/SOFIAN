@@ -3961,6 +3961,7 @@ function RedactionTab({
           brandResearch,
           talents: talentsPayload,
           recipientEmails,
+          requireLeynaScan: true,
           talentResearch,
           ...projectPart,
         }),
