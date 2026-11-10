@@ -3,12 +3,14 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import {
   formatAwaitingSourcesLabel,
+  notifyAssistanteTmGiftReady,
   notifyCastingMarqueDebloquee,
+  type AwaitingSourceKind,
 } from "@/lib/resolve-awaiting-enrichissement";
 
 /**
  * POST — retire une mission de la file d'enrichissement
- * (contacts prêts / traité). Notifie les Casting Managers.
+ * (contacts prêts / traité). Notifie Casting (+ Assistante TM si gift).
  */
 const ALLOWED = ["ADMIN", "CASTING_MANAGER", "HEAD_OF", "HEAD_OF_SALES"] as const;
 
@@ -33,6 +35,7 @@ export async function POST(
         targetBrand: true,
         marqueId: true,
         campaignId: true,
+        strategyReason: true,
         awaitingContactsCompletion: true,
         marque: { select: { nom: true } },
         campaign: { select: { id: true, title: true } },
@@ -65,12 +68,25 @@ export async function POST(
       });
     }
 
-    const source: "projet" | "pipeline" = mission.campaignId ? "projet" : "pipeline";
+    const reason = String(mission.strategyReason || "");
+    const isGift =
+      !mission.campaignId &&
+      (/^gift\b/i.test(reason.trim()) ||
+        reason.toLowerCase().includes("demande gift"));
+    const source: AwaitingSourceKind = mission.campaignId
+      ? "projet"
+      : isGift
+        ? "gift"
+        : "pipeline";
     const campaignTitle = mission.campaign?.title || null;
+    const refMatch = reason.match(/\b(GIFT-\d{4}-\d+)\b/i);
+    const giftReference = refMatch?.[1] || null;
     const sourceLabel = formatAwaitingSourcesLabel(
       [source],
       source === "projet" && campaignTitle ? [campaignTitle] : []
     );
+    const resolvedByName =
+      session.user.name?.trim() || session.user.email || null;
     const mail = await notifyCastingMarqueDebloquee({
       marqueName: name,
       sourceLabel,
@@ -81,18 +97,42 @@ export async function POST(
           source,
           campaignId: mission.campaignId,
           campaignTitle,
+          giftReference,
         },
       ],
       actorId: session.user.id,
-      resolvedByName: session.user.name?.trim() || session.user.email || null,
+      resolvedByName,
     });
+
+    let notifiedTo = mail.to;
+    let mailSent = mail.sent;
+    if (source === "gift" && mission.marqueId) {
+      const giftMail = await notifyAssistanteTmGiftReady({
+        marqueId: mission.marqueId,
+        marqueName: name,
+        missions: [
+          {
+            missionId,
+            brandName: name,
+            source: "gift",
+            campaignId: null,
+            campaignTitle: null,
+            giftReference,
+          },
+        ],
+        actorId: session.user.id,
+        resolvedByName,
+      });
+      mailSent = mailSent || giftMail.sent;
+      notifiedTo = Array.from(new Set([...notifiedTo, ...giftMail.to]));
+    }
 
     return NextResponse.json({
       ok: true,
       missionId,
       awaitingContactsCompletion: false,
-      notifiedTo: mail.to,
-      mailSent: mail.sent,
+      notifiedTo,
+      mailSent,
       message: `${name} retirée de la file d'enrichissement.`,
     });
   } catch (error) {

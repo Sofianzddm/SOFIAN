@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { notifyMarqueCompletionResolved } from "@/lib/emails/notify-enrichissement";
+import {
+  notifyGiftContactsReady,
+  notifyMarqueCompletionResolved,
+} from "@/lib/emails/notify-enrichissement";
 
 export type AwaitingSourceKind = "pipeline" | "projet" | "gift";
 
@@ -9,6 +12,8 @@ export type ResolvedAwaitingMission = {
   source: AwaitingSourceKind;
   campaignId: string | null;
   campaignTitle: string | null;
+  giftId?: string | null;
+  giftReference?: string | null;
 };
 
 export type ResolveAwaitingResult = {
@@ -83,8 +88,8 @@ export function contextsFromResolvedMissions(
     } else if (m.source === "gift") {
       contexts.push({
         kind: "gift",
-        label: "Demande Gift",
-        path: "/gifts",
+        label: m.giftReference ? `Gift ${m.giftReference}` : "Demande Gift",
+        path: m.giftId ? `/gifts/${m.giftId}` : "/gifts",
       });
     } else if (m.source === "pipeline") {
       contexts.push({
@@ -164,6 +169,163 @@ export async function notifyCastingMarqueDebloquee(opts: {
   }
 }
 
+type LinkedGift = {
+  id: string;
+  reference: string;
+  talentName: string;
+};
+
+/** Retrouve les demandes gift liées à une marque (lien multi + marque principale). */
+export async function findGiftsLinkedToMarque(
+  marqueId: string
+): Promise<LinkedGift[]> {
+  const [links, principal] = await Promise.all([
+    prisma.demandeGiftMarque.findMany({
+      where: { marqueId },
+      select: {
+        demandeGift: {
+          select: {
+            id: true,
+            reference: true,
+            talent: { select: { prenom: true, nom: true } },
+          },
+        },
+      },
+      take: 20,
+    }),
+    prisma.demandeGift.findMany({
+      where: { marqueId },
+      select: {
+        id: true,
+        reference: true,
+        talent: { select: { prenom: true, nom: true } },
+      },
+      take: 20,
+    }),
+  ]);
+
+  const byId = new Map<string, LinkedGift>();
+  for (const link of links) {
+    const g = link.demandeGift;
+    if (!g?.id || byId.has(g.id)) continue;
+    byId.set(g.id, {
+      id: g.id,
+      reference: g.reference,
+      talentName: `${g.talent?.prenom || ""} ${g.talent?.nom || ""}`.trim(),
+    });
+  }
+  for (const g of principal) {
+    if (!g?.id || byId.has(g.id)) continue;
+    byId.set(g.id, {
+      id: g.id,
+      reference: g.reference,
+      talentName: `${g.talent?.prenom || ""} ${g.talent?.nom || ""}`.trim(),
+    });
+  }
+  return Array.from(byId.values());
+}
+
+/**
+ * Notifie les Assistantes TM (mail + in-app) qu'un gift est enrichi
+ * et prêt à envoyer. Best-effort.
+ */
+export async function notifyAssistanteTmGiftReady(opts: {
+  marqueId: string;
+  marqueName: string;
+  emailableCount?: number;
+  missions?: ResolvedAwaitingMission[];
+  actorId?: string | null;
+  resolvedByName?: string | null;
+}): Promise<{ sent: boolean; to: string[] }> {
+  try {
+    const assistantes = await prisma.user.findMany({
+      where: { role: "ASSISTANTE_TM", actif: true },
+      select: { id: true, email: true },
+    });
+    const recipients = assistantes.filter(
+      (u) => u.id !== opts.actorId && Boolean(u.email)
+    );
+    if (recipients.length === 0) return { sent: false, to: [] };
+
+    let resolvedByName = opts.resolvedByName?.trim() || null;
+    if (!resolvedByName && opts.actorId) {
+      const actor = await prisma.user.findUnique({
+        where: { id: opts.actorId },
+        select: { prenom: true, nom: true, email: true },
+      });
+      resolvedByName =
+        `${actor?.prenom || ""} ${actor?.nom || ""}`.trim() ||
+        actor?.email ||
+        null;
+    }
+
+    const giftsFromMissions = (opts.missions || [])
+      .filter((m) => m.source === "gift" && m.giftId)
+      .map((m) => ({
+        id: m.giftId as string,
+        reference: m.giftReference || "",
+        talentName: "",
+      }));
+
+    const linked = await findGiftsLinkedToMarque(opts.marqueId);
+    const giftsById = new Map<string, LinkedGift>();
+    for (const g of [...linked, ...giftsFromMissions]) {
+      if (!g.id) continue;
+      const prev = giftsById.get(g.id);
+      giftsById.set(g.id, {
+        id: g.id,
+        reference: g.reference || prev?.reference || "",
+        talentName: g.talentName || prev?.talentName || "",
+      });
+    }
+    const gifts = Array.from(giftsById.values());
+    const primary = gifts[0] || null;
+    const giftPath = primary ? `/gifts/${primary.id}` : "/gifts";
+    const giftReference =
+      primary?.reference ||
+      opts.missions?.find((m) => m.source === "gift")?.giftReference ||
+      null;
+    const talentName = primary?.talentName || null;
+    const toEmails = recipients.map((u) => u.email).filter(Boolean);
+
+    const mail = await notifyGiftContactsReady({
+      marqueName: opts.marqueName,
+      giftReference,
+      talentName,
+      resolvedByName,
+      emailableCount: opts.emailableCount,
+      giftPath,
+      toEmails,
+    });
+
+    const contactNote =
+      typeof opts.emailableCount === "number" && opts.emailableCount > 0
+        ? `${opts.emailableCount} contact${opts.emailableCount > 1 ? "s" : ""} prêt${opts.emailableCount > 1 ? "s" : ""} à envoyer`
+        : "contacts prêts à envoyer";
+
+    await Promise.all(
+      recipients.map((u) =>
+        prisma.notification.create({
+          data: {
+            userId: u.id,
+            type: "GENERAL",
+            titre: `Gift prêt — ${opts.marqueName}`,
+            message: `${resolvedByName || "Quelqu’un"} a enrichi ${opts.marqueName}${
+              giftReference ? ` (${giftReference})` : ""
+            } — ${contactNote}.`,
+            lien: giftPath,
+          },
+        })
+      )
+    );
+
+    return mail;
+  } catch (error) {
+    console.error("notifyAssistanteTmGiftReady:", error);
+    return { sent: false, to: [] };
+  }
+}
+
 /**
  * Si la fiche marque a au moins un email utilisable, débloque toutes les
  * missions en attente d'enrichissement (pipeline et/ou projets).
@@ -232,17 +394,35 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
       data: { awaitingContactsCompletion: false },
     });
 
+    const linkedGifts = await findGiftsLinkedToMarque(marqueId);
+    const giftByReference = new Map(
+      linkedGifts.map((g) => [g.reference.toUpperCase(), g])
+    );
+    const primaryGift = linkedGifts[0] || null;
+
     const missions: ResolvedAwaitingMission[] = awaiting.map((m) => {
       const reason = String(m.strategyReason || "");
       const isGift =
         /^gift\b/i.test(reason.trim()) ||
         reason.toLowerCase().includes("demande gift");
+      const source: AwaitingSourceKind = m.campaignId
+        ? "projet"
+        : isGift
+          ? "gift"
+          : "pipeline";
+      const refMatch = reason.match(/\b(GIFT-\d{4}-\d+)\b/i);
+      const refFromReason = refMatch?.[1]?.toUpperCase() || null;
+      const matchedGift =
+        (refFromReason && giftByReference.get(refFromReason)) ||
+        (source === "gift" ? primaryGift : null);
       return {
         missionId: m.id,
         brandName: marque.nom || m.targetBrand,
-        source: m.campaignId ? "projet" : isGift ? "gift" : "pipeline",
+        source,
         campaignId: m.campaign?.id ?? null,
         campaignTitle: m.campaign?.title ?? null,
+        giftId: matchedGift?.id ?? null,
+        giftReference: matchedGift?.reference || refFromReason || null,
       };
     });
 
@@ -289,6 +469,18 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
       });
       mailSent = mail.sent;
       notifiedTo = mail.to;
+    }
+
+    if (sources.includes("gift")) {
+      const giftMail = await notifyAssistanteTmGiftReady({
+        marqueId,
+        marqueName: marque.nom,
+        emailableCount,
+        missions,
+        actorId: opts.actorId,
+      });
+      mailSent = mailSent || giftMail.sent;
+      notifiedTo = Array.from(new Set([...notifiedTo, ...giftMail.to]));
     }
 
     return {

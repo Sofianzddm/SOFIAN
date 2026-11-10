@@ -144,6 +144,79 @@ export async function notifyMarqueCompletionRequested(opts: {
 }
 
 /**
+ * Prévenir l'Assistante TM (ex. Noémie) qu'une marque gift est enrichie
+ * et prête à être contactée / envoyée. Best-effort Resend.
+ */
+export async function notifyGiftContactsReady(opts: {
+  marqueName: string;
+  giftReference?: string | null;
+  talentName?: string | null;
+  resolvedByName?: string | null;
+  emailableCount?: number;
+  giftPath: string;
+  toEmails: string[];
+}): Promise<{ sent: boolean; to: string[] }> {
+  const key = process.env.RESEND_API_KEY?.trim();
+  const to = Array.from(
+    new Set(
+      opts.toEmails
+        .map((e) => String(e || "").trim().toLowerCase())
+        .filter((e) => e.includes("@"))
+    )
+  );
+  if (!key || to.length === 0) return { sent: false, to };
+
+  const baseUrl = (process.env.NEXT_PUBLIC_BASE_URL || "https://app.glowupagence.fr").replace(
+    /\/$/,
+    ""
+  );
+  const path = opts.giftPath.startsWith("/") ? opts.giftPath : `/${opts.giftPath}`;
+  const url = `${baseUrl}${path}`;
+  const who = opts.resolvedByName?.trim() || "Quelqu’un";
+  const giftLabel = opts.giftReference?.trim() || "Demande Gift";
+  const talentNote = opts.talentName?.trim()
+    ? ` · talent ${escapeHtml(opts.talentName.trim())}`
+    : "";
+  const contactNote =
+    typeof opts.emailableCount === "number" && opts.emailableCount > 0
+      ? `${opts.emailableCount} contact${opts.emailableCount > 1 ? "s" : ""} prêt${opts.emailableCount > 1 ? "s" : ""} à envoyer`
+      : "contacts prêts à envoyer";
+
+  const subject = `Gift prêt à envoyer — ${opts.marqueName}${opts.giftReference ? ` (${opts.giftReference})` : ""}`;
+
+  const html = `
+  <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1A1110">
+    <h2 style="font-size:18px;margin:0 0 8px">Gift — contact prêt à envoyer</h2>
+    <p style="font-size:14px;line-height:1.5;margin:0 0 12px">
+      <strong>${escapeHtml(who)}</strong> a enrichi
+      <strong>${escapeHtml(opts.marqueName)}</strong>${talentNote}.
+    </p>
+    <p style="font-size:14px;line-height:1.5;margin:0 0 16px">
+      <strong>${escapeHtml(giftLabel)}</strong> — ${escapeHtml(contactNote)}.
+      Tu peux contacter la marque depuis la demande gift.
+    </p>
+    <a href="${url}"
+       style="display:inline-block;background:#1A1110;color:#fff;text-decoration:none;padding:10px 18px;border-radius:10px;font-size:14px;font-weight:600">
+      Ouvrir la demande gift
+    </a>
+  </div>`;
+
+  try {
+    const resend = new Resend(key);
+    await resend.emails.send({
+      from: "Glow Up <contact@glowupagence.fr>",
+      to,
+      subject,
+      html,
+    });
+    return { sent: true, to };
+  } catch (error) {
+    console.error("notifyGiftContactsReady:", error);
+    return { sent: false, to };
+  }
+}
+
+/**
  * Prévenir Casting qu'une marque en attente d'enrichissement est débloquée
  * (rédaction possible à nouveau). Best-effort Resend.
  */
