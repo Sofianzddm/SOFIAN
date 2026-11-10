@@ -201,59 +201,87 @@ export async function POST(request: NextRequest) {
       const namesSet = contactSource === "AO" ? ctx.namesAo : ctx.namesCarto;
 
       const nameKey = contactPersonKey(prenom, nom || prenom);
-      const alreadyKnownEmail =
-        Boolean(email) &&
-        (ctx.emailsCarto.has(email!) || ctx.emailsAo.has(email!));
-      if (alreadyKnownEmail || (email && emailsSet.has(email)) || (nameKey && namesSet.has(nameKey))) {
-        skipped += 1;
-        continue;
-      }
-
       const rowLanguage: "fr" | "en" =
         row.language === "en" ? "en" : row.language === "fr" ? "fr" : language;
 
-      const contact = await prisma.beneluxContact.create({
-        data: {
-          companyId: ctx.companyId,
-          prenom: prenom || nom || "Contact",
-          nom: prenom ? nom : null,
-          email,
-          poste: clean(row.poste),
-          perimetre: clean(row.perimetre),
-          localisation: clean(row.localisation),
-          priorite: clean(row.priorite),
-          linkedinUrl: clean(row.linkedinUrl),
-          language: rowLanguage,
-          source: contactSource,
-          // Import CRM seul → hors outreach ET hors file d'enrichissement.
-          outreachExcluded: skipOutreach,
-        },
-      });
-      namesSet.add(nameKey);
-      if (email) emailsSet.add(email);
-      created += 1;
+      // Email déjà connu → pas de doublon CRM, mais on tente l'enrôlement
+      // cycle si absent (réimport FR+BE / contact déjà sur la fiche).
+      const alreadyKnownEmail =
+        Boolean(email) &&
+        (ctx.emailsCarto.has(email!) || ctx.emailsAo.has(email!));
+      const alreadyOnFiche =
+        alreadyKnownEmail ||
+        (Boolean(email) && emailsSet.has(email!)) ||
+        (Boolean(nameKey) && namesSet.has(nameKey));
+
+      let contactId: string | null = null;
+
+      if (alreadyOnFiche) {
+        skipped += 1;
+        if (email) {
+          const existing = await prisma.beneluxContact.findFirst({
+            where: {
+              companyId: ctx.companyId,
+              email: { equals: email, mode: "insensitive" },
+            },
+            select: { id: true, outreachExcluded: true },
+          });
+          if (existing) contactId = existing.id;
+          if (existing && !skipOutreach && existing.outreachExcluded) {
+            await prisma.beneluxContact.update({
+              where: { id: existing.id },
+              data: { outreachExcluded: false },
+            });
+          }
+        } else {
+          continue;
+        }
+      } else {
+        const contact = await prisma.beneluxContact.create({
+          data: {
+            companyId: ctx.companyId,
+            prenom: prenom || nom || "Contact",
+            nom: prenom ? nom : null,
+            email,
+            poste: clean(row.poste),
+            perimetre: clean(row.perimetre),
+            localisation: clean(row.localisation),
+            priorite: clean(row.priorite),
+            linkedinUrl: clean(row.linkedinUrl),
+            language: rowLanguage,
+            source: contactSource,
+            // Import CRM seul → hors outreach ET hors file d'enrichissement.
+            outreachExcluded: skipOutreach,
+          },
+        });
+        contactId = contact.id;
+        namesSet.add(nameKey);
+        if (email) emailsSet.add(email);
+        created += 1;
+      }
 
       // Les contacts AO ne rentrent jamais dans le cycle outreach.
       // Import CRM seul (skipOutreach) → aucune entrée dans le cycle.
-      if (!skipOutreach && email && contactSource === "CARTO") {
+      // Contact déjà sur fiche sans target → on l'enrôle quand même.
+      if (!skipOutreach && email && contactSource === "CARTO" && contactId) {
         const alreadyInCycle = await prisma.beneluxOutreachTarget.findUnique({
           where: { email },
           select: { id: true },
         });
         // Anti double-prospection : email déjà suivi dans un autre pipeline
-        // → contact créé sur la fiche mais pas dans le cycle.
+        // → contact sur la fiche mais pas dans le cycle.
         // Exception « FR + BE » : la présence dans le marché frère est voulue.
         const conflict = alreadyInCycle
           ? null
           : await findCrossPipelineConflict(email, "benelux", {
-              // FR ↔ BE : talents différents → présence sur le marché frère OK.
+              // FR ↔ BE : présence sur le marché frère OK (import FR+BE ou réimport).
               allowClientBeneluxSibling: true,
             });
         if (!alreadyInCycle && !conflict) {
           await prisma.beneluxOutreachTarget.create({
             data: {
               companyId: ctx.companyId,
-              beneluxContactId: contact.id,
+              beneluxContactId: contactId,
               firstname: prenom || nom || "Contact",
               lastname: prenom ? nom : null,
               email,

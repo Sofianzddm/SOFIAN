@@ -222,62 +222,100 @@ export async function POST(request: NextRequest) {
       const namesSet = contactSource === "AO" ? ctx.namesAo : ctx.namesCarto;
 
       const nameKey = contactPersonKey(prenom, nom || prenom);
-      // Email déjà connu sur la fiche (toute source) → pas de doublon.
+      // Langue propre à ce contact (override) sinon langue globale de l'import.
+      const rowLanguage: "fr" | "en" =
+        row.language === "en" ? "en" : row.language === "fr" ? "fr" : language;
+
+      // Email déjà connu sur la fiche (toute source) → pas de doublon CRM.
+      // Mais on tente quand même l'enrôlement cycle si le contact n'y est pas
+      // encore (réimport FR+BE / contact déjà sur la fiche sans target).
       const alreadyKnownEmail =
         Boolean(email) &&
         (ctx.emailsCarto.has(email!) || ctx.emailsAo.has(email!));
-      if (alreadyKnownEmail || (email && emailsSet.has(email)) || (nameKey && namesSet.has(nameKey))) {
+      const alreadyOnFiche =
+        alreadyKnownEmail ||
+        (Boolean(email) && emailsSet.has(email!)) ||
+        (Boolean(nameKey) && namesSet.has(nameKey));
+
+      let contactId: string | null = null;
+
+      if (alreadyOnFiche) {
         skipped += 1;
-        continue;
+        if (email) {
+          const existing = await prisma.marqueContact.findFirst({
+            where: {
+              marqueId: ctx.marqueId,
+              email: { equals: email, mode: "insensitive" },
+            },
+            select: {
+              id: true,
+              diffusionOptOut: true,
+              outreachExcluded: true,
+              prenom: true,
+              nom: true,
+            },
+          });
+          if (existing) contactId = existing.id;
+          // Opt-out diffusion → on n'enrôle jamais.
+          if (existing?.diffusionOptOut) {
+            continue;
+          }
+          // Réimport outreach : on lève une exclusion locale sur ce contact.
+          if (existing && !skipOutreach && existing.outreachExcluded) {
+            await prisma.marqueContact.update({
+              where: { id: existing.id },
+              data: { outreachExcluded: false },
+            });
+          }
+        } else {
+          continue;
+        }
+      } else {
+        const contact = await prisma.marqueContact.create({
+          data: {
+            marqueId: ctx.marqueId,
+            prenom,
+            nom: nom || prenom || "Contact",
+            email,
+            poste: clean(row.poste),
+            perimetre: clean(row.perimetre),
+            localisation: clean(row.localisation),
+            priorite: clean(row.priorite),
+            linkedinUrl: clean(row.linkedinUrl),
+            language: rowLanguage,
+            source: contactSource,
+            // Import CRM seul → hors outreach ET hors file d'enrichissement.
+            outreachExcluded: skipOutreach,
+          },
+        });
+        contactId = contact.id;
+        namesSet.add(nameKey);
+        if (email) emailsSet.add(email);
+        created += 1;
       }
 
-      // Langue propre à ce contact (override) sinon langue globale de l'import.
-      const rowLanguage: "fr" | "en" = row.language === "en" ? "en" : row.language === "fr" ? "fr" : language;
-
-      const contact = await prisma.marqueContact.create({
-        data: {
-          marqueId: ctx.marqueId,
-          prenom,
-          nom: nom || prenom || "Contact",
-          email,
-          poste: clean(row.poste),
-          perimetre: clean(row.perimetre),
-          localisation: clean(row.localisation),
-          priorite: clean(row.priorite),
-          linkedinUrl: clean(row.linkedinUrl),
-          language: rowLanguage,
-          source: contactSource,
-          // Import CRM seul → hors outreach ET hors file d'enrichissement.
-          outreachExcluded: skipOutreach,
-        },
-      });
-      namesSet.add(nameKey);
-      if (email) emailsSet.add(email);
-      created += 1;
-
       // Les contacts AO ne rentrent jamais dans le cycle outreach.
-      // Email présent dans le fichier → le contact influence entre directement
-      // dans « À contacter » (sinon il reste en attente d'email).
+      // Email présent → entrée « À contacter » (y compris contact déjà sur fiche).
       // Import CRM seul (skipOutreach) → aucune entrée dans le cycle.
-      if (!skipOutreach && email && contactSource === "CARTO") {
+      if (!skipOutreach && email && contactSource === "CARTO" && contactId) {
         const alreadyInCycle = await prisma.outreachTarget.findUnique({
           where: { email },
           select: { id: true },
         });
         // Anti double-prospection : email déjà suivi dans un autre pipeline
-        // (agences, Benelux) → contact créé sur la fiche mais pas dans le cycle.
+        // (agences, Benelux) → contact sur la fiche mais pas dans le cycle.
         // Exception « FR + BE » : la présence dans le marché frère est voulue.
         const conflict = alreadyInCycle
           ? null
           : await findCrossPipelineConflict(email, "client", {
-              // FR ↔ BE : talents différents → présence sur le marché frère OK.
+              // FR ↔ BE : présence sur le marché frère OK (import FR+BE ou réimport).
               allowClientBeneluxSibling: true,
             });
         if (!alreadyInCycle && !conflict) {
           await prisma.outreachTarget.create({
             data: {
               marqueId: ctx.marqueId,
-              marqueContactId: contact.id,
+              marqueContactId: contactId,
               firstname: prenom || nom || "Contact",
               lastname: prenom ? nom : null,
               email,

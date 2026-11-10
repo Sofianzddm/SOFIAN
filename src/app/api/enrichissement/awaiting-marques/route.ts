@@ -50,15 +50,10 @@ export async function GET(request: NextRequest) {
         updatedAt: true,
         marqueId: true,
         campaignId: true,
-        // strategyReason « Gift … » → source gift (hors pipeline casting)
         marque: {
           select: {
             id: true,
             nom: true,
-            contacts: {
-              where: { outreachExcluded: false, diffusionOptOut: false },
-              select: { email: true, emailSuggested: true },
-            },
           },
         },
         campaign: {
@@ -73,6 +68,50 @@ export async function GET(request: NextRequest) {
         createdBy: { select: { prenom: true, nom: true } },
       },
     });
+
+    const marqueIds = Array.from(
+      new Set(
+        missions
+          .map((m) => m.marqueId || m.marque?.id || null)
+          .filter((id): id is string => Boolean(id))
+      )
+    );
+
+    const contactCountByMarque = new Map<string, number>();
+    const emailableCountByMarque = new Map<string, number>();
+
+    if (marqueIds.length > 0) {
+      const [totals, emailables] = await Promise.all([
+        prisma.marqueContact.groupBy({
+          by: ["marqueId"],
+          where: {
+            marqueId: { in: marqueIds },
+            outreachExcluded: false,
+            diffusionOptOut: false,
+          },
+          _count: { _all: true },
+        }),
+        prisma.marqueContact.groupBy({
+          by: ["marqueId"],
+          where: {
+            marqueId: { in: marqueIds },
+            outreachExcluded: false,
+            diffusionOptOut: false,
+            OR: [
+              { email: { contains: "@" } },
+              { emailSuggested: { contains: "@" } },
+            ],
+          },
+          _count: { _all: true },
+        }),
+      ]);
+      for (const row of totals) {
+        contactCountByMarque.set(row.marqueId, row._count._all);
+      }
+      for (const row of emailables) {
+        emailableCountByMarque.set(row.marqueId, row._count._all);
+      }
+    }
 
     type Group = {
       key: string;
@@ -99,11 +138,6 @@ export async function GET(request: NextRequest) {
     const groups = new Map<string, Group>();
 
     for (const m of missions) {
-      const contacts = m.marque?.contacts ?? [];
-      const emailableCount = contacts.filter((c) => {
-        const email = (c.email || c.emailSuggested || "").trim();
-        return email.includes("@");
-      }).length;
       const brandName = m.marque?.nom || m.targetBrand;
       const marqueId = m.marqueId || m.marque?.id || null;
       const reason = String(m.strategyReason || "");
@@ -142,6 +176,13 @@ export async function GET(request: NextRequest) {
             ? "/strategy/projet-individuel-talent/pipeline"
             : `/projets-outreach/${m.campaignId}`;
 
+      const emailableCount = marqueId
+        ? emailableCountByMarque.get(marqueId) || 0
+        : 0;
+      const contactCount = marqueId
+        ? contactCountByMarque.get(marqueId) || 0
+        : 0;
+
       let group = groups.get(key);
       if (!group) {
         group = {
@@ -149,7 +190,7 @@ export async function GET(request: NextRequest) {
           brandName,
           marqueId,
           emailableCount,
-          contactCount: contacts.length,
+          contactCount,
           requestedAt,
           sources: [],
           sourceLabel: "",
@@ -167,7 +208,7 @@ export async function GET(request: NextRequest) {
         group.requestedAt = requestedAt;
       }
       group.emailableCount = Math.max(group.emailableCount, emailableCount);
-      group.contactCount = Math.max(group.contactCount, contacts.length);
+      group.contactCount = Math.max(group.contactCount, contactCount);
       group.contexts.push({
         missionId: m.id,
         kind,

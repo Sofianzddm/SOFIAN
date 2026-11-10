@@ -220,6 +220,9 @@ ${prioritize}
 - Portée RELATIVE aux abonnés : 120k vues pour 30k abonnés = waouh ; 100k vues pour 500k abonnés = pas waouh. N'insiste sur les vues CRM que si elles sont marquées « forte/notable vs abonnés », ou si tu as des hits viraux clairement au-dessus du compte (ex. millions TT). Ne vends pas un Reel à 123k pour un compte IG 150k comme un exploit.
 - Perf contenu EN CE MOMENT : si TikToks / Reels / posts cartonnent (pics vues, Notes TM / Notes internes « pète les scores », hits viraux), dis-le clairement dans profileAnalysis et proofPoints (ex. « ses TikToks performent particulièrement bien en ce moment, jusqu'à Xm vues »). La croissance d'abonnés est secondaire.
 - Notes internes fiche profil : exploite-les comme contexte TM (momentum, angle, observations). Ne les cite pas mot pour mot si elles sont trop internes ; reformule en preuves utiles.
+- INTERDIT ABSOLU — labels identité : jamais « couple lesbien », « lesbienne », « gay », « LGBTQ », « queer », ni aucun label d'orientation sexuelle / identité de genre. Couple / famille / parentalité OK en neutre (« avec sa femme », « humour de couple », « jeune maman ») sans étiquette. Pas de sensationalisme intime (PMA, etc.) sauf brièvement si c'est central au contenu public ET utile au fit — sans pathos.
+- Pour les preuves / whyRelevant destinés au mail : tu peux noter des collabs passées en interne, mais NE les mets PAS comme noms de marques à recopier tels quels dans un pitch client — le mail final n'a droit qu'à la marque cible. Préfère formats, thèmes, portée (vues) sans lister « collab X / Y / Z ».
+- Jamais de prix / tarifs / budgets dans les champs narratifs.
 ${writeFor}
 - 3 à 5 phrases max par champ narratif (whoTheyAre / whatTheyDo / profileAnalysis / whyRelevant).
 
@@ -268,6 +271,9 @@ Règles strictes :
 - Portée RELATIVE aux abonnés : 120k vues pour 30k abonnés = waouh ; 100k vues pour 500k abonnés = pas waouh. N'insiste sur les vues CRM que si elles sont marquées « forte/notable vs abonnés », ou si tu as des hits viraux clairement au-dessus du compte (ex. millions TT). Ne vends pas un Reel à 123k pour un compte IG 150k comme un exploit.
 - Perf contenu EN CE MOMENT : si TikToks / Reels / posts cartonnent (pics vues, Notes TM / Notes internes « pète les scores », hits viraux), dis-le clairement dans profileAnalysis et proofPoints (ex. « ses TikToks performent particulièrement bien en ce moment, jusqu'à Xm vues »). La croissance d'abonnés est secondaire.
 - Notes internes fiche profil : exploite-les comme contexte TM (momentum, angle, observations). Ne les cite pas mot pour mot si elles sont trop internes ; reformule en preuves utiles.
+- INTERDIT ABSOLU — labels identité : jamais « couple lesbien », « lesbienne », « gay », « LGBTQ », « queer », ni aucun label d'orientation sexuelle / identité de genre. Couple / famille / parentalité OK en neutre (« avec sa femme », « humour de couple », « jeune maman ») sans étiquette. Pas de sensationalisme intime (PMA, etc.) sauf brièvement si c'est central au contenu public ET utile au fit — sans pathos.
+- Pour les preuves / whyRelevant destinés au mail : tu peux noter des collabs passées en interne, mais NE les mets PAS comme noms de marques à recopier tels quels dans un pitch client — le mail final n'a droit qu'à la marque cible. Préfère formats, thèmes, portée (vues) sans lister « collab X / Y / Z ».
+- Jamais de prix / tarifs / budgets dans les champs narratifs.
 - Écris en français, concret, utile pour rédiger un mail de casting.
 - 3 à 5 phrases max par champ narratif (whoTheyAre / whatTheyDo / profileAnalysis / whyRelevant).
 

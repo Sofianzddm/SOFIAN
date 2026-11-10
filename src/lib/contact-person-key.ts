@@ -31,6 +31,68 @@ type ContactRow = {
   emailLookupStatus: string | null;
 };
 
+type DismissPlan = {
+  dismissId: string;
+  keepId: string;
+  patchKeep: { poste?: string; linkedinUrl?: string };
+};
+
+function planDismissals(contacts: ContactRow[]): DismissPlan[] {
+  const keepByKey = new Map<string, ContactRow>();
+  for (const c of contacts) {
+    if (!c.email?.trim()) continue;
+    const key = contactPersonKey(c.prenom, c.nom);
+    if (!key || keepByKey.has(key)) continue;
+    keepByKey.set(key, c);
+  }
+  if (keepByKey.size === 0) return [];
+
+  const plans: DismissPlan[] = [];
+  const patchedKeep = new Map<string, ContactRow>();
+
+  for (const c of contacts) {
+    if (c.email?.trim()) continue;
+    if (c.emailLookupStatus === "NOT_FOUND") continue;
+    const key = contactPersonKey(c.prenom, c.nom);
+    if (!key) continue;
+    const keep = patchedKeep.get(key) || keepByKey.get(key);
+    if (!keep) continue;
+
+    const patch: { poste?: string; linkedinUrl?: string } = {};
+    if (!keep.poste && c.poste) patch.poste = c.poste;
+    if (!keep.linkedinUrl && c.linkedinUrl) patch.linkedinUrl = c.linkedinUrl;
+    if (Object.keys(patch).length > 0) {
+      Object.assign(keep, patch);
+      patchedKeep.set(key, keep);
+    }
+
+    plans.push({
+      dismissId: c.id,
+      keepId: keep.id,
+      patchKeep: patch,
+    });
+  }
+  return plans;
+}
+
+async function mapPool<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) return;
+  const limit = Math.max(1, concurrency);
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const idx = next;
+      next += 1;
+      await worker(items[idx]);
+    }
+  });
+  await Promise.all(runners);
+}
+
 /**
  * Doublons sans email alors qu'un homonyme a déjà un email sur la fiche :
  * on enrichit éventuellement la fiche connue (poste / LinkedIn) puis on
@@ -41,10 +103,23 @@ type ContactRow = {
 export async function dismissMarqueEnrichissementDuplicates(
   marqueId: string
 ): Promise<number> {
+  const dismissed = await dismissMarqueEnrichissementDuplicatesBatch([marqueId]);
+  return dismissed.size;
+}
+
+/** Version batch : 1 lecture pour N marques, puis purges en parallèle bornée. */
+export async function dismissMarqueEnrichissementDuplicatesBatch(
+  marqueIds: string[]
+): Promise<Set<string>> {
+  const ids = Array.from(new Set(marqueIds.filter(Boolean)));
+  const dismissed = new Set<string>();
+  if (ids.length === 0) return dismissed;
+
   const contacts = await prisma.marqueContact.findMany({
-    where: { marqueId },
+    where: { marqueId: { in: ids } },
     select: {
       id: true,
+      marqueId: true,
       prenom: true,
       nom: true,
       email: true,
@@ -54,44 +129,40 @@ export async function dismissMarqueEnrichissementDuplicates(
     },
   });
 
-  const keepByKey = new Map<string, ContactRow>();
+  const byMarque = new Map<string, ContactRow[]>();
   for (const c of contacts) {
-    if (!c.email?.trim()) continue;
-    const key = contactPersonKey(c.prenom, c.nom);
-    if (!key || keepByKey.has(key)) continue;
-    keepByKey.set(key, c);
+    const list = byMarque.get(c.marqueId) || [];
+    list.push(c);
+    byMarque.set(c.marqueId, list);
   }
-  if (keepByKey.size === 0) return 0;
 
-  let dismissed = 0;
-  for (const c of contacts) {
-    if (c.email?.trim()) continue;
-    if (c.emailLookupStatus === "NOT_FOUND") continue;
-    const key = contactPersonKey(c.prenom, c.nom);
-    if (!key) continue;
-    const keep = keepByKey.get(key);
-    if (!keep) continue;
+  const plans: DismissPlan[] = [];
+  for (const list of byMarque.values()) {
+    plans.push(...planDismissals(list));
+  }
+  if (plans.length === 0) return dismissed;
 
-    const patch: { poste?: string; linkedinUrl?: string } = {};
-    if (!keep.poste && c.poste) patch.poste = c.poste;
-    if (!keep.linkedinUrl && c.linkedinUrl) patch.linkedinUrl = c.linkedinUrl;
-    if (Object.keys(patch).length > 0) {
-      await prisma.marqueContact.update({
-        where: { id: keep.id },
-        data: patch,
-      });
-      Object.assign(keep, patch);
-    }
+  // Patches keep d'abord (peu nombreux), puis dismiss.
+  const keepPatches = new Map<string, { poste?: string; linkedinUrl?: string }>();
+  for (const p of plans) {
+    if (Object.keys(p.patchKeep).length === 0) continue;
+    const prev = keepPatches.get(p.keepId) || {};
+    keepPatches.set(p.keepId, { ...prev, ...p.patchKeep });
+  }
+  await mapPool(Array.from(keepPatches.entries()), 8, async ([keepId, data]) => {
+    await prisma.marqueContact.update({ where: { id: keepId }, data });
+  });
 
+  await mapPool(plans, 8, async (p) => {
     try {
       await prisma.marqueContactSousMarque.deleteMany({
-        where: { contactId: c.id },
+        where: { contactId: p.dismissId },
       });
-      await prisma.marqueContact.delete({ where: { id: c.id } });
+      await prisma.marqueContact.delete({ where: { id: p.dismissId } });
     } catch {
       // Lié (quotes / targets) → hors file sans supprimer.
       await prisma.marqueContact.update({
-        where: { id: c.id },
+        where: { id: p.dismissId },
         data: {
           emailLookupStatus: "FOUND",
           emailSuggested: null,
@@ -100,18 +171,32 @@ export async function dismissMarqueEnrichissementDuplicates(
         },
       });
     }
-    dismissed += 1;
-  }
+    dismissed.add(p.dismissId);
+  });
+
   return dismissed;
 }
 
 export async function dismissBeneluxEnrichissementDuplicates(
   companyId: string
 ): Promise<number> {
+  const dismissed = await dismissBeneluxEnrichissementDuplicatesBatch([companyId]);
+  return dismissed.size;
+}
+
+/** Version batch : 1 lecture pour N entreprises BE, puis purges en parallèle bornée. */
+export async function dismissBeneluxEnrichissementDuplicatesBatch(
+  companyIds: string[]
+): Promise<Set<string>> {
+  const ids = Array.from(new Set(companyIds.filter(Boolean)));
+  const dismissed = new Set<string>();
+  if (ids.length === 0) return dismissed;
+
   const contacts = await prisma.beneluxContact.findMany({
-    where: { companyId },
+    where: { companyId: { in: ids } },
     select: {
       id: true,
+      companyId: true,
       prenom: true,
       nom: true,
       email: true,
@@ -121,40 +206,35 @@ export async function dismissBeneluxEnrichissementDuplicates(
     },
   });
 
-  const keepByKey = new Map<string, ContactRow>();
+  const byCompany = new Map<string, ContactRow[]>();
   for (const c of contacts) {
-    if (!c.email?.trim()) continue;
-    const key = contactPersonKey(c.prenom, c.nom);
-    if (!key || keepByKey.has(key)) continue;
-    keepByKey.set(key, c);
+    const list = byCompany.get(c.companyId) || [];
+    list.push(c);
+    byCompany.set(c.companyId, list);
   }
-  if (keepByKey.size === 0) return 0;
 
-  let dismissed = 0;
-  for (const c of contacts) {
-    if (c.email?.trim()) continue;
-    if (c.emailLookupStatus === "NOT_FOUND") continue;
-    const key = contactPersonKey(c.prenom, c.nom);
-    if (!key) continue;
-    const keep = keepByKey.get(key);
-    if (!keep) continue;
+  const plans: DismissPlan[] = [];
+  for (const list of byCompany.values()) {
+    plans.push(...planDismissals(list));
+  }
+  if (plans.length === 0) return dismissed;
 
-    const patch: { poste?: string; linkedinUrl?: string } = {};
-    if (!keep.poste && c.poste) patch.poste = c.poste;
-    if (!keep.linkedinUrl && c.linkedinUrl) patch.linkedinUrl = c.linkedinUrl;
-    if (Object.keys(patch).length > 0) {
-      await prisma.beneluxContact.update({
-        where: { id: keep.id },
-        data: patch,
-      });
-      Object.assign(keep, patch);
-    }
+  const keepPatches = new Map<string, { poste?: string; linkedinUrl?: string }>();
+  for (const p of plans) {
+    if (Object.keys(p.patchKeep).length === 0) continue;
+    const prev = keepPatches.get(p.keepId) || {};
+    keepPatches.set(p.keepId, { ...prev, ...p.patchKeep });
+  }
+  await mapPool(Array.from(keepPatches.entries()), 8, async ([keepId, data]) => {
+    await prisma.beneluxContact.update({ where: { id: keepId }, data });
+  });
 
+  await mapPool(plans, 8, async (p) => {
     try {
-      await prisma.beneluxContact.delete({ where: { id: c.id } });
+      await prisma.beneluxContact.delete({ where: { id: p.dismissId } });
     } catch {
       await prisma.beneluxContact.update({
-        where: { id: c.id },
+        where: { id: p.dismissId },
         data: {
           emailLookupStatus: "FOUND",
           emailSuggested: null,
@@ -163,7 +243,8 @@ export async function dismissBeneluxEnrichissementDuplicates(
         },
       });
     }
-    dismissed += 1;
-  }
+    dismissed.add(p.dismissId);
+  });
+
   return dismissed;
 }

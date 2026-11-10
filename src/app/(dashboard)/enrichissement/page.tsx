@@ -374,24 +374,6 @@ export default function EnrichissementPage() {
     }
   }, []);
 
-  useEffect(() => {
-    if (status === "authenticated" && allowed) load();
-  }, [status, allowed, load]);
-
-  // CASTING_MANAGER n'a pas les onglets Agences / Fashion Week.
-  useEffect(() => {
-    if (!isAdmin && (tab === "agences" || tab === "fw")) setTab("marques");
-  }, [isAdmin, tab]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const t = new URLSearchParams(window.location.search).get("tab");
-    if (t === "attente" || t === "marques" || t === "agences" || t === "fw") {
-      if ((t === "agences" || t === "fw") && !isAdmin) return;
-      setTab(t);
-    }
-  }, [isAdmin]);
-
   const loadAwaiting = useCallback(async () => {
     if (!allowed) return;
     setAwaitingLoading(true);
@@ -410,15 +392,40 @@ export default function EnrichissementPage() {
     }
   }, [allowed]);
 
+  // File principale d'abord ; badge « Marques en attente » ensuite (non bloquant).
   useEffect(() => {
-    if (!allowed) return;
-    void loadAwaiting();
-  }, [allowed, loadAwaiting]);
+    if (status !== "authenticated" || !allowed) return;
+    let cancelled = false;
+    (async () => {
+      const initialTab =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("tab")
+          : null;
+      if (initialTab === "attente") {
+        await Promise.all([load(), loadAwaiting()]);
+      } else {
+        await load();
+        if (!cancelled) void loadAwaiting();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [status, allowed, load, loadAwaiting]);
+
+  // CASTING_MANAGER n'a pas les onglets Agences / Fashion Week.
+  useEffect(() => {
+    if (!isAdmin && (tab === "agences" || tab === "fw")) setTab("marques");
+  }, [isAdmin, tab]);
 
   useEffect(() => {
-    if (!allowed) return;
-    if (tab === "attente") void loadAwaiting();
-  }, [allowed, tab, loadAwaiting]);
+    if (typeof window === "undefined") return;
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "attente" || t === "marques" || t === "agences" || t === "fw") {
+      if ((t === "agences" || t === "fw") && !isAdmin) return;
+      setTab(t);
+    }
+  }, [isAdmin]);
 
   const resolveAwaiting = async (item: AwaitingMarqueItem) => {
     if (resolvingMissionId) return;

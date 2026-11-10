@@ -354,6 +354,15 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ target }, { status: 201 });
   } catch (error) {
+    if ((error as { code?: string })?.code === "P2002") {
+      return NextResponse.json(
+        {
+          error:
+            "Ce contact est déjà suivi dans le cycle Outreach (email déjà enrôlé).",
+        },
+        { status: 409 }
+      );
+    }
     console.error("POST /api/outreach/targets:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Erreur serveur" },

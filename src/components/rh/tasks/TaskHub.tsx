@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   Clock3,
   FileSpreadsheet,
@@ -13,10 +14,12 @@ import {
   Paperclip,
   Plus,
   Search,
+  Sparkles,
   Users,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { normalizeEmail } from "@/lib/account-access-lock";
 import {
   RhAvatar,
   RhBadge,
@@ -100,9 +103,14 @@ export function TaskHub({
   initialTaskId,
 }: Props) {
   const router = useRouter();
+  const { data: session } = useSession();
+  const canUseBriefAi =
+    session?.user?.role === "ADMIN" &&
+    normalizeEmail(session?.user?.email || "") === "s.zeddam@glowupagence.fr";
   const [tasks, setTasks] = useState<RhTaskDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [generatingBrief, setGeneratingBrief] = useState(false);
   const [view, setView] = useState<ViewMode>(mode === "manage" ? "board" : "list");
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("open");
@@ -171,10 +179,18 @@ export function TaskHub({
         tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" ||
         (e.target as HTMLElement)?.isContentEditable;
       if (e.key === "Escape") {
-        if (creating) setCreating(false);
-        else if (selectedId) setSelectedId(null);
+        if (creating) {
+          setCreating(false);
+          setPendingFiles([]);
+          setAssigneeQuery("");
+          setTalentQuery("");
+        } else if (selectedId) {
+          setSelectedId(null);
+        }
         return;
       }
+      // Modal ouvert : ne pas déclencher les raccourcis (sinon focus bouton = reset / jump)
+      if (creating) return;
       if (typing) return;
       if (e.key === "n" || e.key === "N") {
         e.preventDefault();
@@ -542,6 +558,43 @@ export function TaskHub({
     () => employees.filter((e) => form.assigneeIds.includes(e.id)),
     [employees, form.assigneeIds]
   );
+
+  async function generateBrief() {
+    if (!canUseBriefAi) return;
+    if (!form.title.trim()) {
+      toast.error("Indique un titre avant de rédiger le brief");
+      return;
+    }
+    setGeneratingBrief(true);
+    try {
+      const res = await fetch("/api/rh/tasks/generate-brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: form.title,
+          notes: form.description || null,
+          assigneeNames: selectedAssignees.map((a) => a.name),
+          priority: form.priority,
+          dueAt: form.dueAt || null,
+          talentName: form.talent?.name || null,
+          tags: form.tags
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Génération impossible");
+      const description = String(data.description || "").trim();
+      if (!description) throw new Error("Brief vide");
+      setForm((f) => ({ ...f, description }));
+      toast.success("Brief rédigé");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur IA");
+    } finally {
+      setGeneratingBrief(false);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-[1280px] px-4 sm:px-5 py-5 flex flex-col gap-4">
@@ -1120,10 +1173,14 @@ export function TaskHub({
         <div
           className="fixed inset-0 z-50 grid place-items-center px-3 py-4 sm:px-4"
           style={{ background: "rgba(0,0,0,.72)" }}
-          onClick={() => {
+          // mousedown (pas click) : un click après layout shift (sélection assigné)
+          // peut atterrir sur le backdrop et fermer le modal par erreur
+          onMouseDown={(e) => {
+            if (e.target !== e.currentTarget) return;
             setCreating(false);
             setPendingFiles([]);
             setAssigneeQuery("");
+            setTalentQuery("");
           }}
         >
           <div
@@ -1131,8 +1188,9 @@ export function TaskHub({
             style={{
               background: "var(--rh-bg-panel)",
               borderColor: "var(--rh-border)",
+              overflowAnchor: "none",
             }}
-            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
           >
             <div
               className="sticky top-0 z-10 flex items-start justify-between gap-3 px-5 py-4 border-b"
@@ -1186,7 +1244,29 @@ export function TaskHub({
                     }
                   }}
                 />
-                <label className="rh-micro mt-1">Brief / contexte</label>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <label className="rh-micro">Brief / contexte</label>
+                  {canUseBriefAi ? (
+                    <button
+                      type="button"
+                      disabled={generatingBrief || busy}
+                      onClick={() => void generateBrief()}
+                      className="inline-flex items-center gap-1.5 rounded-md border-0 px-2 py-1 text-[11px] font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{
+                        background: "var(--rh-chip)",
+                        color: "var(--rh-accent)",
+                      }}
+                      title="Rédaction auto du brief"
+                    >
+                      {generatingBrief ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Sparkles size={12} />
+                      )}
+                      {generatingBrief ? "Rédaction…" : "Rédaction auto"}
+                    </button>
+                  ) : null}
+                </div>
                 <textarea
                   className="rh-input min-h-[100px]"
                   placeholder={`Contexte, livrable attendu, liens utiles…\n\nEx.\n• Objectif\n• Deadline métier\n• Fichiers de référence`}
@@ -1194,6 +1274,7 @@ export function TaskHub({
                   onChange={(e) =>
                     setForm((f) => ({ ...f, description: e.target.value }))
                   }
+                  disabled={generatingBrief}
                 />
               </section>
 
@@ -1224,6 +1305,7 @@ export function TaskHub({
                         <button
                           key={e.id}
                           type="button"
+                          onMouseDown={(ev) => ev.preventDefault()}
                           onClick={() => toggleAssignee(e.id)}
                           className="inline-flex items-center gap-1.5 rounded-full pl-1 pr-2.5 py-1 border-0 cursor-pointer"
                           style={{
@@ -1282,6 +1364,7 @@ export function TaskHub({
                           <button
                             key={e.id}
                             type="button"
+                            onMouseDown={(ev) => ev.preventDefault()}
                             onClick={() => toggleAssignee(e.id)}
                             className="flex items-center gap-2 text-left rounded-lg px-2 py-2 border cursor-pointer transition-colors"
                             style={{

@@ -132,18 +132,23 @@ export async function enrollInfluenceContacts(opts: {
     });
     if (existing) continue;
 
-    await prisma.outreachTarget.create({
-      data: {
-        marqueId: opts.marqueId,
-        marqueContactId: c.id,
-        firstname: c.prenom || c.nom,
-        lastname: c.prenom ? c.nom : null,
-        email,
-        company: opts.company,
-        language: c.language === "en" ? "en" : "fr",
-        createdById: opts.createdById,
-      },
-    });
+    try {
+      await prisma.outreachTarget.create({
+        data: {
+          marqueId: opts.marqueId,
+          marqueContactId: c.id,
+          firstname: c.prenom || c.nom,
+          lastname: c.prenom ? c.nom : null,
+          email,
+          company: opts.company,
+          language: c.language === "en" ? "en" : "fr",
+          createdById: opts.createdById,
+        },
+      });
+    } catch (err) {
+      if ((err as { code?: string })?.code === "P2002") continue;
+      throw err;
+    }
     await prisma.marqueContact.update({
       where: { id: c.id },
       data: {
@@ -544,6 +549,14 @@ export async function enrollOneFrContactNow(opts: {
   const email = (contact.email || "").trim().toLowerCase();
   if (!isValidEmail(email)) return false;
 
+  // L'unicité est sur email (pas sur marqueContactId) : un target déjà créé
+  // pour cet email (autre fiche / orphelin) ne doit pas retenter un create.
+  const existingByEmail = await prisma.outreachTarget.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+  if (existingByEmail) return false;
+
   const { isForbiddenCastingRecipient, loadCastingRecipientBlocklist } =
     await import("@/lib/casting-recipient-guard");
   const blocklist = await loadCastingRecipientBlocklist();
@@ -566,18 +579,24 @@ export async function enrollOneFrContactNow(opts: {
   });
   if (conflict) return false;
 
-  await prisma.outreachTarget.create({
-    data: {
-      marqueId: contact.marqueId,
-      marqueContactId: contact.id,
-      firstname: contact.prenom || contact.nom,
-      lastname: contact.prenom ? contact.nom : null,
-      email,
-      company: contact.marque.nom,
-      language: contact.language === "en" ? "en" : "fr",
-      createdById: opts.userId,
-    },
-  });
+  try {
+    await prisma.outreachTarget.create({
+      data: {
+        marqueId: contact.marqueId,
+        marqueContactId: contact.id,
+        firstname: contact.prenom || contact.nom,
+        lastname: contact.prenom ? contact.nom : null,
+        email,
+        company: contact.marque.nom,
+        language: contact.language === "en" ? "en" : "fr",
+        createdById: opts.userId,
+      },
+    });
+  } catch (err) {
+    // Course entre deux enrôlements parallèles (double-clic / set-markets).
+    if ((err as { code?: string })?.code === "P2002") return false;
+    throw err;
+  }
   await prisma.marqueContact.update({
     where: { id: contact.id },
     data: { emailLookupStatus: "FOUND", emailSuggested: null },
@@ -614,24 +633,36 @@ export async function enrollOneBeContactNow(opts: {
   const email = (contact.email || "").trim().toLowerCase();
   if (!isValidEmail(email)) return false;
 
+  // Unicité globale sur email (comme OutreachTarget FR).
+  const existingByEmail = await prisma.beneluxOutreachTarget.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+  if (existingByEmail) return false;
+
   // FR ↔ BE autorisé (talents différents), même en Unique BE.
   const conflict = await findCrossPipelineConflict(email, "benelux", {
     allowClientBeneluxSibling: true,
   });
   if (conflict) return false;
 
-  await prisma.beneluxOutreachTarget.create({
-    data: {
-      companyId: contact.companyId,
-      beneluxContactId: contact.id,
-      firstname: contact.prenom || contact.nom || "Contact",
-      lastname: contact.nom || null,
-      email,
-      companyName: contact.company.nom,
-      language: contact.language === "en" ? "en" : "fr",
-      createdById: opts.userId,
-    },
-  });
+  try {
+    await prisma.beneluxOutreachTarget.create({
+      data: {
+        companyId: contact.companyId,
+        beneluxContactId: contact.id,
+        firstname: contact.prenom || contact.nom || "Contact",
+        lastname: contact.nom || null,
+        email,
+        companyName: contact.company.nom,
+        language: contact.language === "en" ? "en" : "fr",
+        createdById: opts.userId,
+      },
+    });
+  } catch (err) {
+    if ((err as { code?: string })?.code === "P2002") return false;
+    throw err;
+  }
   await prisma.beneluxContact.update({
     where: { id: contact.id },
     data: { emailLookupStatus: "FOUND", emailSuggested: null },
@@ -695,18 +726,23 @@ export async function tryEnrollBeneluxAfterEmailComplete(opts: {
     });
     if (existing) continue;
 
-    await prisma.beneluxOutreachTarget.create({
-      data: {
-        companyId: company.id,
-        beneluxContactId: c.id,
-        firstname: c.prenom || c.nom || "Contact",
-        lastname: c.nom || null,
-        email,
-        companyName: company.nom,
-        language: c.language === "en" ? "en" : "fr",
-        createdById: opts.userId,
-      },
-    });
+    try {
+      await prisma.beneluxOutreachTarget.create({
+        data: {
+          companyId: company.id,
+          beneluxContactId: c.id,
+          firstname: c.prenom || c.nom || "Contact",
+          lastname: c.nom || null,
+          email,
+          companyName: company.nom,
+          language: c.language === "en" ? "en" : "fr",
+          createdById: opts.userId,
+        },
+      });
+    } catch (err) {
+      if ((err as { code?: string })?.code === "P2002") continue;
+      throw err;
+    }
     await prisma.beneluxContact.update({
       where: { id: c.id },
       data: { emailLookupStatus: "FOUND", emailSuggested: null },

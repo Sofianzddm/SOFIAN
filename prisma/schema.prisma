@@ -1054,6 +1054,8 @@ model MarqueContact {
   // plusieurs sous-marques (ex. Home Care ET Personal Care chez Unilever).
   sousMarques MarqueContactSousMarque[]
 
+  @@index([emailLookupStatus])
+  @@index([marqueId, emailLookupStatus])
   @@map("marque_contacts")
 }
 
