@@ -95,6 +95,26 @@ function isAoContact(c: Contact) {
   return (c.source || "").toUpperCase() === "AO";
 }
 
+/** Déjà contactée / traitée pour CE gift → hors sélection du wizard. */
+function isMarqueAlreadyContactedForGift(m: MarqueRow) {
+  if (m.contactedAt) return true;
+  const statut = String(m.statutContact || "")
+    .trim()
+    .toUpperCase();
+  if (!statut || statut === "A_CONTACTER") return false;
+  return (
+    statut === "CONTACTEE" ||
+    statut === "RELANCEE" ||
+    statut === "ACCEPTEE" ||
+    statut === "REFUSEE" ||
+    statut === "SANS_REPONSE"
+  );
+}
+
+function selectableGiftMarques(marques: MarqueRow[]) {
+  return marques.filter((m) => !isMarqueAlreadyContactedForGift(m));
+}
+
 function contactLang(c: Contact): "fr" | "en" {
   const v = String(c.language || "")
     .trim()
@@ -147,7 +167,7 @@ export function GiftContactWizard({
 }) {
   const [step, setStep] = useState<StepKey>("marques");
   const [selectedMarqueIds, setSelectedMarqueIds] = useState<Set<string>>(
-    () => new Set(marques.map((m) => m.id))
+    () => new Set(selectableGiftMarques(marques).map((m) => m.id))
   );
   const [selectedRecipients, setSelectedRecipients] = useState<
     Set<RecipientKey>
@@ -262,7 +282,9 @@ export function GiftContactWizard({
   useEffect(() => {
     if (!open) return;
     setStep("marques");
-    setSelectedMarqueIds(new Set(marques.map((m) => m.id)));
+    setSelectedMarqueIds(
+      new Set(selectableGiftMarques(marques).map((m) => m.id))
+    );
     setSelectedRecipients(new Set());
     setDraftsByMarque({});
     setActiveDraftMarqueId(null);
@@ -416,9 +438,15 @@ export function GiftContactWizard({
     };
   }, [open, canPickMailbox]);
 
+  const contactableMarques = useMemo(
+    () => selectableGiftMarques(marques),
+    [marques]
+  );
+  const alreadyContactedCount = marques.length - contactableMarques.length;
+
   const selectedMarques = useMemo(
-    () => marques.filter((m) => selectedMarqueIds.has(m.id)),
-    [marques, selectedMarqueIds]
+    () => contactableMarques.filter((m) => selectedMarqueIds.has(m.id)),
+    [contactableMarques, selectedMarqueIds]
   );
 
   const recipientCount = selectedRecipients.size;
@@ -1116,12 +1144,26 @@ export function GiftContactWizard({
                   <p className="mb-3 text-sm text-zinc-600">
                     Sélectionnez les marques à contacter pour cette demande.
                   </p>
+                  {alreadyContactedCount > 0 && (
+                    <p className="mb-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                      {alreadyContactedCount} marque
+                      {alreadyContactedCount > 1 ? "s" : ""} déjà contactée
+                      {alreadyContactedCount > 1 ? "s" : ""} pour ce gift — exclue
+                      {alreadyContactedCount > 1 ? "s" : ""} (relance depuis la
+                      fiche).
+                    </p>
+                  )}
                   {marques.length === 0 ? (
                     <p className="py-8 text-center text-sm text-zinc-500">
                       Aucune marque liée. Ajoutez-en depuis la fiche gift.
                     </p>
+                  ) : contactableMarques.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-zinc-500">
+                      Toutes les marques liées ont déjà été contactées pour ce
+                      gift.
+                    </p>
                   ) : (
-                    marques.map((m) => {
+                    contactableMarques.map((m) => {
                       const checked = selectedMarqueIds.has(m.id);
                       const emailable = giftVisibleContacts(m.contacts).filter(
                         isEmailable
