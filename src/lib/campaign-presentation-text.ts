@@ -53,9 +53,15 @@ export function sanitizePresentationExcerpt(raw: string): string {
 async function extractPresentationPdfText(buffer: Buffer): Promise<string> {
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    // Next/Turbopack ne résout pas pdf.worker.mjs → mode sans worker.
+    if (typeof pdfjs.GlobalWorkerOptions !== "undefined") {
+      pdfjs.GlobalWorkerOptions.workerSrc = "";
+    }
     const doc = await pdfjs.getDocument({
       data: new Uint8Array(buffer),
       useSystemFonts: true,
+      disableWorker: true,
+      isEvalSupported: false,
     }).promise;
     const pageCount = Math.min(doc.numPages, MAX_PAGES);
     const pages: string[] = [];
