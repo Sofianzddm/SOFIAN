@@ -872,6 +872,26 @@ async function processOneProjectItem(itemId: string): Promise<{
   return { ok: true, brandName };
 }
 
+const STUCK_PROJECT_ITEM_MS = 8 * 60 * 1000;
+
+/** Remet en pending les items coincés en `running` (serveur tué mid-tick). */
+async function recoverStuckProjectItems(jobId: string): Promise<number> {
+  const cutoff = new Date(Date.now() - STUCK_PROJECT_ITEM_MS);
+  const res = await prisma.castingProjectDraftItem.updateMany({
+    where: {
+      jobId,
+      status: "running",
+      OR: [{ startedAt: { lt: cutoff } }, { startedAt: null }],
+    },
+    data: {
+      status: "pending",
+      error: null,
+      startedAt: null,
+    },
+  });
+  return res.count;
+}
+
 /** Traite jusqu’à `limit` missions pending d’un job projet. */
 export async function processProjectDraftJobTick(
   jobId: string,
@@ -915,10 +935,22 @@ export async function processProjectDraftJobTick(
     };
   }
 
-  if (job.status === "pending") {
+  const recovered = await recoverStuckProjectItems(jobId);
+  if (recovered > 0) {
+    console.warn(
+      `[project-draft-job] recovered ${recovered} stuck running item(s) on ${jobId}`
+    );
+  }
+
+  if (job.status === "pending" || recovered > 0) {
     await prisma.castingProjectDraftJob.update({
       where: { id: jobId },
-      data: { status: "running", startedAt: job.startedAt || new Date() },
+      data: {
+        status: "running",
+        startedAt: job.startedAt || new Date(),
+        finishedAt: null,
+        currentBrandName: null,
+      },
     });
   }
 
