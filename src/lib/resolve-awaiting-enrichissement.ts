@@ -49,16 +49,16 @@ export function formatAwaitingSourcesLabel(
   const hasProjet = sources.includes("projet");
   const hasGift = sources.includes("gift");
   const parts: string[] = [];
-  if (hasPipeline) parts.push("Pipeline Casting");
+  if (hasPipeline) parts.push("Pipeline indiv");
   if (hasProjet) {
     const titles = projetTitles.filter(Boolean);
     parts.push(
       titles.length
-        ? `projet${titles.length > 1 ? "s" : ""} (${titles.join(", ")})`
+        ? `Projet outreach (${titles.join(", ")})`
         : "Projet outreach"
     );
   }
-  if (hasGift) parts.push("Demande Gift");
+  if (hasGift) parts.push("Gifting");
   if (parts.length === 0) return "";
   if (parts.length === 1) return parts[0];
   return parts.join(" + ");
@@ -90,13 +90,13 @@ export function contextsFromResolvedMissions(
     } else if (m.source === "gift") {
       contexts.push({
         kind: "gift",
-        label: m.giftReference ? `Gift ${m.giftReference}` : "Demande Gift",
+        label: m.giftReference ? `Gifting ${m.giftReference}` : "Gifting",
         path: m.giftId ? `/gifts/${m.giftId}` : "/gifts",
       });
     } else if (m.source === "pipeline") {
       contexts.push({
         kind: "pipeline",
-        label: "Pipeline Casting",
+        label: "Pipeline indiv",
         path: "/strategy/projet-individuel-talent/pipeline",
       });
     }

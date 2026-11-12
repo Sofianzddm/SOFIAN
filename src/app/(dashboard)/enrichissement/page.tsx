@@ -78,6 +78,9 @@ const brandMarketBucket = (markets: Market[]): MarqueMarketTab => {
   return "FR";
 };
 
+type AwaitingSourceKind = "pipeline" | "projet" | "gift";
+type AwaitingSourceFilter = "all" | AwaitingSourceKind;
+
 type AwaitingMarqueItem = {
   key: string;
   brandName: string;
@@ -85,13 +88,13 @@ type AwaitingMarqueItem = {
   emailableCount: number;
   contactCount: number;
   requestedAt: string | null;
-  sources: Array<"projet" | "pipeline" | "gift">;
+  sources: AwaitingSourceKind[];
   sourceLabel: string;
   both: boolean;
   fichePath: string | null;
   contexts: Array<{
     missionId: string;
-    kind: "projet" | "pipeline" | "gift";
+    kind: AwaitingSourceKind;
     label: string;
     path: string;
     talentName: string;
@@ -100,6 +103,30 @@ type AwaitingMarqueItem = {
     requestedAt: string | null;
   }>;
 };
+
+const AWAITING_SOURCE_FILTERS: Array<{
+  id: AwaitingSourceFilter;
+  label: string;
+  hint: string;
+}> = [
+  { id: "all", label: "Tous", hint: "Toutes les sources" },
+  { id: "pipeline", label: "Pipeline indiv", hint: "Casting solo" },
+  { id: "projet", label: "Projet outreach", hint: "Campagnes" },
+  { id: "gift", label: "Gifting", hint: "Demandes gift" },
+];
+
+function awaitingSourceBadgeLabel(item: AwaitingMarqueItem): string {
+  const sources = Array.isArray(item.sources) ? item.sources : [];
+  const hasPipeline = sources.includes("pipeline");
+  const hasProjet = sources.includes("projet");
+  const hasGift = sources.includes("gift");
+  const parts: string[] = [];
+  if (hasPipeline) parts.push("Pipeline indiv");
+  if (hasProjet) parts.push("Projet outreach");
+  if (hasGift) parts.push("Gifting");
+  if (parts.length === 0) return item.sourceLabel || "Enrichissement";
+  return parts.join(" + ");
+}
 
 type ContactLang = "fr" | "en";
 
@@ -310,6 +337,8 @@ export default function EnrichissementPage() {
   const [marqueMarketTab, setMarqueMarketTab] = useState<MarqueMarketTab>("FR");
   const [awaitingItems, setAwaitingItems] = useState<AwaitingMarqueItem[]>([]);
   const [awaitingLoading, setAwaitingLoading] = useState(false);
+  const [awaitingSourceFilter, setAwaitingSourceFilter] =
+    useState<AwaitingSourceFilter>("all");
   const [resolvingMissionId, setResolvingMissionId] = useState<string | null>(null);
   const [contacts, setContacts] = useState<LookupContact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -383,7 +412,15 @@ export default function EnrichissementPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Impossible de charger la file.");
-      setAwaitingItems(Array.isArray(data.items) ? data.items : []);
+      setAwaitingItems(
+        Array.isArray(data.items)
+          ? data.items.map((raw: AwaitingMarqueItem) => ({
+              ...raw,
+              sources: Array.isArray(raw?.sources) ? raw.sources : [],
+              contexts: Array.isArray(raw?.contexts) ? raw.contexts : [],
+            }))
+          : []
+      );
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Erreur de chargement");
       setAwaitingItems([]);
@@ -614,6 +651,30 @@ export default function EnrichissementPage() {
     if (tab !== "marques") return brands;
     return brands.filter((b) => brandMarketBucket(b.markets) === marqueMarketTab);
   }, [brands, tab, marqueMarketTab]);
+
+  const awaitingSourceCounts = useMemo(() => {
+    const counts: Record<AwaitingSourceKind, number> = {
+      pipeline: 0,
+      projet: 0,
+      gift: 0,
+    };
+    for (const item of awaitingItems) {
+      const sources = Array.isArray(item.sources) ? item.sources : [];
+      if (sources.includes("pipeline")) counts.pipeline += 1;
+      if (sources.includes("projet")) counts.projet += 1;
+      if (sources.includes("gift")) counts.gift += 1;
+    }
+    return counts;
+  }, [awaitingItems]);
+
+  const filteredAwaitingItems = useMemo(() => {
+    if (awaitingSourceFilter === "all") return awaitingItems;
+    return awaitingItems.filter((item) =>
+      (Array.isArray(item.sources) ? item.sources : []).includes(
+        awaitingSourceFilter
+      )
+    );
+  }, [awaitingItems, awaitingSourceFilter]);
 
   const active = brands.find((b) => b.key === activeKey) || null;
   const isAgencyTab = tab === "agences";
@@ -1531,7 +1592,7 @@ export default function EnrichissementPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1 mb-4">
             {isAttenteTab
-              ? "File terrain : marques signalées depuis le Pipeline Casting ou un projet — complète la fiche CRM, puis valide « Contacts prêts »."
+              ? "File terrain : marques signalées depuis le Pipeline indiv, un Projet outreach ou le Gifting — complète la fiche CRM, puis valide « Contacts prêts »."
               : isAgencyTab
                 ? "Ouvre une agence · note les mails (ou « pas d'email ») · Prêt → Prospection Agences"
                 : isFwTab
@@ -1636,8 +1697,8 @@ export default function EnrichissementPage() {
                     Marques en attente d&apos;enrichissement
                   </h2>
                   <p className="text-sm text-gray-500 mt-0.5">
-                    Pipeline Casting &amp; projets — hors parcours tant que les
-                    contacts CRM ne sont pas prêts
+                    Pipeline indiv, projets outreach &amp; gifting — hors parcours
+                    tant que les contacts CRM ne sont pas prêts
                   </p>
                 </div>
                 <button
@@ -1652,6 +1713,47 @@ export default function EnrichissementPage() {
                   Rafraîchir
                 </button>
               </div>
+
+              <div className="flex flex-wrap gap-1.5 p-1 rounded-xl bg-white ring-1 ring-black/[0.06]">
+                {AWAITING_SOURCE_FILTERS.map((f) => {
+                  const activeFilter = awaitingSourceFilter === f.id;
+                  const count =
+                    f.id === "all"
+                      ? awaitingItems.length
+                      : awaitingSourceCounts[f.id];
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setAwaitingSourceFilter(f.id)}
+                      className="flex-1 min-w-[7.5rem] px-3 py-2 rounded-lg text-left transition"
+                      style={
+                        activeFilter
+                          ? {
+                              backgroundColor: "#1e3a5f",
+                              color: "#fff",
+                              boxShadow: "0 6px 14px rgba(30,58,95,0.18)",
+                            }
+                          : { color: "#6B7280" }
+                      }
+                    >
+                      <span className="block text-sm font-semibold leading-tight">
+                        {f.label}
+                        <span className="ml-1.5 text-xs opacity-70 tabular-nums">
+                          {count}
+                        </span>
+                      </span>
+                      <span
+                        className="block text-[10px] font-medium leading-tight mt-0.5"
+                        style={{ opacity: activeFilter ? 0.75 : 0.85 }}
+                      >
+                        {f.hint}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
               {awaitingLoading && awaitingItems.length === 0 ? (
                 <div className="flex items-center gap-2 py-14 text-sm text-gray-500 justify-center">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -1664,14 +1766,37 @@ export default function EnrichissementPage() {
                     File vide pour le moment
                   </p>
                   <p className="mt-1 text-xs text-sky-900/60 max-w-sm mx-auto">
-                    Les marques arrivent ici via « Enrichir » (pipeline) ou
-                    « À compléter » (projet). Dès qu&apos;un email est ajouté sur
-                    la fiche, pipeline et/ou projet se débloquent automatiquement.
+                    Les marques arrivent ici via « Enrichir » (pipeline indiv),
+                    « À compléter » (projet outreach) ou une demande gifting.
+                    Dès qu&apos;un email est ajouté sur la fiche, la source se
+                    débloque automatiquement.
                   </p>
+                </div>
+              ) : filteredAwaitingItems.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-5 py-10 text-center">
+                  <p className="text-sm font-medium text-slate-800">
+                    Aucune marque pour «{" "}
+                    {
+                      AWAITING_SOURCE_FILTERS.find(
+                        (f) => f.id === awaitingSourceFilter
+                      )?.label
+                    }{" "}
+                    »
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setAwaitingSourceFilter("all")}
+                    className="mt-3 text-xs font-semibold text-slate-600 underline underline-offset-2"
+                  >
+                    Voir toutes les sources
+                  </button>
                 </div>
               ) : (
                 <ul className="space-y-2.5">
-                  {awaitingItems.map((item) => (
+                  {filteredAwaitingItems.map((item) => {
+                    const badge = awaitingSourceBadgeLabel(item);
+                    const multiSource = item.sources.length > 1;
+                    return (
                     <li
                       key={item.key}
                       className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
@@ -1686,24 +1811,20 @@ export default function EnrichissementPage() {
                             <span
                               className="rounded-md px-2 py-0.5 text-[11px] font-semibold"
                               style={
-                                item.both
+                                multiSource
                                   ? { background: "#0f172a", color: "#fff" }
                                   : item.sources.includes("pipeline")
                                     ? { background: "#f1f5f9", color: "#334155" }
-                                    : { background: "#f8fafc", color: "#475569", border: "1px solid #e2e8f0" }
+                                    : item.sources.includes("gift")
+                                      ? { background: "#fdf4f4", color: "#9a5b5b", border: "1px solid #f0d9d9" }
+                                      : { background: "#f8fafc", color: "#475569", border: "1px solid #e2e8f0" }
                               }
                             >
-                              {item.both
-                                ? "Pipeline + Projet"
-                                : item.sources.includes("gift") &&
-                                    !item.sources.includes("pipeline") &&
-                                    !item.sources.includes("projet")
-                                  ? "Demande Gift"
-                                  : item.sourceLabel || "Demande enrichissement"}
+                              {badge}
                             </span>
                           </div>
                           <p className="text-xs text-gray-500">
-                            Demandé depuis : {item.sourceLabel}
+                            Demandé depuis : {item.sourceLabel || badge}
                             {item.emailableCount >= 2
                               ? ` · ${item.emailableCount} email(s) déjà en fiche (déblocage auto possible)`
                               : item.emailableCount === 1
@@ -1751,10 +1872,11 @@ export default function EnrichissementPage() {
                       </div>
                       <p className="mt-2 text-[11px] text-gray-400">
                         Dès qu&apos;un email est ajouté sur la fiche, la demande se débloque
-                        toute seule (pipeline et/ou projet).
+                        toute seule (pipeline indiv, projet outreach et/ou gifting).
                       </p>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
             </div>

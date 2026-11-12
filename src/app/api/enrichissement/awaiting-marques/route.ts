@@ -163,11 +163,11 @@ export async function GET(request: NextRequest) {
       const requestedAt = m.contactsCompletionRequestedAt?.toISOString() ?? null;
       const contextLabel =
         kind === "gift"
-          ? reason.split("—")[0]?.trim() || "Demande Gift"
+          ? reason.split("—")[0]?.trim() || "Gifting"
           : kind === "pipeline"
-            ? "Pipeline Casting"
+            ? "Pipeline indiv"
             : m.campaign?.title
-              ? `Projet « ${m.campaign.title} »`
+              ? `Projet outreach « ${m.campaign.title} »`
               : "Projet outreach";
       const contextPath =
         kind === "gift"
@@ -224,7 +224,12 @@ export async function GET(request: NextRequest) {
     const items = Array.from(groups.values()).map((g) => {
       const projetTitles = g.contexts
         .filter((c) => c.kind === "projet")
-        .map((c) => c.label.replace(/^Projet « | »$/g, ""));
+        .map((c) =>
+          c.label
+            .replace(/^Projet outreach « | »$/g, "")
+            .replace(/^Projet « | »$/g, "")
+        )
+        .filter((t) => t && t !== "Projet outreach");
       return {
         ...g,
         sourceLabel: formatAwaitingSourcesLabel(g.sources, projetTitles),
