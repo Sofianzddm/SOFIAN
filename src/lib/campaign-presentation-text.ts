@@ -63,7 +63,7 @@ async function extractPresentationPdfText(buffer: Buffer): Promise<string> {
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
       const line = (content.items || [])
-        .map((it: { str?: string }) => String(it?.str || ""))
+        .map((it) => ("str" in it && typeof it.str === "string" ? it.str : ""))
         .join(" ")
         .replace(/\s+/g, " ")
         .trim();
