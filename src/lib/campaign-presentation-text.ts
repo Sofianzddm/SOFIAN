@@ -1,3 +1,6 @@
+import path from "path";
+import { createRequire } from "module";
+import { pathToFileURL } from "url";
 import prisma from "@/lib/prisma";
 
 /** Assez pour un pitch, sans gonfler le body JSON xAI (~37k = zone d’échec observée). */
@@ -5,6 +8,8 @@ const MAX_EXCERPT_CHARS = 4_000;
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 /** Cap pages : un deck long n’a pas besoin de tout le texte. */
 const MAX_PAGES = 12;
+
+const requireFromRoot = createRequire(path.join(process.cwd(), "package.json"));
 
 const excerptCache = new Map<string, { text: string; at: number }>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
@@ -53,15 +58,20 @@ export function sanitizePresentationExcerpt(raw: string): string {
 async function extractPresentationPdfText(buffer: Buffer): Promise<string> {
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    // Next/Turbopack ne résout pas pdf.worker.mjs → mode sans worker.
-    if (typeof pdfjs.GlobalWorkerOptions !== "undefined") {
-      pdfjs.GlobalWorkerOptions.workerSrc = "";
+    // Pointe le worker vers node_modules (Turbopack ne le bundle pas).
+    try {
+      const workerPath = requireFromRoot.resolve(
+        "pdfjs-dist/legacy/build/pdf.worker.mjs"
+      );
+      pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+    } catch {
+      pdfjs.GlobalWorkerOptions.workerSrc = "data:text/javascript,";
     }
     const doc = await pdfjs.getDocument({
       data: new Uint8Array(buffer),
       useSystemFonts: true,
-      disableWorker: true,
       isEvalSupported: false,
+      verbosity: 0,
     }).promise;
     const pageCount = Math.min(doc.numPages, MAX_PAGES);
     const pages: string[] = [];
