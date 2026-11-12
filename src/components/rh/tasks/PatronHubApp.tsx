@@ -2,24 +2,11 @@
 
 import { useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import { RhDataProvider, useRhData } from "@/components/rh/RhDataContext";
 import { TaskHub } from "@/components/rh/tasks/TaskHub";
 import { LIME } from "@/components/rh/mock/shared";
+import "@/styles/ui-fonts.css";
 import "@/components/rh/tokens.css";
-
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-rh-sans",
-  display: "swap",
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
-  variable: "--font-rh-mono",
-  display: "swap",
-});
 
 function PatronHubInner({ variant }: { variant: "embedded" | "standalone" }) {
   const router = useRouter();
@@ -69,7 +56,7 @@ function PatronHubInner({ variant }: { variant: "embedded" | "standalone" }) {
 
   return (
     <div
-      className={`rh-root ${light ? "rh-hub-light" : ""} ${spaceGrotesk.variable} ${jetbrainsMono.variable}`}
+      className={`rh-root ${light ? "rh-hub-light" : ""}`}
       style={
         {
           "--rh-font":

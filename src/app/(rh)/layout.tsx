@@ -1,21 +1,7 @@
 import type { Metadata } from "next";
-import { Space_Grotesk } from "next/font/google";
-import { JetBrains_Mono } from "next/font/google";
 import { Toaster } from "sonner";
+import "@/styles/ui-fonts.css";
 import "@/components/rh/tokens.css";
-
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
-  variable: "--font-rh-sans",
-  display: "swap",
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
-  variable: "--font-rh-mono",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "Glow Up · Plateforme RH",
@@ -25,11 +11,13 @@ export const metadata: Metadata = {
 export default function RhLayout({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className={`rh-root ${spaceGrotesk.variable} ${jetbrainsMono.variable}`}
+      className="rh-root"
       style={
         {
-          "--rh-font": "var(--font-rh-sans), 'Space Grotesk', system-ui, sans-serif",
-          "--rh-mono": "var(--font-rh-mono), 'JetBrains Mono', ui-monospace, monospace",
+          "--rh-font":
+            "var(--font-rh-sans), 'Space Grotesk', system-ui, sans-serif",
+          "--rh-mono":
+            "var(--font-rh-mono), 'JetBrains Mono', ui-monospace, monospace",
           fontFamily: "var(--rh-font)",
         } as React.CSSProperties
       }
