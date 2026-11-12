@@ -128,6 +128,22 @@ function awaitingSourceBadgeLabel(item: AwaitingMarqueItem): string {
   return parts.join(" + ");
 }
 
+function awaitingContextTalentName(ctx: {
+  talentName: string;
+  creatorName: string;
+}): string {
+  return (ctx.talentName || ctx.creatorName || "").trim();
+}
+
+function awaitingItemTalentNames(item: AwaitingMarqueItem): string[] {
+  const names = new Set<string>();
+  for (const ctx of Array.isArray(item.contexts) ? item.contexts : []) {
+    const name = awaitingContextTalentName(ctx);
+    if (name) names.add(name);
+  }
+  return Array.from(names);
+}
+
 type ContactLang = "fr" | "en";
 
 type LookupContact = {
@@ -339,6 +355,8 @@ export default function EnrichissementPage() {
   const [awaitingLoading, setAwaitingLoading] = useState(false);
   const [awaitingSourceFilter, setAwaitingSourceFilter] =
     useState<AwaitingSourceFilter>("all");
+  /** Noms de talents sélectionnés ; vide = tous. */
+  const [awaitingTalentFilter, setAwaitingTalentFilter] = useState<string[]>([]);
   const [resolvingMissionId, setResolvingMissionId] = useState<string | null>(null);
   const [contacts, setContacts] = useState<LookupContact[]>([]);
   const [loading, setLoading] = useState(true);
@@ -652,22 +670,30 @@ export default function EnrichissementPage() {
     return brands.filter((b) => brandMarketBucket(b.markets) === marqueMarketTab);
   }, [brands, tab, marqueMarketTab]);
 
+  const awaitingItemsMatchingTalents = useMemo(() => {
+    if (awaitingTalentFilter.length === 0) return awaitingItems;
+    const selected = new Set(awaitingTalentFilter);
+    return awaitingItems.filter((item) =>
+      awaitingItemTalentNames(item).some((name) => selected.has(name))
+    );
+  }, [awaitingItems, awaitingTalentFilter]);
+
   const awaitingSourceCounts = useMemo(() => {
     const counts: Record<AwaitingSourceKind, number> = {
       pipeline: 0,
       projet: 0,
       gift: 0,
     };
-    for (const item of awaitingItems) {
+    for (const item of awaitingItemsMatchingTalents) {
       const sources = Array.isArray(item.sources) ? item.sources : [];
       if (sources.includes("pipeline")) counts.pipeline += 1;
       if (sources.includes("projet")) counts.projet += 1;
       if (sources.includes("gift")) counts.gift += 1;
     }
     return counts;
-  }, [awaitingItems]);
+  }, [awaitingItemsMatchingTalents]);
 
-  const filteredAwaitingItems = useMemo(() => {
+  const awaitingItemsMatchingSource = useMemo(() => {
     if (awaitingSourceFilter === "all") return awaitingItems;
     return awaitingItems.filter((item) =>
       (Array.isArray(item.sources) ? item.sources : []).includes(
@@ -675,6 +701,48 @@ export default function EnrichissementPage() {
       )
     );
   }, [awaitingItems, awaitingSourceFilter]);
+
+  const awaitingTalentOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of awaitingItemsMatchingSource) {
+      for (const name of awaitingItemTalentNames(item)) {
+        counts.set(name, (counts.get(name) || 0) + 1);
+      }
+    }
+    return Array.from(counts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  }, [awaitingItemsMatchingSource]);
+
+  const filteredAwaitingItems = useMemo(() => {
+    let items = awaitingItemsMatchingSource;
+    if (awaitingTalentFilter.length > 0) {
+      const selected = new Set(awaitingTalentFilter);
+      items = items.filter((item) =>
+        awaitingItemTalentNames(item).some((name) => selected.has(name))
+      );
+    }
+    return items;
+  }, [
+    awaitingItemsMatchingSource,
+    awaitingTalentFilter,
+  ]);
+
+  const toggleAwaitingTalent = (name: string) => {
+    setAwaitingTalentFilter((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+    );
+  };
+
+  // Si la source change, garder seulement les talents encore présents.
+  useEffect(() => {
+    if (awaitingTalentFilter.length === 0) return;
+    const allowedNames = new Set(awaitingTalentOptions.map((t) => t.name));
+    setAwaitingTalentFilter((prev) => {
+      const next = prev.filter((n) => allowedNames.has(n));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [awaitingTalentOptions, awaitingTalentFilter.length]);
 
   const active = brands.find((b) => b.key === activeKey) || null;
   const isAgencyTab = tab === "agences";
@@ -1714,44 +1782,110 @@ export default function EnrichissementPage() {
                 </button>
               </div>
 
-              <div className="flex flex-wrap gap-1.5 p-1 rounded-xl bg-white ring-1 ring-black/[0.06]">
-                {AWAITING_SOURCE_FILTERS.map((f) => {
-                  const activeFilter = awaitingSourceFilter === f.id;
-                  const count =
-                    f.id === "all"
-                      ? awaitingItems.length
-                      : awaitingSourceCounts[f.id];
-                  return (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => setAwaitingSourceFilter(f.id)}
-                      className="flex-1 min-w-[7.5rem] px-3 py-2 rounded-lg text-left transition"
-                      style={
-                        activeFilter
-                          ? {
-                              backgroundColor: "#1e3a5f",
-                              color: "#fff",
-                              boxShadow: "0 6px 14px rgba(30,58,95,0.18)",
-                            }
-                          : { color: "#6B7280" }
-                      }
-                    >
-                      <span className="block text-sm font-semibold leading-tight">
-                        {f.label}
-                        <span className="ml-1.5 text-xs opacity-70 tabular-nums">
-                          {count}
-                        </span>
-                      </span>
-                      <span
-                        className="block text-[10px] font-medium leading-tight mt-0.5"
-                        style={{ opacity: activeFilter ? 0.75 : 0.85 }}
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-1.5 p-1 rounded-xl bg-white ring-1 ring-black/[0.06]">
+                  {AWAITING_SOURCE_FILTERS.map((f) => {
+                    const activeFilter = awaitingSourceFilter === f.id;
+                    const count =
+                      f.id === "all"
+                        ? awaitingItemsMatchingTalents.length
+                        : awaitingSourceCounts[f.id];
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setAwaitingSourceFilter(f.id)}
+                        className="flex-1 min-w-[7.5rem] px-3 py-2 rounded-lg text-left transition"
+                        style={
+                          activeFilter
+                            ? {
+                                backgroundColor: "#1e3a5f",
+                                color: "#fff",
+                                boxShadow: "0 6px 14px rgba(30,58,95,0.18)",
+                              }
+                            : { color: "#6B7280" }
+                        }
                       >
-                        {f.hint}
+                        <span className="block text-sm font-semibold leading-tight">
+                          {f.label}
+                          <span className="ml-1.5 text-xs opacity-70 tabular-nums">
+                            {count}
+                          </span>
+                        </span>
+                        <span
+                          className="block text-[10px] font-medium leading-tight mt-0.5"
+                          style={{ opacity: activeFilter ? 0.75 : 0.85 }}
+                        >
+                          {f.hint}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {awaitingTalentOptions.length > 0 ? (
+                  <div className="rounded-xl bg-white ring-1 ring-black/[0.06] p-2.5 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                        Talent
+                        {awaitingSourceFilter === "projet"
+                          ? " · Projet outreach"
+                          : ""}
                       </span>
-                    </button>
-                  );
-                })}
+                      {awaitingTalentFilter.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setAwaitingTalentFilter([])}
+                          className="text-[11px] font-semibold text-slate-600 underline underline-offset-2"
+                        >
+                          Tous les talents
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-gray-400">
+                          Clique pour filtrer (multi)
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {awaitingTalentOptions.map((t) => {
+                        const selected = awaitingTalentFilter.includes(t.name);
+                        return (
+                          <button
+                            key={t.name}
+                            type="button"
+                            onClick={() => toggleAwaitingTalent(t.name)}
+                            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition border"
+                            style={
+                              selected
+                                ? {
+                                    backgroundColor: "#1e3a5f",
+                                    color: "#fff",
+                                    borderColor: "#1e3a5f",
+                                  }
+                                : {
+                                    backgroundColor: "#fff",
+                                    color: "#475569",
+                                    borderColor: "#e2e8f0",
+                                  }
+                            }
+                          >
+                            {t.name}
+                            <span
+                              className="rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums"
+                              style={
+                                selected
+                                  ? { background: "rgba(255,255,255,0.18)" }
+                                  : { background: "#f1f5f9", color: "#64748b" }
+                              }
+                            >
+                              {t.count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {awaitingLoading && awaitingItems.length === 0 ? (
@@ -1775,20 +1909,27 @@ export default function EnrichissementPage() {
               ) : filteredAwaitingItems.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-5 py-10 text-center">
                   <p className="text-sm font-medium text-slate-800">
-                    Aucune marque pour «{" "}
-                    {
-                      AWAITING_SOURCE_FILTERS.find(
-                        (f) => f.id === awaitingSourceFilter
-                      )?.label
-                    }{" "}
-                    »
+                    Aucune marque pour ces filtres
+                    {awaitingSourceFilter !== "all"
+                      ? ` · ${
+                          AWAITING_SOURCE_FILTERS.find(
+                            (f) => f.id === awaitingSourceFilter
+                          )?.label
+                        }`
+                      : ""}
+                    {awaitingTalentFilter.length > 0
+                      ? ` · ${awaitingTalentFilter.join(", ")}`
+                      : ""}
                   </p>
                   <button
                     type="button"
-                    onClick={() => setAwaitingSourceFilter("all")}
+                    onClick={() => {
+                      setAwaitingSourceFilter("all");
+                      setAwaitingTalentFilter([]);
+                    }}
                     className="mt-3 text-xs font-semibold text-slate-600 underline underline-offset-2"
                   >
-                    Voir toutes les sources
+                    Réinitialiser les filtres
                   </button>
                 </div>
               ) : (
