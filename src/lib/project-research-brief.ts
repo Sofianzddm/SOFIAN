@@ -1,3 +1,5 @@
+import { sanitizePresentationExcerpt } from "@/lib/campaign-presentation-text";
+
 /**
  * Brief projet passé aux analyses marque / talent (parcours projets-outreach).
  * Même forme que projectBrief / projectBriefs de generate-email.
@@ -63,12 +65,15 @@ export function formatProjectBriefForPrompt(
   const pdfOwner = [talentLabel, titleLabel ? `« ${titleLabel} »` : ""]
     .filter(Boolean)
     .join(" / ");
-  const pdfLine = brief.presentationExcerpt
+  const pdfSafe = sanitizePresentationExcerpt(
+    String(brief.presentationExcerpt || "")
+  );
+  const pdfLine = pdfSafe
     ? line(
         pdfOwner
           ? `Extrait PDF présentation (UNIQUEMENT ${pdfOwner} — ne pas attribuer à un autre talent/projet)`
           : "Extrait PDF présentation (ne pas mélanger avec un autre brief)",
-        brief.presentationExcerpt
+        pdfSafe
       )
     : "";
   return [

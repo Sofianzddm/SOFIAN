@@ -20,6 +20,7 @@ import {
   type DraftPrepBrief,
 } from "@/lib/draft-prep-brief";
 import { isTalentIndividualProspectingBrief } from "@/lib/project-research-brief";
+import { sanitizePresentationExcerpt } from "@/lib/campaign-presentation-text";
 
 export const maxDuration = 180;
 
@@ -546,7 +547,12 @@ export async function POST(request: NextRequest) {
           : `${condensationBriefs.length} talents`;
 
     function briefLine(label: string, value: unknown): string {
-      const v = String(value || "").trim();
+      let v = String(value || "").trim();
+      if (!v) return "";
+      // PDF / decks : neutralise les escapes qui cassent le JSON xAI.
+      if (/pdf|présentation|presentation/i.test(label)) {
+        v = sanitizePresentationExcerpt(v);
+      }
       return v ? `- ${label} : ${v}` : "";
     }
 
