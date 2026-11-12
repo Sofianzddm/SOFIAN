@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
         campaignId,
         status: { in: ["pending", "running"] },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: "asc" },
       take: 10,
       select: {
         id: true,
@@ -59,7 +59,60 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ active: jobs[0] || null, jobs });
+    // Préfère le job avec le plus de progrès (évite le doublon « 0/10 » fantôme).
+    const ranked = [...jobs].sort((a, b) => {
+      const pa = a.completed + a.failed;
+      const pb = b.completed + b.failed;
+      if (pb !== pa) return pb - pa;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    });
+    const active = ranked[0] || null;
+
+    // Relance auto : si le serveur a redémarré, la file reprend.
+    if (active?.id) {
+      kickProjectDraftJobProcess(active.id);
+    }
+
+    // Annule les files vides en doublon (0 traité) quand un job avancé existe.
+    const cancelledIds = new Set<string>();
+    if (active && active.completed + active.failed > 0) {
+      const dupes = jobs.filter(
+        (j) =>
+          j.id !== active.id &&
+          j.completed === 0 &&
+          j.failed === 0 &&
+          j.totalMissions > 0
+      );
+      for (const d of dupes) {
+        cancelledIds.add(d.id);
+        await prisma.castingProjectDraftJob.update({
+          where: { id: d.id },
+          data: {
+            status: "cancelled",
+            cancelRequested: true,
+            finishedAt: new Date(),
+            currentBrandName: null,
+            error: "Doublon annulé — job principal repris",
+          },
+        });
+        await prisma.castingProjectDraftItem.updateMany({
+          where: {
+            jobId: d.id,
+            status: { in: ["pending", "running"] },
+          },
+          data: {
+            status: "skipped",
+            error: "Doublon annulé",
+            finishedAt: new Date(),
+          },
+        });
+      }
+    }
+
+    return NextResponse.json({
+      active,
+      jobs: ranked.filter((j) => !cancelledIds.has(j.id)),
+    });
   } catch (e) {
     console.error("GET /api/casting/project-draft-jobs:", e);
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });

@@ -872,7 +872,10 @@ async function processOneProjectItem(itemId: string): Promise<{
   return { ok: true, brandName };
 }
 
-const STUCK_PROJECT_ITEM_MS = 8 * 60 * 1000;
+/** Au-delà : item `running` considéré mort (Next reload / xAI hang). */
+const STUCK_PROJECT_ITEM_MS = 4 * 60 * 1000;
+/** Soft-timeout d’une marque (brand+talent+mail) pour ne pas bloquer la file. */
+const PROJECT_ITEM_TIMEOUT_MS = 3 * 60 * 1000 + 30_000;
 
 /** Remet en pending les items coincés en `running` (serveur tué mid-tick). */
 async function recoverStuckProjectItems(jobId: string): Promise<number> {
@@ -997,7 +1000,20 @@ export async function processProjectDraftJobTick(
     });
 
     try {
-      const result = await processOneProjectItem(next.id);
+      const result = await Promise.race([
+        processOneProjectItem(next.id),
+        new Promise<{ ok: false; brandName: string; error: string }>(
+          (resolve) => {
+            setTimeout(() => {
+              resolve({
+                ok: false,
+                brandName: next.brandName,
+                error: `Timeout rédaction (${Math.round(PROJECT_ITEM_TIMEOUT_MS / 1000)}s) — marque passée, la file continue.`,
+              });
+            }, PROJECT_ITEM_TIMEOUT_MS);
+          }
+        ),
+      ]);
       lastBrand = result.brandName;
       if (result.ok) {
         await prisma.castingProjectDraftItem.update({
@@ -1129,37 +1145,26 @@ function kickProjectDraftJobHttp(jobId: string): void {
   });
 }
 
-async function runInProcessChain(jobId: string): Promise<void> {
-  try {
-    const tick = await processProjectDraftJobTick(jobId, 1);
-    if (!tick.done) {
-      setTimeout(() => {
-        void runInProcessChain(jobId);
-      }, 200);
-    }
-  } catch (e) {
-    console.warn(`[project-draft-job] in-process chain ${jobId}:`, e);
-    kickProjectDraftJobHttp(jobId);
-  }
-}
-
+/**
+ * Enchaîne le job via HTTP (1 marque = 1 requête).
+ * Plus de chaîne in-process setTimeout : elle mourait au reload Next
+ * et laissait des items `running` bloqués pour toujours.
+ * Si CASTING_FIT_EXTERNAL_WORKER=1, le VPS pm2 consomme à la place.
+ */
 export function kickProjectDraftJobProcess(jobId: string): void {
   if (process.env.CASTING_FIT_EXTERNAL_WORKER === "1") {
     return;
   }
+  const fire = () => kickProjectDraftJobHttp(jobId);
   if (process.env.VERCEL) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { after } = require("next/server") as typeof import("next/server");
-      after(() => {
-        kickProjectDraftJobHttp(jobId);
-      });
+      after(fire);
+      return;
     } catch {
-      kickProjectDraftJobHttp(jobId);
+      /* fallback immédiat */
     }
-    return;
   }
-  setTimeout(() => {
-    void runInProcessChain(jobId);
-  }, 50);
+  setTimeout(fire, 50);
 }

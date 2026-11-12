@@ -406,6 +406,9 @@ export default function OutreachCastingWizard({
   const serverDraftQueuedRef = useRef<Set<string>>(new Set());
   /** Dernier `completed` pour lequel on a rafraîchi la file « Prêt à contrôler ». */
   const serverDraftNotifiedCompletedRef = useRef(0);
+  /** Empreinte progrès job projet — si figée, on re-kick le process. */
+  const projectDraftProgressRef = useRef({ key: "", stagnant: 0 });
+  const projectDraftNudgeAtRef = useRef(0);
   const serverDraftStartingRef = useRef(false);
   const startIndivServerDraftRef = useRef<(keys?: string[]) => void>(() => {});
   const startProjectServerDraftRef = useRef<(keys?: string[]) => void>(() => {});
@@ -549,6 +552,8 @@ export default function OutreachCastingWizard({
     pendingServerDraftKeysRef.current = new Set();
     serverDraftQueuedRef.current = new Set();
     serverDraftNotifiedCompletedRef.current = 0;
+    projectDraftProgressRef.current = { key: "", stagnant: 0 };
+    projectDraftNudgeAtRef.current = 0;
     serverDraftStartingRef.current = false;
     if (fitPollRef.current) {
       clearInterval(fitPollRef.current);
@@ -2535,6 +2540,35 @@ export default function OutreachCastingWizard({
         }
 
         setAutoWriteQueueLen(Math.max(0, total - completed - failed));
+
+        // Si la file ne bouge plus (serveur relancé / kick perdu) → re-kick.
+        const progressKey = `${completed}:${failed}:${data.currentBrandName || ""}:${data.status || ""}`;
+        if (
+          data.status === "pending" ||
+          data.status === "running"
+        ) {
+          const prev = projectDraftProgressRef.current;
+          if (prev.key === progressKey) {
+            prev.stagnant += 1;
+          } else {
+            projectDraftProgressRef.current = { key: progressKey, stagnant: 0 };
+          }
+          const now = Date.now();
+          if (
+            projectDraftProgressRef.current.stagnant >= 2 &&
+            now - projectDraftNudgeAtRef.current > 15_000
+          ) {
+            projectDraftNudgeAtRef.current = now;
+            void fetch(`/api/casting/project-draft-jobs/${jobId}/process`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            }).catch(() => {});
+          }
+        } else {
+          projectDraftProgressRef.current = { key: "", stagnant: 0 };
+        }
 
         if (completed > serverDraftNotifiedCompletedRef.current) {
           serverDraftNotifiedCompletedRef.current = completed;
