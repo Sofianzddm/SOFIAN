@@ -403,6 +403,40 @@ function igAnchor(handle: string): string {
 }
 
 /**
+ * Remplace @handle / URL IG dans le HTML sans toucher aux <a> déjà présents.
+ * 1) Placeholder sur les ancres existantes
+ * 2) Remplacement uniquement hors balises
+ * Sinon on réécrit l’URL dans href="…" → HTML cassé
+ * (`<a href=" <a … style=…>@h</a>" style=…>` → style visible en clair dans Gmail).
+ */
+function linkifyBareIgOutsideAnchors(
+  html: string,
+  handle: string,
+  anchor: string
+): string {
+  const handleEsc = handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const placeholders: string[] = [];
+  let out = html.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, (m) => {
+    const i = placeholders.length;
+    placeholders.push(m);
+    return `\u0000IGLINK${i}\u0000`;
+  });
+
+  const bareRe = new RegExp(
+    `(?:https?:\\/\\/(?:www\\.)?instagram\\.com\\/${handleEsc}\\/?|@${handleEsc})\\b`,
+    "gi"
+  );
+  out = out.replace(/(<[^>]+>)|([^<]+)/g, (full, tag: string | undefined, text: string | undefined) => {
+    if (tag || text == null) return full;
+    return text.replace(bareRe, anchor);
+  });
+
+  return out.replace(/\u0000IGLINK(\d+)\u0000/g, (_, idx: string) => {
+    return placeholders[Number(idx)] ?? "";
+  });
+}
+
+/**
  * Après render HTML du mail gift : force le lien IG rose @handle (comme casting).
  */
 export function injectGiftRelanceIgLinks(
@@ -431,14 +465,8 @@ export function injectGiftRelanceIgLinks(
     anchor
   );
 
-  // @handle / URL bruts → ancre rose
-  out = out.replace(
-    new RegExp(
-      `(?<!<a[^>]*>)\\s*(?:https?:\\/\\/(?:www\\.)?instagram\\.com\\/${handleEsc}\\/?|@${handleEsc})\\b`,
-      "gi"
-    ),
-    ` ${anchor}`
-  );
+  // @handle / URL bruts hors ancres déjà posées (jamais dans un href)
+  out = linkifyBareIgOutsideAnchors(out, handle, anchor);
 
   if (new RegExp(`instagram\\.com\\/${handleEsc}`, "i").test(out)) {
     return out;
@@ -449,24 +477,34 @@ export function injectGiftRelanceIgLinks(
     [talent.prenom, talent.nom].filter(Boolean).join(" ").trim();
   const firstName = fullName.split(/\s+/)[0] || "";
 
+  // Filet : injecter après le nom si aucun lien IG n'a pu être posé
+  const placeholders: string[] = [];
+  out = out.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, (m) => {
+    const i = placeholders.length;
+    placeholders.push(m);
+    return `\u0000IGLINK${i}\u0000`;
+  });
+
   if (fullName.length >= 3) {
     const fullEsc = fullName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (new RegExp(fullEsc, "i").test(out)) {
-      out = out.replace(new RegExp(`(${fullEsc})`, "i"), `$1 (${anchor})`);
-      return out;
-    }
-  }
-  if (firstName.length >= 2) {
+    out = out.replace(/(<[^>]+>)|([^<]+)/g, (full, tag: string | undefined, text: string | undefined) => {
+      if (tag || text == null) return full;
+      if (!new RegExp(fullEsc, "i").test(text)) return full;
+      return text.replace(new RegExp(`(${fullEsc})`, "i"), `$1 (${anchor})`);
+    });
+  } else if (firstName.length >= 2) {
     const nameEsc = firstName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(
-      `\\b(${nameEsc})\\b(?![^<]*instagram\\.com\\/${handleEsc})`,
-      "i"
-    );
-    if (re.test(out)) {
-      out = out.replace(re, `$1 (${anchor})`);
-    }
+    out = out.replace(/(<[^>]+>)|([^<]+)/g, (full, tag: string | undefined, text: string | undefined) => {
+      if (tag || text == null) return full;
+      const re = new RegExp(`\\b(${nameEsc})\\b`, "i");
+      if (!re.test(text)) return full;
+      return text.replace(re, `$1 (${anchor})`);
+    });
   }
-  return out;
+
+  return out.replace(/\u0000IGLINK(\d+)\u0000/g, (_, idx: string) => {
+    return placeholders[Number(idx)] ?? "";
+  });
 }
 
 async function generateViaOpenAI(

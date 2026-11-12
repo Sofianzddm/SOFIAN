@@ -79,19 +79,40 @@ export function scrubMarketingFluff(body: string): string {
   );
 
   // Anglicismes / buzzwords isolés → reformulation soft ou suppression
+  // NOTE: ne JAMAIS remplacer « parentalité moderne et inspirante » par « jeune maman »
+  // (casse la phrase CRM « elle incarne une parentalité… » → « elle incarne une jeune maman »).
   const wordReps: Array<[RegExp, string]> = [
     [/\bshowcase\b/gi, "mise en avant"],
     [/\bstatement\b/gi, "pièce forte"],
     [/\bsc[ée]nographie\b/gi, "déco"],
     [/\bimmersi(?:f|ve|fs|ves)\b/gi, "chaleureux"],
     [/\bultra\s+attachant\b/gi, "attachant"],
-    [/\bparentalit[ée]\s+moderne\s+et\s+inspirante\b/gi, "jeune maman"],
     [/\bun\s+v[ée]ritable\s+univers\b/gi, "une ambiance"],
     [/\btransformera?\s+sa\s+boutique\s+en\s+v[ée]ritable[^.!?\n]*/gi, "habillera sa boutique"],
   ];
   for (const [re, to] of wordReps) {
     text = text.replace(re, to);
   }
+
+  // Répare la tautologie déjà produite par l'ancien scrub / IA
+  text = text.replace(
+    /\bincarne\s+une\s+jeune\s+maman\b/gi,
+    "incarne une parentalité moderne et inspirante"
+  );
+  text = text.replace(
+    /\bembodies\s+a\s+young\s+(?:mum|mom|mother)\b/gi,
+    "embodies modern and inspiring parenthood"
+  );
+
+  // Phrase coupée type « across Instagram and, they… » / « sur Instagram et, elle… »
+  text = text.replace(
+    /\bacross\s+Instagram\s+and,\s*/gi,
+    "on Instagram, "
+  );
+  text = text.replace(
+    /\bsur\s+Instagram\s+et,\s*/gi,
+    "sur Instagram, "
+  );
 
   text = text.replace(/[ \t]{2,}/g, " ");
   text = text.replace(/ +\n/g, "\n");

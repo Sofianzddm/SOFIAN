@@ -307,8 +307,10 @@ ${langRules}
 - Cite 1 élément concret de la recherche (collection / produit) SANS inventer de KPI / deal passé.
 - MISE EN PAGE OBLIGATOIRE : corps texte brut avec paragraphes séparés par UNE LIGNE VIDE (\\n\\n dans le JSON). INTERDIT un seul pavé collé. Pas de HTML.
 - TON : humain, simple, conversationnel. INTERDIT jargon marketing / anglicismes :
-  « scénographie », « showcase », « statement », « immersif », « univers fort », « refuge joyeux », « duo ultra attachant », « parentalité moderne et inspirante », « véritable showcase de ta collection », « scénographie totale ».
+  « scénographie », « showcase », « statement », « immersif », « univers fort », « refuge joyeux », « duo ultra attachant », « véritable showcase de ta collection », « scénographie totale ».
   Dis plutôt : on aimerait décorer / habiller la boutique avec ta collection, un sapin + déco, etc.
+  INTERDIT tautologie : « incarne une jeune maman » (si parentalité → « incarne une parentalité moderne et inspirante »).
+  INTERDIT phrase coupée : « across Instagram and, » / « sur Instagram et, ».
 - CONTENU / CONTREPARTIE — NE PAS PROMETTRE :
   • N'invente JAMAIS de formats (stories, reels, TikTok long, post feed, unboxing, haul, etc.) si ce n'est pas explicitement dans « Contrepartie proposée ».
   • Si une contrepartie est listée, reste vague et prudent — ne détaille pas un plan éditorial.
