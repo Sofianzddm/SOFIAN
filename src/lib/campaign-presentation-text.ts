@@ -55,37 +55,50 @@ export function sanitizePresentationExcerpt(raw: string): string {
   return s;
 }
 
+async function loadPdfjs() {
+  const pdfPath = requireFromRoot.resolve("pdfjs-dist/legacy/build/pdf.mjs");
+  const workerPath = requireFromRoot.resolve(
+    "pdfjs-dist/legacy/build/pdf.worker.mjs"
+  );
+  // file:// : charge depuis node_modules, pas depuis le chunk Turbopack.
+  const pdfjs = await import(pathToFileURL(pdfPath).href);
+  pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+  return pdfjs;
+}
+
 async function extractPresentationPdfText(buffer: Buffer): Promise<string> {
   try {
-    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    // Pointe le worker vers node_modules (Turbopack ne le bundle pas).
-    try {
-      const workerPath = requireFromRoot.resolve(
-        "pdfjs-dist/legacy/build/pdf.worker.mjs"
-      );
-      pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
-    } catch {
-      pdfjs.GlobalWorkerOptions.workerSrc = "data:text/javascript,";
-    }
-    const doc = await pdfjs.getDocument({
+    const pdfjs = await loadPdfjs();
+    const loadingTask = pdfjs.getDocument({
       data: new Uint8Array(buffer),
       useSystemFonts: true,
       isEvalSupported: false,
       verbosity: 0,
-    }).promise;
-    const pageCount = Math.min(doc.numPages, MAX_PAGES);
-    const pages: string[] = [];
-    for (let i = 1; i <= pageCount; i++) {
-      const page = await doc.getPage(i);
-      const content = await page.getTextContent();
-      const line = (content.items || [])
-        .map((it) => ("str" in it && typeof it.str === "string" ? it.str : ""))
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (line) pages.push(line);
+    });
+    const doc = await loadingTask.promise;
+    try {
+      const pageCount = Math.min(doc.numPages, MAX_PAGES);
+      const pages: string[] = [];
+      for (let i = 1; i <= pageCount; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        const line = (content.items || [])
+          .map((it: { str?: unknown }) =>
+            typeof it.str === "string" ? it.str : ""
+          )
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (line) pages.push(line);
+      }
+      return pages.join("\n\n");
+    } finally {
+      try {
+        await doc.destroy();
+      } catch {
+        /* ignore */
+      }
     }
-    return pages.join("\n\n");
   } catch (e) {
     // PAS de fallback latin1 (binaire PDF) — ça cassait le JSON xAI.
     console.warn("[presentation-text] pdfjs extract failed:", e);

@@ -26,6 +26,9 @@ if (s3PublicUrl) {
 }
 
 const nextConfig: NextConfig = {
+  // pdfjs-dist doit rester hors du bundle Turbopack : sinon le worker
+  // est résolu vers `.next/.../chunks/pdf.worker.mjs` (inexistant).
+  serverExternalPackages: ["pdfjs-dist"],
   // Activer les Server Actions
   experimental: {
     serverActions: {
