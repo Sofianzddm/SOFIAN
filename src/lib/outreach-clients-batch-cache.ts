@@ -343,6 +343,44 @@ export function cacheOutreachLeynaExchangeMarkets(
   for (const m of markets) cacheOutreachLeynaExchange(m, brandName, data);
 }
 
+/** Même clé que ProjetOutreachWorkspace (`po-leyna-exchange:v6:{campaignId}`). */
+export function loadProjectLeynaExchangeCache(campaignId: string) {
+  const id = String(campaignId || "").trim();
+  if (!id) return {} as Record<string, OutreachCachedLeynaExchange>;
+  return loadJsonCache<OutreachCachedLeynaExchange>(
+    `po-leyna-exchange:v6:${id}`
+  );
+}
+
+export function saveProjectLeynaExchangeCache(
+  campaignId: string,
+  cache: Record<string, OutreachCachedLeynaExchange>
+) {
+  const id = String(campaignId || "").trim();
+  if (!id) return;
+  saveJsonCache(`po-leyna-exchange:v6:${id}`, cache);
+}
+
+export function cacheProjectLeynaExchange(
+  campaignId: string,
+  brandName: string,
+  data: OutreachCachedLeynaExchange
+) {
+  const key = brandResearchKey(brandName);
+  if (!key) return;
+  const prev = loadProjectLeynaExchangeCache(campaignId);
+  saveProjectLeynaExchangeCache(campaignId, { ...prev, [key]: data });
+}
+
+/** Cache analyse marque projet (même clé que le workspace). */
+export function loadProjectBrandResearchCache(campaignId: string) {
+  const id = String(campaignId || "").trim();
+  if (!id) return {} as Record<string, OutreachCachedBrandResearch>;
+  return loadJsonCache<OutreachCachedBrandResearch>(
+    `po-brand-research:${id}`
+  );
+}
+
 /** Sélection talents (ids) par marque — restaurée à la réouverture du composer. */
 export function loadOutreachSelectedTalentsCache(market: "FR" | "BENELUX") {
   return loadJsonCache<string[]>(

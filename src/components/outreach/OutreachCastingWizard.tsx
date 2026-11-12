@@ -15,14 +15,18 @@ import {
 import { isBelgianPays } from "@/lib/pays";
 import {
   cacheOutreachBrandResearchMarkets,
+  cacheOutreachLeynaExchangeMarkets,
   cacheOutreachRosterFitMarkets,
   cacheOutreachSelectedTalentsMarkets,
   cacheOutreachTalentResearchMarkets,
+  cacheProjectLeynaExchange,
   loadOutreachBrandResearchCacheMarkets,
   loadOutreachLeynaExchangeCacheMarkets,
   loadOutreachRosterFitCacheMarkets,
   loadOutreachSelectedTalentsCacheMarkets,
   loadOutreachTalentResearchCacheMarkets,
+  loadProjectBrandResearchCache,
+  loadProjectLeynaExchangeCache,
   lookupOutreachBrandCache,
   outreachCacheMarketsForContact,
   type OutreachCachedBrandResearch,
@@ -32,6 +36,7 @@ import {
 } from "@/lib/outreach-clients-batch-cache";
 import {
   cacheIndivBrandResearch,
+  cacheIndivLeynaExchange,
   cacheIndivTalentResearch,
   loadIndivBrandResearchCache,
   loadIndivLeynaExchangeCache,
@@ -488,13 +493,32 @@ export default function OutreachCastingWizard({
     autoWriteAfterFitRef.current = autoWriteAfterFit;
   }, [autoWriteAfterFit]);
 
+  const [projectCacheTick, setProjectCacheTick] = useState(0);
+  const [leynaScanLoading, setLeynaScanLoading] = useState(false);
+  const [leynaScanOpen, setLeynaScanOpen] = useState(true);
+
   const brandCache = useMemo(
     () => loadOutreachBrandResearchCacheMarkets(viewCacheMarkets),
     [viewCacheMarkets, open, brands]
   );
   const leynaCache = useMemo(
     () => loadOutreachLeynaExchangeCacheMarkets(viewCacheMarkets),
-    [viewCacheMarkets, open, brands]
+    [viewCacheMarkets, open, brands, projectCacheTick]
+  );
+
+  const projectBrandCache = useMemo(
+    () =>
+      isProjectMode && campaignId
+        ? loadProjectBrandResearchCache(campaignId)
+        : {},
+    [isProjectMode, campaignId, open, brands, projectCacheTick]
+  );
+  const projectLeynaCache = useMemo(
+    () =>
+      isProjectMode && campaignId
+        ? loadProjectLeynaExchangeCache(campaignId)
+        : {},
+    [isProjectMode, campaignId, open, brands, projectCacheTick]
   );
 
   const indivBrandCache = useMemo(
@@ -830,13 +854,79 @@ export default function OutreachCastingWizard({
       ) as IndivCachedBrandResearch | null;
       return indiv;
     }
+    if (isProjectMode) {
+      return (
+        lookupOutreachBrandCache(
+          projectBrandCache,
+          currentPitch,
+          current.company,
+          ...(current.coveredBrands || [])
+        ) ||
+        lookupOutreachBrandCache(
+          brandCache,
+          currentPitch,
+          current.company,
+          ...(current.coveredBrands || [])
+        )
+      );
+    }
     return lookupOutreachBrandCache(
       brandCache,
       currentPitch,
       current.company,
       ...(current.coveredBrands || [])
     );
-  }, [current, currentPitch, brandCache, lockedTalentId, indivBrandCache]);
+  }, [
+    current,
+    currentPitch,
+    brandCache,
+    projectBrandCache,
+    lockedTalentId,
+    indivBrandCache,
+    isProjectMode,
+  ]);
+
+  const currentLeyna = useMemo((): OutreachCachedLeynaExchange | null => {
+    if (!current || !currentPitch) return null;
+    if (lockedTalentId) {
+      return (lookupIndivBrandCache(
+        loadIndivLeynaExchangeCache(lockedTalentId),
+        currentPitch,
+        current.company,
+        ...(current.coveredBrands || [])
+      ) as OutreachCachedLeynaExchange | null);
+    }
+    if (isProjectMode) {
+      return (
+        lookupOutreachBrandCache(
+          projectLeynaCache,
+          currentPitch,
+          current.company,
+          ...(current.coveredBrands || [])
+        ) ||
+        lookupOutreachBrandCache(
+          leynaCache,
+          currentPitch,
+          current.company,
+          ...(current.coveredBrands || [])
+        )
+      );
+    }
+    return lookupOutreachBrandCache(
+      leynaCache,
+      currentPitch,
+      current.company,
+      ...(current.coveredBrands || [])
+    );
+  }, [
+    current,
+    currentPitch,
+    lockedTalentId,
+    isProjectMode,
+    projectLeynaCache,
+    leynaCache,
+    projectCacheTick,
+  ]);
 
   const currentDraft = useMemo(() => {
     if (!current) return null;
@@ -1698,17 +1788,32 @@ export default function OutreachCastingWizard({
             brand.company,
             ...(brand.coveredBrands || [])
           ) as OutreachCachedBrandResearch | null)
-        : lookupOutreachBrandCache(
-            brandCache,
-            pitch,
-            brand.company,
-            ...(brand.coveredBrands || [])
-          );
+        : isProjectMode && campaignId
+          ? lookupOutreachBrandCache(
+              loadProjectBrandResearchCache(campaignId),
+              pitch,
+              brand.company,
+              ...(brand.coveredBrands || [])
+            ) ||
+            lookupOutreachBrandCache(
+              brandCache,
+              pitch,
+              brand.company,
+              ...(brand.coveredBrands || [])
+            )
+          : lookupOutreachBrandCache(
+              brandCache,
+              pitch,
+              brand.company,
+              ...(brand.coveredBrands || [])
+            );
       if (!brandResearch) {
         throw new Error(
-          isIndivMode
-            ? "Analyse marque manquante — lance « Marques » dans la barre batch."
-            : "Analyse marque manquante — relance le batch marques."
+          isProjectMode
+            ? "Analyse marque manquante — lance « Marques » dans le projet, ou « Rédiger serveur » (analyse auto)."
+            : isIndivMode
+              ? "Analyse marque manquante — lance « Marques » dans la barre batch."
+              : "Analyse marque manquante — relance le batch marques."
         );
       }
 
@@ -1719,12 +1824,25 @@ export default function OutreachCastingWizard({
             brand.company,
             ...(brand.coveredBrands || [])
           ) as IndivCachedLeynaExchange | null)
-        : (lookupOutreachBrandCache(
-            leynaCache,
-            pitch,
-            brand.company,
-            ...(brand.coveredBrands || [])
-          ) as OutreachCachedLeynaExchange | null);
+        : isProjectMode && campaignId
+          ? (lookupOutreachBrandCache(
+              loadProjectLeynaExchangeCache(campaignId),
+              pitch,
+              brand.company,
+              ...(brand.coveredBrands || [])
+            ) as OutreachCachedLeynaExchange | null) ||
+            (lookupOutreachBrandCache(
+              leynaCache,
+              pitch,
+              brand.company,
+              ...(brand.coveredBrands || [])
+            ) as OutreachCachedLeynaExchange | null)
+          : (lookupOutreachBrandCache(
+              leynaCache,
+              pitch,
+              brand.company,
+              ...(brand.coveredBrands || [])
+            ) as OutreachCachedLeynaExchange | null);
 
       // Angles casting (Oui/Non) → injectés dans la rédaction, sans remplacer talent-research.
       const rosterFits =
@@ -1968,9 +2086,110 @@ export default function OutreachCastingWizard({
       lockedTalentId,
       isIndivMode,
       isProjectMode,
+      campaignId,
       campaignBrief,
     ]
   );
+
+  const analyzeCurrentLeyna = useCallback(async () => {
+    if (!current || !currentPitch || leynaScanLoading) return;
+    setLeynaScanLoading(true);
+    try {
+      const recipientEmails = (current.emails || [])
+        .map((e) => e.trim().toLowerCase())
+        .filter((e) => e.includes("@"));
+      const talentIds = selectedByBrand[current.groupKey] || [];
+      const talentNames = talentIds
+        .map((id) => {
+          const t = talents.find((x) => x.id === id);
+          return t ? `${t.prenom} ${t.nom}`.trim() : "";
+        })
+        .filter(Boolean);
+      const agencyName =
+        current.company &&
+        current.company.toLowerCase() !== currentPitch.toLowerCase()
+          ? current.company
+          : undefined;
+      const res = await fetch("/api/casting/leyna-exchange-context", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipientEmails,
+          brandName: currentPitch,
+          agencyName,
+          talentNames,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        context?: OutreachCachedLeynaExchange;
+      };
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : "Scan historique Leyna impossible"
+        );
+      }
+      const ctx = (data.context || {
+        hasExchange: false,
+      }) as OutreachCachedLeynaExchange;
+      const payload: OutreachCachedLeynaExchange = {
+        hasExchange: Boolean(ctx.hasExchange),
+        hasSentNoReplyOnly: Boolean(ctx.hasSentNoReplyOnly),
+        tone: ctx.tone ?? null,
+        bannerLabel: ctx.bannerLabel ?? null,
+        alerts: Array.isArray(ctx.alerts) ? ctx.alerts : [],
+        promptBlockFr: ctx.promptBlockFr || "",
+        promptBlockEn: ctx.promptBlockEn || "",
+        scanStatus:
+          ctx.scanStatus || (ctx.hasExchange ? "ok" : "empty"),
+        fetchedAt: ctx.fetchedAt || new Date().toISOString(),
+        contacts: Array.isArray(ctx.contacts) ? ctx.contacts : [],
+      };
+      if (isProjectMode && campaignId) {
+        cacheProjectLeynaExchange(campaignId, currentPitch, payload);
+      } else if (lockedTalentId) {
+        cacheIndivLeynaExchange(lockedTalentId, currentPitch, payload);
+      } else {
+        const markets = outreachCacheMarketsForContact({
+          pipeline: current.pipeline || market,
+          alsoInSiblingMarket:
+            current.alsoInSiblingMarket || readBothMarkets,
+        });
+        cacheOutreachLeynaExchangeMarkets(markets, currentPitch, payload);
+      }
+      setProjectCacheTick((n) => n + 1);
+      setLeynaScanOpen(true);
+      onFlash?.(
+        "success",
+        payload.hasExchange
+          ? payload.bannerLabel ||
+              `Échange Leyna trouvé · ${currentPitch}`
+          : `Boîte Leyna scannée — aucun échange · ${currentPitch}`
+      );
+    } catch (e) {
+      onFlash?.(
+        "error",
+        e instanceof Error ? e.message : "Scan Leyna impossible."
+      );
+    } finally {
+      setLeynaScanLoading(false);
+    }
+  }, [
+    current,
+    currentPitch,
+    leynaScanLoading,
+    selectedByBrand,
+    talents,
+    isProjectMode,
+    campaignId,
+    lockedTalentId,
+    market,
+    readBothMarkets,
+    onFlash,
+  ]);
 
   /** File série : même writeBrandDraft que le bouton manuel (qualité identique). */
   const drainAutoWriteQueue = useCallback(async () => {
@@ -3756,6 +3975,172 @@ export default function OutreachCastingWizard({
                   )}
                 </section>
 
+                <section
+                  className="rounded-xl border bg-white p-3"
+                  style={{
+                    borderColor:
+                      (currentLeyna?.alerts?.length || 0) > 0
+                        ? "#E11D48"
+                        : currentLeyna?.hasExchange
+                          ? "#C4B5E8"
+                          : "#E5E0DA",
+                    background:
+                      (currentLeyna?.alerts?.length || 0) > 0
+                        ? "#FFF1F2"
+                        : currentLeyna?.hasExchange
+                          ? "#F8F5FC"
+                          : undefined,
+                  }}
+                >
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <p
+                      className="m-0 text-[11px] font-semibold uppercase tracking-wide"
+                      style={{ color: OLD_ROSE }}
+                    >
+                      Historique Leyna · échanges client
+                    </p>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {currentLeyna ? (
+                        <button
+                          type="button"
+                          onClick={() => setLeynaScanOpen((v) => !v)}
+                          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium hover:bg-black/5"
+                          style={{ color: OLD_ROSE }}
+                        >
+                          {currentLeyna.hasExchange
+                            ? currentLeyna.tone === "tu"
+                              ? "Leyna OK · tutoiement"
+                              : currentLeyna.tone === "vous"
+                                ? "Leyna OK · vouvoiement"
+                                : "Leyna OK · échange"
+                            : "Leyna OK · aucun échange"}
+                          {leynaScanOpen ? (
+                            <ChevronDown className="h-3 w-3" />
+                          ) : (
+                            <ChevronRight className="h-3 w-3" />
+                          )}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void analyzeCurrentLeyna()}
+                        disabled={leynaScanLoading || !currentPitch}
+                        className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold disabled:opacity-50"
+                        style={{ borderColor: OLD_ROSE, color: LICORICE }}
+                        title="Scan de la boîte Leyna : ce qu’elle a déjà échangé avec ce client"
+                      >
+                        {leynaScanLoading ? (
+                          <>
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Analyse…
+                          </>
+                        ) : currentLeyna ? (
+                          "Rescanner Leyna"
+                        ) : (
+                          "Analyser historique Leyna"
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  {leynaScanLoading ? (
+                    <p className="m-0 inline-flex items-center gap-1.5 text-xs text-slate-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Scan de la boîte Leyna en cours…
+                    </p>
+                  ) : !currentLeyna ? (
+                    <p className="m-0 text-xs text-slate-500">
+                      Comme sur Pipeline indiv / Casting : scanne ce que Leyna
+                      a déjà discuté avec ce client (ton tu/vous, suite
+                      d&apos;échange) avant de rédiger.
+                    </p>
+                  ) : leynaScanOpen ? (
+                    <div
+                      className="space-y-2 text-[12px] leading-relaxed"
+                      style={{ color: LICORICE }}
+                    >
+                      {(currentLeyna.alerts || []).length > 0 ? (
+                        <div
+                          className="rounded-md px-2 py-1.5 space-y-1"
+                          style={{
+                            background: "#FFE4E6",
+                            border: "1px solid #FB7185",
+                            color: "#9F1239",
+                          }}
+                        >
+                          <p className="m-0 font-bold text-[11px]">
+                            Alertes urgentes
+                          </p>
+                          {(currentLeyna.alerts || []).map((a) => (
+                            <p key={a} className="m-0 font-semibold">
+                              {a}
+                            </p>
+                          ))}
+                        </div>
+                      ) : null}
+                      {currentLeyna.hasExchange ? (
+                        (currentLeyna.contacts || [])
+                          .filter((c) => c.status !== "sent_no_reply")
+                          .slice(0, 6)
+                          .map((c, idx) => {
+                            const when = c.lastExchangeAt
+                              ? (() => {
+                                  const d = new Date(c.lastExchangeAt!);
+                                  return Number.isNaN(d.getTime())
+                                    ? null
+                                    : d.toLocaleDateString("fr-FR", {
+                                        day: "numeric",
+                                        month: "short",
+                                        year: "numeric",
+                                      });
+                                })()
+                              : null;
+                            return (
+                              <div
+                                key={`${c.email}-${c.subject || idx}`}
+                                className="space-y-0.5"
+                              >
+                                <p className="m-0 font-semibold">
+                                  Échange · {c.email}
+                                  {c.tone
+                                    ? ` · ${c.tone === "tu" ? "tutoiement" : "vouvoiement"}`
+                                    : ""}
+                                  {when ? ` · ${when}` : ""}
+                                  {c.subject ? ` — « ${c.subject} »` : ""}
+                                </p>
+                                {c.notes?.trim() ? (
+                                  <p className="m-0 opacity-80">{c.notes}</p>
+                                ) : null}
+                                {c.clientSnippet?.trim() ? (
+                                  <p className="m-0 italic opacity-70">
+                                    « {c.clientSnippet} »
+                                  </p>
+                                ) : null}
+                              </div>
+                            );
+                          })
+                      ) : (
+                        <p className="m-0 text-xs text-slate-500">
+                          {currentLeyna.bannerLabel ||
+                            "Aucun échange trouvé dans la boîte Leyna — rédaction cold."}
+                        </p>
+                      )}
+                      {(currentLeyna.contacts || []).some(
+                        (c) => c.status === "sent_no_reply"
+                      ) ? (
+                        <p className="m-0 text-[11px] text-slate-500">
+                          +{" "}
+                          {
+                            (currentLeyna.contacts || []).filter(
+                              (c) => c.status === "sent_no_reply"
+                            ).length
+                          }{" "}
+                          envoi(s) Leyna sans réponse
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </section>
+
                 <div className="text-[11px] text-slate-500">
                   Contacts :{" "}
                   {current.targets
@@ -4489,7 +4874,7 @@ export default function OutreachCastingWizard({
                       })`}
                     </button>
                     <p className="m-0 text-center text-[11px] text-slate-500">
-                      Talents figés · pas de roster-fit · tu peux quitter
+                      Talents figés · marque + Leyna + mails · tu peux quitter
                     </p>
                   </div>
                 ) : (
