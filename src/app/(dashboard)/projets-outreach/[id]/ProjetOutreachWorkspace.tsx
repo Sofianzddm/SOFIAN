@@ -3179,6 +3179,10 @@ function RedactionTab({
       }
     }
 
+    if (campaign.presentationPdfUrl) {
+      projectPayload.presentationPdfAttached = true;
+    }
+
     return { projectPayload, talentIds: talentIds.slice(0, 8) };
   }
 

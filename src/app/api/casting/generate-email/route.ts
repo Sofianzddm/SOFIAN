@@ -259,6 +259,11 @@ export interface GenerateEmailBody {
    * false/absent = condensation cross-projets (N projets distincts).
    */
   sharedProject?: boolean;
+  /**
+   * true = le PDF de présentation projet partira en pièce jointe à l’envoi.
+   * Le mail DOIT le mentionner (« Vous trouverez en PJ la présentation… »).
+   */
+  presentationPdfAttached?: boolean;
 }
 
 function normalizeForIncludes(s: string): string {
@@ -527,6 +532,12 @@ export async function POST(request: NextRequest) {
     /** Mail projets-outreach (solo ou condensation) : jamais talentbook / roster casting. */
     const isProjectMail = Boolean(projectBrief) || isCondensation;
     /** Pipeline prospection individuelle : pitcher UN talent (angle strategy), pas un brief campagne. */
+    const presentationPdfAttached =
+      body.presentationPdfAttached === true ||
+      Boolean(String(projectBrief?.presentationExcerpt || "").trim()) ||
+      condensationBriefs.some((p) =>
+        Boolean(String(p.presentationExcerpt || "").trim())
+      );
     const isTalentProspecting =
       Boolean(projectBrief) &&
       !isCondensation &&
@@ -811,7 +822,7 @@ Règles projet :
 - Appuie-toi sur la raison strategy, l'objectif, les livrables, l'angle et le contexte ops pour construire le pitch.
 - Respecte strictement les Don'ts ; mets en avant les Do's si utiles.
 - Les talents listés dans "Talents disponibles" sont le cœur du projet : présente-les dans ce cadre.
-- Tu peux citer 1 élément concret issu de la recherche marque si ça renforce le fit avec le projet.
+- Tu peux citer 1 élément concret issu de la recherche marque si ça renforce le fit avec le projet (produit / collection / angle — PAS logistique, PAS site e-shop, PAS « fabriqué en… », PAS livraison / prix).
 - Si une RECHERCHE CRÉATEUR est fournie, le fit projet de chaque talent DOIT en venir (qui c'est / ce qu'il fait / whyRelevant) croisé avec le brief projet.
 - LONGUEUR : mail scannable, aéré. Accroche courte ; chaque talent/projet a le room qu'il faut (preuves utiles OK). Pas de plafond artificiel ~220/300 mots — surtout avec 2+ talents : développe chaque section sans couper. CTA 1 phrase.
 - Ne dilue pas le message avec une proposition de roster / talentbook hors projet : AUCUNE mention du book, du catalogue, du roster complet, ni de lien talentbook.
@@ -830,6 +841,7 @@ INTERDITS PROJET (absolus) :
 - INTERDIT : clôturer par « Belle journée, » — utiliser exactement la clôture indiquée plus bas (Cordialement, sans prénom).
 - INTERDIT ABSOLU : « couple lesbien », « lesbienne », « gay », « LGBTQ », ou tout label d'orientation / identité — couple & famille OK en neutre, sans étiquette.
 - INTERDIT ABSOLU : prix / tarifs / budgets / « X € ».
+- INTERDIT ABSOLU — fiche e-commerce / brochure IA : fabriqué en France (ou pays), « disponible sur …com », livraison gratuite / délais / seuils (€), stock, codes promo, URL boutique. DROP ces détails même s'ils sont dans la recherche marque.
 - INTERDIT ABSOLU : citer une autre marque / concurrent / collab passée du talent. Seule marque = ${brandName}.
 `
       : "";
@@ -927,6 +939,25 @@ PROJECT PROHIBITIONS (absolute):
 
     const projectOrCondensationFr = condensationBlockFr || projectBriefBlockFr;
     const projectOrCondensationEn = condensationBlockEn || projectBriefBlockEn;
+
+    const pdfAttachRuleFr =
+      presentationPdfAttached && isProjectMail
+        ? `
+PIÈCE JOINTE PDF (obligatoire) : la présentation du projet partira en PJ avec ce mail.
+- Tu DOIS le dire clairement en 1 phrase naturelle, juste avant le CTA (avant « Cordialement, »).
+- Formulations types (varie) : « Vous trouverez en PJ la présentation du projet. » / « Je vous joins en PJ la présentation du projet. » / « La présentation du projet est en pièce jointe. »
+- INTERDIT d’oublier cette mention quand la PJ est active. Une seule phrase, pas un paragraphe.
+`
+        : "";
+    const pdfAttachRuleEn =
+      presentationPdfAttached && isProjectMail
+        ? `
+PDF ATTACHMENT (mandatory): the project presentation PDF will be attached to this email.
+- You MUST mention it clearly in 1 natural sentence, right before the CTA (before "Best regards,").
+- Example phrasings (vary): "You'll find the project presentation attached." / "I've attached the project presentation." / "The project presentation is attached."
+- FORBIDDEN to omit this when the attachment flag is on. One sentence only, not a paragraph.
+`
+        : "";
 
     // Outreach Clients (historique) : brandName peut être « Dove, Axe » joint.
     // Si agencyName est fourni (pipeline/future extension), priorité à la note
@@ -1659,6 +1690,7 @@ ${exchangeBlockEn}
 ${exchangeStructureOverrideEn}
 ${groundingBlockEn}
 ${projectOrCondensationEn}
+${pdfAttachRuleEn}
 ${
           useDirectRecipient
             ? `RECIPIENT (use these EXACT values, do NOT use any HubSpot tokens like {{ contact.firstname }} or {{ contact.company }}):
@@ -1767,7 +1799,8 @@ STRICT PROHIBITIONS:
 - Never use Markdown other than the allowed bold text.
 - Never use a disparaging comparison like "rather than mega influencers", "instead of big accounts", "unlike macro-influencers". Never compare our talents to other profiles.
 - ABSOLUTE BAN — privacy / identity labels: NEVER write "lesbian couple", "lesbian", "gay", "LGBTQ", "queer", or any sexual-orientation / gender-identity label. Neutral couple/family wording is OK ("with her wife/partner", "couple humour", "young mum") WITHOUT labeling. No intimate medical sensationalism unless the ops context explicitly asks for it.
-- ABSOLUTE BAN — pricing: NEVER mention a price, rate, budget, "€X", product value, or any paid/fee figure.
+- ABSOLUTE BAN — pricing: NEVER mention a price, rate, budget, "€X", product value, free-shipping threshold, or any paid/fee figure.
+- ABSOLUTE BAN — e-commerce / brochure filler (sounds AI): NEVER paste catalog FAQ lines — "made in France/EU", "available on brand.com", free shipping / delivery terms / thresholds, stock, promo codes, shop URLs. You're pitching a collab, not reciting the e-shop. If brand research includes those details, DROP them.
 - ABSOLUTE BAN — competitors / past collabs: NEVER name another brand the talent has already worked with (e.g. "with Biotherm", "Petit Bateau collab", "for Sephora"). The only brand name allowed in the email is ${brandNameToken}. If research cites other brands, DROP the names; keep only content type / proof (views, format) without naming the competitor.
 
 Critical completeness rule:
@@ -1801,6 +1834,7 @@ ${exchangeBlockFr}
 ${exchangeStructureOverrideFr}
 ${groundingBlockFr}
 ${projectOrCondensationFr}
+${pdfAttachRuleFr}
 ${
           useDirectRecipient
             ? `DESTINATAIRE (utilise EXACTEMENT ces valeurs, n'utilise AUCUN jeton HubSpot du type {{ contact.firstname }} ou {{ contact.company }}) :
@@ -1909,7 +1943,8 @@ INTERDITS STRICTS :
 - Jamais d’autres Markdown que les gras autorisés.
 - Jamais d'opposition/comparaison dévalorisante du type "plutôt que des méga influenceuses", "au lieu des gros comptes", "à l'inverse des macro-influenceurs". Ne compare jamais nos talents à d'autres profils.
 - INTERDIT ABSOLU — étiquettes vie privée / identité : ne JAMAIS écrire « couple lesbien », « lesbienne », « gay », « LGBTQ », « queer », ni aucun label d'orientation sexuelle ou d'identité de genre. Tu peux parler de couple / famille / parentalité de façon neutre (« avec sa femme / son compagnon », « humour de couple », « jeune maman ») SANS labelliser. Pas de sensationalisme intime (PMA, parcours médical) sauf si le contexte ops le demande explicitement.
-- INTERDIT ABSOLU — prix : ne JAMAIS mentionner un prix, tarif, budget, « à X € », fourchette, valeur produit, « collab paid » / rémunération chiffrée.
+- INTERDIT ABSOLU — prix : ne JAMAIS mentionner un prix, tarif, budget, « à X € », fourchette, valeur produit, seuil de livraison, « collab paid » / rémunération chiffrée.
+- INTERDIT ABSOLU — fiche e-commerce / brochure IA : ne JAMAIS coller des infos catalogue du type « fabriqué en France », « disponible sur marque.com », « livraison gratuite dès … », délais / zones de livraison, stock, codes promo, URL boutique. Tu pitches une collab, tu ne récites pas la FAQ e-shop. Si la recherche marque contient ces détails, DROP-les.
 - INTERDIT ABSOLU — concurrents / collabs passées : ne JAMAIS citer une autre marque avec laquelle le talent a déjà collaboré (ex. « avec Biotherm », « collab Petit Bateau », « pour Typology », « déjà travaillé avec Sephora »). Seule marque nommable dans le mail = ${brandNameToken}. Si la recherche cite d'autres marques, DROP les noms ; garde seulement le type de contenu / la preuve (vues, format) sans nommer le concurrent.
 
 Règle critique de complétude :

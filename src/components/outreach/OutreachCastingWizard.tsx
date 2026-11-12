@@ -1876,6 +1876,9 @@ export default function OutreachCastingWizard({
             projectPayload.projectBrief = briefs[0];
           }
         }
+        if (campaignBrief.presentationPdfUrl) {
+          projectPayload.presentationPdfAttached = true;
+        }
       }
 
       const genOnce = async (ackNego: boolean) => {

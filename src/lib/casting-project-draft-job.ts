@@ -389,6 +389,9 @@ async function resolveProjectPayload(args: {
           projectPayload: {
             sharedProject: false,
             projectBriefs: briefs,
+            ...(campaign.presentationPdfUrl
+              ? { presentationPdfAttached: true }
+              : {}),
           },
           talents: talents.slice(0, 8),
         };
@@ -419,6 +422,9 @@ async function resolveProjectPayload(args: {
         projectPayload: {
           sharedProject: true,
           projectBriefs: pool.map((t) => baseBrief(t.id, t.name)),
+          ...(campaign.presentationPdfUrl
+            ? { presentationPdfAttached: true }
+            : {}),
         },
         talents: pool.slice(0, 8),
       };
@@ -426,6 +432,9 @@ async function resolveProjectPayload(args: {
     return {
       projectPayload: {
         projectBrief: baseBrief(pool[0].id, pool[0].name),
+        ...(campaign.presentationPdfUrl
+          ? { presentationPdfAttached: true }
+          : {}),
       },
       talents: pool.slice(0, 1),
     };
@@ -444,6 +453,9 @@ async function resolveProjectPayload(args: {
   return {
     projectPayload: {
       projectBrief: baseBrief(solo.id, solo.name),
+      ...(campaign.presentationPdfUrl
+        ? { presentationPdfAttached: true }
+        : {}),
     },
     talents: [solo],
   };
