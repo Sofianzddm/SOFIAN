@@ -55,13 +55,27 @@ export function sanitizePresentationExcerpt(raw: string): string {
   return s;
 }
 
-async function loadPdfjs() {
+type PdfjsNamespace = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
+
+/**
+ * Turbopack refuse `import(expression)` (« expression is too dynamic »).
+ * `new Function` récupère l’import natif Node → charge depuis node_modules.
+ */
+function nativeImport(specifier: string): Promise<PdfjsNamespace> {
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+  const importer = new Function(
+    "specifier",
+    "return import(specifier)"
+  ) as (s: string) => Promise<PdfjsNamespace>;
+  return importer(specifier);
+}
+
+async function loadPdfjs(): Promise<PdfjsNamespace> {
   const pdfPath = requireFromRoot.resolve("pdfjs-dist/legacy/build/pdf.mjs");
   const workerPath = requireFromRoot.resolve(
     "pdfjs-dist/legacy/build/pdf.worker.mjs"
   );
-  // file:// : charge depuis node_modules, pas depuis le chunk Turbopack.
-  const pdfjs = await import(pathToFileURL(pdfPath).href);
+  const pdfjs = await nativeImport(pathToFileURL(pdfPath).href);
   pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
   return pdfjs;
 }
