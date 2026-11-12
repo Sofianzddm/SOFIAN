@@ -349,10 +349,24 @@ export async function GET(request: NextRequest, context: RouteContext) {
       );
     }
 
+    const wantText =
+      request.nextUrl.searchParams.get("text") === "1" ||
+      request.nextUrl.searchParams.get("excerpt") === "1";
+    let presentationExcerpt: string | null = null;
+    if (wantText) {
+      const { loadPresentationExcerptFromUrl } = await import(
+        "@/lib/campaign-presentation-text"
+      );
+      presentationExcerpt =
+        (await loadPresentationExcerptFromUrl(campaign.presentationPdfUrl)) ||
+        null;
+    }
+
     return NextResponse.json({
       presentationPdfUrl: campaign.presentationPdfUrl,
       presentationFileName: campaign.presentationFileName,
       presentationUploadedAt: campaign.presentationUploadedAt,
+      ...(wantText ? { presentationExcerpt } : {}),
     });
   } catch (error) {
     console.error("GET /api/projets-outreach/[id]/presentation:", error);

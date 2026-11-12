@@ -446,6 +446,7 @@ model User {
   castingRosterFitJobs CastingRosterFitJob[]
   castingIndivDraftJobs CastingIndivDraftJob[]
   castingOutreachDraftJobs CastingOutreachDraftJob[]
+  castingProjectDraftJobs CastingProjectDraftJob[]
 
   @@map("users")
 }
@@ -5874,6 +5875,62 @@ model CastingOutreachDraftItem {
   @@unique([jobId, groupKey])
   @@index([jobId, status, sortOrder])
   @@map("casting_outreach_draft_items")
+}
+
+/// Job serveur rédaction Projets Outreach (marque → talent → Leyna → mail) — VPS.
+/// Survit à la fermeture du wizard / de la page (même contrat que casting indiv).
+model CastingProjectDraftJob {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  campaignId String
+
+  /// pending | running | completed | failed | cancelled
+  status String @default("pending")
+
+  totalMissions    Int     @default(0)
+  completed        Int     @default(0)
+  failed           Int     @default(0)
+  currentBrandName String?
+  cancelRequested  Boolean @default(false)
+  error            String? @db.Text
+
+  items CastingProjectDraftItem[]
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([userId, status])
+  @@index([status, updatedAt])
+  @@index([userId, campaignId, status])
+  @@map("casting_project_draft_jobs")
+}
+
+model CastingProjectDraftItem {
+  id    String                  @id @default(cuid())
+  jobId String
+  job   CastingProjectDraftJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  missionId String
+  brandName String
+  /// Talents pitchés pour cette marque (SOLO / MULTI / condensation).
+  talentIds String[] @default([])
+  sortOrder Int      @default(0)
+  /// pending | running | done | failed | skipped
+  status String  @default("pending")
+  error  String? @db.Text
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([jobId, missionId])
+  @@index([jobId, status, sortOrder])
+  @@map("casting_project_draft_items")
 }
 
 /// Journal d'activité plateforme (lecture réservée Sofian — pas dans le menu).

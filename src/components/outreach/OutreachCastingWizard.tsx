@@ -96,6 +96,27 @@ export type OutreachCastingBrand = {
   dos?: string | null;
   donts?: string | null;
   creatorName?: string | null;
+  /** Mode projet : talents pitchés pour cette marque (figés). */
+  selectedTalentIds?: string[];
+  /** Condensation cross-projets : ne pas réutiliser le PDF de la campagne courante pour tous. */
+  condensationGroupId?: string | null;
+};
+
+export type ProjectWizardCampaignBrief = {
+  id?: string;
+  title: string;
+  description?: string | null;
+  objective?: string | null;
+  deliverables?: string | null;
+  angles?: string | null;
+  timeline?: string | null;
+  budgetRange?: string | null;
+  dos?: string | null;
+  donts?: string | null;
+  mode?: "SOLO" | "MULTI";
+  /** Extrait texte du PDF de présentation (si déjà chargé côté parent). */
+  presentationExcerpt?: string | null;
+  presentationPdfUrl?: string | null;
 };
 
 type PresskitTalent = {
@@ -158,6 +179,17 @@ type Props = {
    * Utilise les caches indiv + sélection auto de ce talent.
    */
   lockedTalentId?: string | null;
+  /**
+   * Mode explicite. Si absent : indiv si lockedTalentId, sinon outreach.
+   * `project` = Projets Outreach (talents figés, pas de roster-fit, job VPS).
+   */
+  mode?: "outreach" | "indiv" | "project";
+  /** Campagne projet (requis si mode=project). */
+  campaignId?: string | null;
+  /** Brief campagne pour fallback rédaction client (mode project). */
+  campaignBrief?: ProjectWizardCampaignBrief | null;
+  /** Roster talents de la campagne (mode project) — remplace le presskit. */
+  allowedTalents?: PresskitTalent[];
   /** Libellé header (ex. « Casting indiv · Tatiana »). */
   wizardTitle?: string;
 };
@@ -265,9 +297,15 @@ export default function OutreachCastingWizard({
   onDraftsWritten,
   onAddContact,
   lockedTalentId = null,
+  mode,
+  campaignId = null,
+  campaignBrief = null,
+  allowedTalents,
   wizardTitle,
 }: Props) {
-  const isIndivMode = Boolean(lockedTalentId);
+  const isProjectMode = mode === "project";
+  const isIndivMode =
+    mode === "indiv" || (!mode && Boolean(lockedTalentId) && !isProjectMode);
   const viewCacheMarkets = useMemo(
     (): Array<"FR" | "BENELUX"> =>
       readBothMarkets ? ["FR", "BENELUX"] : [market],
@@ -370,7 +408,11 @@ export default function OutreachCastingWizard({
   const serverDraftNotifiedCompletedRef = useRef(0);
   const serverDraftStartingRef = useRef(false);
   const startIndivServerDraftRef = useRef<(keys?: string[]) => void>(() => {});
+  const startProjectServerDraftRef = useRef<(keys?: string[]) => void>(() => {});
   const startOutreachServerDraftRef = useRef<(keys?: string[]) => void>(() => {});
+  const presentationExcerptRef = useRef<string | null>(
+    campaignBrief?.presentationExcerpt || null
+  );
   const readyKeysRef = useRef<string[]>([]);
   const localDraftsRef = useRef(localDrafts);
   const fitByBrandRef = useRef(fitByBrand);
@@ -392,12 +434,52 @@ export default function OutreachCastingWizard({
     localDraftsRef.current = localDrafts;
   }, [localDrafts]);
 
+  // Précharge l’extrait texte du PDF présentation (fallback rédaction navigateur).
+  useEffect(() => {
+    if (!open || !isProjectMode) return;
+    if (campaignBrief?.presentationExcerpt) {
+      presentationExcerptRef.current = campaignBrief.presentationExcerpt;
+      return;
+    }
+    const campaignKey = campaignId || campaignBrief?.id;
+    if (!campaignKey || !campaignBrief?.presentationPdfUrl) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/projets-outreach/${campaignKey}/presentation?text=1`,
+          { credentials: "include" }
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          presentationExcerpt?: string | null;
+        };
+        if (cancelled || !res.ok) return;
+        const excerpt = String(data.presentationExcerpt || "").trim();
+        if (excerpt) presentationExcerptRef.current = excerpt;
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    open,
+    isProjectMode,
+    campaignId,
+    campaignBrief?.id,
+    campaignBrief?.presentationExcerpt,
+    campaignBrief?.presentationPdfUrl,
+  ]);
+
   /** Marché fit isolé en indiv pour ne pas collisionner avec Outreach FR. */
-  const fitMarketKey = lockedTalentId
-    ? `INDIV:${lockedTalentId}`
-    : readBothMarkets
-      ? "BOTH"
-      : market;
+  const fitMarketKey = isProjectMode && campaignId
+    ? `PROJECT:${campaignId}`
+    : lockedTalentId
+      ? `INDIV:${lockedTalentId}`
+      : readBothMarkets
+        ? "BOTH"
+        : market;
 
   useEffect(() => {
     autoWriteAfterFitRef.current = autoWriteAfterFit;
@@ -479,8 +561,12 @@ export default function OutreachCastingWizard({
     writeOneAbortRef.current?.abort();
 
     const skip = loadSkipSet(
-      isIndivMode ? `indiv:${lockedTalentId}` : market,
-      isIndivMode ? false : readBothMarkets
+      isProjectMode && campaignId
+        ? `project:${campaignId}`
+        : isIndivMode
+          ? `indiv:${lockedTalentId}`
+          : market,
+      isProjectMode || isIndivMode ? false : readBothMarkets
     );
     setSkipped(skip);
 
@@ -512,7 +598,17 @@ export default function OutreachCastingWizard({
         };
         nextReady.push(b.groupKey);
       }
-      if (lockedTalentId) {
+      if (isProjectMode) {
+        const fromBrand = (b.selectedTalentIds || [])
+          .map((id) => String(id || "").trim())
+          .filter(Boolean)
+          .slice(0, 8);
+        const fallback =
+          fromBrand.length > 0
+            ? fromBrand
+            : (allowedTalents || []).map((t) => t.id).slice(0, 8);
+        if (fallback.length > 0) nextSel[b.groupKey] = fallback;
+      } else if (lockedTalentId) {
         nextSel[b.groupKey] = [lockedTalentId];
       } else {
         const ids =
@@ -556,9 +652,9 @@ export default function OutreachCastingWizard({
     setIndex(startIdx >= 0 ? startIdx : 0);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open
 
-  // Charge le presskit selon le marché.
+  // Charge le presskit selon le marché (pas en mode projet).
   useEffect(() => {
-    if (!open) return;
+    if (!open || isProjectMode) return;
     let cancelled = false;
     setLoadingTalents(true);
     setTalentsError(null);
@@ -754,8 +850,8 @@ export default function OutreachCastingWizard({
         done += 1;
         continue;
       }
-      // Indiv : talent déjà verrouillé → on compte les mails rédigés.
-      if (isIndivMode) {
+      // Indiv / projet : talents figés → on compte les mails rédigés.
+      if (isIndivMode || isProjectMode) {
         if (localDrafts[b.groupKey] || readyKeys.includes(b.groupKey)) {
           done += 1;
         }
@@ -769,9 +865,16 @@ export default function OutreachCastingWizard({
     skipped,
     selectedByBrand,
     isIndivMode,
+    isProjectMode,
     localDrafts,
     readyKeys,
   ]);
+
+  const skipStorageKey = isProjectMode && campaignId
+    ? `project:${campaignId}`
+    : isIndivMode
+      ? `indiv:${lockedTalentId}`
+      : market;
 
   const writableBrands = useMemo(
     () =>
@@ -783,10 +886,10 @@ export default function OutreachCastingWizard({
     [brandsWithCache, skipped, selectedByBrand]
   );
 
-  // Outreach : toutes les marques ont une sélection. Indiv : talent déjà verrouillé.
+  // Outreach : toutes les marques ont une sélection. Indiv/projet : talents figés.
   const allCastingDone =
     brandsWithCache.length > 0 &&
-    (isIndivMode
+    (isIndivMode || isProjectMode
       ? brandsWithCache.every(
           (b) =>
             skipped.has(b.groupKey) ||
@@ -809,7 +912,7 @@ export default function OutreachCastingWizard({
     (talentId: string) => {
       if (!current) return;
       // Mode indiv : talent figé.
-      if (lockedTalentId) return;
+      if (lockedTalentId || isProjectMode) return;
       setSelectedByBrand((prev) => {
         const cur = new Set(prev[current.groupKey] || []);
         if (cur.has(talentId)) cur.delete(talentId);
@@ -822,7 +925,7 @@ export default function OutreachCastingWizard({
         return { ...prev, [current.groupKey]: ids };
       });
     },
-    [current, currentPitch, persistSelection, lockedTalentId]
+    [current, currentPitch, persistSelection, lockedTalentId, isProjectMode]
   );
 
   const goNext = useCallback(() => {
@@ -855,7 +958,11 @@ export default function OutreachCastingWizard({
     setSkipped((prev) => {
       const next = new Set(prev);
       next.add(current.groupKey);
-      saveSkipSet(market, readBothMarkets, next);
+      saveSkipSet(
+        skipStorageKey,
+        isProjectMode || isIndivMode ? false : readBothMarkets,
+        next
+      );
       return next;
     });
     if (index < brandsWithCache.length - 1) {
@@ -863,14 +970,26 @@ export default function OutreachCastingWizard({
     } else {
       setPhase("review");
     }
-  }, [current, index, brandsWithCache.length, market, readBothMarkets]);
+  }, [
+    current,
+    index,
+    brandsWithCache.length,
+    skipStorageKey,
+    isProjectMode,
+    isIndivMode,
+    readBothMarkets,
+  ]);
 
   const unskipAndEdit = useCallback(
     (groupKey: string) => {
       setSkipped((prev) => {
         const next = new Set(prev);
         next.delete(groupKey);
-        saveSkipSet(market, readBothMarkets, next);
+        saveSkipSet(
+          skipStorageKey,
+          isProjectMode || isIndivMode ? false : readBothMarkets,
+          next
+        );
         return next;
       });
       const idx = brandsWithCache.findIndex((b) => b.groupKey === groupKey);
@@ -879,7 +998,13 @@ export default function OutreachCastingWizard({
         setPhase("casting");
       }
     },
-    [brandsWithCache, market, readBothMarkets]
+    [
+      brandsWithCache,
+      skipStorageKey,
+      isProjectMode,
+      isIndivMode,
+      readBothMarkets,
+    ]
   );
 
   const currentFits = useMemo(() => {
@@ -888,9 +1013,17 @@ export default function OutreachCastingWizard({
   }, [current, fitByBrand]);
 
   const sortedTalents = useMemo(() => {
-    const base = lockedTalentId
-      ? talents.filter((t) => t.id === lockedTalentId)
-      : talents;
+    const base = isProjectMode
+      ? (() => {
+          const ids = new Set(
+            (current ? selectedByBrand[current.groupKey] : null) ||
+              (allowedTalents || []).map((t) => t.id)
+          );
+          return talents.filter((t) => ids.has(t.id));
+        })()
+      : lockedTalentId
+        ? talents.filter((t) => t.id === lockedTalentId)
+        : talents;
     const hasFits = Object.keys(currentFits).length > 0;
     if (!hasFits) return base;
     return [...base].sort((a, b) => {
@@ -901,11 +1034,28 @@ export default function OutreachCastingWizard({
       if (ra !== rb) return rb - ra;
       return (fb?.fitScore || 0) - (fa?.fitScore || 0);
     });
-  }, [talents, currentFits, lockedTalentId]);
+  }, [
+    talents,
+    currentFits,
+    lockedTalentId,
+    isProjectMode,
+    current,
+    selectedByBrand,
+    allowedTalents,
+  ]);
+
+  // Projet : roster = talents campagne (pas le presskit).
+  useEffect(() => {
+    if (!open || !isProjectMode) return;
+    if (!allowedTalents || allowedTalents.length === 0) return;
+    setTalents(allowedTalents);
+    setLoadingTalents(false);
+    setTalentsError(null);
+  }, [open, isProjectMode, allowedTalents]);
 
   // Indiv : si le talent n’est pas dans le presskit marché, on le charge à part.
   useEffect(() => {
-    if (!open || !lockedTalentId) return;
+    if (!open || !lockedTalentId || isProjectMode) return;
     if (talents.some((t) => t.id === lockedTalentId)) return;
     let cancelled = false;
     fetch(`/api/talents/${encodeURIComponent(lockedTalentId)}`, {
@@ -1423,7 +1573,7 @@ export default function OutreachCastingWizard({
    * est prête (sauf si un job fit/draft est déjà repris).
    */
   useEffect(() => {
-    if (!open || lockedTalentId) return;
+    if (!open || lockedTalentId || isProjectMode) return;
     if (autoStartFitRef.current) return;
     if (loadingTalents || talents.length === 0) return;
     if (brandsWithCache.length === 0) return;
@@ -1440,6 +1590,7 @@ export default function OutreachCastingWizard({
   }, [
     open,
     lockedTalentId,
+    isProjectMode,
     loadingTalents,
     talents.length,
     brandsWithCache.length,
@@ -1465,7 +1616,7 @@ export default function OutreachCastingWizard({
       if (talentIds.length === 0) {
         throw new Error("Aucun talent sélectionné");
       }
-      if (isIndivMode && lockedTalentId) {
+      if (isIndivMode && lockedTalentId && !isProjectMode) {
         const fit = fitByBrand[brand.groupKey]?.[lockedTalentId];
         if (!fit) {
           throw new Error(
@@ -1634,27 +1785,93 @@ export default function OutreachCastingWizard({
       const draftContext = String(
         draftContextByBrand[brand.groupKey] ?? brand.draftContext ?? ""
       ).trim();
-      const projectBrief = isIndivMode
-        ? {
-            talentId: lockedTalentId || null,
-            projectTitle: null,
-            projectDescription: null,
-            creatorName: brand.creatorName || null,
+      const projectBrief = isProjectMode
+        ? undefined
+        : isIndivMode
+          ? {
+              talentId: lockedTalentId || null,
+              projectTitle: null,
+              projectDescription: null,
+              creatorName: brand.creatorName || null,
+              targetBrand: pitch,
+              strategyReason: brand.strategyReason || null,
+              recommendedAngle: brand.recommendedAngle || null,
+              objective: brand.objective || null,
+              deliverables: null,
+              angles: null,
+              timeline: null,
+              budgetRange: null,
+              dos: brand.dos || null,
+              donts: brand.donts || null,
+              draftContext: draftContext || null,
+            }
+          : draftContext
+            ? { targetBrand: pitch, draftContext }
+            : undefined;
+
+      const projectPayload: Record<string, unknown> = {};
+      if (isProjectMode && campaignBrief) {
+        // Condensation : 1 PDF par projet frère — jamais le deck de la campagne
+        // courante collé sur tous les talents.
+        if (brand.condensationGroupId) {
+          try {
+            const briefsRes = await fetch(
+              `/api/projets-outreach/condensation-briefs?missionId=${encodeURIComponent(brand.groupKey)}`,
+              { credentials: "include", signal }
+            );
+            const briefsData = (await briefsRes.json().catch(() => ({}))) as {
+              condensationBriefs?: Array<Record<string, unknown>>;
+            };
+            const siblingBriefs = Array.isArray(briefsData.condensationBriefs)
+              ? briefsData.condensationBriefs
+              : [];
+            if (briefsRes.ok && siblingBriefs.length >= 2) {
+              projectPayload.sharedProject = false;
+              projectPayload.projectBriefs = siblingBriefs.map((b) => ({
+                ...b,
+                targetBrand: pitch,
+              }));
+            }
+          } catch {
+            /* fallback mono ci-dessous */
+          }
+        }
+
+        if (
+          !Array.isArray(projectPayload.projectBriefs) ||
+          (projectPayload.projectBriefs as unknown[]).length < 2
+        ) {
+          const pdfExcerpt =
+            presentationExcerptRef.current ||
+            campaignBrief.presentationExcerpt ||
+            null;
+          // MULTI / SOLO : un seul projet → un seul PDF partagé (OK).
+          const briefs = talentsPayload.map((t) => ({
+            talentId: t.talentId,
+            projectTitle: campaignBrief.title,
+            projectDescription: campaignBrief.description ?? null,
+            creatorName: t.name,
             targetBrand: pitch,
             strategyReason: brand.strategyReason || null,
             recommendedAngle: brand.recommendedAngle || null,
-            objective: brand.objective || null,
-            deliverables: null,
-            angles: null,
-            timeline: null,
-            budgetRange: null,
-            dos: brand.dos || null,
-            donts: brand.donts || null,
+            objective: brand.objective || campaignBrief.objective || null,
+            deliverables: campaignBrief.deliverables ?? null,
+            angles: campaignBrief.angles ?? null,
+            timeline: campaignBrief.timeline ?? null,
+            budgetRange: campaignBrief.budgetRange ?? null,
+            dos: brand.dos || campaignBrief.dos || null,
+            donts: brand.donts || campaignBrief.donts || null,
             draftContext: draftContext || null,
+            ...(pdfExcerpt ? { presentationExcerpt: pdfExcerpt } : {}),
+          }));
+          if (briefs.length >= 2) {
+            projectPayload.sharedProject = campaignBrief.mode === "MULTI";
+            projectPayload.projectBriefs = briefs;
+          } else if (briefs.length === 1) {
+            projectPayload.projectBrief = briefs[0];
           }
-        : draftContext
-          ? { targetBrand: pitch, draftContext }
-          : undefined;
+        }
+      }
 
       const genOnce = async (ackNego: boolean) => {
         const res = await fetch("/api/casting/generate-email", {
@@ -1678,6 +1895,7 @@ export default function OutreachCastingWizard({
                 : talentResearch || undefined,
             negotiationReviewAcknowledged: ackNego || undefined,
             projectBrief,
+            ...projectPayload,
             leynaExchangeCache: leyna
               ? {
                   hasExchange: Boolean(leyna.hasExchange),
@@ -1741,6 +1959,8 @@ export default function OutreachCastingWizard({
       onSaveDraft,
       lockedTalentId,
       isIndivMode,
+      isProjectMode,
+      campaignBrief,
     ]
   );
 
@@ -1880,7 +2100,11 @@ export default function OutreachCastingWizard({
     setAutoWriteQueueLen(0);
     setAutoWriteCurrent("");
     try {
-      if (lockedTalentId) {
+      if (isProjectMode && campaignId) {
+        sessionStorage.removeItem(
+          `casting-project-pending-draft:${campaignId}`
+        );
+      } else if (lockedTalentId) {
         sessionStorage.removeItem(
           `casting-indiv-pending-draft:${lockedTalentId}`
         );
@@ -1893,7 +2117,7 @@ export default function OutreachCastingWizard({
       /* ignore */
     }
 
-    if (fitJobId) {
+    if (fitJobId && !isProjectMode) {
       try {
         await fetch(`/api/casting/roster-fit-jobs/${fitJobId}`, {
           method: "DELETE",
@@ -1909,9 +2133,11 @@ export default function OutreachCastingWizard({
 
     if (serverDraftJobId) {
       try {
-        const path = lockedTalentId
-          ? `/api/casting/indiv-draft-jobs/${serverDraftJobId}`
-          : `/api/casting/outreach-draft-jobs/${serverDraftJobId}`;
+        const path = isProjectMode
+          ? `/api/casting/project-draft-jobs/${serverDraftJobId}`
+          : lockedTalentId
+            ? `/api/casting/indiv-draft-jobs/${serverDraftJobId}`
+            : `/api/casting/outreach-draft-jobs/${serverDraftJobId}`;
         await fetch(path, { method: "DELETE", credentials: "include" });
       } catch {
         /* ignore */
@@ -1934,6 +2160,8 @@ export default function OutreachCastingWizard({
     serverDraftJobId,
     lockedTalentId,
     fitMarketKey,
+    isProjectMode,
+    campaignId,
     stopFitPoll,
     stopServerDraftPoll,
     onFlash,
@@ -2250,6 +2478,331 @@ export default function OutreachCastingWizard({
     };
   }, [startIndivServerDraft]);
 
+  const pollProjectServerDraft = useCallback(
+    async (jobId: string) => {
+      try {
+        const res = await fetch(`/api/casting/project-draft-jobs/${jobId}`, {
+          credentials: "include",
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          status?: string;
+          totalMissions?: number;
+          completed?: number;
+          failed?: number;
+          currentBrandName?: string | null;
+          items?: Array<{
+            missionId: string;
+            brandName: string;
+            status: string;
+            error?: string | null;
+            draftSubject?: string | null;
+            draftBodyHtml?: string | null;
+          }>;
+        };
+        if (!res.ok) return;
+
+        const completed = Number(data.completed || 0);
+        const failed = Number(data.failed || 0);
+        const total = Number(data.totalMissions || 0);
+        setServerDraftDone(completed + failed);
+        setServerDraftFailed(failed);
+        setServerDraftTotal(total);
+        setServerDraftCurrent(data.currentBrandName || "");
+        setAutoWriteCurrent(data.currentBrandName || "");
+
+        for (const it of data.items || []) {
+          if (it.status !== "done") continue;
+          pendingServerDraftKeysRef.current.delete(it.missionId);
+          serverDraftQueuedRef.current.delete(it.missionId);
+          const subject = String(it.draftSubject || "").trim();
+          const bodyHtml = String(it.draftBodyHtml || "").trim();
+          if (!subject || !bodyHtml) continue;
+          const brand = brandsWithCache.find((b) => b.groupKey === it.missionId);
+          if (!brand) continue;
+          if (
+            !localDraftsRef.current[it.missionId] &&
+            !readyKeysRef.current.includes(it.missionId)
+          ) {
+            setLocalDrafts((prev) => ({
+              ...prev,
+              [it.missionId]: { subject, bodyHtml },
+            }));
+            setReadyKeys((prev) =>
+              prev.includes(it.missionId) ? prev : [...prev, it.missionId]
+            );
+            autoWriteDoneKeysRef.current.add(it.missionId);
+          }
+        }
+
+        setAutoWriteQueueLen(Math.max(0, total - completed - failed));
+
+        if (completed > serverDraftNotifiedCompletedRef.current) {
+          serverDraftNotifiedCompletedRef.current = completed;
+          onDraftsWritten?.();
+        }
+
+        if (
+          data.status === "completed" ||
+          data.status === "failed" ||
+          data.status === "cancelled"
+        ) {
+          stopServerDraftPoll();
+          setServerDraftRunning(false);
+          setServerDraftJobId(null);
+          setServerDraftCurrent("");
+          setAutoWriteQueueLen(0);
+          setPhase("review");
+          onDraftsWritten?.();
+          if (campaignId) {
+            try {
+              sessionStorage.removeItem(
+                `casting-project-pending-draft:${campaignId}`
+              );
+            } catch {
+              /* ignore */
+            }
+          }
+          if (data.status === "completed") {
+            onFlash?.(
+              "success",
+              `Rédaction projet terminée (${completed} ok${
+                failed > 0 ? `, ${failed} échec(s)` : ""
+              }).`
+            );
+          } else if (data.status === "failed") {
+            onFlash?.(
+              "error",
+              `Rédaction projet échouée (${failed} échec(s)).`
+            );
+          } else if (data.status === "cancelled") {
+            onFlash?.(
+              "error",
+              `Rédaction projet arrêtée (${completed} ok${
+                failed > 0 ? `, ${failed} échec(s)` : ""
+              }).`
+            );
+          }
+          // Marques ajoutées pendant le job (stash) → relance.
+          const leftover = Array.from(pendingServerDraftKeysRef.current).filter(
+            (k) =>
+              !autoWriteDoneKeysRef.current.has(k) &&
+              !readyKeysRef.current.includes(k) &&
+              !serverDraftQueuedRef.current.has(k)
+          );
+          if (leftover.length > 0) {
+            startProjectServerDraftRef.current(leftover);
+          }
+        }
+      } catch (e) {
+        console.error("[outreach-casting] poll project draft:", e);
+      }
+    },
+    [stopServerDraftPoll, onDraftsWritten, onFlash, brandsWithCache, campaignId]
+  );
+
+  const startProjectServerDraft = useCallback(
+    async (keys?: string[]) => {
+      if (!isProjectMode || !campaignId || serverDraftStartingRef.current) {
+        return;
+      }
+      const source =
+        keys && keys.length > 0
+          ? keys
+          : Array.from(pendingServerDraftKeysRef.current);
+      const missionIds = [
+        ...new Set(
+          source.filter((k) => {
+            if (!k) return false;
+            if (autoWriteDoneKeysRef.current.has(k)) return false;
+            if (readyKeysRef.current.includes(k)) return false;
+            if (localDraftsRef.current[k]) return false;
+            if (serverDraftQueuedRef.current.has(k)) return false;
+            return true;
+          })
+        ),
+      ];
+      // Si aucun keys passé → toutes les marques éligibles du lot.
+      const pool =
+        missionIds.length > 0
+          ? missionIds
+          : brandsWithCache
+              .filter((b) => {
+                if (skipped.has(b.groupKey)) return false;
+                if (autoWriteDoneKeysRef.current.has(b.groupKey)) return false;
+                if (readyKeysRef.current.includes(b.groupKey)) return false;
+                if (localDraftsRef.current[b.groupKey]) return false;
+                return (selectedByBrand[b.groupKey] || []).length > 0;
+              })
+              .map((b) => b.groupKey);
+      if (pool.length === 0) {
+        onFlash?.("error", "Aucune marque à rédiger.");
+        return;
+      }
+
+      // Job déjà en cours + un autre POST en vol → stash (sera flushé en fin de poll).
+      if (serverDraftStartingRef.current) {
+        for (const k of pool) pendingServerDraftKeysRef.current.add(k);
+        return;
+      }
+
+      serverDraftStartingRef.current = true;
+      for (const k of pool) serverDraftQueuedRef.current.add(k);
+      const wasRunning = Boolean(serverDraftJobId && serverDraftRunning);
+      try {
+        const items = pool.map((missionId) => {
+          const brand = brandsWithCache.find((b) => b.groupKey === missionId);
+          const pitch = brand
+            ? pitchOverride[brand.groupKey] || defaultPitchBrand(brand)
+            : "";
+          const draftContext = String(
+            draftContextByBrand[missionId] ?? brand?.draftContext ?? ""
+          ).trim();
+          return {
+            missionId,
+            brandName: pitch || brand?.company || "Marque",
+            talentIds: selectedByBrand[missionId] || brand?.selectedTalentIds || [],
+            draftContext: draftContext || null,
+          };
+        });
+
+        const res = await fetch("/api/casting/project-draft-jobs", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            campaignId,
+            items,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          jobId?: string;
+          totalMissions?: number;
+          completed?: number;
+          failed?: number;
+          currentBrandName?: string | null;
+          appended?: number;
+          message?: string;
+          error?: string;
+        };
+        if (!res.ok || !data.jobId) {
+          throw new Error(
+            typeof data.error === "string"
+              ? data.error
+              : "Impossible de lancer la rédaction serveur"
+          );
+        }
+        for (const k of pool) {
+          pendingServerDraftKeysRef.current.delete(k);
+        }
+        try {
+          const prevRaw = sessionStorage.getItem(
+            `casting-project-pending-draft:${campaignId}`
+          );
+          const prev = prevRaw ? (JSON.parse(prevRaw) as string[]) : [];
+          const merged = [
+            ...new Set([
+              ...(Array.isArray(prev) ? prev : []),
+              ...pool,
+            ]),
+          ];
+          sessionStorage.setItem(
+            `casting-project-pending-draft:${campaignId}`,
+            JSON.stringify(merged)
+          );
+        } catch {
+          /* ignore */
+        }
+        setServerDraftJobId(data.jobId);
+        setServerDraftRunning(true);
+        const total = Number(data.totalMissions || items.length);
+        const completed = Number(data.completed || 0);
+        const failed = Number(data.failed || 0);
+        // Ne pas reset la barre si on append sur un job déjà en cours.
+        setServerDraftTotal(total);
+        setServerDraftDone(completed + failed);
+        setServerDraftFailed(failed);
+        setServerDraftCurrent(
+          data.currentBrandName || items[0]?.brandName || ""
+        );
+        setAutoWriteCurrent(
+          data.currentBrandName || items[0]?.brandName || ""
+        );
+        setAutoWriteQueueLen(Math.max(0, total - completed - failed));
+        setPhase("review");
+        onFlash?.(
+          "success",
+          data.message ||
+            `Rédaction serveur (${items.length}) — tu peux quitter la page.`
+        );
+        if (!wasRunning || serverDraftJobId !== data.jobId) {
+          stopServerDraftPoll();
+          void pollProjectServerDraft(data.jobId);
+          serverDraftPollRef.current = setInterval(() => {
+            void pollProjectServerDraft(data.jobId!);
+          }, 3000);
+        } else {
+          void pollProjectServerDraft(data.jobId);
+        }
+      } catch (e) {
+        for (const k of pool) serverDraftQueuedRef.current.delete(k);
+        const msg =
+          e instanceof Error ? e.message : "Rédaction serveur impossible.";
+        const alreadyDone =
+          /aucune mission éligible|déjà/i.test(msg) ||
+          /brouillon/i.test(msg);
+        if (alreadyDone && campaignId) {
+          try {
+            sessionStorage.removeItem(
+              `casting-project-pending-draft:${campaignId}`
+            );
+          } catch {
+            /* ignore */
+          }
+          for (const k of pool) {
+            pendingServerDraftKeysRef.current.delete(k);
+            autoWriteDoneKeysRef.current.add(k);
+          }
+          onFlash?.("success", "Brouillons déjà prêts — rien à relancer.");
+        } else {
+          if (!wasRunning) {
+            setServerDraftRunning(false);
+            setServerDraftJobId(null);
+          }
+          onFlash?.(
+            "error",
+            `${msg} — bascule rédaction navigateur.`
+          );
+          for (const k of pool) {
+            const tids = selectedByBrand[k] || [];
+            if (tids.length > 0) enqueueAutoWriteRef.current(k, tids);
+          }
+        }
+      } finally {
+        serverDraftStartingRef.current = false;
+      }
+    },
+    [
+      isProjectMode,
+      campaignId,
+      serverDraftJobId,
+      serverDraftRunning,
+      brandsWithCache,
+      skipped,
+      selectedByBrand,
+      pitchOverride,
+      draftContextByBrand,
+      stopServerDraftPoll,
+      pollProjectServerDraft,
+      onFlash,
+    ]
+  );
+
+  useEffect(() => {
+    startProjectServerDraftRef.current = (keys?: string[]) => {
+      void startProjectServerDraft(keys);
+    };
+  }, [startProjectServerDraft]);
+
   const pollOutreachServerDraft = useCallback(
     async (jobId: string) => {
       try {
@@ -2531,9 +3084,79 @@ export default function OutreachCastingWizard({
     };
   }, [startOutreachServerDraft]);
 
+  // Reprend un job rédaction projet actif (même après fermeture).
+  useEffect(() => {
+    if (!open || !isProjectMode || !campaignId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/casting/project-draft-jobs?campaignId=${encodeURIComponent(campaignId)}`,
+          { credentials: "include" }
+        );
+        const data = (await res.json().catch(() => ({}))) as {
+          active?: {
+            id: string;
+            status: string;
+            totalMissions?: number;
+            completed?: number;
+            failed?: number;
+            currentBrandName?: string | null;
+          } | null;
+        };
+        if (cancelled) return;
+        if (
+          res.ok &&
+          data.active?.id &&
+          ["pending", "running"].includes(data.active.status)
+        ) {
+          setServerDraftJobId(data.active.id);
+          setServerDraftRunning(true);
+          setServerDraftTotal(Number(data.active.totalMissions || 0));
+          setServerDraftDone(
+            Number(data.active.completed || 0) +
+              Number(data.active.failed || 0)
+          );
+          setServerDraftFailed(Number(data.active.failed || 0));
+          setServerDraftCurrent(data.active.currentBrandName || "");
+          setAutoWriteCurrent(data.active.currentBrandName || "");
+          setPhase("review");
+          stopServerDraftPoll();
+          void pollProjectServerDraft(data.active.id);
+          serverDraftPollRef.current = setInterval(() => {
+            void pollProjectServerDraft(data.active!.id);
+          }, 3000);
+          onFlash?.(
+            "success",
+            "Rédaction serveur reprise — tu peux quitter, ça continue."
+          );
+          return;
+        }
+        // Job terminé hors écran : relance depuis le pending session.
+        let pending: string[] = [];
+        try {
+          const raw = sessionStorage.getItem(
+            `casting-project-pending-draft:${campaignId}`
+          );
+          if (raw) pending = JSON.parse(raw) as string[];
+        } catch {
+          pending = [];
+        }
+        if (!Array.isArray(pending) || pending.length === 0) return;
+        pendingServerDraftKeysRef.current = new Set(pending.filter(Boolean));
+        startProjectServerDraftRef.current(pending.filter(Boolean));
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isProjectMode, campaignId]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open
+
   // Reprend un job rédaction indiv actif (même après fermeture).
   useEffect(() => {
-    if (!open || !lockedTalentId) return;
+    if (!open || !lockedTalentId || isProjectMode) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -2598,7 +3221,7 @@ export default function OutreachCastingWizard({
 
   // Reprend un job rédaction outreach actif (même après fermeture).
   useEffect(() => {
-    if (!open || lockedTalentId) return;
+    if (!open || lockedTalentId || isProjectMode) return;
     let cancelled = false;
     const marketKey = fitMarketKey;
     void (async () => {
@@ -2861,7 +3484,14 @@ export default function OutreachCastingWizard({
       className="fixed inset-0 z-[120] flex items-stretch justify-center bg-black/50 p-0 sm:p-4"
       role="dialog"
       aria-modal="true"
-      aria-label={wizardTitle || (isIndivMode ? "Casting indiv" : "Wizard casting Outreach")}
+      aria-label={
+        wizardTitle ||
+        (isProjectMode
+          ? "Wizard casting projet"
+          : isIndivMode
+            ? "Casting indiv"
+            : "Wizard casting Outreach")
+      }
     >
       <div
         className="flex h-full w-full max-w-6xl flex-col overflow-hidden bg-[#FBF8F4] shadow-2xl sm:h-[min(92vh,900px)] sm:rounded-2xl"
@@ -2878,13 +3508,19 @@ export default function OutreachCastingWizard({
               style={{ fontFamily: "Spectral, serif", color: LICORICE }}
             >
               {wizardTitle ||
-                (isIndivMode ? "Casting indiv" : "Wizard casting · Outreach")}
+                (isProjectMode
+                  ? "Wizard casting · Projet"
+                  : isIndivMode
+                    ? "Casting indiv"
+                    : "Wizard casting · Outreach")}
             </p>
             <p className="m-0 text-[11px] text-slate-500">
               {phase === "casting"
-                ? isIndivMode
-                  ? `1 talent × marques · ${castingProgress.done}/${castingProgress.total}`
-                  : `Sélection talents · ${castingProgress.done}/${castingProgress.total} marques`
+                ? isProjectMode
+                  ? `Talents figés · ${castingProgress.done}/${castingProgress.total} marques · VPS`
+                  : isIndivMode
+                    ? `1 talent × marques · ${castingProgress.done}/${castingProgress.total}`
+                    : `Sélection talents · ${castingProgress.done}/${castingProgress.total} marques`
                 : phase === "writing"
                   ? `Rédaction · ${writeCurrent || "…"}`
                   : `Contrôle · ${readyKeys.length} prêt${readyKeys.length > 1 ? "s" : ""}`}
@@ -2909,9 +3545,10 @@ export default function OutreachCastingWizard({
               const hasDraft =
                 Boolean(localDrafts[b.groupKey]) ||
                 readyKeys.includes(b.groupKey);
-              const isDone = isIndivMode
-                ? isSkip || hasDraft
-                : isSkip || sel > 0;
+              const isDone =
+                isIndivMode || isProjectMode
+                  ? isSkip || hasDraft
+                  : isSkip || sel > 0;
               const isCurrent = i === index;
               return (
                 <button
@@ -2941,7 +3578,7 @@ export default function OutreachCastingWizard({
         <div className="min-h-0 flex-1 overflow-y-auto">
           {brandsWithCache.length === 0 ? (
             <div className="p-8 text-center text-sm text-slate-500">
-              {isIndivMode
+              {isIndivMode || isProjectMode
                 ? "Aucune marque dans ce lot."
                 : "Aucune marque à caster dans cette file. Recharge la page ou change d’onglet."}
             </div>
@@ -3201,22 +3838,26 @@ export default function OutreachCastingWizard({
                     className="m-0 text-sm font-semibold"
                     style={{ color: LICORICE }}
                   >
-                    {isIndivMode
-                      ? "Talent (verrouillé)"
-                      : talentMarket === "BOTH"
-                        ? "Talents FR + BE"
-                        : talentMarket === "BENELUX"
-                          ? "Créateurs belges"
-                          : "Sélectionner les talents"}
+                    {isProjectMode
+                      ? "Talents du projet (figés)"
+                      : isIndivMode
+                        ? "Talent (verrouillé)"
+                        : talentMarket === "BOTH"
+                          ? "Talents FR + BE"
+                          : talentMarket === "BENELUX"
+                            ? "Créateurs belges"
+                            : "Sélectionner les talents"}
                   </p>
                   <span className="text-[11px] text-slate-500">
-                    {isIndivMode
-                      ? currentFits[lockedTalentId || ""]?.recommended
-                        ? "Oui"
-                        : currentFits[lockedTalentId || ""]
-                          ? "Non"
-                          : "Fit…"
-                      : `${currentSelected.size}/8`}
+                    {isProjectMode
+                      ? `${currentSelected.size} talent${currentSelected.size > 1 ? "s" : ""}`
+                      : isIndivMode
+                        ? currentFits[lockedTalentId || ""]?.recommended
+                          ? "Oui"
+                          : currentFits[lockedTalentId || ""]
+                            ? "Non"
+                            : "Fit…"
+                        : `${currentSelected.size}/8`}
                   </span>
                 </div>
                 {talentsError && (
@@ -3782,6 +4423,38 @@ export default function OutreachCastingWizard({
                       </button>
                     ) : null}
                   </>
+                ) : isProjectMode ? (
+                  <div className="flex flex-col items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void startProjectServerDraft()}
+                      disabled={
+                        brandsWithCache.length === 0 ||
+                        Boolean(writingOneKey) ||
+                        serverDraftRunning
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40"
+                      style={{
+                        borderColor: OLD_ROSE,
+                        color: LICORICE,
+                        background: "#FDF6F4",
+                      }}
+                      title="Marque → talents → Leyna → mails sur le VPS (tu peux quitter)"
+                    >
+                      <Sparkles className="h-4 w-4" style={{ color: OLD_ROSE }} />
+                      {`Rédiger serveur (${
+                        brandsWithCache.filter(
+                          (b) =>
+                            !skipped.has(b.groupKey) &&
+                            !readyKeys.includes(b.groupKey) &&
+                            !localDrafts[b.groupKey]
+                        ).length
+                      })`}
+                    </button>
+                    <p className="m-0 text-center text-[11px] text-slate-500">
+                      Talents figés · pas de roster-fit · tu peux quitter
+                    </p>
+                  </div>
                 ) : (
                   <div className="flex flex-col items-center gap-1.5">
                     <button
@@ -3830,7 +4503,8 @@ export default function OutreachCastingWizard({
                     disabled={
                       Boolean(writingOneKey) ||
                       // Fit du lot en cours OK si CETTE marque a déjà son fit.
-                      (Boolean(fitRunning) &&
+                      (!isProjectMode &&
+                        Boolean(fitRunning) &&
                         !(lockedTalentId
                           ? Boolean(
                               fitByBrand[current.groupKey]?.[lockedTalentId]
@@ -3841,6 +4515,7 @@ export default function OutreachCastingWizard({
                         !readyKeys.includes(current.groupKey) &&
                         serverDraftQueuedRef.current.has(current.groupKey)) ||
                       (isIndivMode &&
+                        !isProjectMode &&
                         Boolean(lockedTalentId) &&
                         !fitByBrand[current.groupKey]?.[lockedTalentId || ""] &&
                         !readyKeys.includes(current.groupKey))
@@ -3849,6 +4524,7 @@ export default function OutreachCastingWizard({
                     style={{ background: OLD_ROSE }}
                     title={
                       isIndivMode &&
+                      !isProjectMode &&
                       lockedTalentId &&
                       !fitByBrand[current.groupKey]?.[lockedTalentId]
                         ? "Fit casting obligatoire d’abord"

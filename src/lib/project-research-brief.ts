@@ -19,6 +19,8 @@ export type ProjectResearchBrief = {
   donts?: string | null;
   /** Contexte ops libre (wizard) — le mail doit s'y adapter. */
   draftContext?: string | null;
+  /** Extrait texte du PDF de présentation projet (deck). */
+  presentationExcerpt?: string | null;
 };
 
 function line(label: string, value: unknown): string {
@@ -48,14 +50,27 @@ export function formatProjectBriefForPrompt(
   index?: number
 ): string {
   const talentMode = isTalentIndividualProspectingBrief(brief);
+  const talentLabel = String(brief.creatorName || "").trim();
+  const titleLabel = String(brief.projectTitle || "").trim();
   const header =
     typeof index === "number"
       ? `${talentMode ? "PROSPECTION" : "PROJET"} ${index + 1}${
-          brief.creatorName ? ` — ${String(brief.creatorName).trim()}` : ""
+          talentLabel ? ` — ${talentLabel}` : ""
         }`
       : talentMode
         ? "PROSPECTION TALENT (individuelle)"
         : "BRIEF PROJET";
+  const pdfOwner = [talentLabel, titleLabel ? `« ${titleLabel} »` : ""]
+    .filter(Boolean)
+    .join(" / ");
+  const pdfLine = brief.presentationExcerpt
+    ? line(
+        pdfOwner
+          ? `Extrait PDF présentation (UNIQUEMENT ${pdfOwner} — ne pas attribuer à un autre talent/projet)`
+          : "Extrait PDF présentation (ne pas mélanger avec un autre brief)",
+        brief.presentationExcerpt
+      )
+    : "";
   return [
     header,
     line("Titre", brief.projectTitle),
@@ -72,6 +87,7 @@ export function formatProjectBriefForPrompt(
     line("Do's", brief.dos),
     line("Don'ts", brief.donts),
     line("Contexte ops (prioritaire)", brief.draftContext),
+    pdfLine,
   ]
     .filter(Boolean)
     .join("\n");
@@ -88,7 +104,8 @@ export function hasUsefulProjectBrief(brief: unknown): brief is ProjectResearchB
       String(b.deliverables || "").trim() ||
       String(b.creatorName || "").trim() ||
       String(b.recommendedAngle || "").trim() ||
-      String(b.draftContext || "").trim()
+      String(b.draftContext || "").trim() ||
+      String(b.presentationExcerpt || "").trim()
   );
 }
 
@@ -111,13 +128,17 @@ export function pickBriefForTalent(
   }
 ): ProjectResearchBrief | null {
   const briefs = opts.projectBriefs || [];
+  const tid = String(talentId || "").trim();
   if (briefs.length > 0) {
-    const byId = briefs.find(
-      (b) => String(b.talentId || "").trim() === talentId
-    );
-    if (byId) return byId;
-    // Fallback : un seul brief utile, ou le premier.
+    // Match strict talentId — évite d'attribuer le PDF / brief d'un autre talent.
+    if (tid) {
+      const byId = briefs.find((b) => String(b.talentId || "").trim() === tid);
+      if (byId) return byId;
+    }
+    // Un seul brief : OK. Plusieurs sans match → ne pas retomber sur le 1er
+    // (sinon PDF talent A collé sur l'analyse talent B).
     if (briefs.length === 1) return briefs[0];
+    return null;
   }
   return opts.projectBrief || null;
 }

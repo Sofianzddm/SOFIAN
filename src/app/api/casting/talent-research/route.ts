@@ -186,6 +186,9 @@ function buildPrompt(args: {
     const prioritize = talentProspecting
       ? "- Priorise les faits observables + l'angle strategy (si dispo) sur les niches CRM génériques."
       : "- Priorise les faits observables + le brief projet sur les niches CRM génériques.";
+    const pdfGuard = String(projectBrief.presentationExcerpt || "").trim()
+      ? `- PDF : utilise UNIQUEMENT l'extrait PDF de CE brief (talent ${String(projectBrief.creatorName || name).trim()}${projectBrief.projectTitle ? ` / « ${String(projectBrief.projectTitle).trim()} »` : ""}). N'invente rien d'un autre projet / autre talent.`
+      : "";
 
     return `Tu es un expert casting / influence. Ta mission : ALLER CHERCHER qui est ce créateur, analyser son profil public, et expliquer concrètement CE QU'IL FAIT — ${mission}.
 
@@ -217,6 +220,7 @@ ${sourceHint}
 Règles strictes :
 - N'invente RIEN. Si une info manque, dis-le.
 ${prioritize}
+${pdfGuard}
 - Portée RELATIVE aux abonnés : 120k vues pour 30k abonnés = waouh ; 100k vues pour 500k abonnés = pas waouh. N'insiste sur les vues CRM que si elles sont marquées « forte/notable vs abonnés », ou si tu as des hits viraux clairement au-dessus du compte (ex. millions TT). Ne vends pas un Reel à 123k pour un compte IG 150k comme un exploit.
 - Perf contenu EN CE MOMENT : si TikToks / Reels / posts cartonnent (pics vues, Notes TM / Notes internes « pète les scores », hits viraux), dis-le clairement dans profileAnalysis et proofPoints (ex. « ses TikToks performent particulièrement bien en ce moment, jusqu'à Xm vues »). La croissance d'abonnés est secondaire.
 - Notes internes fiche profil : exploite-les comme contexte TM (momentum, angle, observations). Ne les cite pas mot pour mot si elles sont trop internes ; reformule en preuves utiles.

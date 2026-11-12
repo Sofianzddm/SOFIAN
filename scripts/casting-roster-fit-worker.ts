@@ -15,6 +15,7 @@ import prisma from "../src/lib/prisma";
 import { processRosterFitJobTick } from "../src/lib/casting-roster-fit-job";
 import { processIndivDraftJobTick } from "../src/lib/casting-indiv-draft-job";
 import { processOutreachDraftJobTick } from "../src/lib/casting-outreach-draft-job";
+import { processProjectDraftJobTick } from "../src/lib/casting-project-draft-job";
 
 const POLL_IDLE_MS = Number(process.env.CASTING_FIT_POLL_MS || 5000);
 const STUCK_BRAND_MS = Number(process.env.CASTING_FIT_STUCK_MS || 8 * 60 * 1000);
@@ -90,6 +91,31 @@ async function recoverStuck() {
       "[casting-fit-worker] castingOutreachDraftItem absent du Prisma Client — resync schema + `pnpm exec prisma generate` + restart pm2."
     );
   }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const projectItem = (prisma as any).castingProjectDraftItem;
+  if (projectItem?.updateMany) {
+    const stuckProject = await projectItem.updateMany({
+      where: {
+        status: "running",
+        startedAt: { lt: cutoff },
+      },
+      data: {
+        status: "pending",
+        error: "Recovered stuck running project draft item (worker)",
+        startedAt: null,
+      },
+    });
+    if (stuckProject.count > 0) {
+      console.warn(
+        `[casting-fit-worker] recovered ${stuckProject.count} stuck project draft item(s)`
+      );
+    }
+  } else {
+    console.warn(
+      "[casting-fit-worker] castingProjectDraftItem absent du Prisma Client — resync schema + `pnpm exec prisma generate` + restart pm2."
+    );
+  }
 }
 
 /** Cap soft : jobs actifs, traités en parallèle (1 item / job / tick). */
@@ -136,10 +162,25 @@ async function loopOnce(): Promise<number> {
       })
     : [];
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const projectJob = (prisma as any).castingProjectDraftJob;
+  const projectJobs: { id: string }[] = projectJob?.findMany
+    ? await projectJob.findMany({
+        where: {
+          status: { in: ["pending", "running"] },
+          cancelRequested: false,
+        },
+        orderBy: { createdAt: "asc" },
+        take: MAX_PARALLEL_JOBS,
+        select: { id: true },
+      })
+    : [];
+
   if (
     rosterJobs.length === 0 &&
     indivJobs.length === 0 &&
-    outreachJobs.length === 0
+    outreachJobs.length === 0 &&
+    projectJobs.length === 0
   ) {
     return 0;
   }
@@ -166,13 +207,20 @@ async function loopOnce(): Promise<number> {
       );
       return tick.processed;
     }),
+    ...projectJobs.map(async (j) => {
+      const tick = await processProjectDraftJobTick(j.id, 1);
+      console.log(
+        `[casting-fit-worker] project-draft job=${j.id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
+      );
+      return tick.processed;
+    }),
   ]);
   return results.reduce((a, b) => a + b, 0);
 }
 
 async function main() {
   console.log(
-    `[casting-fit-worker] start · idle=${POLL_IDLE_MS}ms · stuck=${STUCK_BRAND_MS}ms · roster+indiv+outreach-draft`
+    `[casting-fit-worker] start · idle=${POLL_IDLE_MS}ms · stuck=${STUCK_BRAND_MS}ms · roster+indiv+outreach-draft+project-draft`
   );
   if (!process.env.DATABASE_URL?.trim()) {
     throw new Error("DATABASE_URL manquante");

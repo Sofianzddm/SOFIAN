@@ -184,6 +184,7 @@ export interface GenerateEmailBody {
     dos?: string | null;
     donts?: string | null;
     draftContext?: string | null;
+    presentationExcerpt?: string | null;
   } | null;
   /**
    * Emails destinataires cochés — pour chercher un vrai échange Leyna (réponse client).
@@ -250,6 +251,7 @@ export interface GenerateEmailBody {
     dos?: string | null;
     donts?: string | null;
     draftContext?: string | null;
+    presentationExcerpt?: string | null;
   }> | null;
   /**
    * true = un seul projet commun (MULTI) avec N talents.
@@ -502,7 +504,8 @@ export async function POST(request: NextRequest) {
           String(p.projectTitle || "").trim() ||
           String(p.deliverables || "").trim() ||
           String(p.creatorName || "").trim() ||
-          String(p.draftContext || "").trim())
+          String(p.draftContext || "").trim() ||
+          String(p.presentationExcerpt || "").trim())
     );
     const hasProjectBrief = Boolean(
       rawProject &&
@@ -513,7 +516,8 @@ export async function POST(request: NextRequest) {
           String(rawProject.deliverables || "").trim() ||
           String(rawProject.creatorName || "").trim() ||
           String(rawProject.projectDescription || "").trim() ||
-          String(rawProject.draftContext || "").trim())
+          String(rawProject.draftContext || "").trim() ||
+          String(rawProject.presentationExcerpt || "").trim())
     );
     const projectBrief = hasProjectBrief && rawProject ? rawProject : null;
     const isCondensation = condensationBriefs.length >= 2;
@@ -581,6 +585,10 @@ export async function POST(request: NextRequest) {
         briefLine("Do's", p.dos),
         briefLine("Don'ts", p.donts),
         briefLine("Contexte ops (prioritaire)", p.draftContext),
+        briefLine(
+          `Extrait PDF (UNIQUEMENT ${String(p.creatorName || "").trim() || "ce talent"}${p.projectTitle ? ` / « ${String(p.projectTitle).trim()} »` : ""} — ne pas mélanger)`,
+          p.presentationExcerpt
+        ),
       ]
         .filter(Boolean)
         .join("\n");
@@ -603,6 +611,10 @@ export async function POST(request: NextRequest) {
         briefLine("Do's", p.dos),
         briefLine("Don'ts", p.donts),
         briefLine("Ops context (priority)", p.draftContext),
+        briefLine(
+          `PDF excerpt (ONLY ${String(p.creatorName || "").trim() || "this talent"}${p.projectTitle ? ` / "${String(p.projectTitle).trim()}"` : ""} — do not mix)`,
+          p.presentationExcerpt
+        ),
       ]
         .filter(Boolean)
         .join("\n");
@@ -640,6 +652,7 @@ INTERDITS :
 BRIEF CONDENSATION MULTI-PROJETS (OBLIGATOIRE) :
 Tu rédiges UN SEUL mail à UNE marque, qui présente CLAIREMENT ${projectCountLabelFr} distincts (chacun avec son talent).
 Ce n'est PAS un roster casting générique : chaque projet a son brief ci-dessous — tu dois les utiliser TOUS.
+ANTI-MÉLANGE PDF : chaque extrait PDF appartient STRICTEMENT à son PROJET N / talent. N'emprunte jamais le deck d'un projet pour en pitcher un autre.
 
 ${condensationBriefs.map((p, i) => formatOneBriefFr(p, i)).join("\n\n")}
 
@@ -694,6 +707,7 @@ PROHIBITIONS:
 MULTI-PROJECT CONDENSATION BRIEF (MANDATORY) :
 You write ONE email to ONE brand that CLEARLY presents ${condensationBriefs.length} distinct projects (each with its talent).
 This is NOT a generic casting roster: each project has its brief below — you MUST use ALL of them.
+PDF ANTI-MIX: each PDF excerpt belongs STRICTLY to its PROJECT N / talent. Never borrow one project's deck to pitch another.
 
 ${condensationBriefs.map((p, i) => formatOneBriefEn(p, i)).join("\n\n")}
 
@@ -779,6 +793,7 @@ ${[
   briefLine("Do's", projectBrief.dos),
   briefLine("Don'ts", projectBrief.donts),
   briefLine("Contexte ops (prioritaire)", projectBrief.draftContext),
+  briefLine("Extrait PDF présentation", projectBrief.presentationExcerpt),
 ]
   .filter(Boolean)
   .join("\n")}
@@ -870,6 +885,7 @@ ${[
   briefLine("Do's", projectBrief.dos),
   briefLine("Don'ts", projectBrief.donts),
   briefLine("Ops context (priority)", projectBrief.draftContext),
+  briefLine("Presentation PDF excerpt", projectBrief.presentationExcerpt),
 ]
   .filter(Boolean)
   .join("\n")}

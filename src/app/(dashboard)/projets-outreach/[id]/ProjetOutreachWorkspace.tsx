@@ -25,6 +25,9 @@ import {
   X,
 } from "lucide-react";
 import CastingComposer from "@/app/(dashboard)/casting-outreach/CastingComposer";
+import OutreachCastingWizard, {
+  type OutreachCastingBrand,
+} from "@/components/outreach/OutreachCastingWizard";
 import {
   STATUS_LABEL,
   canEditBrief,
@@ -2902,6 +2905,10 @@ function RedactionTab({
     failedNames?: string[];
     isRetry?: boolean;
   } | null>(null);
+  const [castingWizardOpen, setCastingWizardOpen] = useState(false);
+  const [castingWizardBrands, setCastingWizardBrands] = useState<
+    OutreachCastingBrand[]
+  >([]);
   const batchAbortRef = useRef<AbortController | null>(null);
   const batchLeynaAbortRef = useRef<AbortController | null>(null);
   const batchDraftAbortRef = useRef<AbortController | null>(null);
@@ -3060,8 +3067,34 @@ function RedactionTab({
     projectPayload: Record<string, unknown>;
     talentIds: string[];
   }> {
+    let presentationExcerpt: string | null = null;
+    if (campaign.presentationPdfUrl) {
+      try {
+        const pdfRes = await fetch(
+          `/api/projets-outreach/${campaign.id}/presentation?text=1`,
+          { credentials: "include", signal }
+        );
+        const pdfData = (await pdfRes.json().catch(() => ({}))) as {
+          presentationExcerpt?: string | null;
+        };
+        if (pdfRes.ok) {
+          presentationExcerpt =
+            String(pdfData.presentationExcerpt || "").trim() || null;
+        }
+      } catch {
+        /* PDF optionnel */
+      }
+    }
+
+    // MULTI (même projet) : 1 PDF partagé OK. Condensation : PDF par frère
+    // (via condensation-briefs) — ne jamais tamponner le PDF courant sur tous.
+    const withSharedPdf = <T extends Record<string, unknown>>(brief: T): T =>
+      presentationExcerpt
+        ? { ...brief, presentationExcerpt }
+        : brief;
+
     let projectPayload: Record<string, unknown> = {
-      projectBrief: {
+      projectBrief: withSharedPdf({
         talentId: campaign.talent.id,
         projectTitle: campaign.title,
         projectDescription: campaign.description,
@@ -3076,40 +3109,11 @@ function RedactionTab({
         budgetRange: campaign.budgetRange,
         dos: m.dos || campaign.dos,
         donts: m.donts || campaign.donts,
-      },
+      }),
     };
     let talentIds: string[] = [campaign.talent.id];
 
-    if (campaign.mode === "MULTI" && (campaign.talents?.length || 0) >= 2) {
-      const all = campaign.talents || [];
-      const selected =
-        Array.isArray(m.selectedTalentIds) && m.selectedTalentIds.length > 0
-          ? all.filter((t) => m.selectedTalentIds!.includes(t.id))
-          : all;
-      const forMail = selected.length >= 1 ? selected : all;
-      talentIds = forMail.map((t) => t.id).filter(Boolean);
-      if (forMail.length >= 2) {
-        projectPayload = {
-          sharedProject: true,
-          projectBriefs: forMail.map((t) => ({
-            talentId: t.id,
-            projectTitle: campaign.title,
-            projectDescription: campaign.description,
-            creatorName: t.name,
-            targetBrand: brandName,
-            strategyReason: m.strategyReason,
-            recommendedAngle: m.recommendedAngle,
-            objective: m.objective || campaign.objective,
-            deliverables: campaign.deliverables,
-            angles: campaign.angles,
-            timeline: campaign.timeline,
-            budgetRange: campaign.budgetRange,
-            dos: m.dos || campaign.dos,
-            donts: m.donts || campaign.donts,
-          })),
-        };
-      }
-    } else if (
+    if (
       m.condensationGroupId ||
       m.condensationStatus === "CONDENSED" ||
       m.condensationRole === "PRIMARY" ||
@@ -3129,6 +3133,7 @@ function RedactionTab({
           const briefs = briefsData.condensationBriefs as Array<{
             talentId?: string | null;
           }>;
+          // Déjà enrichis avec presentationExcerpt par campagne (pas de withSharedPdf).
           projectPayload = {
             sharedProject: false,
             projectBriefs: briefsData.condensationBriefs,
@@ -3140,6 +3145,37 @@ function RedactionTab({
         }
       } catch {
         // fallback mono
+      }
+    } else if (campaign.mode === "MULTI" && (campaign.talents?.length || 0) >= 2) {
+      const all = campaign.talents || [];
+      const selected =
+        Array.isArray(m.selectedTalentIds) && m.selectedTalentIds.length > 0
+          ? all.filter((t) => m.selectedTalentIds!.includes(t.id))
+          : all;
+      const forMail = selected.length >= 1 ? selected : all;
+      talentIds = forMail.map((t) => t.id).filter(Boolean);
+      if (forMail.length >= 2) {
+        projectPayload = {
+          sharedProject: true,
+          projectBriefs: forMail.map((t) =>
+            withSharedPdf({
+              talentId: t.id,
+              projectTitle: campaign.title,
+              projectDescription: campaign.description,
+              creatorName: t.name,
+              targetBrand: brandName,
+              strategyReason: m.strategyReason,
+              recommendedAngle: m.recommendedAngle,
+              objective: m.objective || campaign.objective,
+              deliverables: campaign.deliverables,
+              angles: campaign.angles,
+              timeline: campaign.timeline,
+              budgetRange: campaign.budgetRange,
+              dos: m.dos || campaign.dos,
+              donts: m.donts || campaign.donts,
+            })
+          ),
+        };
       }
     }
 
@@ -4243,6 +4279,61 @@ function RedactionTab({
     }
   }
 
+  function openCastingWizard() {
+    if (waveBlocksCasting) {
+      setError(
+        "Casting bloquée : Strategy n’a pas encore validé la vague / condensations."
+      );
+      return;
+    }
+    if (brandsToBatchResearch.length === 0) {
+      setSuccess("Aucune marque à caster pour l’instant.");
+      return;
+    }
+    const brands: OutreachCastingBrand[] = brandsToBatchResearch.map((m) => {
+      const brand = (m.marqueNom || m.targetBrand || "").trim() || "Marque";
+      const contacts = effectiveMissionContacts(m);
+      const first = contacts[0];
+      const selected =
+        Array.isArray(m.selectedTalentIds) && m.selectedTalentIds.length > 0
+          ? m.selectedTalentIds
+          : campaign.mode === "MULTI" && (campaign.talents?.length || 0) >= 2
+            ? (campaign.talents || []).map((t) => t.id)
+            : [campaign.talent.id];
+      return {
+        groupKey: m.id,
+        company: brand,
+        emails: contacts.map((c) => c.email).filter((e) => e.includes("@")),
+        pipeline: "FR" as const,
+        draftContext: null,
+        strategyReason: m.strategyReason || null,
+        recommendedAngle: m.recommendedAngle || null,
+        objective: m.objective || campaign.objective || null,
+        dos: m.dos || campaign.dos || null,
+        donts: m.donts || campaign.donts || null,
+        creatorName: campaign.talent.name,
+        selectedTalentIds: selected.slice(0, 8),
+        condensationGroupId: m.condensationGroupId || null,
+        targets: [
+          {
+            id: m.id,
+            firstname: first?.firstname || "",
+            lastname: first?.lastname || "",
+            email: first?.email || "",
+            language:
+              m.clientLanguage === "EN" || first?.language === "en"
+                ? "en"
+                : "fr",
+            draftSubject: m.draftEmailSubject,
+            draftBodyHtml: m.draftEmailBody,
+          },
+        ],
+      };
+    });
+    setCastingWizardBrands(brands);
+    setCastingWizardOpen(true);
+  }
+
   async function openComposer(m: Mission) {
     if (waveBlocksCasting) {
       setError(
@@ -4708,8 +4799,8 @@ function RedactionTab({
               }}
             >
               {batchPipeline?.running
-                ? `Pipeline ${batchPipeline.step}/4 · ${batchPipeline.label} — tu peux quitter, cache + brouillons restent.`
-                : "Tout analyser + rédiger : marque → talents → Leyna → mails. Casting n’a plus qu’à corriger."}
+                ? `Pipeline navigateur ${batchPipeline.step}/4 · ${batchPipeline.label} — reste sur la page (fallback).`
+                : "Wizard casting (VPS) : même système que le pipeline indiv — tu peux quitter. Fallback navigateur ci-dessous."}
             </p>
             {(batchResearch?.running ||
               batchLeyna?.running ||
@@ -4907,11 +4998,28 @@ function RedactionTab({
                 <button
                   type="button"
                   className="po-btn po-btn-primary"
-                  disabled={brandsToBatchResearch.length === 0 || !canEdit}
-                  onClick={() => void runBatchFullPipeline()}
-                  title="Marque → talents → Leyna → rédaction auto (À valider)"
+                  disabled={
+                    brandsToBatchResearch.length === 0 ||
+                    !canEdit ||
+                    waveBlocksCasting
+                  }
+                  onClick={() => openCastingWizard()}
+                  title="Wizard plein écran + rédaction serveur VPS (tu peux quitter)"
                 >
-                  Tout analyser + rédiger
+                  Wizard casting ({brandsToBatchResearch.length})
+                </button>
+                <button
+                  type="button"
+                  className="po-btn po-btn-secondary"
+                  disabled={
+                    brandsToBatchResearch.length === 0 ||
+                    !canEdit ||
+                    waveBlocksCasting
+                  }
+                  onClick={() => void runBatchFullPipeline()}
+                  title="Fallback navigateur — rester sur la page"
+                >
+                  Lot navigateur
                 </button>
                 <button
                   type="button"
@@ -5247,6 +5355,170 @@ function RedactionTab({
       </div>
       </div>
       )}
+
+      <OutreachCastingWizard
+        open={castingWizardOpen}
+        mode="project"
+        market="FR"
+        campaignId={campaign.id}
+        campaignBrief={{
+          id: campaign.id,
+          title: campaign.title,
+          description: campaign.description,
+          objective: campaign.objective,
+          deliverables: campaign.deliverables,
+          angles: campaign.angles,
+          timeline: campaign.timeline,
+          budgetRange: campaign.budgetRange,
+          dos: campaign.dos,
+          donts: campaign.donts,
+          mode: campaign.mode === "MULTI" ? "MULTI" : "SOLO",
+          presentationPdfUrl: campaign.presentationPdfUrl || null,
+        }}
+        allowedTalents={(
+          campaign.talents && campaign.talents.length > 0
+            ? campaign.talents
+            : [
+                {
+                  id: campaign.talent.id,
+                  name: campaign.talent.name,
+                  photo: campaign.talent.photo,
+                  instagram: campaign.talent.instagram,
+                },
+              ]
+        ).map((t) => {
+          const parts = String(t.name || "").trim().split(/\s+/);
+          const prenom =
+            "prenom" in t && t.prenom
+              ? String(t.prenom)
+              : parts[0] || "";
+          const nom =
+            "nom" in t && t.nom
+              ? String(t.nom)
+              : parts.slice(1).join(" ") || "";
+          return {
+            id: t.id,
+            prenom,
+            nom,
+            photo: t.photo || null,
+            instagram: t.instagram || null,
+            niches: "niches" in t && Array.isArray(t.niches) ? t.niches : [],
+            igFollowers:
+              "igFollowers" in t ? Number(t.igFollowers || 0) || 0 : 0,
+            ttFollowers:
+              "ttFollowers" in t ? Number(t.ttFollowers || 0) || 0 : 0,
+          };
+        })}
+        brands={castingWizardBrands}
+        wizardTitle={`Wizard casting · ${campaign.title}`}
+        onClose={() => {
+          setCastingWizardOpen(false);
+          setCastingWizardBrands([]);
+          void onChanged();
+        }}
+        onFlash={(kind, message) => {
+          if (kind === "error") setError(message);
+          else setSuccess(message);
+        }}
+        onSaveDraft={async (brand, subject, bodyHtml) => {
+          await patchMission(brand.groupKey, {
+            stage: "DRAFTED_FOR_VALIDATION",
+            status: "EMAIL_DRAFTED",
+            draftEmailSubject: subject,
+            draftEmailBody: bodyHtml,
+          });
+          setCastingWizardBrands((prev) =>
+            prev.map((b) =>
+              b.groupKey === brand.groupKey
+                ? {
+                    ...b,
+                    targets: b.targets.map((t) => ({
+                      ...t,
+                      draftSubject: subject,
+                      draftBodyHtml: bodyHtml,
+                    })),
+                  }
+                : b
+            )
+          );
+        }}
+        onReviewBrand={(groupKey, draft) => {
+          const m = campaign.missions.find((x) => x.id === groupKey);
+          if (!m) {
+            setError("Mission introuvable — recharge la page.");
+            return;
+          }
+          const withDraft: Mission = {
+            ...m,
+            draftEmailSubject: draft?.subject || m.draftEmailSubject,
+            draftEmailBody: draft?.bodyHtml || m.draftEmailBody,
+          };
+          setCastingWizardOpen(false);
+          void openComposer(withDraft);
+        }}
+        onSendBrand={async (groupKey, draft) => {
+          const m = campaign.missions.find((x) => x.id === groupKey);
+          if (!m) throw new Error("Mission introuvable — recharge la page.");
+          const subject = (draft.subject || "").trim();
+          const bodyHtml = (draft.bodyHtml || "").trim();
+          if (
+            subject !== (m.draftEmailSubject || "").trim() ||
+            bodyHtml !== (m.draftEmailBody || "").trim()
+          ) {
+            await patchMission(groupKey, {
+              stage: "DRAFTED_FOR_VALIDATION",
+              status: "EMAIL_DRAFTED",
+              draftEmailSubject: subject,
+              draftEmailBody: bodyHtml,
+            });
+          }
+          const res = await fetch(
+            `/api/strategy/contact-missions/${groupKey}/schedule-send`,
+            {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({}),
+            }
+          );
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(
+              typeof data.error === "string"
+                ? data.error
+                : "Planification impossible."
+            );
+          }
+          setSuccess("Envoi planifié.");
+          void onChanged();
+        }}
+        onDraftsWritten={() => {
+          void onChanged();
+        }}
+        onAddContact={async (groupKey, contact) => {
+          const m = campaign.missions.find((x) => x.id === groupKey);
+          if (!m) throw new Error("Mission introuvable.");
+          const existing = effectiveMissionContacts(m);
+          const email = contact.email.trim().toLowerCase();
+          if (existing.some((c) => c.email.toLowerCase() === email)) return;
+          const next = [
+            ...existing.map((c) => ({
+              firstname: c.firstname,
+              lastname: c.lastname,
+              email: c.email,
+              role: c.role || "",
+            })),
+            {
+              firstname: contact.firstname,
+              lastname: contact.lastname,
+              email: contact.email,
+              role: contact.role || "",
+            },
+          ];
+          await patchMission(groupKey, { clientContacts: next });
+          void onChanged();
+        }}
+      />
     </div>
   );
 }

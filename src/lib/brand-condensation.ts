@@ -746,6 +746,7 @@ export async function getCondensationSiblingBriefs(missionId: string) {
           budgetRange: true,
           dos: true,
           donts: true,
+          presentationPdfUrl: true,
           talent: { select: { prenom: true, nom: true } },
         },
       },
@@ -774,6 +775,7 @@ export async function getCondensationSiblingBriefs(missionId: string) {
       objective: true,
       dos: true,
       donts: true,
+      draftContext: true,
       campaign: {
         select: {
           title: true,
@@ -785,13 +787,23 @@ export async function getCondensationSiblingBriefs(missionId: string) {
           budgetRange: true,
           dos: true,
           donts: true,
+          presentationPdfUrl: true,
           talent: { select: { prenom: true, nom: true } },
         },
       },
     },
   });
 
-  return members.map((m) => {
+  const { loadPresentationExcerptFromUrl } = await import(
+    "@/lib/campaign-presentation-text"
+  );
+  const excerpts = await Promise.all(
+    members.map((m) =>
+      loadPresentationExcerptFromUrl(m.campaign?.presentationPdfUrl)
+    )
+  );
+
+  return members.map((m, i) => {
     const talentName =
       m.campaign?.talent
         ? `${m.campaign.talent.prenom} ${m.campaign.talent.nom}`.trim()
@@ -813,6 +825,8 @@ export async function getCondensationSiblingBriefs(missionId: string) {
       budgetRange: m.campaign?.budgetRange ?? null,
       dos: m.dos || m.campaign?.dos || null,
       donts: m.donts || m.campaign?.donts || null,
+      draftContext: m.draftContext ?? null,
+      presentationExcerpt: excerpts[i] || null,
     };
   });
 }

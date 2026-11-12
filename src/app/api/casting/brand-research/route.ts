@@ -318,6 +318,14 @@ function buildProjectBrandPrompt(
   const orient = talent
     ? "- Oriente TOUT vers le fit talent × marque (et l'angle strategy s'il est fourni) — pas une fiche marque générique."
     : "- Oriente TOUT vers le fit avec le brief projet (pas une fiche marque générique).";
+  const multiBriefGuard = !talent
+    ? `
+RÈGLE ANTI-MÉLANGE (si plusieurs PROJET N / PDF) :
+- Chaque bloc PROJET N est indépendant (talent + titre + PDF).
+- N'attribue JAMAIS l'extrait PDF / les livrables / l'angle d'un projet à un autre talent.
+- Si tu cites un fait issu d'un PDF, nomme clairement le projet / talent concerné.
+`
+    : "";
 
   return `Tu es un expert en marketing d'influence et en pitch de projets marques, spécialisé marché ${r.expertise}.
 
@@ -328,7 +336,7 @@ Contexte actuel : ${currentLabel}. Fenêtre d'actus : ${contextLabel} uniquement
 
 ${briefHeader}
 ${projectContext}
-
+${multiBriefGuard}
 ${searchGoal}
 Requêtes à privilégier : nom exact entre guillemets + secteur / vertical du brief.
 

@@ -5,6 +5,7 @@ Fait tourner en continu sur le VPS (même DB Neon que Vercel) :
 1. **Roster fit** (analyse casting marque / talent)
 2. **Rédaction outreach** (`CastingOutreachDraftJob`)
 3. **Rédaction pipeline indiv** (`CastingIndivDraftJob`)
+4. **Rédaction projets outreach** (`CastingProjectDraftJob`)
 
 Tu quittes la page → les jobs avancent sans timeout serverless.
 
