@@ -10,6 +10,7 @@
 
 import { gatherInfluenceGrounding } from "@/lib/carto-ai/exa-grounding";
 import { answerMatchesCompany } from "@/lib/carto-chat-vps/answer-match";
+import { CARTO_CHAT_RESEARCH_PROMPT } from "@/lib/carto-chat-vps/chat-prompt";
 import {
   appendEndMarkerInstruction,
   stripEndMarker,
@@ -205,27 +206,14 @@ export async function runChatDiscover(opts: {
   };
 }
 
-/** Prompt style Sofian / Chat Glow Up. */
+/** Prompt Head of Research Influence (carto-pipeline2). */
 export function buildUserChatPrompt(company: string, custom?: string | null): string {
   const c = custom?.trim();
   const base = c
     ? c.includes("{marque}")
       ? c.replaceAll("{marque}", company)
       : c
-    : `qui gère l'influence chez ${company} en france en interne et si il y a une agence ?
-
-Réponds en 3 blocs clairement séparés :
-
-## 1. Marque (interne)
-Personnes salariées chez ${company} / le groupe qui gèrent influence, créateurs, casting influence, social. Pour chacune: prénom, nom, poste exact, LinkedIn réel (/in/…).
-
-## 2. Agence (mandat principal)
-Quelle agence RP / influence travaille avec ${company} en France ? Preuves. Puis les contacts CHEZ CETTE AGENCE (pas chez la marque): prénom, nom, rôle, LinkedIn.
-
-## 3. Autres partenaires
-Autres agences / freelances one-shot (historique), clairement notés comme secondaires.
-
-Trie par pertinence casting influence. Ne mélange pas les salariés marque et les gens d'agence. LinkedIn réels uniquement.`;
+    : CARTO_CHAT_RESEARCH_PROMPT.replaceAll("{marque}", company);
   return appendEndMarkerInstruction(base);
 }
 

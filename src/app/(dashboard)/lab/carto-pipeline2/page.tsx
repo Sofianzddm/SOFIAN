@@ -10,15 +10,15 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { canAccessCartoAiPipeline } from "@/lib/carto-ai/constants";
 import type { CartoAiContactCandidate } from "@/lib/carto-ai/types";
+import { CARTO_CHAT_RESEARCH_PROMPT } from "@/lib/carto-chat-vps/chat-prompt";
 import type { CartoChatVpsPreviewResult } from "@/lib/carto-chat-vps/types";
 import { BrandEnrichPanel } from "@/components/enrichissement/BrandEnrichPanel";
 
 type ContactCouche = "marque" | "agence" | "autre";
 type FicheMarket = "FR" | "BENELUX";
 
-const DEFAULT_CHAT_PROMPT =
-  "qui gère l'influence chez {marque} en france en interne et si il y a une agence ? Donne tout les noms qui gère l'influence chez {marque}. Trie par ceux qui gère les castings influences de la marque. Met le linkedin réelle de chacun de leurs profils.";
-// Le jeton de fin GLOWUP_CART_DONE_9f3k2x est ajouté automatiquement (buildUserChatPrompt).
+/** Prompt research — jeton de fin ajouté côté serveur (buildUserChatPrompt). */
+const DEFAULT_CHAT_PROMPT = CARTO_CHAT_RESEARCH_PROMPT;
 
 type CommitResult = {
   marqueId: string;
