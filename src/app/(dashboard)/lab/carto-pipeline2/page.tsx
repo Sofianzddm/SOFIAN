@@ -313,10 +313,10 @@ export default function CartoAiPipelineChatLabPage() {
           jobState === "done" && jobIsOurs
             ? "Chat terminé — structuration…"
             : jobState === "running" || h.busy
-              ? `Chat en cours… (~${chars} car.)`
+              ? "Recherche en cours"
               : sawRunning
                 ? "Finalisation…"
-                : "En attente de Chat…";
+                : "Recherche en cours";
         if (msg !== lastMsg) {
           lastMsg = msg;
           setLoadingHint(msg);
@@ -549,8 +549,7 @@ export default function CartoAiPipelineChatLabPage() {
             className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             {loading
-              ? loadingHint ||
-                "Chat en cours (Medium : souvent 1–4 min)…"
+              ? loadingHint || "Recherche en cours"
               : "Générer les contacts"}
           </button>
           <button

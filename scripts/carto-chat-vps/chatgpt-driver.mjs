@@ -1185,8 +1185,13 @@ export class ChatGptDriver {
       await box.click({ timeout: 3000 }).catch(() => {});
 
       const send = await this.findSendButton();
-      if (send) await send.click({ timeout: 5000 });
-      else await box.press("Enter");
+      if (send) {
+        // ChatGPT = SPA : après Send, Playwright peut rester coincé sur
+        // « waiting for scheduled navigations » → ne pas attendre la nav.
+        await send.click({ timeout: 5000, noWaitAfter: true });
+      } else {
+        await box.press("Enter");
+      }
 
       await sleep(1500);
       const answer = await this.waitGenerationDone(
