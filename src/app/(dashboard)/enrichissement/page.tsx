@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   Loader2,
@@ -345,12 +346,14 @@ type BrandGroup = {
 
 export default function EnrichissementPage() {
   const { data: session, status } = useSession();
+  const searchParams = useSearchParams();
   const role = session?.user?.role || "";
   const allowed = ALLOWED.includes(role);
   const isAdmin = role === "ADMIN";
 
   const [tab, setTab] = useState<Tab>("marques");
   const [marqueMarketTab, setMarqueMarketTab] = useState<MarqueMarketTab>("FR");
+  const [deepLinkApplied, setDeepLinkApplied] = useState(false);
   const [awaitingItems, setAwaitingItems] = useState<AwaitingMarqueItem[]>([]);
   const [awaitingLoading, setAwaitingLoading] = useState(false);
   const [awaitingSourceFilter, setAwaitingSourceFilter] =
@@ -753,6 +756,45 @@ export default function EnrichissementPage() {
   useEffect(() => {
     if (activeKey && !active) setActiveKey(null);
   }, [active, activeKey]);
+
+  /** Deep link lab carto → /enrichissement?marqueId=&market=&open= */
+  useEffect(() => {
+    if (deepLinkApplied || loading || contacts.length === 0) return;
+    const marqueId = searchParams.get("marqueId")?.trim() || "";
+    const open = searchParams.get("open")?.trim() || "";
+    const marketRaw = (searchParams.get("market") || "").toUpperCase();
+    if (!marqueId && !open) return;
+
+    setTab("marques");
+    if (marketRaw === "BENELUX" || marketRaw === "BE") {
+      setMarqueMarketTab("BENELUX");
+    } else if (marketRaw === "BOTH" || marketRaw === "FR+BE") {
+      setMarqueMarketTab("BOTH");
+    } else if (marketRaw === "FR") {
+      setMarqueMarketTab("FR");
+    }
+
+    let key: string | null = null;
+    if (marqueId) {
+      const hit = contacts.find((c) => c.marqueId === marqueId);
+      if (hit) key = norm(hit.company);
+    }
+    if (!key && open) key = norm(open);
+    if (key && brands.some((b) => b.key === key)) {
+      setActiveKey(key);
+      setDeepLinkApplied(true);
+    } else if (marqueId || open) {
+      // Contacts pas encore en file — on retente après reload, sinon abandonne
+      setDeepLinkApplied(true);
+      if (key) setActiveKey(key);
+    }
+  }, [
+    deepLinkApplied,
+    loading,
+    contacts,
+    brands,
+    searchParams,
+  ]);
 
   type LivePattern = DetectedEmailPattern & { crossMarket?: boolean };
 

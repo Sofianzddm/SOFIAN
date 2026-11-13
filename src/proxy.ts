@@ -5,6 +5,10 @@ import {
   isDecisionCenterEmail,
   isDecisionCenterEnabled,
 } from "@/lib/decision-center/constants";
+import {
+  canAccessCartoAiPipeline,
+  isCartoAiPipelineEnabled,
+} from "@/lib/carto-ai/constants";
 import { isNomCampagneGateEnabled } from "@/lib/nom-campagne-gate-paths";
 import { canViewAllTalentCollabs } from "@/lib/collab-viewer-access";
 import { isMarqueCrmReadOnly } from "@/lib/marque-crm-access";
@@ -158,6 +162,29 @@ export async function proxy(request: NextRequest) {
             { error: "Accès Decision Center refusé" },
             { status: 403 }
           )
+        );
+      }
+      return withNoIndex(
+        NextResponse.redirect(new URL("/dashboard", request.url))
+      );
+    }
+  }
+
+  // Lab carto AI — URL directe + allowlist (pas de lien sidebar)
+  if (
+    pathname.startsWith("/lab/carto-pipeline") ||
+    pathname.startsWith("/api/lab/carto-pipeline")
+  ) {
+    if (
+      !isCartoAiPipelineEnabled() ||
+      !canAccessCartoAiPipeline({
+        email: t.email,
+        role: effectiveRole,
+      })
+    ) {
+      if (pathname.startsWith("/api/")) {
+        return withNoIndex(
+          NextResponse.json({ error: "Lab non disponible" }, { status: 403 })
         );
       }
       return withNoIndex(
