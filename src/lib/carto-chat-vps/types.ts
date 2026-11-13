@@ -1,6 +1,6 @@
 import type { CartoAiContactCandidate } from "@/lib/carto-ai/types";
 
-export type CartoChatVpsMode = "api_chat" | "paste";
+export type CartoChatVpsMode = "vps" | "api_chat" | "paste";
 
 export type CartoChatVpsPreviewResult = {
   company: string;
@@ -15,6 +15,7 @@ export type CartoChatVpsPreviewResult = {
     name: string;
     role: string | null;
     note: string | null;
+    primary?: boolean;
   }>;
   meta: {
     model: string | null;

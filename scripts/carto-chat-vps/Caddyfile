@@ -1,0 +1,29 @@
+# Reverse proxy HTTPS → worker carto-chat (127.0.0.1:3847)
+# DNS : A carto-chat.glowupagence.fr → IP Contabo
+#
+# Install / reload :
+#   bash scripts/carto-chat-vps/expose-prod.sh
+
+{$CARTO_CHAT_PUBLIC_HOST:carto-chat.glowupagence.fr} {
+	encode gzip
+
+	# Pas d'accès anonyme utile : le worker exige Bearer
+	reverse_proxy 127.0.0.1:3847 {
+		# Timeouts longs (Chat Medium / web search)
+		transport http {
+			response_header_timeout 15m
+			read_timeout 15m
+			write_timeout 15m
+		}
+	}
+
+	header {
+		# Pas d'indexation
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	log {
+		output stdout
+	}
+}

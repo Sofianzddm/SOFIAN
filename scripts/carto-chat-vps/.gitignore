@@ -1,0 +1,5 @@
+node_modules/
+.env
+.chatgpt-profile/
+playwright-report/
+test-results/

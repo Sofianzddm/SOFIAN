@@ -27,7 +27,8 @@
     "seed:decision-center": "tsx scripts/seed-decision-center.ts",
     "import:rh-lucca": "tsx scripts/import-lucca-rh.ts",
     "backfill:rh-office": "tsx scripts/backfill-rh-office.ts",
-    "worker:casting-roster-fit": "tsx scripts/casting-roster-fit-worker.ts"
+    "worker:casting-roster-fit": "tsx scripts/casting-roster-fit-worker.ts",
+    "worker:carto-chat-vps": "npm --prefix scripts/carto-chat-vps start"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
