@@ -177,7 +177,7 @@ export default function CartoAiPipelineChatLabPage() {
     setError(null);
     setCommitResult(null);
     setLoading(true);
-    setLoadingHint("Lancement Chat…");
+    setLoadingHint("Analyse en cours");
     setPreview(null);
     setSelected({});
     setMarqueId(null);
@@ -219,13 +219,11 @@ export default function CartoAiPipelineChatLabPage() {
       const pollStarted = Date.now();
       let sawRunning = false;
       let sawGrowth = false;
-      let lastMsg = "";
       let lastChars = 0;
       let peakChars = 0;
       let charsStableSince = Date.now();
 
       const tryStructure = async (): Promise<boolean> => {
-        setLoadingHint("Structuration des contacts…");
         const rescue = await fetch("/api/lab/carto-pipeline2/preview", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -241,14 +239,12 @@ export default function CartoAiPipelineChatLabPage() {
           const err = (data as { error?: string }).error || "";
           // Mauvaise marque encore à l'écran → on continue d'attendre
           if (/autre marque|ne mentionne pas|relance/i.test(err)) {
-            setLoadingHint("En attente de la bonne réponse Chat…");
             return false;
           }
-          throw new Error(err || "Échec structuration");
+          throw new Error(err || "Échec analyse");
         }
         const result = data as CartoChatVpsPreviewResult;
         if (!result.contacts?.length) {
-          setLoadingHint("Réponse lue, 0 contact — on attend encore…");
           return false;
         }
         applyPreview(result);
@@ -309,18 +305,6 @@ export default function CartoAiPipelineChatLabPage() {
 
         const stableMs = Date.now() - charsStableSince;
         const elapsed = Date.now() - pollStarted;
-        const msg =
-          jobState === "done" && jobIsOurs
-            ? "Chat terminé — structuration…"
-            : jobState === "running" || h.busy
-              ? "Recherche en cours"
-              : sawRunning
-                ? "Finalisation…"
-                : "Recherche en cours";
-        if (msg !== lastMsg) {
-          lastMsg = msg;
-          setLoadingHint(msg);
-        }
 
         // A) Worker a capturé → affiche tout de suite
         if (sawRunning && jobState === "done" && jobIsOurs) {
@@ -341,9 +325,7 @@ export default function CartoAiPipelineChatLabPage() {
 
       // Dernière chance
       if (await tryStructure()) return;
-      throw new Error(
-        "Timeout: pas de contacts — réessaie ou « Structurer la réponse à l'écran »"
-      );
+      throw new Error("Timeout: pas de contacts — réessaie Analyse");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -356,7 +338,7 @@ export default function CartoAiPipelineChatLabPage() {
   async function runReadScreen() {
     setError(null);
     setLoading(true);
-    setLoadingHint("Lecture écran…");
+    setLoadingHint("Analyse en cours");
     try {
       const res = await fetch("/api/lab/carto-pipeline2/preview", {
         method: "POST",
@@ -548,18 +530,16 @@ export default function CartoAiPipelineChatLabPage() {
             disabled={loading || !company.trim()}
             className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
-            {loading
-              ? loadingHint || "Recherche en cours"
-              : "Générer les contacts"}
+            {loading ? loadingHint || "Analyse en cours" : "Analyse"}
           </button>
           <button
             type="button"
             onClick={runReadScreen}
             disabled={loading || !company.trim()}
             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 disabled:opacity-50"
-            title="Si Chat a déjà répondu sur le VPS mais le lab a planté"
+            title="Si la réponse est déjà à l’écran sur le VPS"
           >
-            Structurer la réponse à l’écran
+            Analyser l’écran
           </button>
         </div>
       </div>
