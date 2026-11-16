@@ -1,11 +1,15 @@
 /**
- * Pilote un onglet ChatGPT déjà ouvert (CDP) ou lancé avec profil persistant.
- * Une seule conversation à la fois.
+ * Pilote ChatGPT via CDP / profil persistant.
+ * Pool d'onglets (CARTO_CHAT_MAX_PARALLEL, défaut 3) — 1 marque = 1 slot.
  */
 
 import { chromium } from "playwright";
+import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import path from "node:path";
+
+/** Contexte par job parallèle : page + endMarker liés au slot. */
+const pageAls = new AsyncLocalStorage();
 
 const CHATGPT_URL = process.env.CARTO_CHAT_URL || "https://chatgpt.com/";
 
@@ -103,11 +107,52 @@ export class ChatGptDriver {
   constructor() {
     this.browser = null;
     this.context = null;
-    this.page = null;
-    this.busy = false;
+    /** Page fallback (hors job) — utiliser le getter `page`. */
+    this._page = null;
+    this._activeEndMarker = null;
     this.mode = null;
+    /** @type {{ id: number, page: import('playwright').Page, busy: boolean, endMarker: string|null }[]} */
+    this.slots = [];
     /** Overridable in tests (fast sleep). */
     this._sleep = sleep;
+  }
+
+  get page() {
+    return pageAls.getStore()?.page ?? this._page;
+  }
+
+  set page(p) {
+    const store = pageAls.getStore();
+    if (store) store.page = p;
+    else this._page = p;
+  }
+
+  get activeEndMarker() {
+    return pageAls.getStore()?.endMarker ?? this._activeEndMarker;
+  }
+
+  set activeEndMarker(m) {
+    const store = pageAls.getStore();
+    if (store) store.endMarker = m;
+    else this._activeEndMarker = m;
+  }
+
+  /** True si tous les slots sont occupés (plus de capacité parallèle). */
+  get busy() {
+    if (!this.slots.length) return false;
+    return this.slots.every((s) => s.busy);
+  }
+
+  get runningCount() {
+    return this.slots.filter((s) => s.busy).length;
+  }
+
+  slotsInfo() {
+    return {
+      total: this.slots.length,
+      free: this.slots.filter((s) => !s.busy).length,
+      busy: this.slots.filter((s) => s.busy).length,
+    };
   }
 
   async start() {
@@ -134,7 +179,7 @@ export class ChatGptDriver {
         args: ["--disable-blink-features=AutomationControlled"],
       });
       this.browser = this.context;
-      this.page = this.context.pages()[0] || (await this.context.newPage());
+      this._page = this.context.pages()[0] || (await this.context.newPage());
       this.mode = "persistent";
     }
 
@@ -144,8 +189,11 @@ export class ChatGptDriver {
         timeout: 90_000,
       });
     }
-    console.log(`[carto-chat-vps] ready url=${this.page.url()} mode=${this.mode}`);
-    // Dès le démarrage : High / Élevé (pas Instant)
+    await this.initSlots();
+    console.log(
+      `[carto-chat-vps] ready url=${this.page.url()} mode=${this.mode} slots=${this.slots.length}`
+    );
+    // Medium / Moyen sur le premier slot (boot)
     try {
       await this.ensureHighEffort();
     } catch (e) {
@@ -156,14 +204,83 @@ export class ChatGptDriver {
     }
   }
 
-  /** Préfère l’onglet conversation ChatGPT le plus récent. */
-  async attachBestPage() {
+  /**
+   * Crée / attache N onglets Chat (1 slot = 1 carto parallèle).
+   */
+  async initSlots() {
+    const n = Math.max(
+      1,
+      Math.min(8, Number(process.env.CARTO_CHAT_MAX_PARALLEL || 3) || 3)
+    );
     const pages = this.context.pages();
     const chatPages = pages.filter((p) =>
       /chatgpt\.com|chat\.openai\.com/i.test(p.url())
     );
-    // Priorité: /c/… (conversation), sinon n’importe quel chatgpt
-    this.page =
+    this.slots = [];
+    for (let i = 0; i < n; i++) {
+      let page = chatPages[i] || null;
+      if (!page) {
+        page = await this.context.newPage();
+        try {
+          await page.goto(CHATGPT_URL, {
+            waitUntil: "domcontentloaded",
+            timeout: 90_000,
+          });
+        } catch (e) {
+          console.warn(
+            `[carto-chat-vps] slot ${i} goto:`,
+            e instanceof Error ? e.message : e
+          );
+        }
+      }
+      this.slots.push({ id: i, page, busy: false, endMarker: null });
+    }
+    this._page = this.slots[0]?.page || this._page;
+    console.log(
+      `[carto-chat-vps] slots prêts: ${this.slots.length} (MAX_PARALLEL=${n})`
+    );
+  }
+
+  async acquireSlot(endMarker) {
+    const deadline = Date.now() + 30 * 60_000;
+    while (Date.now() < deadline) {
+      const free = this.slots.find((s) => !s.busy);
+      if (free) {
+        free.busy = true;
+        free.endMarker = endMarker || null;
+        console.log(
+          `[carto-chat-vps] slot ${free.id} acquis marker=${endMarker || "—"}`
+        );
+        return free;
+      }
+      await this._sleep(
+        process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 400
+      );
+    }
+    throw new Error("Timeout: aucun onglet Chat libre");
+  }
+
+  releaseSlot(slot) {
+    if (!slot) return;
+    slot.busy = false;
+    slot.endMarker = null;
+    console.log(`[carto-chat-vps] slot ${slot.id} libéré`);
+  }
+
+  findSlotByMarker(marker) {
+    const m = String(marker || "").trim();
+    if (!m) return null;
+    return this.slots.find((s) => s.endMarker === m) || null;
+  }
+
+  /** Préfère l’onglet conversation ChatGPT le plus récent (hors job parallèle). */
+  async attachBestPage() {
+    if (pageAls.getStore()?.page) return; // ne pas voler la page du job
+    const pages = this.context.pages();
+    const chatPages = pages.filter((p) =>
+      /chatgpt\.com|chat\.openai\.com/i.test(p.url())
+    );
+    this._page =
       chatPages.find((p) => /\/c\//.test(p.url())) ||
       chatPages[0] ||
       pages[0] ||
@@ -171,6 +288,8 @@ export class ChatGptDriver {
   }
 
   async refreshPageHandle() {
+    // Pendant un job : rester collé au slot (pas de re-attach global)
+    if (pageAls.getStore()?.page) return;
     if (this.mode === "cdp") {
       try {
         await this.attachBestPage();
@@ -192,14 +311,18 @@ export class ChatGptDriver {
       null;
     const effortLabel = await this.readEffortLabel().catch(() => "");
     const effortAttr = await this.readEffortAttr().catch(() => "");
-    const effortTarget = Number(process.env.CARTO_CHAT_EFFORT_LEVEL || 3);
+    const effortTarget = Number(process.env.CARTO_CHAT_EFFORT_LEVEL || 2);
+    const slots = this.slotsInfo();
     return {
       ok: Boolean(this.page),
       mode: this.mode,
       url,
       loggedIn,
       hasPrompt,
-      busy: this.busy,
+      busy: this.runningCount > 0,
+      slotsFull: this.busy,
+      runningCount: this.runningCount,
+      slots,
       lastAnswerChars: lastText.length,
       // Uniquement le marker du fil courant (pas l’ancien)
       hasEndMarker: expected
@@ -1130,6 +1253,18 @@ export class ChatGptDriver {
     return { answer, url: this.page.url() };
   }
 
+  /** Lecture sur une page/slot précis (parallèle). */
+  async readLatestForPage(page) {
+    if (!page) return this.readLatest();
+    return pageAls.run({ page, endMarker: null }, async () => {
+      let answer = await this.readLastAssistantText({ deep: true });
+      if (!answer || answer.length < 40) {
+        throw new Error("Aucune réponse lisible sur cet onglet Chat");
+      }
+      return { answer, url: page.url() };
+    });
+  }
+
   /**
    * Bouton Effort / Reasoning visible (FR + EN).
    * Attributs data-* = fiables quelle que soit la langue UI.
@@ -1184,17 +1319,17 @@ export class ChatGptDriver {
       4: ["Extra High", "Très élevé", "Tres eleve"],
       5: ["Pro"],
     };
-    return map[level] || map[3];
+    return map[level] || map[2];
   }
 
   effortAttrForLevel(level) {
     return (
       { 1: "none", 2: "medium", 3: "high", 4: "xhigh", 5: "pro" }[level] ||
-      "high"
+      "medium"
     );
   }
 
-  isEffortAtTarget(label, level = 3) {
+  isEffortAtTarget(label, level = 2) {
     if (!label) return false;
     const aliases = this.effortAliases(level);
     // « Très élevé » ne doit pas matcher le cran 3 (Élevé / High)
@@ -1250,12 +1385,12 @@ export class ChatGptDriver {
   }
 
   /**
-   * Force Effort (défaut High / Élevé = cran 3/5).
+   * Force Effort (défaut Medium / Moyen = cran 2/5).
    * CARTO_CHAT_EFFORT_LEVEL: 1 Instant … 2 Medium … 3 High … 4 Extra … 5 Pro
-   * 1) clic libellé menu  2) fallback slider (ratios calibrés — 0.5 = Medium, PAS High)
+   * 1) clic libellé menu  2) fallback slider
    */
   async ensureHighEffort() {
-    const TARGET = Number(process.env.CARTO_CHAT_EFFORT_LEVEL || 3); // 3 = High/Élevé
+    const TARGET = Number(process.env.CARTO_CHAT_EFFORT_LEVEL || 2); // 2 = Medium/Moyen
     const aliases = this.effortAliases(TARGET);
     const targetAttr = this.effortAttrForLevel(TARGET);
     console.log(
@@ -1518,164 +1653,175 @@ export class ChatGptDriver {
   }
 
   async ask(prompt, opts = {}) {
-    if (this.busy) throw new Error("Chat déjà occupé — réessaie dans un instant");
-    this.busy = true;
     const timeoutMs = Number(
       opts.timeoutMs || process.env.CARTO_CHAT_TIMEOUT_MS || 240_000
     );
     const endMarker =
       (opts.endMarker && String(opts.endMarker).trim()) || END_MARKER_DEFAULT;
-    this.activeEndMarker = endMarker;
+
+    // Slot fourni par le worker (queue) ou acquis ici
+    const slot =
+      opts.slot ||
+      (await this.acquireSlot(endMarker));
+    const ownSlot = !opts.slot;
+
     try {
-      await this.refreshPageHandle();
+      return await pageAls.run(
+        { page: slot.page, endMarker, slot },
+        async () => {
+          this.activeEndMarker = endMarker;
+          slot.endMarker = endMarker;
 
-      if (!(await this.isLoggedIn())) {
-        throw new Error(
-          "ChatGPT non connecté — connecte-toi dans la fenêtre Chrome CDP"
-        );
-      }
-
-      // Toujours une NOUVELLE conversation (comme Chrome chez toi)
-      await this.startFreshChat();
-
-      let box = await this.waitForPrompt(12_000);
-      if (!box) {
-        console.warn(
-          "[carto-chat-vps] prompt absent après Nouveau chat — retry accueil"
-        );
-        try {
-          await this.page.goto(CHATGPT_URL, {
-            waitUntil: "domcontentloaded",
-            timeout: 60_000,
-          });
-        } catch {
-          /* ignore */
-        }
-        box = await this.waitForPrompt(10_000);
-      }
-      if (!box) throw new Error("Champ prompt ChatGPT introuvable");
-      console.log(
-        `[carto-chat-vps] prompt OK url=${this.page.url()}`
-      );
-
-      // High après nouveau chat (sinon Instant revient)
-      await this.ensureHighEffort();
-      box = (await this.findPromptHandle()) || box;
-
-      // Baseline : sur l'accueil (pas de /c/…) le body contient la sidebar
-      // (anciennes marques) — ne PAS s'en servir comme « réponse ».
-      let beforeText = "";
-      const urlNow = this.page.url();
-      if (/\/c\/[a-z0-9-]+/i.test(urlNow)) {
-        beforeText = await this.readLastAssistantText();
-        if (beforeText.length > 400) {
-          console.warn(
-            `[carto-chat-vps] encore sur un /c/ long (${beforeText.length}) → force accueil`
-          );
-          await this.startFreshChat();
-          try {
-            await this.page.goto(CHATGPT_URL, {
-              waitUntil: "domcontentloaded",
-              timeout: 60_000,
-            });
-          } catch {
-            /* ignore */
-          }
-          box = (await this.waitForPrompt(10_000)) || box;
-          await this.ensureHighEffort();
-          beforeText = /\/c\/[a-z0-9-]+/i.test(this.page.url())
-            ? await this.readLastAssistantText()
-            : "";
-        }
-      }
-      if (/\/c\/[a-z0-9-]+/i.test(this.page.url()) && beforeText.length > 800) {
-        throw new Error(
-          "Ancienne conversation encore à l'écran — impossible de démarrer un fil propre"
-        );
-      }
-      console.log(
-        `[carto-chat-vps] beforeText chars=${beforeText.length} url=${this.page.url()}`
-      );
-
-      await box.click({ timeout: 5000 });
-      // Coller le prompt d'un coup (pressSequentially timeout sur les longs textes)
-      const pasted = await box
-        .evaluate((node, value) => {
-          const el = node;
-          el.focus();
-          // vide
-          if (document.execCommand) {
-            document.execCommand("selectAll", false);
-            document.execCommand("delete", false);
-          } else {
-            el.textContent = "";
-          }
-          // insertText = chemin le plus fiable pour ProseMirror / contenteditable
-          const ok = document.execCommand("insertText", false, value);
-          if (!ok) {
-            el.textContent = value;
-            el.dispatchEvent(
-              new InputEvent("input", { bubbles: true, inputType: "insertText", data: value })
+          if (!(await this.isLoggedIn())) {
+            throw new Error(
+              "ChatGPT non connecté — connecte-toi dans la fenêtre Chrome CDP"
             );
           }
-          return (el.innerText || el.textContent || "").length;
-        }, prompt)
-        .catch(() => 0);
-      if (!pasted || pasted < Math.min(40, prompt.length)) {
-        // Fallback clavier
-        try {
-          await box.fill("");
-        } catch {
-          await this.page.keyboard.press("Control+A").catch(() => {});
-          await this.page.keyboard.press("Backspace").catch(() => {});
+
+          await this.startFreshChat();
+
+          let box = await this.waitForPrompt(12_000);
+          if (!box) {
+            console.warn(
+              `[carto-chat-vps] slot ${slot.id}: prompt absent — retry accueil`
+            );
+            try {
+              await this.page.goto(CHATGPT_URL, {
+                waitUntil: "domcontentloaded",
+                timeout: 60_000,
+              });
+            } catch {
+              /* ignore */
+            }
+            box = await this.waitForPrompt(10_000);
+          }
+          if (!box) throw new Error("Champ prompt ChatGPT introuvable");
+          console.log(
+            `[carto-chat-vps] slot ${slot.id} prompt OK url=${this.page.url()}`
+          );
+
+          await this.ensureHighEffort();
+          box = (await this.findPromptHandle()) || box;
+
+          let beforeText = "";
+          const urlNow = this.page.url();
+          if (/\/c\/[a-z0-9-]+/i.test(urlNow)) {
+            beforeText = await this.readLastAssistantText();
+            if (beforeText.length > 400) {
+              console.warn(
+                `[carto-chat-vps] slot ${slot.id}: /c/ long (${beforeText.length}) → fresh`
+              );
+              await this.startFreshChat();
+              try {
+                await this.page.goto(CHATGPT_URL, {
+                  waitUntil: "domcontentloaded",
+                  timeout: 60_000,
+                });
+              } catch {
+                /* ignore */
+              }
+              box = (await this.waitForPrompt(10_000)) || box;
+              await this.ensureHighEffort();
+              beforeText = /\/c\/[a-z0-9-]+/i.test(this.page.url())
+                ? await this.readLastAssistantText()
+                : "";
+            }
+          }
+          if (
+            /\/c\/[a-z0-9-]+/i.test(this.page.url()) &&
+            beforeText.length > 800
+          ) {
+            throw new Error(
+              "Ancienne conversation encore à l'écran — impossible de démarrer un fil propre"
+            );
+          }
+          console.log(
+            `[carto-chat-vps] slot ${slot.id} beforeText chars=${beforeText.length}`
+          );
+
+          await box.click({ timeout: 5000 });
+          const pasted = await box
+            .evaluate((node, value) => {
+              const el = node;
+              el.focus();
+              if (document.execCommand) {
+                document.execCommand("selectAll", false);
+                document.execCommand("delete", false);
+              } else {
+                el.textContent = "";
+              }
+              const ok = document.execCommand("insertText", false, value);
+              if (!ok) {
+                el.textContent = value;
+                el.dispatchEvent(
+                  new InputEvent("input", {
+                    bubbles: true,
+                    inputType: "insertText",
+                    data: value,
+                  })
+                );
+              }
+              return (el.innerText || el.textContent || "").length;
+            }, prompt)
+            .catch(() => 0);
+          if (!pasted || pasted < Math.min(40, prompt.length)) {
+            try {
+              await box.fill("");
+            } catch {
+              await this.page.keyboard.press("Control+A").catch(() => {});
+              await this.page.keyboard.press("Backspace").catch(() => {});
+            }
+            await this.page.keyboard.insertText(prompt);
+          }
+          console.log(
+            `[carto-chat-vps] slot ${slot.id} prompt collé ~${pasted || prompt.length} chars`
+          );
+
+          const targetEffort = Number(
+            process.env.CARTO_CHAT_EFFORT_LEVEL || 2
+          );
+          await this.ensureHighEffort();
+          const effortNow = await this.readEffortLabel();
+          if (!this.isEffortAtTarget(effortNow, targetEffort)) {
+            console.warn(
+              `[carto-chat-vps] slot ${slot.id} envoi malgré effort « ${effortNow} »`
+            );
+          }
+
+          box = (await this.findPromptHandle()) || box;
+          await box.click({ timeout: 3000 }).catch(() => {});
+
+          const sendBtn = await this.findSendButton();
+          if (sendBtn) {
+            await sendBtn.click({ timeout: 5000, noWaitAfter: true });
+          } else {
+            await box.press("Enter");
+          }
+
+          await this._sleep(
+            process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 1500
+          );
+          let answer = await this.waitGenerationDone(
+            beforeText,
+            timeoutMs,
+            opts.onProgress,
+            endMarker
+          );
+          const ensured = await this.ensureCorrectEndMarker(
+            answer,
+            endMarker
+          );
+          return {
+            answer: ensured.answer,
+            url: this.page.url(),
+            markerInjected: Boolean(ensured.injected),
+            markerSource: ensured.source,
+            slotId: slot.id,
+          };
         }
-        await this.page.keyboard.insertText(prompt);
-      }
-      console.log(
-        `[carto-chat-vps] prompt collé ~${pasted || prompt.length} chars`
       );
-
-      // Re-check High juste avant envoi (Chat reset parfois)
-      const targetEffort = Number(process.env.CARTO_CHAT_EFFORT_LEVEL || 3);
-      await this.ensureHighEffort();
-      const effortNow = await this.readEffortLabel();
-      if (!this.isEffortAtTarget(effortNow, targetEffort)) {
-        console.warn(
-          `[carto-chat-vps] envoi malgré effort « ${effortNow} »`
-        );
-      }
-
-      box = (await this.findPromptHandle()) || box;
-      await box.click({ timeout: 3000 }).catch(() => {});
-
-      const send = await this.findSendButton();
-      if (send) {
-        // ChatGPT = SPA : après Send, Playwright peut rester coincé sur
-        // « waiting for scheduled navigations » → ne pas attendre la nav.
-        await send.click({ timeout: 5000, noWaitAfter: true });
-      } else {
-        await box.press("Enter");
-      }
-
-      await this._sleep(
-        process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 1500
-      );
-      let answer = await this.waitGenerationDone(
-        beforeText,
-        timeoutMs,
-        opts.onProgress,
-        endMarker
-      );
-      // Garantit le bon jeton ; injected=true → worker ne certifie PAS
-      const ensured = await this.ensureCorrectEndMarker(answer, endMarker);
-      return {
-        answer: ensured.answer,
-        url: this.page.url(),
-        markerInjected: Boolean(ensured.injected),
-        markerSource: ensured.source,
-      };
     } finally {
-      this.busy = false;
+      if (ownSlot) this.releaseSlot(slot);
     }
   }
 

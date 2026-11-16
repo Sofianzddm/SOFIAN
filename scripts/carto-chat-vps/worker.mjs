@@ -1,19 +1,11 @@
 /**
- * Worker VPS — garde ChatGPT ouvert et expose POST /ask
+ * Worker VPS — ChatGPT multi-onglets (jusqu'à CARTO_CHAT_MAX_PARALLEL).
  *
  * Modes:
- *   1) CDP (recommandé) : Chrome déjà ouvert avec ChatGPT connecté
- *      google-chrome --remote-debugging-port=9222 --user-data-dir=/opt/chatgpt-profile
- *      CARTO_CHAT_CDP_URL=http://127.0.0.1:9222
- *
- *   2) Persistent Playwright : lance Chromium, login une fois via VNC
- *      CARTO_CHAT_PROFILE_DIR=/opt/chatgpt-profile
- *      CARTO_CHAT_HEADLESS=0
+ *   1) CDP : CARTO_CHAT_CDP_URL=http://127.0.0.1:9222
+ *   2) Persistent Playwright : CARTO_CHAT_PROFILE_DIR=...
  *
  * Auth: Authorization: Bearer $CARTO_CHAT_VPS_SECRET
- *
- * Lancer:
- *   cd scripts/carto-chat-vps && npm i && npm run install:browser && npm start
  */
 
 import http from "node:http";
@@ -25,20 +17,12 @@ const BIND = process.env.CARTO_CHAT_VPS_BIND || "127.0.0.1";
 
 const driver = new ChatGptDriver();
 
-/** Job async : le navigateur ne tient pas 6–10 min de POST /ask. */
-let askJob = {
-  state: "idle", // idle | running | done | error
-  startedAt: 0,
-  finishedAt: 0,
-  answerChars: 0,
-  error: null,
-  promptPreview: "",
-  endMarker: "",
-  /** Réponse (certifiée seulement si markerInjected=false). */
-  answer: "",
-  markerInjected: false,
-  markerSource: "",
-};
+/** @type {Map<string, object>} jobs par endMarker */
+const jobs = new Map();
+/** File FIFO des endMarkers en attente d'un slot */
+const queue = [];
+/** Marqueurs en cours d'exécution sur un slot */
+const running = new Set();
 
 function textHasMarker(text, marker) {
   const m = String(marker || "").trim();
@@ -60,13 +44,11 @@ function hasDeliverableAnchors(text) {
   );
 }
 
-/** Certifié = done + jeton réel (pas injecté) + ancrages soft si texte long. */
-function jobHasCorrectMarker() {
-  if (askJob.state !== "done") return false;
-  if (askJob.markerInjected) return false;
-  if (!textHasMarker(askJob.answer, askJob.endMarker)) return false;
-  const a = String(askJob.answer || "");
-  // Soft guard : gros texte sans ancrage livrable → pas certified
+function jobIsCertified(job) {
+  if (!job || job.state !== "done") return false;
+  if (job.markerInjected) return false;
+  if (!textHasMarker(job.answer, job.endMarker)) return false;
+  const a = String(job.answer || "");
   if (a.length >= 8000 && !hasDeliverableAnchors(a)) return false;
   return true;
 }
@@ -81,7 +63,7 @@ function finalizeAskResult(result, endMarker, startedAt, promptPreview) {
 
   if (!certified) {
     const why = injected
-      ? "jeton injecté localement (Chat ne l'a pas écrit)"
+      ? "jeton injecté localement (Chat n'a pas écrit le code)"
       : !hasMarker
         ? "jeton absent de la réponse"
         : "ancrages livrable manquants";
@@ -99,6 +81,8 @@ function finalizeAskResult(result, endMarker, startedAt, promptPreview) {
       answer,
       markerInjected: injected,
       markerSource: result?.markerSource || "",
+      slotId: result?.slotId ?? null,
+      companyHint: "",
     };
   }
 
@@ -113,7 +97,150 @@ function finalizeAskResult(result, endMarker, startedAt, promptPreview) {
     answer,
     markerInjected: false,
     markerSource: result?.markerSource || "present",
+    slotId: result?.slotId ?? null,
+    companyHint: "",
   };
+}
+
+function publicJob(job) {
+  if (!job) return null;
+  return {
+    state: job.state,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt || 0,
+    answerChars: job.answerChars || (job.answer || "").length,
+    error: job.error,
+    promptPreview: job.promptPreview,
+    endMarker: job.endMarker || "",
+    hasCertifiedAnswer: jobIsCertified(job),
+    markerInjected: Boolean(job.markerInjected),
+    markerSource: job.markerSource || "",
+    slotId: job.slotId ?? null,
+    companyHint: job.companyHint || "",
+  };
+}
+
+/** Job « primary » pour compat lab : running le plus récent, sinon dernier done/error. */
+function primaryJob() {
+  const list = [...jobs.values()];
+  const runningJobs = list
+    .filter((j) => j.state === "running")
+    .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+  if (runningJobs[0]) return runningJobs[0];
+  const queuedJobs = list
+    .filter((j) => j.state === "queued")
+    .sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
+  if (queuedJobs[0]) return queuedJobs[0];
+  return list.sort(
+    (a, b) => (b.finishedAt || b.startedAt || 0) - (a.finishedAt || a.startedAt || 0)
+  )[0] || null;
+}
+
+function extractCompanyHint(prompt) {
+  const m = String(prompt || "").match(
+    /MARQUE À ANALYSER\s*:\s*(.+?)(?:\n|$)/i
+  );
+  return m ? m[1].trim().slice(0, 80) : "";
+}
+
+function pumpQueue() {
+  while (true) {
+    const free = driver.slotsInfo().free;
+    if (free <= 0) break;
+    const nextMarker = queue.shift();
+    if (!nextMarker) break;
+    const job = jobs.get(nextMarker);
+    if (!job || job.state !== "queued") continue;
+    startJobOnSlot(job);
+  }
+}
+
+function startJobOnSlot(job) {
+  const endMarker = job.endMarker;
+  running.add(endMarker);
+  job.state = "running";
+  job.startedAt = job.startedAt || Date.now();
+  console.log(
+    `[carto-chat-vps] start job marker=${endMarker} hint=${job.companyHint || "—"} queueLeft=${queue.length}`
+  );
+
+  setImmediate(() => {
+    driver
+      .ask(job.prompt, {
+        timeoutMs: job.timeoutMs,
+        endMarker,
+        onProgress: (chars) => {
+          const j = jobs.get(endMarker);
+          if (j && j.state === "running") {
+            j.answerChars = Number(chars) || 0;
+          }
+        },
+      })
+      .then((result) => {
+        const finalized = finalizeAskResult(
+          result,
+          endMarker,
+          job.startedAt,
+          job.promptPreview
+        );
+        finalized.companyHint = job.companyHint;
+        finalized.prompt = undefined;
+        jobs.set(endMarker, { ...finalized, prompt: job.prompt });
+        console.log(
+          `[carto-chat-vps] async ${finalized.state} chars=${result.answer.length} marker=${endMarker} certified=${finalized.state === "done" ? 1 : 0} slot=${result.slotId}`
+        );
+      })
+      .catch((e) => {
+        jobs.set(endMarker, {
+          ...job,
+          state: "error",
+          finishedAt: Date.now(),
+          error: e instanceof Error ? e.message : "Erreur ask",
+          answer: "",
+          markerInjected: false,
+          markerSource: "",
+        });
+        console.error("[carto-chat-vps] /ask-async error:", e);
+      })
+      .finally(() => {
+        running.delete(endMarker);
+        pumpQueue();
+      });
+  });
+}
+
+function enqueueAsk({ prompt, endMarker, timeoutMs, promptPreview, companyHint }) {
+  const marker =
+    endMarker ||
+    `GLOWUP_CART_DONE_${Date.now().toString(36)}`;
+  if (jobs.has(marker) && ["queued", "running"].includes(jobs.get(marker).state)) {
+    return { error: "Ce marker a déjà un job actif", status: 409 };
+  }
+
+  const startedAt = Date.now();
+  const job = {
+    state: "queued",
+    startedAt,
+    finishedAt: 0,
+    answerChars: 0,
+    error: null,
+    promptPreview,
+    endMarker: marker,
+    answer: "",
+    markerInjected: false,
+    markerSource: "",
+    slotId: null,
+    companyHint: companyHint || extractCompanyHint(prompt),
+    prompt,
+    timeoutMs,
+  };
+  jobs.set(marker, job);
+  queue.push(marker);
+  console.log(
+    `[carto-chat-vps] enqueue marker=${marker} hint=${job.companyHint || "—"} free=${driver.slotsInfo().free}`
+  );
+  pumpQueue();
+  return { job: publicJob(jobs.get(marker)), status: 202 };
 }
 
 function readJson(req) {
@@ -142,7 +269,7 @@ function send(res, status, body) {
 }
 
 function authorized(req) {
-  if (!SECRET) return true; // lab local uniquement — mets un secret en prod
+  if (!SECRET) return true;
   const h = req.headers.authorization || "";
   return h === `Bearer ${SECRET}`;
 }
@@ -150,36 +277,55 @@ function authorized(req) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
-  // En prod (HTTPS public) : Bearer obligatoire partout, y compris /health
   if (!authorized(req)) {
     return send(res, 401, { error: "Unauthorized" });
   }
 
   if (req.method === "GET" && url.pathname === "/health") {
+    const primary = primaryJob();
     const st = await driver
-      .status({ endMarker: askJob.endMarker || undefined })
+      .status({ endMarker: primary?.endMarker || undefined })
       .catch((e) => ({
         ok: false,
         error: e instanceof Error ? e.message : String(e),
       }));
-    const certified = jobHasCorrectMarker();
+
+    const jobsList = [...jobs.values()]
+      .map(publicJob)
+      .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0))
+      .slice(0, 20);
+
+    const anyCertified = jobsList.some((j) => j.hasCertifiedAnswer);
+    const primaryCertified = jobIsCertified(primary);
+
+    // hasEndMarker : écran pour le primary OU un job certifié avec ce marker
+    let hasEnd = Boolean(st.hasEndMarker) || primaryCertified;
+    const want = url.searchParams.get("endMarker") || primary?.endMarker;
+    if (want) {
+      const j = jobs.get(want);
+      if (jobIsCertified(j)) hasEnd = true;
+      else if (j?.state === "done" && textHasMarker(j.answer, want)) hasEnd = true;
+    }
+
     return send(res, 200, {
       ...st,
-      // Écran OU réponse job certifiée avec LE bon jeton (jamais injecté)
-      hasEndMarker: Boolean(st.hasEndMarker) || certified,
-      endMarker: askJob.endMarker || st.endMarker || null,
-      job: {
-        state: askJob.state,
-        startedAt: askJob.startedAt,
-        finishedAt: askJob.finishedAt,
-        answerChars: askJob.answerChars || (askJob.answer || "").length,
-        error: askJob.error,
-        promptPreview: askJob.promptPreview,
-        endMarker: askJob.endMarker || "",
-        hasCertifiedAnswer: certified,
-        markerInjected: Boolean(askJob.markerInjected),
-        markerSource: askJob.markerSource || "",
+      hasEndMarker: hasEnd,
+      endMarker: primary?.endMarker || st.endMarker || null,
+      job: publicJob(primary) || {
+        state: "idle",
+        startedAt: 0,
+        finishedAt: 0,
+        answerChars: 0,
+        error: null,
+        promptPreview: "",
+        endMarker: "",
+        hasCertifiedAnswer: false,
+        markerInjected: false,
+        markerSource: "",
       },
+      jobs: jobsList,
+      queueLength: queue.length,
+      anyCertified,
     });
   }
 
@@ -191,39 +337,28 @@ const server = http.createServer(async (req, res) => {
       if (prompt.length < 8) {
         return send(res, 400, { error: "prompt requis" });
       }
-      console.log(
-        `[carto-chat-vps] /ask ${prompt.slice(0, 80).replace(/\n/g, " ")}…`
-      );
       const promptPreview = prompt.slice(0, 80).replace(/\n/g, " ");
-      askJob = {
-        state: "running",
-        startedAt: Date.now(),
-        finishedAt: 0,
-        answerChars: 0,
-        error: null,
-        promptPreview,
-        endMarker,
-        answer: "",
-        markerInjected: false,
-        markerSource: "",
-      };
       const started = Date.now();
       const result = await driver.ask(prompt, {
         timeoutMs: body.timeoutMs ? Number(body.timeoutMs) : undefined,
         endMarker: endMarker || undefined,
       });
-      askJob = finalizeAskResult(result, endMarker, started, promptPreview);
-      console.log(
-        `[carto-chat-vps] done ${((Date.now() - started) / 1000).toFixed(1)}s chars=${result.answer.length} certified=${askJob.state === "done" ? 1 : 0}`
+      const finalized = finalizeAskResult(
+        result,
+        endMarker,
+        started,
+        promptPreview
       );
-      if (askJob.state !== "done") {
+      finalized.companyHint = extractCompanyHint(prompt);
+      if (endMarker) jobs.set(endMarker, { ...finalized, prompt });
+      if (finalized.state !== "done") {
         return send(res, 502, {
           ok: false,
-          error: askJob.error,
+          error: finalized.error,
           answer: result.answer,
           url: result.url,
           elapsedMs: Date.now() - started,
-          markerInjected: askJob.markerInjected,
+          markerInjected: finalized.markerInjected,
         });
       }
       return send(res, 200, {
@@ -234,23 +369,12 @@ const server = http.createServer(async (req, res) => {
       });
     } catch (e) {
       console.error("[carto-chat-vps] /ask error:", e);
-      askJob = {
-        ...askJob,
-        state: "error",
-        finishedAt: Date.now(),
-        error: e instanceof Error ? e.message : "Erreur ask",
-        markerInjected: false,
-      };
       return send(res, 500, {
         error: e instanceof Error ? e.message : "Erreur ask",
       });
     }
   }
 
-  /**
-   * Démarre Chat sans bloquer HTTP (lab poll /health puis /read-last).
-   * Répond 202 tout de suite — le navigateur n'abandonne plus à 5 min.
-   */
   if (req.method === "POST" && url.pathname === "/ask-async") {
     try {
       const body = await readJson(req);
@@ -259,67 +383,23 @@ const server = http.createServer(async (req, res) => {
       if (prompt.length < 8) {
         return send(res, 400, { error: "prompt requis" });
       }
-      if (driver.busy || askJob.state === "running") {
-        return send(res, 409, { error: "Chat déjà occupé — réessaie dans un instant" });
-      }
-      const timeoutMs = body.timeoutMs ? Number(body.timeoutMs) : undefined;
-      const startedAt = Date.now();
       const promptPreview = prompt.slice(0, 80).replace(/\n/g, " ");
-      askJob = {
-        state: "running",
-        startedAt,
-        finishedAt: 0,
-        answerChars: 0,
-        error: null,
-        promptPreview,
+      const out = enqueueAsk({
+        prompt,
         endMarker,
-        answer: "",
-        markerInjected: false,
-        markerSource: "",
-      };
-      console.log(
-        `[carto-chat-vps] /ask-async marker=${endMarker || "—"} ${askJob.promptPreview}…`
-      );
-      // Fire-and-forget : ne bloque pas la réponse HTTP
-      setImmediate(() => {
-        driver
-          .ask(prompt, {
-            timeoutMs,
-            endMarker: endMarker || undefined,
-            onProgress: (chars) => {
-              if (askJob.startedAt === startedAt && askJob.state === "running") {
-                askJob.answerChars = Number(chars) || 0;
-              }
-            },
-          })
-          .then((result) => {
-            askJob = finalizeAskResult(
-              result,
-              endMarker,
-              startedAt,
-              promptPreview
-            );
-            console.log(
-              `[carto-chat-vps] async ${askJob.state} chars=${result.answer.length} marker=${endMarker} certified=${askJob.state === "done" ? 1 : 0} source=${result.markerSource || "?"}`
-            );
-          })
-          .catch((e) => {
-            askJob = {
-              state: "error",
-              startedAt,
-              finishedAt: Date.now(),
-              answerChars: askJob.answerChars || 0,
-              error: e instanceof Error ? e.message : "Erreur ask",
-              promptPreview,
-              endMarker,
-              answer: "",
-              markerInjected: false,
-              markerSource: "",
-            };
-            console.error("[carto-chat-vps] /ask-async error:", e);
-          });
+        timeoutMs: body.timeoutMs ? Number(body.timeoutMs) : undefined,
+        promptPreview,
+        companyHint: extractCompanyHint(prompt),
       });
-      return send(res, 202, { ok: true, started: true, job: askJob });
+      if (out.error) {
+        return send(res, out.status || 409, { error: out.error });
+      }
+      return send(res, 202, {
+        ok: true,
+        started: true,
+        queued: out.job.state === "queued",
+        job: out.job,
+      });
     } catch (e) {
       return send(res, 500, {
         error: e instanceof Error ? e.message : "Erreur ask-async",
@@ -338,44 +418,57 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  /** Récupère la réponse déjà affichée (Chat a fini, lab n'a rien reçu). */
   if (req.method === "POST" && url.pathname === "/read-last") {
     try {
-      // Préfère la réponse job certifiée (bon jeton garanti) si dispo
-      if (askJob.state === "done" && jobHasCorrectMarker()) {
+      const body = await readJson(req).catch(() => ({}));
+      const marker = String(body.endMarker || "").trim();
+      const job = marker
+        ? jobs.get(marker)
+        : primaryJob();
+
+      if (job && job.state === "done" && jobIsCertified(job)) {
         console.log(
-          `[carto-chat-vps] /read-last from job chars=${askJob.answer.length} marker=${askJob.endMarker}`
+          `[carto-chat-vps] /read-last from job chars=${job.answer.length} marker=${job.endMarker}`
         );
         return send(res, 200, {
           ok: true,
-          answer: askJob.answer,
+          answer: job.answer,
           url: driver.page?.url?.() || "",
           fromJob: true,
-          endMarker: askJob.endMarker,
+          endMarker: job.endMarker,
         });
       }
-      const result = await driver.readLatest();
-      const marker = String(askJob.endMarker || "").trim();
+
+      // Lecture écran : si un slot porte encore le marker, bind ALS via ask path n/a —
+      // utilise la page du slot si trouvée
+      const slot = marker ? driver.findSlotByMarker(marker) : null;
+      let result;
+      if (slot) {
+        const { AsyncLocalStorage } = await import("node:async_hooks");
+        // readLatest on that page: temporarily use pageAls via a small helper
+        result = await driver.readLatestForPage(slot.page);
+      } else {
+        result = await driver.readLatest();
+      }
+
       let answer = result.answer;
-      // Ne jamais injecter pour « fake » une certif via /read-last
-      if (marker && textHasMarker(answer, marker)) {
-        const ensured = await driver.ensureCorrectEndMarker(answer, marker);
+      const expect = marker || String(job?.endMarker || "").trim();
+      if (expect && textHasMarker(answer, expect)) {
+        const ensured = await driver.ensureCorrectEndMarker(answer, expect);
         answer = ensured.answer;
-        if (!ensured.injected && askJob.state === "done") {
-          askJob.answer = answer;
-          askJob.answerChars = answer.length;
-          askJob.markerInjected = false;
-          askJob.markerSource = ensured.source;
+        if (!ensured.injected && job && job.state === "done") {
+          job.answer = answer;
+          job.answerChars = answer.length;
+          job.markerInjected = false;
+          job.markerSource = ensured.source;
         }
       }
-      console.log(
-        `[carto-chat-vps] /read-last chars=${answer.length}`
-      );
+      console.log(`[carto-chat-vps] /read-last chars=${answer.length}`);
       return send(res, 200, {
         ok: true,
         answer,
         url: result.url,
-        endMarker: marker || null,
+        endMarker: expect || null,
       });
     } catch (e) {
       console.error("[carto-chat-vps] /read-last error:", e);
@@ -397,8 +490,11 @@ async function main() {
   await driver.start();
   server.listen(PORT, BIND, () => {
     console.log(`[carto-chat-vps] listening http://${BIND}:${PORT}`);
+    console.log(
+      `[carto-chat-vps] parallel slots=${driver.slotsInfo().total}`
+    );
     console.log(`[carto-chat-vps] health → GET /health`);
-    console.log(`[carto-chat-vps] ask    → POST /ask { prompt }`);
+    console.log(`[carto-chat-vps] ask    → POST /ask-async { prompt, endMarker }`);
   });
 }
 
