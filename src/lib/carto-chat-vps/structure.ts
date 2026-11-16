@@ -11,6 +11,9 @@ import type {
 /** Classement JSON post-Chat — mini = rapide (le research est déjà fait par Chat). */
 const OPENAI_MODEL = "gpt-4o-mini";
 
+/** gpt-4o-mini ~128k : on envoie quasi tout le research pour ne pas perdre les tableaux. */
+const MAX_ANSWER_CHARS = 90_000;
+
 function stripJsonFence(raw: string): string {
   return raw
     .replace(/```json\n?/gi, "")
@@ -169,18 +172,19 @@ export async function structureChatAnswer(opts: {
   const apiKey = process.env.OPENAI_API_KEY?.trim()?.replace(/^["']|["']$/g, "");
   if (!apiKey) throw new Error("OPENAI_API_KEY manquante");
 
+  const fullAnswer = opts.chatAnswer;
+  const answerForModel =
+    fullAnswer.length <= MAX_ANSWER_CHARS
+      ? fullAnswer
+      : `${fullAnswer.slice(0, 70_000)}\n\n…\n\n${fullAnswer.slice(-20_000)}`;
+
   const prompt = `Tu structures la réponse ChatGPT suivante pour Glow-up (carto influence).
 
 Marque: ${opts.company}
 
-Réponse Chat:
+Réponse Chat (${fullAnswer.length} caractères — extrais TOUTES les personnes nommées):
 """
-${(() => {
-  const full = opts.chatAnswer;
-  if (full.length <= 16000) return full;
-  // garde le début + la section LinkedIn en fin (hrefs)
-  return `${full.slice(0, 11000)}\n\n…\n\n${full.slice(-5000)}`;
-})()}
+${answerForModel}
 """
 
 Extrais UNIQUEMENT un JSON:
@@ -193,7 +197,7 @@ Extrais UNIQUEMENT un JSON:
   }],
   "contacts": [{
     "marche":"FR"|"EU"|"INT",
-    "priorite":"P1"|"P2"|"P3",
+    "priorite":"P1"|"P2"|"P3"|"P4",
     "prenom":"…",
     "nom":"…",
     "poste":"…",
@@ -204,22 +208,23 @@ Extrais UNIQUEMENT un JSON:
   }]
 }
 
-Règles:
+Règles EXHAUSTIVES (critique — ne pas sous-extraire):
+- Objectif: 12 à 25 contacts si la réponse en cite autant. INTERDIT de s'arrêter à 3–5.
+- Parcours TOUS les tableaux et listes (marque, agence, marketing, secondaires, top 10).
+- Inclus P1, P2, P3 ET P4 (historiques / périphériques / à vérifier).
+- Une personne = une entrée. Déduplique prénom+nom. Ne invente PAS de noms.
 - Sépare STRICTEMENT marque vs agence (NE PAS tout mettre en Marque):
-  - Salarié·e interne marque / siège / filiale annonceur → perimetre = "Marque" (ou "Groupe").
+  - Salarié·e interne marque / siège / filiale annonceur (ex. L'Oréal) → "Marque" ou "Groupe".
   - Personne qui TRAVAILLE CHEZ une agence (même historique) → JAMAIS "Marque".
-    - Agence du mandat principal → perimetre = "Agence {NOM_EXACT}" (ex. "Agence Matahari").
+    - Agence du mandat principal → perimetre = "Agence {NOM_EXACT}" (ex. "Agence WOO").
     - Autre agence one-shot / ancienne → perimetre = "Autre agence {NOM}".
-  - Si la réponse Chat ne cite qu'UNE agence → c'est la principale (primary:true), pas "Autre".
-- agencies[]: liste les agences nommées; primary:true = mandat influence/RP le plus solide.
-- poste: rôle réel (ex. "Influence Manager", "Account Director") — PAS "Profil LinkedIn…".
-- note: preuve courte (agence, campagne, source) — pas une phrase générique.
-- Personnes nommées → contacts. Ne invente PAS de noms.
-- LinkedIn: OBLIGATOIRE. La réponse contient souvent une section "## LinkedIn URLs (hrefs page)"
-  avec des lignes "- Nom… / https://linkedin.com/in/…". Recopie l'URL /in/ exacte sur le bon contact.
-  Si le tableau dit seulement « Profil », cherche l'URL dans cette section ou juste sous le nom.
+  - Si la réponse Chat ne cite qu'UNE agence mandat → c'est la principale (primary:true).
+- agencies[]: agences nommées; primary:true = mandat influence/RP le plus solide.
+- poste: rôle réel — PAS "Profil LinkedIn…".
+- note: preuve courte.
+- LinkedIn: OBLIGATOIRE si URL /in/ présente (section "## LinkedIn URLs" ou sous le nom).
   Ne mets null QUE si aucune URL /in/ n'existe pour cette personne.
-- Priorité: P1 décideurs marque + contacts agence principale, P2 secondaires.
+- Priorité: respecte P1–P4 du texte Chat quand indiqués; sinon P1 casting, P2 ops, P3 validation, P4 secondaire.
 - Réponds JSON pur.`;
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {

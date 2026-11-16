@@ -19,8 +19,8 @@ export const CARTO_AI_ALLOWED_EMAILS = [
 
 export const CARTO_AI_ALLOWED_ROLES = ["ADMIN", "CASTING_MANAGER"] as const;
 
-/** Assez large pour marque + maison-mère + agence influence (style NYX). */
-export const CARTO_AI_MAX_CONTACTS = 20;
+/** Assez large pour marque + maison-mère + agence (carto exhaustive Chat). */
+export const CARTO_AI_MAX_CONTACTS = 30;
 
 export function isCartoAiAllowedEmail(email: string | null | undefined): boolean {
   const normalized = String(email || "")
