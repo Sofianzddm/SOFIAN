@@ -1,6 +1,6 @@
 /**
  * Jeton de fin imposé dans le prompt Chat.
- * Un code UNIQUE par fil/run → l’ancien fil ne déclenche plus le classement.
+ * Un code UNIQUE à chaque lancement (même marque) → l’ancien fil ne déclenche plus le classement.
  */
 
 export const CARTO_CHAT_END_MARKER_PREFIX = "GLOWUP_CART_DONE_";
@@ -8,10 +8,18 @@ export const CARTO_CHAT_END_MARKER_PREFIX = "GLOWUP_CART_DONE_";
 /** Legacy fixe (anciens prompts) */
 export const CARTO_CHAT_END_MARKER = "GLOWUP_CART_DONE_9f3k2x";
 
-/** Nouveau jeton par run : GLOWUP_CART_DONE_a1b2c3d4 */
+const ANY_MARKER_RE = new RegExp(
+  `${CARTO_CHAT_END_MARKER_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[a-z0-9]+`,
+  "gi"
+);
+
+/** Nouveau jeton par run : GLOWUP_CART_DONE_<unique> — jamais réutilisé. */
 export function createEndMarker(): string {
-  const id = Math.random().toString(36).slice(2, 10);
-  return `${CARTO_CHAT_END_MARKER_PREFIX}${id}`;
+  const rand =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID().replace(/-/g, "").slice(0, 12)
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  return `${CARTO_CHAT_END_MARKER_PREFIX}${rand}`;
 }
 
 export function endMarkerInstruction(marker: string): string {
@@ -23,6 +31,18 @@ ${marker}`;
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Retire instruction + jetons GLOWUP_CART_DONE_* déjà présents. */
+function stripExistingMarkerBlocks(prompt: string): string {
+  return String(prompt || "")
+    .replace(
+      /\n*À la TOUTE FIN de ta réponse[\s\S]*?GLOWUP_CART_DONE_[a-z0-9]+/gi,
+      ""
+    )
+    .replace(ANY_MARKER_RE, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 /** Détecte un marker précis, ou n’importe quel GLOWUP_CART_DONE_* si marker omis. */
@@ -54,20 +74,19 @@ export function stripEndMarker(text: string, marker?: string | null): string {
     .trim();
 }
 
+/**
+ * Ajoute un jeton NEUF à chaque appel.
+ * Si un vieux marker trainait dans le prompt custom, il est remplacé.
+ */
 export function appendEndMarkerInstruction(
   prompt: string,
   marker?: string | null
 ): { prompt: string; endMarker: string } {
-  const p = String(prompt || "").trim();
   const endMarker = (marker && marker.trim()) || createEndMarker();
-  if (!p) return { prompt: p, endMarker };
-  if (p.includes(endMarker)) return { prompt: p, endMarker };
-  // Évite de doubler si un vieux marker fixe est déjà dans le prompt custom
-  if (/GLOWUP_CART_DONE_[a-z0-9]+/i.test(p)) {
-    return { prompt: p, endMarker };
-  }
+  const cleaned = stripExistingMarkerBlocks(prompt);
+  if (!cleaned) return { prompt: cleaned, endMarker };
   return {
-    prompt: `${p}${endMarkerInstruction(endMarker)}`,
+    prompt: `${cleaned}${endMarkerInstruction(endMarker)}`,
     endMarker,
   };
 }

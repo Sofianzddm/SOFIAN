@@ -208,6 +208,7 @@ export default function CartoAiPipelineChatLabPage() {
         startedAt?: number;
         promptPreview?: string;
         company?: string;
+        endMarker?: string;
       };
       if (!startRes.ok && startRes.status !== 202) {
         throw new Error(startData.error || "Impossible de lancer Chat");
@@ -216,6 +217,8 @@ export default function CartoAiPipelineChatLabPage() {
       // 2) Poll : job done OU texte stable → structure (prompt long = souvent 10–20 min)
       const deadline = Date.now() + 25 * 60_000;
       const ourStartedAt = Number(startData.startedAt || Date.now());
+      /** Jeton unique de CE lancement (même marque → nouvel id à chaque Analyse). */
+      const ourEndMarker = String(startData.endMarker || "").trim();
       const pollStarted = Date.now();
       let sawRunning = false;
       let sawGrowth = false;
@@ -283,12 +286,14 @@ export default function CartoAiPipelineChatLabPage() {
           busy?: boolean;
           lastAnswerChars?: number;
           hasEndMarker?: boolean;
+          endMarker?: string | null;
           job?: {
             state?: string;
             error?: string | null;
             answerChars?: number;
             startedAt?: number;
             promptPreview?: string;
+            endMarker?: string;
           };
           error?: string;
         };
@@ -296,10 +301,16 @@ export default function CartoAiPipelineChatLabPage() {
         const jobState = h.job?.state || (h.busy ? "running" : "idle");
         const startedClose =
           Math.abs(Number(h.job?.startedAt || 0) - ourStartedAt) <= 5_000;
+        const markerMatches =
+          !ourEndMarker ||
+          h.job?.endMarker === ourEndMarker ||
+          h.endMarker === ourEndMarker;
         const jobIsOurs =
-          Number(h.job?.startedAt || 0) === ourStartedAt ||
-          (startedClose && jobMentionsCompany(h.job?.promptPreview || "")) ||
-          jobMentionsCompany(h.job?.promptPreview || "");
+          markerMatches &&
+          (Number(h.job?.startedAt || 0) === ourStartedAt ||
+            (startedClose &&
+              jobMentionsCompany(h.job?.promptPreview || "")) ||
+            jobMentionsCompany(h.job?.promptPreview || ""));
 
         if ((jobState === "running" || h.busy) && jobIsOurs) {
           sawRunning = true;
@@ -337,10 +348,10 @@ export default function CartoAiPipelineChatLabPage() {
         const stableMs = Date.now() - charsStableSince;
         const elapsed = Date.now() - pollStarted;
 
-        // 0) Marker GLOWUP_CART_DONE — seulement après un vrai run de CETTE marque
-        // (sinon on reclasse l’ancienne conversation encore à l’écran)
+        // 0) Marker GLOWUP_CART_DONE_* de CE run uniquement (pas l’ancien fil)
         if (
           h.hasEndMarker &&
+          markerMatches &&
           jobIsOurs &&
           sawFreshAnswer &&
           (sawRunning || jobState === "done")
