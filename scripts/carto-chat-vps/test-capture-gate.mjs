@@ -80,13 +80,15 @@ async function test1_noCaptureWithoutMarker() {
   } finally {
     Date.now = realNow;
   }
+  // Timeout sans jeton → renvoie le texte pour nudge (PAS certifié, PAS throw)
+  assert(err == null, `pas de throw (got: ${err?.message || "none"})`);
   assert(
-    captured == null,
-    "pas de return prématuré (stable 15s désactivé avec jeton)"
+    typeof captured === "string" && captured.length > 1000,
+    "renvoie le best pour nudge"
   );
   assert(
-    err != null && /jeton|Timeout/i.test(String(err.message || err)),
-    `timeout/erreur jeton absent (got: ${err?.message || "none"})`
+    !hasEndMarker(captured, MARKER),
+    "pas de jeton fake injecté à la capture"
   );
 }
 

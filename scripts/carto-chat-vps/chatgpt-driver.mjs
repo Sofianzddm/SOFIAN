@@ -584,11 +584,117 @@ export class ChatGptDriver {
   }
 
   /**
+   * Force le rendu de la fin du fil (Chat virtualise → sinon ~20–25k sans jeton).
+   * Aucun plafond de caractères : on scrolle jusqu'en bas plusieurs fois.
+   */
+  async scrollConversationToEnd() {
+    if (!this.page) return;
+    try {
+      await this.page.evaluate(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const pickScroll = () => {
+          const nodes = [
+            document.querySelector("[data-testid='conversation-turn-list']"),
+            document.querySelector("#thread"),
+            document.querySelector("main"),
+            document.querySelector("[class*='composer']")?.parentElement,
+            document.scrollingElement,
+          ].filter(Boolean);
+          let best = document.scrollingElement || document.documentElement;
+          let bestH = 0;
+          for (const n of nodes) {
+            const h = n.scrollHeight || 0;
+            if (h > bestH) {
+              bestH = h;
+              best = n;
+            }
+          }
+          return best;
+        };
+
+        for (let i = 0; i < 8; i++) {
+          const sc = pickScroll();
+          if (sc) sc.scrollTop = sc.scrollHeight;
+          window.scrollTo(0, document.body.scrollHeight);
+          const assists = document.querySelectorAll(
+            '[data-message-author-role="assistant"], [data-testid="assistant-message"]'
+          );
+          const last = assists[assists.length - 1];
+          if (last) {
+            last.scrollIntoView({ block: "end", inline: "nearest" });
+            // Scrolle aussi à l'intérieur du message (longs articles)
+            last.scrollTop = last.scrollHeight;
+            const md =
+              last.querySelector(".markdown") ||
+              last.querySelector("[class*='markdown']") ||
+              last;
+            if (md && md !== last) md.scrollTop = md.scrollHeight;
+          }
+          await sleep(120);
+        }
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /**
+   * Tentative Copy du dernier tour assistant (texte complet, hors virtualisation).
+   */
+  async tryCopyLastAssistantText() {
+    if (!this.page) return "";
+    try {
+      await this.page
+        .context()
+        .grantPermissions(["clipboard-read", "clipboard-write"])
+        .catch(() => {});
+      const btn = this.page
+        .locator(
+          [
+            '[data-testid="copy-turn-action-button"]',
+            'button[aria-label*="Copy"]',
+            'button[aria-label*="Copier"]',
+            'button[aria-label*="copy"]',
+          ].join(", ")
+        )
+        .last();
+      if (!(await btn.isVisible({ timeout: 800 }).catch(() => false))) {
+        return "";
+      }
+      await btn.click({ timeout: 2000 }).catch(() => {});
+      await this._sleep(
+        process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 400
+      );
+      const clip = await this.page
+        .evaluate(async () => {
+          try {
+            return (await navigator.clipboard.readText()) || "";
+          } catch {
+            return "";
+          }
+        })
+        .catch(() => "");
+      return String(clip || "").trim();
+    } catch {
+      return "";
+    }
+  }
+
+  /**
    * UI ChatGPT actuelle (FR/EN) : « ChatGPT a dit : » / « ChatGPT said: »
    * + href LinkedIn (innerText perd les liens « Profil »).
+   * @param {{ deep?: boolean }} [opts] deep=true → scroll bas + copy fallback, 0 limite
    */
-  async readLastAssistantText() {
+  async readLastAssistantText(opts = {}) {
+    const deep = Boolean(opts.deep);
     await this.refreshPageHandle();
+    if (deep) {
+      await this.scrollConversationToEnd();
+      await this._sleep(
+        process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 350
+      );
+    }
+
     const payload = await this.page.evaluate(() => {
       const clean = (s) => (s || "").replace(/\u00a0/g, " ").trim();
 
@@ -596,7 +702,6 @@ export class ChatGptDriver {
         try {
           const u = new URL(href, location.origin);
           if (!/linkedin\.com/i.test(u.hostname)) return null;
-          // profils personnes
           if (!/\/in\//i.test(u.pathname)) return null;
           u.search = "";
           u.hash = "";
@@ -613,7 +718,6 @@ export class ChatGptDriver {
         const href = normalizeLi(a.href || a.getAttribute("href") || "");
         if (!href || seen.has(href)) continue;
         seen.add(href);
-        // contexte autour du lien (nom souvent juste avant « Profil »)
         const block = clean(
           (a.closest("li, tr, p, div") || a.parentElement)?.innerText || ""
         ).slice(0, 220);
@@ -621,7 +725,40 @@ export class ChatGptDriver {
         linkRows.push({ href, label, block });
       }
 
+      // ★ Préférer le nœud assistant (markdown) — pas de slice/plafond
+      const assistNodes = Array.from(
+        document.querySelectorAll(
+          '[data-message-author-role="assistant"], [data-testid="assistant-message"]'
+        )
+      );
+      let byRole = "";
+      if (assistNodes.length) {
+        const last = assistNodes[assistNodes.length - 1];
+        const md =
+          last.querySelector(".markdown") ||
+          last.querySelector('[class*="markdown"]') ||
+          last;
+        byRole = clean(md.innerText || md.textContent || "");
+        // Si plusieurs bulles assistant d'affilée (même tour fragmenté), concatène
+        // les plus longues récentes si la dernière est courte.
+        if (byRole.length < 500 && assistNodes.length >= 2) {
+          const joined = assistNodes
+            .slice(-3)
+            .map((el) => {
+              const m =
+                el.querySelector(".markdown") ||
+                el.querySelector('[class*="markdown"]') ||
+                el;
+              return clean(m.innerText || m.textContent || "");
+            })
+            .filter((t) => t.length > 40)
+            .join("\n\n");
+          if (joined.length > byRole.length) byRole = joined;
+        }
+      }
+
       const candidates = [
+        byRole,
         document.body?.innerText || "",
         document.querySelector("#thread")?.innerText || "",
         document.querySelector("[data-testid='conversation-turn-list']")
@@ -636,51 +773,58 @@ export class ChatGptDriver {
         .filter((t) => t.length > 80)
         .sort((a, b) => b.length - a.length);
 
-      const raw = candidates[0] || clean(document.body?.innerText || "");
       let text = "";
-
-      const splitRe = /(?:ChatGPT a dit|ChatGPT said)\s*:?\s*/gi;
-      const userRe = /(?:Vous avez dit|You said)\s*:?\s*/gi;
-      const parts = raw.split(splitRe);
-      if (parts.length >= 2) {
-        let last = clean(parts[parts.length - 1].split(userRe)[0] || "");
-        last = clean(
-          last.split(
-            /ChatGPT peut faire des erreurs|ChatGPT can make mistakes|Aller au contenu/i
-          )[0]
-        );
-        const sidebarCut = last.search(
-          /\n(?:Épinglés|Pinned|Projets|Projects|Récents|Recent)\n/i
-        );
-        if (sidebarCut > 200) last = clean(last.slice(0, sidebarCut));
-        if (last.length > 40) text = last;
+      // Si byRole est le plus long ou proche → le garder (évite sidebar)
+      if (byRole && byRole.length >= (candidates[0]?.length || 0) * 0.85) {
+        text = byRole;
+      } else {
+        const raw = candidates[0] || clean(document.body?.innerText || "");
+        const splitRe = /(?:ChatGPT a dit|ChatGPT said)\s*:?\s*/gi;
+        const userRe = /(?:Vous avez dit|You said)\s*:?\s*/gi;
+        const parts = raw.split(splitRe);
+        if (parts.length >= 2) {
+          let last = clean(parts[parts.length - 1].split(userRe)[0] || "");
+          last = clean(
+            last.split(
+              /ChatGPT peut faire des erreurs|ChatGPT can make mistakes|Aller au contenu/i
+            )[0]
+          );
+          const sidebarCut = last.search(
+            /\n(?:Épinglés|Pinned|Projets|Projects|Récents|Recent)\n/i
+          );
+          if (sidebarCut > 200) last = clean(last.slice(0, sidebarCut));
+          if (last.length > 40) text = last;
+        }
+        if (!text && byRole) text = byRole;
+        if (!text) text = raw;
       }
 
-      if (!text) {
-        const byRole = Array.from(
-          document.querySelectorAll(
-            '[data-message-author-role="assistant"], [data-testid="assistant-message"]'
-          )
-        )
-          .map((el) => clean(el.innerText))
-          .filter((t) => t.length > 40);
-        if (byRole.length) text = byRole[byRole.length - 1];
-      }
-
-      return { text: text || "", links: linkRows };
+      return { text: text || "", links: linkRows, byRoleLen: byRole.length };
     });
 
     let text = (payload?.text || "").trim();
+
+    // Deep : si Copy donne un texte plus long → on le prend (0 limite)
+    if (deep) {
+      const copied = await this.tryCopyLastAssistantText();
+      if (copied.length > text.length + 200) {
+        console.log(
+          `[carto-chat-vps] read via Copy chars=${copied.length} (dom=${text.length})`
+        );
+        text = copied;
+      } else if (copied.length > 500 && /GLOWUP_CART_DONE_/i.test(copied) && !/GLOWUP_CART_DONE_/i.test(text)) {
+        console.log(
+          `[carto-chat-vps] read via Copy (jeton trouvé) chars=${copied.length}`
+        );
+        text = copied;
+      }
+    }
+
     const links = Array.isArray(payload?.links) ? payload.links : [];
-    if (links.length) {
-      // Filtre liens cités / proches de la réponse (évite toute la sidebar)
+    if (links.length && !opts.skipLinks) {
       const relevant = links.filter((l) => {
-        const blob = `${l.block || ""} ${l.label || ""} ${text}`.toLowerCase();
-        // garde si le bloc autour mentionne un fragment de la réponse
-        // ou label Profil / LinkedIn
         if (/profil|linkedin|profile/i.test(l.label || "")) return true;
         if ((l.block || "").length > 20 && text.length > 80) {
-          // overlap grossier: un mot du bloc (nom) apparaît dans la réponse
           const tokens = (l.block || "")
             .split(/\s+/)
             .map((t) => t.replace(/[^a-zA-ZÀ-ÿ-]/g, ""))
@@ -690,13 +834,14 @@ export class ChatGptDriver {
         return /\/in\//.test(l.href);
       });
 
-      const lines = relevant.slice(0, 30).map((l) => {
+      const lines = relevant.slice(0, 40).map((l) => {
         const who = (l.block || l.label || "")
           .replace(/\s+/g, " ")
           .slice(0, 160);
         return `- ${who}\n  ${l.href}`;
       });
       if (lines.length) {
+        // N'écrase JAMAIS un jeton déjà présent : append après
         text = `${text}\n\n## LinkedIn URLs (hrefs page)\n${lines.join("\n")}`;
       }
     }
@@ -726,7 +871,9 @@ export class ChatGptDriver {
       }
 
       await this._sleep(growMs);
-      const again = await this.readLastAssistantText().catch(() => "");
+      const again = await this.readLastAssistantText({ deep: true }).catch(
+        () => ""
+      );
       const grewHard =
         again.length > text.length + 1500 ||
         (text.length > 0 && again.length > text.length * 1.08);
@@ -768,7 +915,8 @@ export class ChatGptDriver {
 
   /**
    * Fin normale = UNIQUEMENT le bon jeton (+ settle/grow-check).
-   * Plus de sortie « stable 15s » sans jeton (cause capture prématurée CR).
+   * Toutes les ~10s : relecture DEEP (scroll + copy) pour trouver le jeton.
+   * Aucun plafond de chars. Timeout → renvoie best pour nudge (pas throw).
    */
   async waitGenerationDone(prevText, timeoutMs, onProgress, endMarker) {
     const marker = endMarker || this.activeEndMarker || END_MARKER_DEFAULT;
@@ -781,7 +929,10 @@ export class ChatGptDriver {
     const prev = prevText || "";
     let sawGrowth = false;
     let peakLen = prev.length;
-    const pollMs = process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 700;
+    const fast = process.env.CARTO_CHAT_TEST_FAST === "1";
+    const pollMs = fast ? 1 : 700;
+    const deepEveryMs = fast ? 15 : 10_000;
+    let lastDeepAt = -deepEveryMs;
 
     const isNew = (text) =>
       !prev ||
@@ -793,8 +944,23 @@ export class ChatGptDriver {
     while (Date.now() - started < timeoutMs) {
       const generating = await this.isGenerating().catch(() => false);
       const searching = await this.isWebSearching().catch(() => false);
-      const text = await this.readLastAssistantText();
       const elapsed = Date.now() - started;
+      const dueDeep =
+        requireMarker && elapsed - lastDeepAt >= deepEveryMs;
+
+      // ★ Toutes les 10s : scroll bas + copy + lecture complète (0 limite)
+      let text;
+      if (dueDeep) {
+        lastDeepAt = elapsed;
+        text = await this.readLastAssistantText({ deep: true });
+        const found = hasEndMarker(text, marker);
+        console.log(
+          `[carto-chat-vps] check jeton @${Math.round(elapsed / 1000)}s chars=${text.length} found=${found ? "oui" : "non"} marker=${marker}`
+        );
+      } else {
+        text = await this.readLastAssistantText();
+      }
+
       const len = text.length;
 
       if (typeof onProgress === "function") {
@@ -840,7 +1006,6 @@ export class ChatGptDriver {
       ) {
         const confirmed = await this.confirmMarkerCapture(marker, text);
         if (confirmed) return confirmed;
-        // reprise d'attente
         stableHits = 0;
         await this._sleep(pollMs);
         continue;
@@ -854,7 +1019,7 @@ export class ChatGptDriver {
             `[carto-chat-vps] web search en cours… chars=${len} (attente jeton)`
           );
         }
-        await this._sleep(process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 1000);
+        await this._sleep(fast ? 1 : 1000);
         continue;
       }
 
@@ -862,7 +1027,7 @@ export class ChatGptDriver {
         stableHits = 0;
         lastLen = len;
         last = text;
-        if (elapsed > 5_000) {
+        if (elapsed > 5_000 && !fast) {
           console.log(
             `[carto-chat-vps] streaming… chars=${len} gen=${generating} stable=0`
           );
@@ -871,10 +1036,7 @@ export class ChatGptDriver {
         stableHits += 1;
         lastLen = len;
         last = text.length >= last.length ? text : last;
-        if (
-          process.env.CARTO_CHAT_TEST_FAST !== "1" &&
-          (stableHits === 1 || stableHits % 5 === 0)
-        ) {
+        if (!fast && (stableHits === 1 || stableHits % 5 === 0)) {
           console.log(
             `[carto-chat-vps] stable… chars=${len} hits=${stableHits} gen=${generating} (jeton requis=${requireMarker ? "oui" : "non"})`
           );
@@ -897,13 +1059,13 @@ export class ChatGptDriver {
           meatyEnough &&
           (!generating || elapsed > 60_000)
         ) {
-          await this._sleep(process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 600);
+          await this._sleep(fast ? 1 : 600);
           if (await this.isWebSearching().catch(() => false)) {
             stableHits = 0;
             await this._sleep(pollMs);
             continue;
           }
-          const final = await this.readLastAssistantText();
+          const final = await this.readLastAssistantText({ deep: true });
           console.log(
             `[carto-chat-vps] CAPTURE legacy-stable chars=${final.length}`
           );
@@ -917,7 +1079,9 @@ export class ChatGptDriver {
       await this._sleep(pollMs);
     }
 
-    const fallback = (await this.readLastAssistantText()) || best;
+    // Timeout : dernière lecture DEEP — si jeton → OK ; sinon renvoie best pour nudge
+    const fallback =
+      (await this.readLastAssistantText({ deep: true })) || best;
     if (requireMarker && hasEndMarker(fallback, marker)) {
       const confirmed = await this.confirmMarkerCapture(marker, fallback);
       if (confirmed) return confirmed;
@@ -927,9 +1091,10 @@ export class ChatGptDriver {
       return withCorrectEndMarker(fallback, marker);
     }
     if (requireMarker) {
-      throw new Error(
-        `Timeout: jeton ${marker} absent — réponse non certifiable (${fallback.length} chars)`
+      console.warn(
+        `[carto-chat-vps] timeout sans jeton chars=${fallback.length} — passe au nudge`
       );
+      return fallback.length >= 200 ? fallback : best || fallback;
     }
     if (fallback.length > 200 && isNew(fallback) && sawGrowth) {
       console.log(
@@ -943,10 +1108,10 @@ export class ChatGptDriver {
   /** Lit la réponse déjà affichée (sans renvoyer de prompt). */
   async readLatest() {
     await this.refreshPageHandle();
-    let answer = await this.readLastAssistantText();
+    let answer = await this.readLastAssistantText({ deep: true });
     if (!answer || answer.length < 40) {
       await this.openLatestConversation();
-      answer = await this.readLastAssistantText();
+      answer = await this.readLastAssistantText({ deep: true });
     }
     if (!answer || answer.length < 40) {
       throw new Error(
