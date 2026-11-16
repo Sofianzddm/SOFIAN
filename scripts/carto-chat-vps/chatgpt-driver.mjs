@@ -190,6 +190,9 @@ export class ChatGptDriver {
       (opts.endMarker && String(opts.endMarker).trim()) ||
       this.activeEndMarker ||
       null;
+    const effortLabel = await this.readEffortLabel().catch(() => "");
+    const effortAttr = await this.readEffortAttr().catch(() => "");
+    const effortTarget = Number(process.env.CARTO_CHAT_EFFORT_LEVEL || 3);
     return {
       ok: Boolean(this.page),
       mode: this.mode,
@@ -203,6 +206,12 @@ export class ChatGptDriver {
         ? hasEndMarker(lastText, expected)
         : false,
       endMarker: expected,
+      effortLabel,
+      effortAttr,
+      effortTarget,
+      effortOk:
+        this.isEffortAtTarget(effortLabel, effortTarget) ||
+        effortAttr === this.effortAttrForLevel(effortTarget),
     };
   }
 
@@ -1201,16 +1210,63 @@ export class ChatGptDriver {
   }
 
   /**
+   * Clique l'option High/Élevé (etc.) dans le menu ouvert — plus fiable que le slider.
+   */
+  async clickEffortMenuOption(level) {
+    const aliases = this.effortAliases(level);
+    // Évite « Très élevé » quand on vise « Élevé »
+    const exclude =
+      level === 3
+        ? /tr[eè]s\s+[eé]lev|extra\s*high/i
+        : level === 2
+          ? /tr[eè]s|extra|high|élev|elev|pro|instant/i
+          : null;
+
+    for (const name of aliases) {
+      const locators = [
+        this.page.getByRole("menuitemradio", { name: new RegExp(name, "i") }),
+        this.page.getByRole("option", { name: new RegExp(name, "i") }),
+        this.page.getByRole("menuitem", { name: new RegExp(name, "i") }),
+        this.page.locator(`[data-testid*="reasoning"] , [role="menuitemradio"], [role="option"]`).filter({
+          hasText: new RegExp(name, "i"),
+        }),
+      ];
+      for (const loc of locators) {
+        const el = loc.first();
+        if (!(await el.isVisible({ timeout: 600 }).catch(() => false))) continue;
+        const txt = ((await el.innerText().catch(() => "")) || "").trim();
+        if (exclude && exclude.test(txt)) continue;
+        if (level === 3 && /tr[eè]s\s+[eé]lev|extra\s*high/i.test(txt)) continue;
+        // Pour High : le texte doit matcher High/Élevé, pas Moyen
+        if (!this.isEffortAtTarget(txt, level) && !new RegExp(name, "i").test(txt)) {
+          continue;
+        }
+        await el.click({ timeout: 3000 }).catch(() => {});
+        console.log(`[carto-chat-vps] effort option cliquée « ${txt || name} »`);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Force Effort (défaut High / Élevé = cran 3/5).
    * CARTO_CHAT_EFFORT_LEVEL: 1 Instant … 2 Medium … 3 High … 4 Extra … 5 Pro
-   * Ne pas cliquer « Verrouillé » : ça ferme le menu Puissance.
+   * 1) clic libellé menu  2) fallback slider (ratios calibrés — 0.5 = Medium, PAS High)
    */
   async ensureHighEffort() {
     const TARGET = Number(process.env.CARTO_CHAT_EFFORT_LEVEL || 3); // 3 = High/Élevé
     const aliases = this.effortAliases(TARGET);
     const targetAttr = this.effortAttrForLevel(TARGET);
+    console.log(
+      `[carto-chat-vps] ensureEffort target=${TARGET} (${aliases.join("/")}) env=${process.env.CARTO_CHAT_EFFORT_LEVEL || "default"}`
+    );
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    // Ratios slider 5 crans : Instant=0 … Medium≈0.25 … High≈0.55 … XHigh≈0.78 … Pro≈0.98
+    // (l'ancien (TARGET-1)/4 mettait High à 0.5 = souvent Medium)
+    const SLIDER_RATIO = { 1: 0.02, 2: 0.25, 3: 0.55, 4: 0.78, 5: 0.98 };
+
+    for (let attempt = 1; attempt <= 4; attempt++) {
       try {
         await this.page.keyboard.press("Escape").catch(() => {});
         await sleep(250);
@@ -1225,9 +1281,10 @@ export class ChatGptDriver {
 
         const current = await this.readEffortLabel();
         const attr = await this.readEffortAttr();
+        // Refuse Medium/Moyen si on vise High
         if (
-          this.isEffortAtTarget(current, TARGET) ||
-          attr === targetAttr
+          (this.isEffortAtTarget(current, TARGET) || attr === targetAttr) &&
+          !(TARGET === 3 && /medium|moyen/i.test(current))
         ) {
           console.log(
             `[carto-chat-vps] effort OK ${aliases.join("/")} (« ${current} » attr=${attr})`
@@ -1241,8 +1298,26 @@ export class ChatGptDriver {
         await selector.click({ timeout: 4000 });
         await sleep(700);
 
-        // NE PAS cliquer « Verrouillé / options d’accès » : ça ferme le menu.
+        // ★ 1) Clic direct sur High / Élevé dans le menu
+        const clicked = await this.clickEffortMenuOption(TARGET);
+        if (clicked) {
+          await sleep(450);
+          await this.page.keyboard.press("Escape").catch(() => {});
+          await sleep(300);
+          const afterClick = await this.readEffortLabel();
+          const afterAttr = await this.readEffortAttr();
+          console.log(
+            `[carto-chat-vps] effort après option: « ${afterClick} » attr=${afterAttr}`
+          );
+          if (
+            this.isEffortAtTarget(afterClick, TARGET) ||
+            afterAttr === targetAttr
+          ) {
+            return true;
+          }
+        }
 
+        // ★ 2) Fallback slider avec ratio calibré
         const slider = this.page
           .locator(
             '[data-reasoning-slider="true"], [aria-label="Puissance"], [aria-label="Power"], [aria-label*="reasoning" i]'
@@ -1250,73 +1325,56 @@ export class ChatGptDriver {
           .locator("visible=true")
           .last();
 
-        if (!(await slider.isVisible({ timeout: 2500 }).catch(() => false))) {
-          console.warn(
-            `[carto-chat-vps] slider Puissance introuvable (try ${attempt})`
-          );
-          await this.page.keyboard.press("Escape").catch(() => {});
-          continue;
+        if (!(await slider.isVisible({ timeout: 2000 }).catch(() => false))) {
+          // Menu peut s'être fermé après le clic option — rouvre
+          await selector.click({ timeout: 3000 }).catch(() => {});
+          await sleep(500);
         }
 
-        const box = await slider.boundingBox();
-        if (!box || box.width < 8) {
-          console.warn(`[carto-chat-vps] slider sans bbox (try ${attempt})`);
-          await this.page.keyboard.press("Escape").catch(() => {});
-          continue;
-        }
-
-        // Instantané=0 … Élevé=0.5 … Pro=1
-        const ratio = Math.min(1, Math.max(0, (TARGET - 1) / 4));
-        await this.page.mouse.click(
-          box.x + box.width * ratio,
-          box.y + box.height / 2
-        );
-        await sleep(400);
-
-        let desc = await this.page.evaluate(() => {
-          const nodes = Array.from(
-            document.querySelectorAll(
-              '[data-reasoning-slider="true"], [aria-label="Puissance"]'
-            )
-          );
-          const s =
-            nodes.find((el) => {
-              const b = el.getBoundingClientRect();
-              return b.width > 0 && b.height > 0;
-            }) || nodes[0];
-          const ids = (s?.getAttribute("aria-describedby") || "").split(/\s+/);
-          return ids
-            .map((id) => document.getElementById(id)?.innerText || "")
-            .filter(Boolean)[0];
-        });
-        console.log(`[carto-chat-vps] slider → ${desc || "?"}`);
-
-        const levelOk =
-          desc &&
-          (new RegExp(`${TARGET}\\s*sur\\s*5`, "i").test(desc) ||
-            this.isEffortAtTarget(desc, TARGET));
-        if (!levelOk) {
-          const ratio2 = Math.min(1, Math.max(0, (TARGET - 0.5) / 5));
-          await this.page.mouse.click(
-            box.x + box.width * ratio2,
-            box.y + box.height / 2
-          );
-          await sleep(350);
-          desc = await this.page.evaluate(() => {
-            const nodes = Array.from(
-              document.querySelectorAll('[data-reasoning-slider="true"]')
-            );
-            const s =
-              nodes.find((el) => el.getBoundingClientRect().width > 0) ||
-              nodes[0];
-            const ids = (s?.getAttribute("aria-describedby") || "").split(
-              /\s+/
-            );
-            return ids
-              .map((id) => document.getElementById(id)?.innerText || "")
-              .filter(Boolean)[0];
-          });
-          console.log(`[carto-chat-vps] slider retry → ${desc || "?"}`);
+        if (await slider.isVisible({ timeout: 2000 }).catch(() => false)) {
+          const box = await slider.boundingBox();
+          if (box && box.width >= 8) {
+            const ratios = [
+              SLIDER_RATIO[TARGET] ?? 0.55,
+              Math.min(0.7, (SLIDER_RATIO[TARGET] ?? 0.55) + 0.08),
+              Math.min(0.85, (SLIDER_RATIO[TARGET] ?? 0.55) + 0.15),
+            ];
+            for (const ratio of ratios) {
+              await this.page.mouse.click(
+                box.x + box.width * ratio,
+                box.y + box.height / 2
+              );
+              await sleep(350);
+              const desc = await this.page.evaluate(() => {
+                const nodes = Array.from(
+                  document.querySelectorAll(
+                    '[data-reasoning-slider="true"], [aria-label="Puissance"]'
+                  )
+                );
+                const s =
+                  nodes.find((el) => {
+                    const b = el.getBoundingClientRect();
+                    return b.width > 0 && b.height > 0;
+                  }) || nodes[0];
+                const ids = (s?.getAttribute("aria-describedby") || "").split(
+                  /\s+/
+                );
+                return ids
+                  .map((id) => document.getElementById(id)?.innerText || "")
+                  .filter(Boolean)[0];
+              });
+              console.log(
+                `[carto-chat-vps] slider ratio=${ratio.toFixed(2)} → ${desc || "?"}`
+              );
+              if (
+                desc &&
+                (new RegExp(`${TARGET}\\s*sur\\s*5`, "i").test(desc) ||
+                  this.isEffortAtTarget(desc, TARGET))
+              ) {
+                break;
+              }
+            }
+          }
         }
 
         await this.page.keyboard.press("Escape").catch(() => {});
@@ -1328,8 +1386,8 @@ export class ChatGptDriver {
           `[carto-chat-vps] effort après try ${attempt}: « ${after} » attr=${afterAttr}`
         );
         if (
-          this.isEffortAtTarget(after, TARGET) ||
-          afterAttr === targetAttr
+          (this.isEffortAtTarget(after, TARGET) || afterAttr === targetAttr) &&
+          !(TARGET === 3 && /medium|moyen/i.test(after))
         ) {
           return true;
         }
@@ -1343,7 +1401,7 @@ export class ChatGptDriver {
     }
 
     console.warn(
-      `[carto-chat-vps] impossible de forcer ${aliases.join("/")} après 3 essais`
+      `[carto-chat-vps] impossible de forcer ${aliases.join("/")} après 4 essais`
     );
     return false;
   }
