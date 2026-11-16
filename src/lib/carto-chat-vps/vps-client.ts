@@ -136,7 +136,7 @@ export async function cartoChatVpsHealth(): Promise<CartoChatVpsHealth> {
     method: "GET",
     headers,
     cache: "no-store",
-    signal: AbortSignal.timeout(8_000),
+    signal: AbortSignal.timeout(20_000),
   });
   const data = (await res.json().catch(() => ({}))) as CartoChatVpsHealth;
   if (!res.ok) {
@@ -162,13 +162,14 @@ export async function cartoChatVpsReadLast(opts?: {
   const s = secret();
   if (s) headers.Authorization = `Bearer ${s}`;
 
+  // Scan multi-onglets = plus long sous charge parallèle
   const res = await fetch(`${base}/read-last`, {
     method: "POST",
     headers,
     body: JSON.stringify({
       endMarker: opts?.endMarker || undefined,
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(120_000),
   });
   const data = (await res.json().catch(() => ({}))) as {
     ok?: boolean;
@@ -254,29 +255,51 @@ export async function cartoChatVpsAskAsync(opts: {
   const s = secret();
   if (s) headers.Authorization = `Bearer ${s}`;
 
-  const res = await fetch(`${base}/ask-async`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      prompt: opts.prompt,
-      timeoutMs: opts.timeoutMs ?? ASK_DEFAULT_MS,
-      endMarker: opts.endMarker || undefined,
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  const data = (await res.json().catch(() => ({}))) as {
-    ok?: boolean;
-    error?: string;
-    job?: { startedAt?: number; promptPreview?: string; endMarker?: string };
-  };
-  if (!res.ok) {
-    throw new Error(data.error || `VPS Chat HTTP ${res.status}`);
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(`${base}/ask-async`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          prompt: opts.prompt,
+          timeoutMs: opts.timeoutMs ?? ASK_DEFAULT_MS,
+          endMarker: opts.endMarker || undefined,
+        }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        job?: { startedAt?: number; promptPreview?: string; endMarker?: string };
+      };
+      if (!res.ok) {
+        throw new Error(data.error || `VPS Chat HTTP ${res.status}`);
+      }
+      return {
+        ok: true,
+        started: true,
+        startedAt: Number(data.job?.startedAt || Date.now()),
+        promptPreview: String(data.job?.promptPreview || ""),
+        endMarker: String(data.job?.endMarker || opts.endMarker || ""),
+      };
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      const retryable =
+        /abort|timeout|fetch failed|ECONNRESET|socket|UND_ERR|network/i.test(
+          msg
+        ) || (e instanceof Error && e.name === "TimeoutError");
+      if (!retryable || attempt === 3) break;
+      await new Promise((r) => setTimeout(r, 800 * attempt));
+    }
   }
-  return {
-    ok: true,
-    started: true,
-    startedAt: Number(data.job?.startedAt || Date.now()),
-    promptPreview: String(data.job?.promptPreview || ""),
-    endMarker: String(data.job?.endMarker || opts.endMarker || ""),
-  };
+  const msg =
+    lastErr instanceof Error ? lastErr.message : "ask-async impossible";
+  if (/abort|timeout|fetch failed/i.test(msg)) {
+    throw new Error(
+      "Connexion VPS Chat coupée (Failed to fetch) — réessaie, évite de sync pendant un run"
+    );
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(msg);
 }

@@ -36,12 +36,20 @@ function textHasMarker(text, marker) {
 
 function hasDeliverableAnchors(text) {
   const t = String(text || "");
-  return (
-    /Marque\s*[—–-]\s*interne/i.test(t) ||
+  if (
+    /Marque\s*[—–\-]\s*interne/i.test(t) ||
     /Priorit[ée]s\s+Glow\s*Up/i.test(t) ||
     /##\s*5\b/i.test(t) ||
-    /checklist/i.test(t)
-  );
+    /checklist/i.test(t) ||
+    /[ÉE]quipes\s+INTERNES/i.test(t) ||
+    /[ÉE]TAPE\s*1\b/i.test(t) ||
+    /LinkedIn\s+URLs/i.test(t) ||
+    /3\s*CIRCUITS/i.test(t)
+  ) {
+    return true;
+  }
+  const li = (t.match(/linkedin\.com\/in\//gi) || []).length;
+  return t.length >= 12_000 && li >= 4;
 }
 
 function jobIsCertified(job) {
@@ -426,28 +434,46 @@ const server = http.createServer(async (req, res) => {
         ? jobs.get(marker)
         : primaryJob();
 
-      if (job && job.state === "done" && jobIsCertified(job)) {
-        console.log(
-          `[carto-chat-vps] /read-last from job chars=${job.answer.length} marker=${job.endMarker}`
-        );
-        return send(res, 200, {
-          ok: true,
-          answer: job.answer,
-          url: driver.page?.url?.() || "",
-          fromJob: true,
-          endMarker: job.endMarker,
-        });
+      // Job certifié OU texte long déjà capturé (ex. rejet ancrages trop strict)
+      // → ne pas relire un autre onglet / l’écran « primary ».
+      if (
+        job &&
+        String(job.answer || "").length > 500 &&
+        (!marker || textHasMarker(job.answer, job.endMarker || marker))
+      ) {
+        const useStored =
+          (job.state === "done" && jobIsCertified(job)) ||
+          (marker &&
+            String(job.answer || "").length >= 8000 &&
+            textHasMarker(job.answer, marker));
+        if (useStored) {
+          console.log(
+            `[carto-chat-vps] /read-last from job chars=${job.answer.length} marker=${job.endMarker} state=${job.state}`
+          );
+          return send(res, 200, {
+            ok: true,
+            answer: job.answer,
+            url: driver.page?.url?.() || "",
+            fromJob: true,
+            endMarker: job.endMarker,
+          });
+        }
       }
 
-      // Lecture écran : si un slot porte encore le marker, bind ALS via ask path n/a —
-      // utilise la page du slot si trouvée
-      const slot = marker ? driver.findSlotByMarker(marker) : null;
-      const result = slot
-        ? await driver.readLatestForPage(slot.page)
-        : await driver.readLatest();
+      // Lecture écran : slot lié OU scan de tous les onglets (job perdu après reload)
+      const expect = marker || String(job?.endMarker || "").trim();
+      let result = null;
+      if (expect) {
+        result = await driver.findAnswerWithMarker(expect);
+      }
+      if (!result) {
+        const slot = expect ? driver.findSlotByMarker(expect) : null;
+        result = slot
+          ? await driver.readLatestForPage(slot.page)
+          : await driver.readLatest();
+      }
 
       let answer = result.answer;
-      const expect = marker || String(job?.endMarker || "").trim();
       if (expect && textHasMarker(answer, expect)) {
         const ensured = await driver.ensureCorrectEndMarker(answer, expect);
         answer = ensured.answer;
@@ -457,13 +483,20 @@ const server = http.createServer(async (req, res) => {
           job.markerInjected = false;
           job.markerSource = ensured.source;
         }
+      } else if (expect) {
+        console.warn(
+          `[carto-chat-vps] /read-last marker ${expect} absent des onglets (chars=${answer.length})`
+        );
       }
-      console.log(`[carto-chat-vps] /read-last chars=${answer.length}`);
+      console.log(
+        `[carto-chat-vps] /read-last chars=${answer.length} marker=${expect || "—"} found=${expect ? textHasMarker(answer, expect) : "n/a"}`
+      );
       return send(res, 200, {
         ok: true,
         answer,
         url: result.url,
         endMarker: expect || null,
+        markerFound: expect ? textHasMarker(answer, expect) : null,
       });
     } catch (e) {
       console.error("[carto-chat-vps] /read-last error:", e);

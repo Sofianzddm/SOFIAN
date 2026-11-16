@@ -29,11 +29,12 @@ module.exports = {
         ...fileEnv,
         CARTO_CHAT_VPS_PORT: fileEnv.CARTO_CHAT_VPS_PORT || "3847",
         CARTO_CHAT_VPS_BIND: fileEnv.CARTO_CHAT_VPS_BIND || "127.0.0.1",
-        CARTO_CHAT_TIMEOUT_MS: fileEnv.CARTO_CHAT_TIMEOUT_MS || "300000",
-        // Medium / Moyen (High trop long sur les cartos)
-        CARTO_CHAT_EFFORT_LEVEL: "2",
-        // Jusqu'à 3 cartos Chat en parallèle (1 onglet = 1 marque)
-        CARTO_CHAT_MAX_PARALLEL: fileEnv.CARTO_CHAT_MAX_PARALLEL || "3",
+        // Legacy / tests — en prod waitGenerationDone ignore le timeout tant que jeton requis
+        CARTO_CHAT_TIMEOUT_MS: fileEnv.CARTO_CHAT_TIMEOUT_MS || "3600000",
+        // High / Élevé
+        CARTO_CHAT_EFFORT_LEVEL: "3",
+        // Jusqu'à 5 cartos Chat en parallèle (1 onglet = 1 marque)
+        CARTO_CHAT_MAX_PARALLEL: fileEnv.CARTO_CHAT_MAX_PARALLEL || "5",
       },
     },
   ],

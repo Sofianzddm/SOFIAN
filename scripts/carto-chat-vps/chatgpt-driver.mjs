@@ -87,12 +87,21 @@ function sleep(ms) {
 /** Ancrages soft : livrable carto (pas juste un dump partiel). */
 function hasDeliverableAnchors(text) {
   const t = String(text || "");
-  return (
-    /Marque\s*[—–-]\s*interne/i.test(t) ||
+  if (
+    /Marque\s*[—–\-]\s*interne/i.test(t) ||
     /Priorit[ée]s\s+Glow\s*Up/i.test(t) ||
     /##\s*5\b/i.test(t) ||
-    /checklist/i.test(t)
-  );
+    /checklist/i.test(t) ||
+    /[ÉE]quipes\s+INTERNES/i.test(t) ||
+    /[ÉE]TAPE\s*1\b/i.test(t) ||
+    /LinkedIn\s+URLs/i.test(t) ||
+    /3\s*CIRCUITS/i.test(t)
+  ) {
+    return true;
+  }
+  // Long + plusieurs profils LI = carto réelle (évite faux rejet Popcarte / Hermé)
+  const li = (t.match(/linkedin\.com\/in\//gi) || []).length;
+  return t.length >= 12_000 && li >= 4;
 }
 
 export {
@@ -271,6 +280,55 @@ export class ChatGptDriver {
     const m = String(marker || "").trim();
     if (!m) return null;
     return this.slots.find((s) => s.endMarker === m) || null;
+  }
+
+  /**
+   * Après releaseSlot / reload, endMarker n’est plus lié au slot —
+   * on scanne tous les onglets pour retrouver le texte qui contient LE jeton.
+   */
+  async findAnswerWithMarker(marker) {
+    const m = String(marker || "").trim();
+    if (!m) return null;
+
+    const bound = this.findSlotByMarker(m);
+    if (bound?.page) {
+      try {
+        const r = await this.readLatestForPage(bound.page);
+        if (hasEndMarker(r.answer, m)) {
+          console.log(
+            `[carto-chat-vps] marker ${m} sur slot lié ${bound.id} chars=${r.answer.length}`
+          );
+          return { ...r, slotId: bound.id };
+        }
+      } catch (e) {
+        console.warn(
+          `[carto-chat-vps] read slot lié ${bound.id}:`,
+          e instanceof Error ? e.message : e
+        );
+      }
+    }
+
+    for (const slot of this.slots) {
+      if (!slot?.page || (bound && slot.id === bound.id)) continue;
+      try {
+        const r = await this.readLatestForPage(slot.page);
+        if (hasEndMarker(r.answer, m)) {
+          console.log(
+            `[carto-chat-vps] marker ${m} trouvé slot ${slot.id} chars=${r.answer.length} (scan)`
+          );
+          return { ...r, slotId: slot.id };
+        }
+        console.log(
+          `[carto-chat-vps] scan slot ${slot.id}: chars=${(r.answer || "").length} marker=non`
+        );
+      } catch (e) {
+        console.warn(
+          `[carto-chat-vps] scan slot ${slot.id}:`,
+          e instanceof Error ? e.message : e
+        );
+      }
+    }
+    return null;
   }
 
   /** Préfère l’onglet conversation ChatGPT le plus récent (hors job parallèle). */
@@ -1048,7 +1106,8 @@ export class ChatGptDriver {
   /**
    * Fin normale = UNIQUEMENT le bon jeton (+ settle/grow-check).
    * Toutes les ~10s : relecture DEEP (scroll + copy) pour trouver le jeton.
-   * Aucun plafond de chars. Timeout → renvoie best pour nudge (pas throw).
+   * Avec jeton requis : PAS de timeout — boucle jusqu’au vrai code Chat.
+   * (Sauf CARTO_CHAT_TEST_FAST=1 pour les tests unitaires.)
    */
   async waitGenerationDone(prevText, timeoutMs, onProgress, endMarker) {
     const marker = endMarker || this.activeEndMarker || END_MARKER_DEFAULT;
@@ -1062,9 +1121,18 @@ export class ChatGptDriver {
     let sawGrowth = false;
     let peakLen = prev.length;
     const fast = process.env.CARTO_CHAT_TEST_FAST === "1";
+    /** Prod : attendre le jeton à l’infini. Tests FAST : respecter timeoutMs. */
+    const waitForever = requireMarker && !fast;
     const pollMs = fast ? 1 : 700;
     const deepEveryMs = fast ? 15 : 10_000;
     let lastDeepAt = -deepEveryMs;
+    let lastHeartbeatAt = 0;
+
+    if (waitForever) {
+      console.log(
+        `[carto-chat-vps] attente jeton SANS timeout marker=${marker}`
+      );
+    }
 
     const isNew = (text) =>
       !prev ||
@@ -1073,7 +1141,7 @@ export class ChatGptDriver {
       (text.length > prev.length + 200 &&
         !text.startsWith((prev || "").slice(0, 80)));
 
-    while (Date.now() - started < timeoutMs) {
+    while (waitForever || Date.now() - started < timeoutMs) {
       const generating = await this.isGenerating().catch(() => false);
       const searching = await this.isWebSearching().catch(() => false);
       const elapsed = Date.now() - started;
@@ -1087,10 +1155,22 @@ export class ChatGptDriver {
         text = await this.readLastAssistantText({ deep: true });
         const found = hasEndMarker(text, marker);
         console.log(
-          `[carto-chat-vps] check jeton @${Math.round(elapsed / 1000)}s chars=${text.length} found=${found ? "oui" : "non"} marker=${marker}`
+          `[carto-chat-vps] check jeton @${Math.round(elapsed / 1000)}s chars=${text.length} found=${found ? "oui" : "non"} gen=${generating} search=${searching} marker=${marker}`
         );
       } else {
         text = await this.readLastAssistantText();
+      }
+
+      // Heartbeat long run (High peut dépasser 20–40 min)
+      if (
+        waitForever &&
+        elapsed - lastHeartbeatAt >= 60_000 &&
+        !dueDeep
+      ) {
+        lastHeartbeatAt = elapsed;
+        console.log(
+          `[carto-chat-vps] toujours en attente jeton @${Math.round(elapsed / 1000)}s chars=${text.length} gen=${generating}`
+        );
       }
 
       const len = text.length;
@@ -1211,7 +1291,8 @@ export class ChatGptDriver {
       await this._sleep(pollMs);
     }
 
-    // Timeout : dernière lecture DEEP — si jeton → OK ; sinon renvoie best pour nudge
+    // Unreachable si waitForever (boucle infinie jusqu’au jeton).
+    // Chemin tests FAST / legacy sans jeton :
     const fallback =
       (await this.readLastAssistantText({ deep: true })) || best;
     if (requireMarker && hasEndMarker(fallback, marker)) {
@@ -1223,8 +1304,9 @@ export class ChatGptDriver {
       return withCorrectEndMarker(fallback, marker);
     }
     if (requireMarker) {
+      // Tests FAST seulement — en prod on n’arrive jamais ici
       console.warn(
-        `[carto-chat-vps] timeout sans jeton chars=${fallback.length} — passe au nudge`
+        `[carto-chat-vps] timeout test sans jeton chars=${fallback.length} — passe au nudge`
       );
       return fallback.length >= 200 ? fallback : best || fallback;
     }
@@ -1678,6 +1760,21 @@ export class ChatGptDriver {
             );
           }
 
+          // Léger décalage par slot (~1.2s) — démarre presque tout de suite, limite les collisions CDP
+          const staggerMs =
+            process.env.CARTO_CHAT_TEST_FAST === "1"
+              ? 0
+              : Math.max(0, Number(slot.id) || 0) * 1200;
+          if (staggerMs) {
+            console.log(
+              `[carto-chat-vps] slot ${slot.id} stagger ${staggerMs}ms`
+            );
+            await this._sleep(staggerMs);
+          }
+
+          console.log(
+            `[carto-chat-vps] slot ${slot.id} bootstrap START marker=${endMarker}`
+          );
           await this.startFreshChat();
 
           let box = await this.waitForPrompt(12_000);
@@ -1739,7 +1836,28 @@ export class ChatGptDriver {
             `[carto-chat-vps] slot ${slot.id} beforeText chars=${beforeText.length}`
           );
 
-          await box.click({ timeout: 5000 });
+          let clicked = false;
+          for (let t = 1; t <= 3 && !clicked; t++) {
+            try {
+              await box.click({ timeout: 12_000 });
+              clicked = true;
+            } catch (e) {
+              console.warn(
+                `[carto-chat-vps] slot ${slot.id} box.click try ${t}:`,
+                e instanceof Error ? e.message : e
+              );
+              await this._sleep(
+                process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 800 * t
+              );
+              box = (await this.findPromptHandle()) || box;
+            }
+          }
+          if (!clicked) {
+            throw new Error(
+              "locator.click: Timeout — zone prompt Chat (retry épuisé)"
+            );
+          }
+
           const pasted = await box
             .evaluate((node, value) => {
               const el = node;
@@ -1789,18 +1907,26 @@ export class ChatGptDriver {
           }
 
           box = (await this.findPromptHandle()) || box;
-          await box.click({ timeout: 3000 }).catch(() => {});
+          await box.click({ timeout: 8000 }).catch(() => {});
 
           const sendBtn = await this.findSendButton();
           if (sendBtn) {
-            await sendBtn.click({ timeout: 5000, noWaitAfter: true });
+            await sendBtn
+              .click({ timeout: 12_000, noWaitAfter: true })
+              .catch(async () => {
+                await box.press("Enter");
+              });
           } else {
             await box.press("Enter");
           }
 
           await this._sleep(
-            process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 1500
+            process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 1200
           );
+          console.log(
+            `[carto-chat-vps] slot ${slot.id} bootstrap DONE — attente jeton`
+          );
+
           let answer = await this.waitGenerationDone(
             beforeText,
             timeoutMs,

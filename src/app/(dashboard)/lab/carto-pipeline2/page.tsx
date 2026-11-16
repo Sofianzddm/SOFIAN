@@ -226,8 +226,8 @@ export default function CartoAiPipelineChatLabPage() {
         throw new Error(startData.error || "Impossible de lancer Chat");
       }
 
-      // 2) Poll : job done OU texte stable → structure (prompt long = souvent 10–20 min)
-      const deadline = Date.now() + 25 * 60_000;
+      // 2) Poll jusqu’au jeton Chat (pas de timeout tant que le job tourne)
+      let idleDeadline = Date.now() + 30 * 60_000;
       const ourStartedAt = Number(startData.startedAt || Date.now());
       /** Jeton unique de CE lancement (même marque → nouvel id à chaque Analyse). */
       const ourEndMarker = String(startData.endMarker || "").trim();
@@ -288,7 +288,7 @@ export default function CartoAiPipelineChatLabPage() {
         return true;
       };
 
-      while (Date.now() < deadline) {
+      while (Date.now() < idleDeadline) {
         await new Promise((r) => setTimeout(r, 2000));
         const hRes = await fetch("/api/lab/carto-pipeline2/health", {
           cache: "no-store",
@@ -362,6 +362,8 @@ export default function CartoAiPipelineChatLabPage() {
           jobIsOurs
         ) {
           sawRunning = true;
+          // Tant que Chat tourne : pas de timeout lab (suit le VPS jusqu’au jeton)
+          idleDeadline = Date.now() + 30 * 60_000;
         }
 
         const screenChars = Number(h.lastAnswerChars || 0);
@@ -372,7 +374,12 @@ export default function CartoAiPipelineChatLabPage() {
           const certified =
             Boolean(ourJob?.hasCertifiedAnswer) ||
             (h.hasEndMarker && h.endMarker === ourEndMarker);
-          if (certified && (await tryStructure())) return;
+          // Ancrages trop stricts / faux rejet : si le texte est long, classer quand même
+          const recoverable =
+            certified ||
+            (Number(ourJob?.answerChars || 0) >= 8000 &&
+              /ancrages livrable/i.test(String(ourJob?.error || "")));
+          if (recoverable && (await tryStructure())) return;
           throw new Error(ourJob?.error || "Erreur Chat VPS");
         }
         if (baselineChars < 0) {
@@ -428,7 +435,12 @@ export default function CartoAiPipelineChatLabPage() {
           : "Timeout: pas de contacts — réessaie Analyse (ou Analyser l’écran si Chat a fini)"
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur");
+      const msg = e instanceof Error ? e.message : "Erreur";
+      setError(
+        /failed to fetch|networkerror|load failed/i.test(msg)
+          ? "Connexion coupée (Failed to fetch) — souvent 3 lancés d’un coup ou sync VPS en cours. Relance la marque."
+          : msg
+      );
     } finally {
       setLoading(false);
       setLoadingHint(null);
@@ -681,7 +693,7 @@ export default function CartoAiPipelineChatLabPage() {
             onClick={runPreview}
             disabled={!company.trim()}
             className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-            title="Tu peux lancer une autre marque pendant qu’une analyse tourne (max 3)"
+            title="Tu peux lancer une autre marque pendant qu’une analyse tourne (max 5)"
           >
             {loading ? loadingHint || "Analyse en cours" : "Analyse"}
           </button>
@@ -699,7 +711,7 @@ export default function CartoAiPipelineChatLabPage() {
           ["queued", "running"].includes(r.state)
         ) && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-            <div className="font-medium">Runs Chat en cours (max 3)</div>
+            <div className="font-medium">Runs Chat en cours (max 5)</div>
             <ul className="mt-1 space-y-0.5">
               {vpsRuns
                 .filter((r) =>
