@@ -138,7 +138,7 @@ export class ChatGptDriver {
     const url = this.page?.url?.() || "";
     const loggedIn = await this.isLoggedIn().catch(() => false);
     const hasPrompt = Boolean(await this.findPromptHandle().catch(() => null));
-    const lastLen = (await this.readLastAssistantText().catch(() => "")).length;
+    const lastText = await this.readLastAssistantText().catch(() => "");
     return {
       ok: Boolean(this.page),
       mode: this.mode,
@@ -146,7 +146,8 @@ export class ChatGptDriver {
       loggedIn,
       hasPrompt,
       busy: this.busy,
-      lastAnswerChars: lastLen,
+      lastAnswerChars: lastText.length,
+      hasEndMarker: hasEndMarker(lastText),
     };
   }
 

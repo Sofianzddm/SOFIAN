@@ -22,6 +22,8 @@ export type CartoChatVpsHealth = {
   hasPrompt?: boolean;
   busy?: boolean;
   lastAnswerChars?: number;
+  /** true si GLOWUP_CART_DONE_* est déjà dans la réponse à l’écran */
+  hasEndMarker?: boolean;
   job?: CartoChatVpsJob;
   error?: string;
 };

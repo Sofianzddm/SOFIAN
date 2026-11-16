@@ -213,8 +213,8 @@ export default function CartoAiPipelineChatLabPage() {
         throw new Error(startData.error || "Impossible de lancer Chat");
       }
 
-      // 2) Poll : job done OU texte stable → structure immédiate → affichage
-      const deadline = Date.now() + 12 * 60_000;
+      // 2) Poll : job done OU texte stable → structure (prompt long = souvent 10–20 min)
+      const deadline = Date.now() + 25 * 60_000;
       const ourStartedAt = Number(startData.startedAt || Date.now());
       const pollStarted = Date.now();
       let sawRunning = false;
@@ -222,8 +222,20 @@ export default function CartoAiPipelineChatLabPage() {
       let lastChars = 0;
       let peakChars = 0;
       let charsStableSince = Date.now();
+      let lastStructureErr = "";
+
+      const companyKey = company.trim().toLowerCase();
+      const jobMentionsCompany = (preview: string) => {
+        const p = (preview || "").toLowerCase();
+        if (!companyKey) return false;
+        if (p.includes(companyKey)) return true;
+        // « Redbull » vs preview « Red Bull »
+        const compact = (s: string) => s.replace(/[^a-z0-9]+/g, "");
+        return compact(p).includes(compact(companyKey));
+      };
 
       const tryStructure = async (): Promise<boolean> => {
+        setLoadingHint("Classement des contacts");
         const rescue = await fetch("/api/lab/carto-pipeline2/preview", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -237,14 +249,22 @@ export default function CartoAiPipelineChatLabPage() {
         const data = await rescue.json().catch(() => ({}));
         if (!rescue.ok) {
           const err = (data as { error?: string }).error || "";
+          lastStructureErr = err;
+          setLoadingHint("Analyse en cours");
           // Mauvaise marque encore à l'écran → on continue d'attendre
           if (/autre marque|ne mentionne pas|relance/i.test(err)) {
             return false;
+          }
+          // Crédits OpenAI / clé → stop tout de suite (sinon timeout trompeur)
+          if (/credit|quota|billing|openai|api key|OPENAI/i.test(err)) {
+            throw new Error(err);
           }
           throw new Error(err || "Échec analyse");
         }
         const result = data as CartoChatVpsPreviewResult;
         if (!result.contacts?.length) {
+          lastStructureErr = "Réponse lue mais 0 contact extrait (API / parse)";
+          setLoadingHint("Analyse en cours");
           return false;
         }
         applyPreview(result);
@@ -259,6 +279,7 @@ export default function CartoAiPipelineChatLabPage() {
         const h = (await hRes.json().catch(() => ({}))) as {
           busy?: boolean;
           lastAnswerChars?: number;
+          hasEndMarker?: boolean;
           job?: {
             state?: string;
             error?: string | null;
@@ -270,12 +291,12 @@ export default function CartoAiPipelineChatLabPage() {
         };
 
         const jobState = h.job?.state || (h.busy ? "running" : "idle");
+        const startedClose =
+          Math.abs(Number(h.job?.startedAt || 0) - ourStartedAt) <= 5_000;
         const jobIsOurs =
           Number(h.job?.startedAt || 0) === ourStartedAt ||
-          (Number(h.job?.startedAt || 0) >= ourStartedAt - 2_000 &&
-            (h.job?.promptPreview || "")
-              .toLowerCase()
-              .includes(company.trim().toLowerCase().slice(0, 12)));
+          (startedClose && jobMentionsCompany(h.job?.promptPreview || "")) ||
+          jobMentionsCompany(h.job?.promptPreview || "");
 
         if ((jobState === "running" || h.busy) && jobIsOurs) {
           sawRunning = true;
@@ -306,18 +327,23 @@ export default function CartoAiPipelineChatLabPage() {
         const stableMs = Date.now() - charsStableSince;
         const elapsed = Date.now() - pollStarted;
 
-        // A) Worker a capturé → affiche tout de suite
-        if (sawRunning && jobState === "done" && jobIsOurs) {
+        // 0) Marker GLOWUP_CART_DONE → classement immédiat
+        if (h.hasEndMarker && (jobIsOurs || sawRunning || sawGrowth)) {
           if (await tryStructure()) return;
         }
 
-        // B) Texte a grandi puis stable ~15s + assez long (pas juste l'intro Searching)
+        // A) Job terminé → classement immédiat
+        if (jobState === "done" && jobIsOurs) {
+          if (await tryStructure()) return;
+        }
+
+        // B) Fallback : texte stable (si marker pas encore vu)
         const screenDone =
-          sawRunning &&
+          (sawRunning || sawGrowth) &&
           sawGrowth &&
-          chars >= 1500 &&
-          stableMs >= 15_000 &&
-          elapsed >= 50_000;
+          chars >= 1200 &&
+          stableMs >= 8_000 &&
+          elapsed >= 25_000;
         if (screenDone) {
           if (await tryStructure()) return;
         }
@@ -325,7 +351,11 @@ export default function CartoAiPipelineChatLabPage() {
 
       // Dernière chance
       if (await tryStructure()) return;
-      throw new Error("Timeout: pas de contacts — réessaie Analyse");
+      throw new Error(
+        lastStructureErr
+          ? `Timeout: ${lastStructureErr}`
+          : "Timeout: pas de contacts — réessaie Analyse (ou Analyser l’écran si Chat a fini)"
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {

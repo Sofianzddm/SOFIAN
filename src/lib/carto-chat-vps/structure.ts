@@ -8,7 +8,8 @@ import type {
   CartoAiMarche,
 } from "@/lib/carto-ai/types";
 
-const OPENAI_MODEL = "gpt-4.1";
+/** Classement JSON post-Chat — mini = rapide (le research est déjà fait par Chat). */
+const OPENAI_MODEL = "gpt-4o-mini";
 
 function stripJsonFence(raw: string): string {
   return raw
