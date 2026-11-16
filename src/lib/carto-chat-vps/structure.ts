@@ -165,30 +165,37 @@ export type StructuredChat = {
   agencies: StructuredAgency[];
 };
 
-export async function structureChatAnswer(opts: {
-  company: string;
-  chatAnswer: string;
-}): Promise<StructuredChat> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim()?.replace(/^["']|["']$/g, "");
-  if (!apiKey) throw new Error("OPENAI_API_KEY manquante");
+/** Sous ce seuil → 2e passe pour récupérer les oubliés (com DPP, digital, P4…). */
+const MIN_CONTACTS_BEFORE_SECOND_PASS = 18;
 
-  const fullAnswer = opts.chatAnswer;
-  const answerForModel =
-    fullAnswer.length <= MAX_ANSWER_CHARS
-      ? fullAnswer
-      : `${fullAnswer.slice(0, 70_000)}\n\n…\n\n${fullAnswer.slice(-20_000)}`;
+function personKey(c: CartoAiContactCandidate): string {
+  return `${normPersonToken(c.prenom || "")}|${normPersonToken(c.nom || "")}`;
+}
 
-  const prompt = `Tu structures la réponse ChatGPT suivante pour Glow-up (carto influence).
+function clipAnswer(full: string): string {
+  if (full.length <= MAX_ANSWER_CHARS) return full;
+  return `${full.slice(0, 70_000)}\n\n…\n\n${full.slice(-20_000)}`;
+}
 
-Marque: ${opts.company}
+function parseAgencies(raw: unknown[]): StructuredAgency[] {
+  return raw
+    .map((a, idx) => {
+      if (!a || typeof a !== "object") return null;
+      const o = a as Record<string, unknown>;
+      const name = String(o.name || o.nom || "").trim();
+      if (!name) return null;
+      return {
+        name,
+        role: String(o.role || o.roleAgence || "").trim() || null,
+        note: String(o.note || "").trim() || null,
+        primary: o.primary === true || idx === 0,
+      };
+    })
+    .filter((a): a is StructuredAgency => Boolean(a));
+}
 
-Réponse Chat (${fullAnswer.length} caractères — extrais TOUTES les personnes nommées):
-"""
-${answerForModel}
-"""
-
-Extrais UNIQUEMENT un JSON:
-{
+function jsonSchemaHint(): string {
+  return `{
   "agencies": [{
     "name":"…",
     "role":"RP|influence|créa|autre",
@@ -206,43 +213,35 @@ Extrais UNIQUEMENT un JSON:
     "linkedinUrl":"https://linkedin.com/in/… ou null",
     "note":"preuve courte (communiqué, offre, LinkedIn…)"
   }]
+}`;
 }
 
-Règles EXHAUSTIVES (critique — ne pas sous-extraire):
-- Objectif: 12 à 25 contacts si la réponse en cite autant. INTERDIT de s'arrêter à 3–5.
-- Parcours TOUS les tableaux et listes (marque, agence, marketing, secondaires, top 10).
-- Inclus P1, P2, P3 ET P4 (historiques / périphériques / à vérifier).
-- Une personne = une entrée. Déduplique prénom+nom. Ne invente PAS de noms.
-- Sépare STRICTEMENT marque vs agence (NE PAS tout mettre en Marque):
-  - Salarié·e interne marque / siège / filiale annonceur (ex. L'Oréal) → "Marque" ou "Groupe".
-  - Personne qui TRAVAILLE CHEZ une agence (même historique) → JAMAIS "Marque".
-    - Agence du mandat principal → perimetre = "Agence {NOM_EXACT}" (ex. "Agence WOO").
-    - Autre agence one-shot / ancienne → perimetre = "Autre agence {NOM}".
-  - Si la réponse Chat ne cite qu'UNE agence mandat → c'est la principale (primary:true).
-- agencies[]: agences nommées; primary:true = mandat influence/RP le plus solide.
-- poste: rôle réel — PAS "Profil LinkedIn…".
-- note: preuve courte.
-- LinkedIn: OBLIGATOIRE si URL /in/ présente (section "## LinkedIn URLs" ou sous le nom).
-  Ne mets null QUE si aucune URL /in/ n'existe pour cette personne.
-- Priorité: respecte P1–P4 du texte Chat quand indiqués; sinon P1 casting, P2 ops, P3 validation, P4 secondaire.
-- Réponds JSON pur.`;
+function perimeterRules(): string {
+  return `- Sépare STRICTEMENT marque vs agence:
+  - Salarié·e L'Oréal / marque / DPP / annonceur → "Marque" ou "Groupe" (même si cité·e dans un post WOO).
+  - Employé·e d'agence (AM, cheffe de projet agence, Brand Manager agence) → "Agence {NOM}".
+  - One-shot / autre boîte (La Boss Corp, Globe, Skeepers…) → "Autre agence {NOM}", PAS l'agence mandat.
+  - Interlocuteur L'Oréal « cité par » l'agence → Marque, PAS Agence.`;
+}
 
+async function callStructureModel(opts: {
+  apiKey: string;
+  system: string;
+  user: string;
+}): Promise<{ contacts: CartoAiContactCandidate[]; agencies: StructuredAgency[] }> {
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${opts.apiKey}`,
     },
     body: JSON.stringify({
       model: OPENAI_MODEL,
       temperature: 0.1,
       response_format: { type: "json_object" },
       messages: [
-        {
-          role: "system",
-          content: "Tu structures des réponses research influence en JSON strict.",
-        },
-        { role: "user", content: prompt },
+        { role: "system", content: opts.system },
+        { role: "user", content: opts.user },
       ],
     }),
   });
@@ -269,33 +268,25 @@ Règles EXHAUSTIVES (critique — ne pas sous-extraire):
     )
     .filter((c): c is CartoAiContactCandidate => Boolean(c));
 
-  const agencies = (Array.isArray(parsed.agencies) ? parsed.agencies : [])
-    .map((a, idx) => {
-      if (!a || typeof a !== "object") return null;
-      const o = a as Record<string, unknown>;
-      const name = String(o.name || o.nom || "").trim();
-      if (!name) return null;
-      return {
-        name,
-        role: String(o.role || o.roleAgence || "").trim() || null,
-        note: String(o.note || "").trim() || null,
-        primary: o.primary === true || idx === 0,
-      };
-    })
-    .filter((a): a is StructuredAgency => Boolean(a));
+  return {
+    contacts,
+    agencies: parseAgencies(
+      Array.isArray(parsed.agencies) ? parsed.agencies : []
+    ),
+  };
+}
 
-  // Une seule primary
+function normalizePerimeters(
+  contacts: CartoAiContactCandidate[],
+  agencies: StructuredAgency[]
+): void {
   let sawPrimary = false;
   for (const a of agencies) {
-    if (a.primary && !sawPrimary) {
-      sawPrimary = true;
-    } else if (a.primary) {
-      a.primary = false;
-    }
+    if (a.primary && !sawPrimary) sawPrimary = true;
+    else if (a.primary) a.primary = false;
   }
   if (!sawPrimary && agencies[0]) agencies[0].primary = true;
 
-  // Normalise perimetre Marque vs Agence
   const primaryName =
     agencies.find((a) => a.primary)?.name || agencies[0]?.name || null;
   const agencyNames = agencies
@@ -308,7 +299,36 @@ Règles EXHAUSTIVES (critique — ne pas sous-extraire):
     const pl = p.toLowerCase();
     const blob = `${p} ${c.poste || ""} ${c.note || ""}`.toLowerCase();
 
-    // "Autre agence X" alors que X = seule / primary → promouvoir en Agence X
+    // Annonceur L'Oréal / DPP même si le note cite WOO
+    const isAdvertiser =
+      /\bl'?or[eé]al\b|\bdpp\b|\bannonceur\b|\bmarque\b|\binterne\b|\badvocacy\b|\binfluence (redken|matrix)\b/i.test(
+        blob
+      ) &&
+      !/\b(chez|agence)\s+(woo|woô|olyn)\b|\bbrand manager\b.*\bwoo\b|\bcheffe? de projet\b.*\bwoo\b|\bemploy[eé]e?\s+(de\s+)?(woo|woô)/i.test(
+        blob
+      );
+
+    if (isAdvertiser && /^agence\b/i.test(pl)) {
+      c.perimetre = /groupe/i.test(pl) ? "Groupe" : "Marque";
+      continue;
+    }
+
+    // Autre boîte (Boss Corp, Globe…) collée à tort sur l'agence mandat
+    if (
+      /^agence\b/i.test(pl) &&
+      primaryName &&
+      /\b(boss\s*corp|globe|skeepers|guacamole|dcm)\b/i.test(blob) &&
+      !new RegExp(`\\b${primaryName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(
+        `${c.poste || ""} ${c.note || ""}`
+      )
+    ) {
+      const other =
+        blob.match(/\b(la\s+boss\s+corp|boss\s*corp|globe\s*groupe|skeepers|guacamole|dcm)\b/i)?.[1] ||
+        "partenaire";
+      c.perimetre = `Autre agence ${other}`;
+      continue;
+    }
+
     const autre = pl.match(/^autre\s*agence\s+(.+)$/i);
     if (autre) {
       const name = autre[1].trim();
@@ -318,27 +338,35 @@ Règles EXHAUSTIVES (critique — ne pas sous-extraire):
         name.toLowerCase().includes((primaryName || "").toLowerCase().slice(0, 4)) ||
         (primaryName || "").toLowerCase().includes(name.toLowerCase().slice(0, 4))
       ) {
-        const finalName = primaryName || name;
-        c.perimetre = `Agence ${finalName}`;
-        if (!agencies.some((a) => a.name.toLowerCase() === finalName.toLowerCase())) {
-          agencies.push({
-            name: finalName,
-            role: "influence",
-            note: null,
-            primary: agencies.length === 0,
-          });
+        // Ne pas promouvoir Boss Corp / Globe en agence mandat
+        if (!/\b(boss|globe|skeepers|guacamole|dcm)\b/i.test(name)) {
+          const finalName = primaryName || name;
+          c.perimetre = `Agence ${finalName}`;
+          if (
+            !agencies.some(
+              (a) => a.name.toLowerCase() === finalName.toLowerCase()
+            )
+          ) {
+            agencies.push({
+              name: finalName,
+              role: "influence",
+              note: null,
+              primary: agencies.length === 0,
+            });
+          }
         }
       }
       continue;
     }
 
-    const hitsKnownAgency =
-      /woo|woô|187|ykone|matriochka|leveled|26pmx|matahari|publicis|havas|omnicom|we?are\s*social|influence4you|kolsquare/i.test(
+    const worksAtAgency =
+      /\b(chez|@)\s*(woo|woô|olyn)\b|\bagence\s+(woo|woô)\b|\bbrand manager\b|\bcheffe? de projet\b|\baccount\b|\bconsultant/i.test(
         blob
-      ) ||
-      agencyNames.some((n) => n.length >= 3 && blob.includes(n));
+      ) &&
+      (agencyNames.some((n) => n.length >= 3 && blob.includes(n)) ||
+        /woo|woô|olyn/i.test(blob));
 
-    if (/^agence\b/i.test(p) || (hitsKnownAgency && !/marque|interne|annonceur/i.test(pl))) {
+    if (worksAtAgency && !isAdvertiser) {
       if (!/^agence\s+/i.test(p)) {
         const fromBlob =
           agencies.find((a) => blob.includes(a.name.toLowerCase()))?.name ||
@@ -348,18 +376,145 @@ Règles EXHAUSTIVES (critique — ne pas sous-extraire):
       continue;
     }
 
-    if (!p || /marque|interne|annonceur|l'?oréal|groupe/i.test(pl)) {
+    if (!p || /marque|interne|annonceur|l'?oréal|groupe/i.test(pl) || isAdvertiser) {
       if (!/^groupe$/i.test(p)) {
         c.perimetre = /groupe|l'?oréal/i.test(pl) ? "Groupe" : "Marque";
       }
     }
   }
 
-  // Re-fix primary si on a promu une agence
   if (!agencies.some((a) => a.primary) && agencies[0]) {
     agencies[0].primary = true;
   }
+}
 
+function mergeContacts(
+  a: CartoAiContactCandidate[],
+  b: CartoAiContactCandidate[]
+): CartoAiContactCandidate[] {
+  const map = new Map<string, CartoAiContactCandidate>();
+  for (const c of [...a, ...b]) {
+    const k = personKey(c);
+    if (!k || k === "|") continue;
+    const prev = map.get(k);
+    if (!prev) {
+      map.set(k, c);
+      continue;
+    }
+    // Enrichit l'entrée existante si la 2e passe a plus d'info
+    map.set(k, {
+      ...prev,
+      poste: prev.poste || c.poste,
+      perimetre: prev.perimetre || c.perimetre,
+      note: prev.note || c.note,
+      linkedinUrl: prev.linkedinUrl || c.linkedinUrl,
+      priorite: prev.priorite || c.priorite,
+      localisation: prev.localisation || c.localisation,
+    });
+  }
+  return Array.from(map.values());
+}
+
+export async function structureChatAnswer(opts: {
+  company: string;
+  chatAnswer: string;
+}): Promise<StructuredChat> {
+  const apiKey = process.env.OPENAI_API_KEY?.trim()?.replace(/^["']|["']$/g, "");
+  if (!apiKey) throw new Error("OPENAI_API_KEY manquante");
+
+  const fullAnswer = opts.chatAnswer;
+  const answerForModel = clipAnswer(fullAnswer);
+
+  const first = await callStructureModel({
+    apiKey,
+    system:
+      "Tu structures des réponses research influence en JSON strict. Extraction EXHAUSTIVE.",
+    user: `Tu structures la réponse ChatGPT suivante pour Glow-up (carto influence).
+
+Marque: ${opts.company}
+
+Réponse Chat (${fullAnswer.length} caractères — extrais TOUTES les personnes nommées):
+"""
+${answerForModel}
+"""
+
+Extrais UNIQUEMENT un JSON:
+${jsonSchemaHint()}
+
+Règles EXHAUSTIVES (critique — ne pas sous-extraire):
+- Objectif: 15 à 30 contacts si la réponse en cite autant. INTERDIT de s'arrêter à 3–10.
+- Parcours TOUS les tableaux et listes (marque, agence, marketing, digital, com DPP, secondaires, top 10, périphèse).
+- Inclus P1, P2, P3 ET P4 (historiques / périphériques / à vérifier).
+- Une personne = une entrée. Déduplique prénom+nom. Ne invente PAS de noms.
+${perimeterRules()}
+- agencies[]: agences nommées; primary:true = mandat influence/RP le plus solide.
+- poste: rôle réel — PAS "Profil LinkedIn…".
+- note: preuve courte.
+- LinkedIn: OBLIGATOIRE si URL /in/ présente (section "## LinkedIn URLs" ou sous le nom).
+- Priorité: respecte P1–P4 du texte Chat; sinon P1 casting, P2 ops, P3 validation, P4 secondaire.
+- Réponds JSON pur.`,
+  });
+
+  let contacts = first.contacts;
+  let agencies = first.agencies;
+
+  if (contacts.length < MIN_CONTACTS_BEFORE_SECOND_PASS) {
+    const already = contacts
+      .map((c) => `${c.prenom || ""} ${c.nom}`.trim())
+      .filter(Boolean);
+    console.warn(
+      `[carto-structure] ${contacts.length} contacts < ${MIN_CONTACTS_BEFORE_SECOND_PASS} — 2e passe oubliés`
+    );
+    try {
+      const second = await callStructureModel({
+        apiKey,
+        system:
+          "Tu complètes une carto influence. N'extrais QUE les personnes manquantes. JSON strict.",
+        user: `Passe 2 / 2 — contacts OUBLIÉS uniquement pour ${opts.company}.
+
+Déjà extraits (NE PAS les renvoyer):
+${already.map((n) => `- ${n}`).join("\n") || "(aucun)"}
+
+Réponse Chat complète:
+"""
+${answerForModel}
+"""
+
+Extrais UNIQUEMENT un JSON (même schéma):
+${jsonSchemaHint()}
+
+Focus obligatoire — cherche surtout:
+- Com / RP / événements DPP (Karina, Mathieu, Frédérique, Anne-Laure…)
+- Digital / e-commerce marque (Margaux Antoine, Léa Amsellem…)
+- Marketing produit cités dans les tableaux
+- Historiques P4 et "contacts périphériques"
+- Noms du top 10 / synthèseèse absents de la liste ci-dessus
+- Agences one-shot (Boss Corp, Globe…) en "Autre agence …"
+
+${perimeterRules()}
+- Ne renvoie QUE des personnes ABSENTES de la liste "déjà extraits".
+- agencies[]: seulement si nouvelle agence utile (sinon []).
+- Réponds JSON pur.`,
+      });
+      contacts = mergeContacts(contacts, second.contacts);
+      for (const a of second.agencies) {
+        if (
+          !agencies.some(
+            (x) => x.name.toLowerCase() === a.name.toLowerCase()
+          )
+        ) {
+          agencies.push({ ...a, primary: false });
+        }
+      }
+    } catch (e) {
+      console.warn(
+        "[carto-structure] 2e passe échouée:",
+        e instanceof Error ? e.message : e
+      );
+    }
+  }
+
+  normalizePerimeters(contacts, agencies);
   const withLi = attachLinkedInFromAnswer(contacts, opts.chatAnswer);
   return { contacts: withLi, agencies };
 }
