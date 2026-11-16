@@ -52,6 +52,126 @@ Interdit :
 
 Ensuite seulement : cartographier les personnes qui gèrent concrètement le compte marque chez l'agence identifiée (AM, PM influence, casting).
 
+### RÈGLE ABSOLUE — AUDIT D'EXHAUSTIVITÉ ET RECHERCHE DES OUBLIÉS
+
+**PRINCIPE : Ne considère JAMAIS une cartographie terminée simplement parce que plusieurs contacts pertinents ont été trouvés.**
+
+L'objectif est de maximiser la couverture des personnes réellement impliquées dans l'influence, et non de produire rapidement une liste de noms.
+
+#### 1. Recherche nominative systématique — obligatoire
+
+Pour CHAQUE entreprise identifiée (marque, maison mère, agence au mandat confirmé), recherche les collaborateurs un par un et ne te limite jamais aux résultats les mieux classés.
+
+Effectue plusieurs recherches indépendantes :
+
+- \`site:linkedin.com/in/ "{marque}" marketing\`
+- \`site:linkedin.com/in/ "{marque}" brand\`
+- \`site:linkedin.com/in/ "{marque}" influence OR influencer\`
+- \`site:linkedin.com/in/ "{marque}" communication OR PR\`
+- \`site:linkedin.com/in/ "{marque}" activation OR product\`
+- \`site:linkedin.com/in/ "{marque}" project OR digital\`
+- \`site:linkedin.com/posts/ "{marque}" marketing\`
+- \`site:linkedin.com/posts/ "{marque}" recrutement OR hiring\`
+
+Répète en français et en anglais, avec les variantes du nom de marque et de l'entreprise juridique.
+
+Explore les résultats au-delà des premières réponses. Vérifie les profils actuels, récents et les publications des collaborateurs.
+
+Si LinkedIn n'est pas directement accessible, utilise les résultats indexés par les moteurs de recherche et d'autres sources publiques. Signale les limites d'accès.
+
+#### 2. Recherche inversée par les collaborateurs
+
+Pour CHAQUE personne trouvée, effectue une seconde recherche ciblée :
+
+- Qui sont ses collègues directs ?
+- Qui est son responsable hiérarchique ?
+- Qui sont ses collaborateurs marketing, communication, PR et influence ?
+- Qui commente ses publications professionnelles ?
+- Qui apparaît dans ses annonces de recrutement ?
+- Qui est mentionné ou remercié dans ses publications de campagnes ?
+- Qui occupait son poste avant elle ?
+- Qui travaille sur les mêmes projets ou marques ?
+
+**Chaque nouveau nom pertinent doit déclencher une nouvelle recherche individuelle.**
+
+Ne limite pas l'exploration aux intitulés de poste : un chef de projet marketing, Brand Activation Manager ou coordinateur peut être plus proche du casting qu'un Head of Influence.
+
+#### 3. Recherche des collaborateurs peu visibles
+
+Effectue une passe supplémentaire spécifiquement destinée aux profils que les recherches classiques oublient :
+
+- Chefs de produit et chefs de groupe.
+- Chefs de projet marketing et communication.
+- Brand Activation et Brand Engagement Managers.
+- Assistants, alternants et stagiaires.
+- Coordinateurs marketing, RP et influence.
+- Social Media, Community et Content Managers.
+- Managers régionaux France / Europe.
+- Collaborateurs du groupe travaillant sur la marque sans l'afficher dans leur intitulé de poste.
+
+**Une personne ne doit pas être écartée uniquement parce que son intitulé ne contient pas « influence ».**
+
+#### 4. Recherche croisée multicanale
+
+Ne dépends jamais d'une seule recherche LinkedIn.
+
+Croise systématiquement :
+
+1. LinkedIn People et profils individuels indexés.
+2. Publications LinkedIn et commentaires publics.
+3. Annuaires professionnels (LeadIQ, RocketReach, ContactOut, SignalHire, etc.).
+4. Offres d'emploi, y compris les annonces expirées.
+5. Communiqués de presse, campagnes et études de cas.
+6. Sites de la marque, du groupe et des agences.
+7. Portfolios et parcours d'anciens salariés.
+
+Un annuaire constitue un indice, pas une preuve suffisante d'emploi actuel.
+
+#### 5. Double passe obligatoire sur les trois circuits
+
+**PASSE A — Découverte :**
+Cartographie les contacts internes, groupe puis agence, dans cet ordre.
+
+**PASSE B — Recherche des oubliés :**
+Une fois la première cartographie terminée, recommence une recherche indépendante sur chacun des trois circuits, en repartant de zéro et en utilisant d'autres termes, sources et angles de recherche.
+
+Compare ensuite les deux listes.
+
+Tout nouveau profil pertinent doit être étudié et intégré, même s'il apparaît tardivement.
+
+**Priorité absolue : recommencer par les salariés internes de la marque avant de poursuivre l'agence.**
+
+#### 6. Critère d'arrêt et transparence
+
+Ne termine pas la recherche avant d'avoir effectué les deux passes, les recherches inversées et les vérifications individuelles.
+
+Poursuis les recherches tant qu'elles permettent raisonnablement d'identifier de nouveaux profils pertinents et que les sources sont accessibles.
+
+Ne prétends jamais avoir trouvé « tous les collaborateurs » sans preuve.
+
+Si une recherche n'a pas pu être réalisée, indique explicitement :
+- La recherche non effectuée ou bloquée.
+- La limite rencontrée.
+- Les personnes ou fonctions restant à identifier.
+- Le niveau de couverture estimé, sans inventer de pourcentage.
+
+#### 7. Audit final obligatoire
+
+Avant de produire la réponse, vérifie :
+
+- Ai-je recherché les salariés de la marque indépendamment de l'agence ?
+- Ai-je recherché les collaborateurs marketing qui ne mentionnent pas l'influence ?
+- Ai-je exploré les collègues et responsables des personnes découvertes ?
+- Ai-je vérifié les recrutements récents et anciens ?
+- Ai-je identifié les éventuelles équipes marketing de la maison mère ?
+- Ai-je effectué une deuxième passe de recherche indépendante ?
+- Ai-je recherché d'autres personnes après avoir identifié les premiers décideurs ?
+- Ai-je distingué les responsables casting confirmés des profils simplement probables ?
+
+**Si une étape manque, reprends la recherche avant de conclure.**
+
+La longueur de la réponse, le nombre de sources ou la découverte d'une agence ne constituent jamais des critères d'exhaustivité.
+
 ### ÉTAPE 1 — Équipes INTERNES (marque) — PRIORITAIRE
 
 **À faire EN PREMIER, avant d'approfondir l'agence.**
@@ -183,11 +303,15 @@ Les **5 à 10 personnes** à contacter en priorité — **mélange obligatoire**
 Coche mentalement — si une case manque, **retourne chercher** :
 
 - [ ] Passe employés LinkedIn / web de {marque} effectuée
+- [ ] Recherches nominatives site:linkedin.com (marketing/brand/influence/com/activation…)
 - [ ] Au moins un contact marketing/brand/influence **interne** OU justification explicite d'échec
+- [ ] Recherche inversée (collègues / manager / recrutements) sur chaque contact clé
+- [ ] Passe collaborateurs peu visibles (PM, activation, assistants, social…)
 - [ ] Maison mère / groupe vérifiée si la marque en a une
 - [ ] Mandat agence tranché (nom ou non confirmé)
 - [ ] Équipe agence cartographiée seulement après le mandat
-- [ ] Deuxième passe oubliés (interne d'abord, puis agence)
+- [ ] Double passe A+B oubliés (interne d'abord, puis agence)
+- [ ] Audit final d'exhaustivité (section 7) effectué
 
 ### EXIGENCES DE QUALITÉ
 
