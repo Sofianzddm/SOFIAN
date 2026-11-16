@@ -29,18 +29,31 @@ function hasEndMarker(text, marker) {
   ).test(raw);
 }
 
-function stripEndMarker(text, marker) {
-  const raw = String(text || "");
-  if (!hasEndMarker(raw, marker)) return raw.trim();
-  const pattern = marker && String(marker).trim()
-    ? escapeRe(String(marker).trim())
-    : `${escapeRe(END_MARKER_PREFIX)}[a-z0-9]+`;
-  // Ne pas couper ce qui suit (section LinkedIn hrefs souvent après le jeton)
-  return raw
-    .replace(new RegExp(`^[ \\t]*${pattern}[ \\t]*$`, "gim"), "")
-    .replace(new RegExp(`\\s*${pattern}\\b`, "gi"), "")
+/** Retire TOUS les GLOWUP_CART_DONE_* (bons et mauvais). */
+function stripAllEndMarkers(text) {
+  return String(text || "")
+    .replace(new RegExp(`^[ \\t]*${escapeRe(END_MARKER_PREFIX)}[a-z0-9]+[ \\t]*$`, "gim"), "")
+    .replace(new RegExp(`\\s*${escapeRe(END_MARKER_PREFIX)}[a-z0-9]+\\b`, "gi"), "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function stripEndMarker(text, marker) {
+  const raw = String(text || "");
+  // Toujours purger les anciens jetons ; on ne garde que le bon à la fin si besoin
+  if (!marker || !String(marker).trim()) {
+    return stripAllEndMarkers(raw);
+  }
+  const cleaned = stripAllEndMarkers(raw);
+  return cleaned;
+}
+
+/** Garantit que la réponse se termine par LE bon jeton (pas un ancien). */
+function withCorrectEndMarker(text, marker) {
+  const m = String(marker || "").trim();
+  const body = stripAllEndMarkers(text);
+  if (!m) return body;
+  return `${body}\n\n${m}`.trim();
 }
 
 const PROMPT_SELECTORS = [
@@ -1080,6 +1093,81 @@ export class ChatGptDriver {
     return false;
   }
 
+  /**
+   * Force LE bon jeton à la fin (Chat oublie / réécrit un ancien code).
+   * 1) si déjà le bon → purge les mauvais
+   * 2) sinon micro-prompt « écris UNIQUEMENT ce code »
+   * 3) sinon injection locale du bon code (lab + job stocké)
+   */
+  async ensureCorrectEndMarker(answer, marker) {
+    const m = String(marker || "").trim();
+    if (!m) return stripAllEndMarkers(answer || "");
+
+    let text = String(answer || "");
+    if (hasEndMarker(text, m)) {
+      console.log(`[carto-chat-vps] jeton OK ${m}`);
+      return withCorrectEndMarker(text, m);
+    }
+
+    const wrong = (text.match(new RegExp(`${escapeRe(END_MARKER_PREFIX)}[a-z0-9]+`, "gi")) || []);
+    if (wrong.length) {
+      console.warn(
+        `[carto-chat-vps] MAUVAIS jeton(s) ${wrong.join(", ")} — attendu ${m}`
+      );
+    } else {
+      console.warn(`[carto-chat-vps] jeton manquant — relance pour ${m}`);
+    }
+
+    try {
+      let box = await this.waitForPrompt(8_000);
+      if (!box) box = await this.findPromptHandle();
+      if (box) {
+        const nudge = `CODE DE FIN OBLIGATOIRE — réponds UNIQUEMENT par cette ligne exacte, rien d'autre :\n${m}`;
+        await box.click({ timeout: 4000 }).catch(() => {});
+        await box
+          .evaluate((node, value) => {
+            const el = node;
+            el.focus();
+            if (document.execCommand) {
+              document.execCommand("selectAll", false);
+              document.execCommand("delete", false);
+            }
+            const ok = document.execCommand("insertText", false, value);
+            if (!ok) el.textContent = value;
+            return (el.innerText || "").length;
+          }, nudge)
+          .catch(() => 0);
+        const send = await this.findSendButton();
+        if (send) {
+          await send.click({ timeout: 5000, noWaitAfter: true });
+        } else {
+          await box.press("Enter");
+        }
+
+        const deadline = Date.now() + 90_000;
+        while (Date.now() < deadline) {
+          await sleep(900);
+          const latest = await this.readLastAssistantText().catch(() => "");
+          if (hasEndMarker(latest, m)) {
+            console.log(`[carto-chat-vps] jeton obtenu via relance ${m}`);
+            // Garde le research initial + le bon jeton (la relance n'a que le code)
+            return withCorrectEndMarker(text, m);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(
+        "[carto-chat-vps] relance jeton échouée:",
+        e instanceof Error ? e.message : e
+      );
+    }
+
+    console.warn(
+      `[carto-chat-vps] injection locale du bon jeton ${m} (Chat n'a pas écrit le code)`
+    );
+    return withCorrectEndMarker(text, m);
+  }
+
   async ask(prompt, opts = {}) {
     if (this.busy) throw new Error("Chat déjà occupé — réessaie dans un instant");
     this.busy = true;
@@ -1221,12 +1309,14 @@ export class ChatGptDriver {
       }
 
       await sleep(1500);
-      const answer = await this.waitGenerationDone(
+      let answer = await this.waitGenerationDone(
         beforeText,
         timeoutMs,
         opts.onProgress,
         endMarker
       );
+      // Toujours le BON jeton (jamais un ancien / jamais absent)
+      answer = await this.ensureCorrectEndMarker(answer, endMarker);
       return { answer, url: this.page.url() };
     } finally {
       this.busy = false;

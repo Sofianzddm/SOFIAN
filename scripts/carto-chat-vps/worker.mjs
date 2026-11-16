@@ -34,7 +34,19 @@ let askJob = {
   error: null,
   promptPreview: "",
   endMarker: "",
+  /** Réponse certifiée (toujours avec LE bon jeton). */
+  answer: "",
 };
+
+function jobHasCorrectMarker() {
+  const m = String(askJob.endMarker || "").trim();
+  const a = String(askJob.answer || "");
+  if (!m || !a) return false;
+  return new RegExp(
+    `\\b${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+    "i"
+  ).test(a);
+}
 
 function readJson(req) {
   return new Promise((resolve, reject) => {
@@ -82,17 +94,21 @@ const server = http.createServer(async (req, res) => {
         ok: false,
         error: e instanceof Error ? e.message : String(e),
       }));
+    const certified = askJob.state === "done" && jobHasCorrectMarker();
     return send(res, 200, {
       ...st,
+      // Écran OU réponse job certifiée avec LE bon jeton (jamais un ancien)
+      hasEndMarker: Boolean(st.hasEndMarker) || certified,
       endMarker: askJob.endMarker || st.endMarker || null,
       job: {
         state: askJob.state,
         startedAt: askJob.startedAt,
         finishedAt: askJob.finishedAt,
-        answerChars: askJob.answerChars,
+        answerChars: askJob.answerChars || (askJob.answer || "").length,
         error: askJob.error,
         promptPreview: askJob.promptPreview,
         endMarker: askJob.endMarker || "",
+        hasCertifiedAnswer: certified,
       },
     });
   }
@@ -116,6 +132,7 @@ const server = http.createServer(async (req, res) => {
         error: null,
         promptPreview: prompt.slice(0, 80).replace(/\n/g, " "),
         endMarker,
+        answer: "",
       };
       const started = Date.now();
       const result = await driver.ask(prompt, {
@@ -130,6 +147,7 @@ const server = http.createServer(async (req, res) => {
         error: null,
         promptPreview: askJob.promptPreview,
         endMarker,
+        answer: result.answer,
       };
       console.log(
         `[carto-chat-vps] done ${((Date.now() - started) / 1000).toFixed(1)}s chars=${result.answer.length}`
@@ -179,6 +197,7 @@ const server = http.createServer(async (req, res) => {
         error: null,
         promptPreview: prompt.slice(0, 80).replace(/\n/g, " "),
         endMarker,
+        answer: "",
       };
       console.log(
         `[carto-chat-vps] /ask-async marker=${endMarker || "—"} ${askJob.promptPreview}…`
@@ -204,9 +223,10 @@ const server = http.createServer(async (req, res) => {
               error: null,
               promptPreview: askJob.promptPreview,
               endMarker,
+              answer: result.answer,
             };
             console.log(
-              `[carto-chat-vps] async done chars=${result.answer.length} marker=${endMarker}`
+              `[carto-chat-vps] async done chars=${result.answer.length} marker=${endMarker} certified=1`
             );
           })
           .catch((e) => {
@@ -218,6 +238,7 @@ const server = http.createServer(async (req, res) => {
               error: e instanceof Error ? e.message : "Erreur ask",
               promptPreview: askJob.promptPreview,
               endMarker,
+              answer: "",
             };
             console.error("[carto-chat-vps] /ask-async error:", e);
           });
@@ -244,14 +265,36 @@ const server = http.createServer(async (req, res) => {
   /** Récupère la réponse déjà affichée (Chat a fini, lab n'a rien reçu). */
   if (req.method === "POST" && url.pathname === "/read-last") {
     try {
+      // Préfère la réponse job certifiée (bon jeton garanti) si dispo
+      if (askJob.state === "done" && jobHasCorrectMarker()) {
+        console.log(
+          `[carto-chat-vps] /read-last from job chars=${askJob.answer.length} marker=${askJob.endMarker}`
+        );
+        return send(res, 200, {
+          ok: true,
+          answer: askJob.answer,
+          url: driver.page?.url?.() || "",
+          fromJob: true,
+          endMarker: askJob.endMarker,
+        });
+      }
       const result = await driver.readLatest();
+      const marker = String(askJob.endMarker || "").trim();
+      // Si l'écran a un mauvais/ancien jeton, réécrit avec le bon attendu
+      let answer = result.answer;
+      if (marker && askJob.state === "done") {
+        answer = await driver.ensureCorrectEndMarker(answer, marker);
+        askJob.answer = answer;
+        askJob.answerChars = answer.length;
+      }
       console.log(
-        `[carto-chat-vps] /read-last chars=${result.answer.length}`
+        `[carto-chat-vps] /read-last chars=${answer.length}`
       );
       return send(res, 200, {
         ok: true,
-        answer: result.answer,
+        answer,
         url: result.url,
+        endMarker: marker || null,
       });
     } catch (e) {
       console.error("[carto-chat-vps] /read-last error:", e);

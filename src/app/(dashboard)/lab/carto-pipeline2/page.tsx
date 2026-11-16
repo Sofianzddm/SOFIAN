@@ -255,7 +255,7 @@ export default function CartoAiPipelineChatLabPage() {
             domain: domain.trim() || undefined,
             language,
             mode: "read_screen",
-            // Obligatoire : sinon relance Redken reclasse l’ancien fil Redken
+            // Toujours LE jeton de CE run (jamais un ancien)
             endMarker: ourEndMarker || undefined,
           }),
         });
@@ -264,7 +264,7 @@ export default function CartoAiPipelineChatLabPage() {
           const err = (data as { error?: string }).error || "";
           lastStructureErr = err;
           setLoadingHint("Analyse en cours");
-          // Ancien fil / mauvaise marque encore à l'écran → on continue d'attendre
+          // Ancien fil / mauvaise marque / mauvais jeton → on continue d'attendre
           if (
             /autre marque|ne mentionne pas|relance|marker manquant|encore ancienne/i.test(
               err
@@ -327,15 +327,14 @@ export default function CartoAiPipelineChatLabPage() {
           sawRunning = true;
         }
 
-        if (jobState === "error" && jobIsOurs) {
-          // Uniquement si le NOUVEAU marker est déjà à l’écran (pas l’ancien Redken)
-          if (h.hasEndMarker && (await tryStructure())) return;
-          throw new Error(h.job?.error || "Erreur Chat VPS");
-        }
-
         const screenChars = Number(h.lastAnswerChars || 0);
         const jobChars = Number(h.job?.answerChars || 0);
         const chars = Math.max(jobChars, screenChars);
+
+        if (jobState === "error" && jobIsOurs) {
+          if (h.hasEndMarker && (await tryStructure())) return;
+          throw new Error(h.job?.error || "Erreur Chat VPS");
+        }
         if (baselineChars < 0) {
           baselineChars = screenChars;
           // Ne pas compter l’ancien fil déjà à l’écran comme « croissance »
@@ -365,8 +364,7 @@ export default function CartoAiPipelineChatLabPage() {
         const stableMs = Date.now() - charsStableSince;
         const elapsed = Date.now() - pollStarted;
 
-        // Classement UNIQUEMENT quand le marker de CE run est à l’écran
-        // (évite de remettre l’analyse Redken précédente)
+        // Uniquement LE bon jeton de CE run (hasEndMarker côté VPS = écran OU job certifié)
         if (
           h.hasEndMarker &&
           markerMatches &&
@@ -377,7 +375,6 @@ export default function CartoAiPipelineChatLabPage() {
           if (await tryStructure()) return;
         }
 
-        // Job terminé + marker de ce run
         if (
           jobState === "done" &&
           jobIsOurs &&
@@ -387,7 +384,6 @@ export default function CartoAiPipelineChatLabPage() {
           if (await tryStructure()) return;
         }
 
-        // Fallback texte stable : seulement si marker de ce run déjà vu
         const screenDone =
           h.hasEndMarker &&
           markerMatches &&
@@ -402,7 +398,6 @@ export default function CartoAiPipelineChatLabPage() {
         }
       }
 
-      // Dernière chance (toujours gated par endMarker côté API)
       if (await tryStructure()) return;
       throw new Error(
         lastStructureErr

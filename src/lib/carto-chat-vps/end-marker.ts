@@ -25,8 +25,16 @@ export function createEndMarker(): string {
 export function endMarkerInstruction(marker: string): string {
   return `
 
-À la TOUTE FIN de ta réponse, sur une ligne seule, écris exactement ce code (rien après) :
-${marker}`;
+### CODE DE FIN OBLIGATOIRE (ne pas ignorer)
+À la TOUTE FIN de ta réponse, sur une ligne seule, copie-colle EXACTEMENT ce code — caractère pour caractère :
+
+${marker}
+
+Règles:
+- Ce code est UNIQUE à cette recherche. N'invente PAS un autre GLOWUP_CART_DONE_…
+- N'utilise PAS un ancien code d'une autre marque / autre message.
+- Rien après cette ligne (pas de phrase, pas de source).
+- Si tu oublies ce code, la cartographie est considérée INCOMPLÈTE.`;
 }
 
 function escapeRe(s: string): string {
@@ -58,18 +66,25 @@ export function answerHasEndMarker(text: string, marker?: string | null): boolea
 }
 
 /**
- * Retire le(s) jeton(s) de fin.
+ * Retire TOUS les jetons GLOWUP_CART_DONE_* (y compris un mauvais/ancien).
  * Ne pas tout couper après : section LinkedIn souvent après le marker.
  */
-export function stripEndMarker(text: string, marker?: string | null): string {
-  const raw = String(text || "");
-  if (!answerHasEndMarker(raw, marker)) return raw.trim();
-  const pattern = marker?.trim()
-    ? escapeRe(marker.trim())
-    : `${escapeRe(CARTO_CHAT_END_MARKER_PREFIX)}[a-z0-9]+`;
-  return raw
-    .replace(new RegExp(`^[ \\t]*${pattern}[ \\t]*$`, "gim"), "")
-    .replace(new RegExp(`\\s*${pattern}\\b`, "gi"), "")
+export function stripEndMarker(text: string, _marker?: string | null): string {
+  return String(text || "")
+    .replace(
+      new RegExp(
+        `^[ \\t]*${escapeRe(CARTO_CHAT_END_MARKER_PREFIX)}[a-z0-9]+[ \\t]*$`,
+        "gim"
+      ),
+      ""
+    )
+    .replace(
+      new RegExp(
+        `\\s*${escapeRe(CARTO_CHAT_END_MARKER_PREFIX)}[a-z0-9]+\\b`,
+        "gi"
+      ),
+      ""
+    )
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
