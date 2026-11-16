@@ -145,7 +145,7 @@ export class ChatGptDriver {
       });
     }
     console.log(`[carto-chat-vps] ready url=${this.page.url()} mode=${this.mode}`);
-    // Dès le démarrage : Medium / Moyen (pas Instant)
+    // Dès le démarrage : High / Élevé (pas Instant)
     try {
       await this.ensureHighEffort();
     } catch (e) {
@@ -1201,12 +1201,12 @@ export class ChatGptDriver {
   }
 
   /**
-   * Force Effort (défaut Medium / Moyen = cran 2/5).
+   * Force Effort (défaut High / Élevé = cran 3/5).
    * CARTO_CHAT_EFFORT_LEVEL: 1 Instant … 2 Medium … 3 High … 4 Extra … 5 Pro
    * Ne pas cliquer « Verrouillé » : ça ferme le menu Puissance.
    */
   async ensureHighEffort() {
-    const TARGET = Number(process.env.CARTO_CHAT_EFFORT_LEVEL || 2); // 2 = Medium/Moyen
+    const TARGET = Number(process.env.CARTO_CHAT_EFFORT_LEVEL || 3); // 3 = High/Élevé
     const aliases = this.effortAliases(TARGET);
     const targetAttr = this.effortAttrForLevel(TARGET);
 
@@ -1500,7 +1500,7 @@ export class ChatGptDriver {
         `[carto-chat-vps] prompt OK url=${this.page.url()}`
       );
 
-      // Medium après nouveau chat (sinon Instant revient)
+      // High après nouveau chat (sinon Instant revient)
       await this.ensureHighEffort();
       box = (await this.findPromptHandle()) || box;
 
@@ -1577,8 +1577,8 @@ export class ChatGptDriver {
         `[carto-chat-vps] prompt collé ~${pasted || prompt.length} chars`
       );
 
-      // Re-check Medium juste avant envoi (Chat reset parfois)
-      const targetEffort = Number(process.env.CARTO_CHAT_EFFORT_LEVEL || 2);
+      // Re-check High juste avant envoi (Chat reset parfois)
+      const targetEffort = Number(process.env.CARTO_CHAT_EFFORT_LEVEL || 3);
       await this.ensureHighEffort();
       const effortNow = await this.readEffortLabel();
       if (!this.isEffortAtTarget(effortNow, targetEffort)) {

@@ -14,7 +14,8 @@ ssh -o ControlMaster=auto -o ControlPath="$CTRL" -o ControlPersist=10m "$HOST" "
 rsync -avz \
   "$ROOT/scripts/carto-chat-vps/chatgpt-driver.mjs" \
   "$ROOT/scripts/carto-chat-vps/worker.mjs" \
+  "$ROOT/scripts/carto-chat-vps/ecosystem.config.cjs" \
   "$HOST:$REMOTE/"
 
 ssh -o ControlPath="$CTRL" "$HOST" \
-  "pm2 restart carto-chat-vps && sleep 2 && curl -s http://127.0.0.1:3847/health; echo; pm2 logs carto-chat-vps --lines 12 --nostream"
+  "cd $REMOTE && pm2 startOrReload ecosystem.config.cjs --update-env && sleep 2 && curl -s http://127.0.0.1:3847/health; echo; pm2 logs carto-chat-vps --lines 12 --nostream"

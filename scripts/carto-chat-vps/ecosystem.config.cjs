@@ -26,11 +26,12 @@ module.exports = {
       autorestart: true,
       max_restarts: 20,
       env: {
-        CARTO_CHAT_VPS_PORT: "3847",
-        CARTO_CHAT_VPS_BIND: "127.0.0.1",
-        CARTO_CHAT_TIMEOUT_MS: "300000",
-        CARTO_CHAT_EFFORT_LEVEL: "2", // Medium / Moyen
         ...fileEnv,
+        CARTO_CHAT_VPS_PORT: fileEnv.CARTO_CHAT_VPS_PORT || "3847",
+        CARTO_CHAT_VPS_BIND: fileEnv.CARTO_CHAT_VPS_BIND || "127.0.0.1",
+        CARTO_CHAT_TIMEOUT_MS: fileEnv.CARTO_CHAT_TIMEOUT_MS || "300000",
+        // Force High / Élevé (après fileEnv pour écraser un ancien =2)
+        CARTO_CHAT_EFFORT_LEVEL: "3",
       },
     },
   ],
