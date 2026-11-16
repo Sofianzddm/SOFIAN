@@ -50,7 +50,8 @@ function companyTokens(company: string): string[] {
   return norm(company)
     .split(/\s+/)
     .map((t) => t.trim())
-    .filter((t) => t.length >= 3 && !stop.has(t));
+    // min 4 : évite faux positifs (« mal », « spa », « the »…)
+    .filter((t) => t.length >= 4 && !stop.has(t));
 }
 
 export function answerMatchesCompany(
@@ -63,7 +64,7 @@ export function answerMatchesCompany(
   const cCompact = compact(company);
 
   // 1) Forme compacte : « Redbull » ↔ « Red Bull », « nyxcosmetics » ↔ « NYX Cosmetics »
-  if (cCompact.length >= 3 && aCompact.includes(cCompact)) {
+  if (cCompact.length >= 4 && aCompact.includes(cCompact)) {
     return { ok: true };
   }
 

@@ -223,6 +223,9 @@ export default function CartoAiPipelineChatLabPage() {
       let peakChars = 0;
       let charsStableSince = Date.now();
       let lastStructureErr = "";
+      /** Chars à l’écran au lancement — pour ignorer l’ancien GLOWUP_CART_DONE. */
+      let baselineChars = -1;
+      let sawFreshAnswer = false;
 
       const companyKey = company.trim().toLowerCase();
       const jobMentionsCompany = (preview: string) => {
@@ -308,10 +311,17 @@ export default function CartoAiPipelineChatLabPage() {
           throw new Error(h.job?.error || "Erreur Chat VPS");
         }
 
-        const chars = Math.max(
-          Number(h.job?.answerChars || 0),
-          Number(h.lastAnswerChars || 0)
-        );
+        const screenChars = Number(h.lastAnswerChars || 0);
+        const jobChars = Number(h.job?.answerChars || 0);
+        const chars = Math.max(jobChars, screenChars);
+        if (baselineChars < 0) baselineChars = screenChars;
+        // Nouveau fil : écran plus court (fresh chat) OU job qui génère vraiment
+        if (
+          screenChars < Math.max(0, baselineChars - 400) ||
+          (jobIsOurs && jobState === "running" && jobChars >= 400)
+        ) {
+          sawFreshAnswer = true;
+        }
         if (chars > peakChars + 60) {
           peakChars = chars;
           sawGrowth = true;
@@ -327,13 +337,19 @@ export default function CartoAiPipelineChatLabPage() {
         const stableMs = Date.now() - charsStableSince;
         const elapsed = Date.now() - pollStarted;
 
-        // 0) Marker GLOWUP_CART_DONE → classement immédiat
-        if (h.hasEndMarker && (jobIsOurs || sawRunning || sawGrowth)) {
+        // 0) Marker GLOWUP_CART_DONE — seulement après un vrai run de CETTE marque
+        // (sinon on reclasse l’ancienne conversation encore à l’écran)
+        if (
+          h.hasEndMarker &&
+          jobIsOurs &&
+          sawFreshAnswer &&
+          (sawRunning || jobState === "done")
+        ) {
           if (await tryStructure()) return;
         }
 
-        // A) Job terminé → classement immédiat
-        if (jobState === "done" && jobIsOurs) {
+        // A) Job terminé → classement (match marque obligatoire côté API)
+        if (jobState === "done" && jobIsOurs && sawFreshAnswer) {
           if (await tryStructure()) return;
         }
 
