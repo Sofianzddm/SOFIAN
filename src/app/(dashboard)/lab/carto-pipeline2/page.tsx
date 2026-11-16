@@ -219,6 +219,11 @@ export default function CartoAiPipelineChatLabPage() {
       const ourStartedAt = Number(startData.startedAt || Date.now());
       /** Jeton unique de CE lancement (même marque → nouvel id à chaque Analyse). */
       const ourEndMarker = String(startData.endMarker || "").trim();
+      if (!ourEndMarker) {
+        throw new Error(
+          "Marker de fin manquant au lancement — impossible de distinguer l’ancien fil"
+        );
+      }
       const pollStarted = Date.now();
       let sawRunning = false;
       let sawGrowth = false;
@@ -250,6 +255,8 @@ export default function CartoAiPipelineChatLabPage() {
             domain: domain.trim() || undefined,
             language,
             mode: "read_screen",
+            // Obligatoire : sinon relance Redken reclasse l’ancien fil Redken
+            endMarker: ourEndMarker || undefined,
           }),
         });
         const data = await rescue.json().catch(() => ({}));
@@ -257,8 +264,12 @@ export default function CartoAiPipelineChatLabPage() {
           const err = (data as { error?: string }).error || "";
           lastStructureErr = err;
           setLoadingHint("Analyse en cours");
-          // Mauvaise marque encore à l'écran → on continue d'attendre
-          if (/autre marque|ne mentionne pas|relance/i.test(err)) {
+          // Ancien fil / mauvaise marque encore à l'écran → on continue d'attendre
+          if (
+            /autre marque|ne mentionne pas|relance|marker manquant|encore ancienne/i.test(
+              err
+            )
+          ) {
             return false;
           }
           // Crédits OpenAI / clé → stop tout de suite (sinon timeout trompeur)
@@ -302,9 +313,9 @@ export default function CartoAiPipelineChatLabPage() {
         const startedClose =
           Math.abs(Number(h.job?.startedAt || 0) - ourStartedAt) <= 5_000;
         const markerMatches =
-          !ourEndMarker ||
-          h.job?.endMarker === ourEndMarker ||
-          h.endMarker === ourEndMarker;
+          Boolean(ourEndMarker) &&
+          (h.job?.endMarker === ourEndMarker ||
+            h.endMarker === ourEndMarker);
         const jobIsOurs =
           markerMatches &&
           (Number(h.job?.startedAt || 0) === ourStartedAt ||
@@ -317,15 +328,21 @@ export default function CartoAiPipelineChatLabPage() {
         }
 
         if (jobState === "error" && jobIsOurs) {
-          // Même en erreur worker : tente l'écran (souvent déjà fini)
-          if (await tryStructure()) return;
+          // Uniquement si le NOUVEAU marker est déjà à l’écran (pas l’ancien Redken)
+          if (h.hasEndMarker && (await tryStructure())) return;
           throw new Error(h.job?.error || "Erreur Chat VPS");
         }
 
         const screenChars = Number(h.lastAnswerChars || 0);
         const jobChars = Number(h.job?.answerChars || 0);
         const chars = Math.max(jobChars, screenChars);
-        if (baselineChars < 0) baselineChars = screenChars;
+        if (baselineChars < 0) {
+          baselineChars = screenChars;
+          // Ne pas compter l’ancien fil déjà à l’écran comme « croissance »
+          peakChars = screenChars;
+          lastChars = screenChars;
+          charsStableSince = Date.now();
+        }
         // Nouveau fil : écran plus court (fresh chat) OU job qui génère vraiment
         if (
           screenChars < Math.max(0, baselineChars - 400) ||
@@ -348,7 +365,8 @@ export default function CartoAiPipelineChatLabPage() {
         const stableMs = Date.now() - charsStableSince;
         const elapsed = Date.now() - pollStarted;
 
-        // 0) Marker GLOWUP_CART_DONE_* de CE run uniquement (pas l’ancien fil)
+        // Classement UNIQUEMENT quand le marker de CE run est à l’écran
+        // (évite de remettre l’analyse Redken précédente)
         if (
           h.hasEndMarker &&
           markerMatches &&
@@ -359,13 +377,21 @@ export default function CartoAiPipelineChatLabPage() {
           if (await tryStructure()) return;
         }
 
-        // A) Job terminé → classement (match marque obligatoire côté API)
-        if (jobState === "done" && jobIsOurs && sawFreshAnswer) {
+        // Job terminé + marker de ce run
+        if (
+          jobState === "done" &&
+          jobIsOurs &&
+          sawFreshAnswer &&
+          h.hasEndMarker
+        ) {
           if (await tryStructure()) return;
         }
 
-        // B) Fallback : texte stable (si marker pas encore vu)
+        // Fallback texte stable : seulement si marker de ce run déjà vu
         const screenDone =
+          h.hasEndMarker &&
+          markerMatches &&
+          sawFreshAnswer &&
           (sawRunning || sawGrowth) &&
           sawGrowth &&
           chars >= 1200 &&
@@ -376,7 +402,7 @@ export default function CartoAiPipelineChatLabPage() {
         }
       }
 
-      // Dernière chance
+      // Dernière chance (toujours gated par endMarker côté API)
       if (await tryStructure()) return;
       throw new Error(
         lastStructureErr

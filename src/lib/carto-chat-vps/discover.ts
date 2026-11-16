@@ -12,6 +12,7 @@ import { gatherInfluenceGrounding } from "@/lib/carto-ai/exa-grounding";
 import { answerMatchesCompany } from "@/lib/carto-chat-vps/answer-match";
 import { CARTO_CHAT_RESEARCH_PROMPT } from "@/lib/carto-chat-vps/chat-prompt";
 import {
+  answerHasEndMarker,
   appendEndMarkerInstruction,
   stripEndMarker,
 } from "@/lib/carto-chat-vps/end-marker";
@@ -345,13 +346,22 @@ export async function runChatReadScreen(opts: {
   company: string;
   domain?: string | null;
   language?: "fr" | "en";
+  /** Si fourni : refuse l’ancienne réponse (même marque) sans ce jeton. */
+  endMarker?: string | null;
 }): Promise<CartoChatVpsPreviewResult> {
   const started = Date.now();
   const company = opts.company.trim();
   if (!company) throw new Error("Marque requise");
 
+  const expected = opts.endMarker?.trim() || null;
   const read = await cartoChatVpsReadLast();
-  const answer = stripEndMarker(read.answer);
+  const raw = read.answer || "";
+  if (expected && !answerHasEndMarker(raw, expected)) {
+    throw new Error(
+      "Réponse encore ancienne (marker manquant) — attente du fil en cours"
+    );
+  }
+  const answer = stripEndMarker(raw, expected);
   const match = answerMatchesCompany(answer, company);
   if (!match.ok) {
     throw new Error(match.reason);

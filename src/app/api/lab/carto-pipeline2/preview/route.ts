@@ -38,6 +38,8 @@ export async function POST(request: NextRequest) {
       mode?: string;
       chatAnswer?: string;
       chatPrompt?: string;
+      /** Marker de CE run — refuse de classer une ancienne réponse même marque. */
+      endMarker?: string;
     };
 
     const company = String(body.company || "").trim();
@@ -77,7 +79,14 @@ export async function POST(request: NextRequest) {
         : mode === "api_chat"
           ? await runChatDiscover({ company, domain, language })
           : mode === "read_screen"
-            ? await runChatReadScreen({ company, domain, language })
+            ? await runChatReadScreen({
+                company,
+                domain,
+                language,
+                endMarker: body.endMarker
+                  ? String(body.endMarker)
+                  : undefined,
+              })
             : await runChatVps({
                 company,
                 domain,
