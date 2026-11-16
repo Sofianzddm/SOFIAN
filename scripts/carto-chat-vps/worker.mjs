@@ -33,6 +33,7 @@ let askJob = {
   answerChars: 0,
   error: null,
   promptPreview: "",
+  endMarker: "",
 };
 
 function readJson(req) {
@@ -75,12 +76,15 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "GET" && url.pathname === "/health") {
-    const st = await driver.status().catch((e) => ({
-      ok: false,
-      error: e instanceof Error ? e.message : String(e),
-    }));
+    const st = await driver
+      .status({ endMarker: askJob.endMarker || undefined })
+      .catch((e) => ({
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      }));
     return send(res, 200, {
       ...st,
+      endMarker: askJob.endMarker || st.endMarker || null,
       job: {
         state: askJob.state,
         startedAt: askJob.startedAt,
@@ -88,6 +92,7 @@ const server = http.createServer(async (req, res) => {
         answerChars: askJob.answerChars,
         error: askJob.error,
         promptPreview: askJob.promptPreview,
+        endMarker: askJob.endMarker || "",
       },
     });
   }
@@ -96,6 +101,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readJson(req);
       const prompt = String(body.prompt || "").trim();
+      const endMarker = String(body.endMarker || "").trim();
       if (prompt.length < 8) {
         return send(res, 400, { error: "prompt requis" });
       }
@@ -109,10 +115,12 @@ const server = http.createServer(async (req, res) => {
         answerChars: 0,
         error: null,
         promptPreview: prompt.slice(0, 80).replace(/\n/g, " "),
+        endMarker,
       };
       const started = Date.now();
       const result = await driver.ask(prompt, {
         timeoutMs: body.timeoutMs ? Number(body.timeoutMs) : undefined,
+        endMarker: endMarker || undefined,
       });
       askJob = {
         state: "done",
@@ -121,6 +129,7 @@ const server = http.createServer(async (req, res) => {
         answerChars: result.answer.length,
         error: null,
         promptPreview: askJob.promptPreview,
+        endMarker,
       };
       console.log(
         `[carto-chat-vps] done ${((Date.now() - started) / 1000).toFixed(1)}s chars=${result.answer.length}`
@@ -153,6 +162,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readJson(req);
       const prompt = String(body.prompt || "").trim();
+      const endMarker = String(body.endMarker || "").trim();
       if (prompt.length < 8) {
         return send(res, 400, { error: "prompt requis" });
       }
@@ -168,15 +178,17 @@ const server = http.createServer(async (req, res) => {
         answerChars: 0,
         error: null,
         promptPreview: prompt.slice(0, 80).replace(/\n/g, " "),
+        endMarker,
       };
       console.log(
-        `[carto-chat-vps] /ask-async ${askJob.promptPreview}…`
+        `[carto-chat-vps] /ask-async marker=${endMarker || "—"} ${askJob.promptPreview}…`
       );
       // Fire-and-forget : ne bloque pas la réponse HTTP
       setImmediate(() => {
         driver
           .ask(prompt, {
             timeoutMs,
+            endMarker: endMarker || undefined,
             onProgress: (chars) => {
               if (askJob.startedAt === startedAt && askJob.state === "running") {
                 askJob.answerChars = Number(chars) || 0;
@@ -191,9 +203,10 @@ const server = http.createServer(async (req, res) => {
               answerChars: result.answer.length,
               error: null,
               promptPreview: askJob.promptPreview,
+              endMarker,
             };
             console.log(
-              `[carto-chat-vps] async done chars=${result.answer.length}`
+              `[carto-chat-vps] async done chars=${result.answer.length} marker=${endMarker}`
             );
           })
           .catch((e) => {
@@ -204,6 +217,7 @@ const server = http.createServer(async (req, res) => {
               answerChars: askJob.answerChars || 0,
               error: e instanceof Error ? e.message : "Erreur ask",
               promptPreview: askJob.promptPreview,
+              endMarker,
             };
             console.error("[carto-chat-vps] /ask-async error:", e);
           });

@@ -9,23 +9,36 @@ import path from "node:path";
 
 const CHATGPT_URL = process.env.CARTO_CHAT_URL || "https://chatgpt.com/";
 
-/** Doit matcher src/lib/carto-chat-vps/end-marker.ts */
-const END_MARKER =
+/** Préfixe — un id unique par fil est passé via opts.endMarker */
+const END_MARKER_PREFIX = "GLOWUP_CART_DONE_";
+const END_MARKER_DEFAULT =
   process.env.CARTO_CHAT_END_MARKER?.trim() || "GLOWUP_CART_DONE_9f3k2x";
 
-function hasEndMarker(text) {
-  const esc = END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`\\b${esc}\\b`, "i").test(text || "");
+function escapeRe(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function stripEndMarker(text) {
+function hasEndMarker(text, marker) {
+  const raw = text || "";
+  if (marker && String(marker).trim()) {
+    return new RegExp(`\\b${escapeRe(String(marker).trim())}\\b`, "i").test(raw);
+  }
+  return new RegExp(
+    `\\b${escapeRe(END_MARKER_PREFIX)}[a-z0-9]+\\b`,
+    "i"
+  ).test(raw);
+}
+
+function stripEndMarker(text, marker) {
   const raw = String(text || "");
-  if (!hasEndMarker(raw)) return raw.trim();
-  const esc = END_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!hasEndMarker(raw, marker)) return raw.trim();
+  const pattern = marker && String(marker).trim()
+    ? escapeRe(String(marker).trim())
+    : `${escapeRe(END_MARKER_PREFIX)}[a-z0-9]+`;
   // Ne pas couper ce qui suit (section LinkedIn hrefs souvent après le jeton)
   return raw
-    .replace(new RegExp(`^[ \\t]*${esc}[ \\t]*$`, "gim"), "")
-    .replace(new RegExp(`\\s*${esc}\\b`, "gi"), "")
+    .replace(new RegExp(`^[ \\t]*${pattern}[ \\t]*$`, "gim"), "")
+    .replace(new RegExp(`\\s*${pattern}\\b`, "gi"), "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -133,12 +146,16 @@ export class ChatGptDriver {
     }
   }
 
-  async status() {
+  async status(opts = {}) {
     await this.refreshPageHandle();
     const url = this.page?.url?.() || "";
     const loggedIn = await this.isLoggedIn().catch(() => false);
     const hasPrompt = Boolean(await this.findPromptHandle().catch(() => null));
     const lastText = await this.readLastAssistantText().catch(() => "");
+    const expected =
+      (opts.endMarker && String(opts.endMarker).trim()) ||
+      this.activeEndMarker ||
+      null;
     return {
       ok: Boolean(this.page),
       mode: this.mode,
@@ -147,7 +164,11 @@ export class ChatGptDriver {
       hasPrompt,
       busy: this.busy,
       lastAnswerChars: lastText.length,
-      hasEndMarker: hasEndMarker(lastText),
+      // Uniquement le marker du fil courant (pas l’ancien)
+      hasEndMarker: expected
+        ? hasEndMarker(lastText, expected)
+        : false,
+      endMarker: expected,
     };
   }
 
@@ -652,7 +673,8 @@ export class ChatGptDriver {
    * Source de vérité = croissance puis STABILITÉ du texte (pas le bouton Stop).
    * Stop n'est qu'un hint : trop de faux positifs → lab bloqué alors que Chat a fini.
    */
-  async waitGenerationDone(prevText, timeoutMs, onProgress) {
+  async waitGenerationDone(prevText, timeoutMs, onProgress, endMarker) {
+    const marker = endMarker || this.activeEndMarker || END_MARKER_DEFAULT;
     const started = Date.now();
     let stableHits = 0;
     let lastLen = -1;
@@ -709,15 +731,15 @@ export class ChatGptDriver {
         sawGrowth = true;
       }
 
-      // ★ Jeton de fin dans le prompt → dès qu'il apparaît, c'est fini
-      if (hasEndMarker(text) && isNew(text)) {
+      // ★ Jeton de fin (unique au fil) → dès qu'il apparaît, c'est fini
+      if (hasEndMarker(text, marker) && isNew(text)) {
         await sleep(400);
         const final = await this.readLastAssistantText();
-        if (hasEndMarker(final)) {
+        if (hasEndMarker(final, marker)) {
           console.log(
-            `[carto-chat-vps] CAPTURE via END_MARKER chars=${final.length}`
+            `[carto-chat-vps] CAPTURE via END_MARKER chars=${final.length} marker=${marker}`
           );
-          return stripEndMarker(final);
+          return stripEndMarker(final, marker);
         }
       }
 
@@ -791,7 +813,8 @@ export class ChatGptDriver {
           `[carto-chat-vps] CAPTURE chars=${final.length} hits=${stableHits} (~15s stable, search off)`
         );
         return stripEndMarker(
-          final.length >= 200 ? final : last || best
+          final.length >= 200 ? final : last || best,
+          marker
         );
       }
 
@@ -799,17 +822,17 @@ export class ChatGptDriver {
     }
 
     const fallback = (await this.readLastAssistantText()) || best;
-    if (hasEndMarker(fallback)) {
+    if (hasEndMarker(fallback, marker)) {
       console.log(
         `[carto-chat-vps] capture timeout+marker chars=${fallback.length}`
       );
-      return stripEndMarker(fallback);
+      return stripEndMarker(fallback, marker);
     }
     if (fallback.length > 200 && isNew(fallback) && sawGrowth) {
       console.log(
         `[carto-chat-vps] capture timeout-fallback chars=${fallback.length}`
       );
-      return stripEndMarker(fallback);
+      return stripEndMarker(fallback, marker);
     }
     throw new Error("Timeout: réponse Chat non lue");
   }
@@ -1063,6 +1086,9 @@ export class ChatGptDriver {
     const timeoutMs = Number(
       opts.timeoutMs || process.env.CARTO_CHAT_TIMEOUT_MS || 240_000
     );
+    const endMarker =
+      (opts.endMarker && String(opts.endMarker).trim()) || END_MARKER_DEFAULT;
+    this.activeEndMarker = endMarker;
     try {
       await this.refreshPageHandle();
 
@@ -1198,7 +1224,8 @@ export class ChatGptDriver {
       const answer = await this.waitGenerationDone(
         beforeText,
         timeoutMs,
-        opts.onProgress
+        opts.onProgress,
+        endMarker
       );
       return { answer, url: this.page.url() };
     } finally {

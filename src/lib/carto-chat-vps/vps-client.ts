@@ -12,6 +12,7 @@ export type CartoChatVpsJob = {
   answerChars?: number;
   error?: string | null;
   promptPreview?: string;
+  endMarker?: string;
 };
 
 export type CartoChatVpsHealth = {
@@ -22,8 +23,10 @@ export type CartoChatVpsHealth = {
   hasPrompt?: boolean;
   busy?: boolean;
   lastAnswerChars?: number;
-  /** true si GLOWUP_CART_DONE_* est déjà dans la réponse à l’écran */
+  /** true si le marker du job courant est dans la réponse à l’écran */
   hasEndMarker?: boolean;
+  /** Marker attendu pour le job courant (unique par fil) */
+  endMarker?: string | null;
   job?: CartoChatVpsJob;
   error?: string;
 };
@@ -169,6 +172,7 @@ export async function cartoChatVpsReadLast(): Promise<CartoChatVpsAskResult> {
 export async function cartoChatVpsAsk(opts: {
   prompt: string;
   timeoutMs?: number;
+  endMarker?: string;
 }): Promise<CartoChatVpsAskResult> {
   const base = baseUrl();
   if (!base) {
@@ -183,7 +187,11 @@ export async function cartoChatVpsAsk(opts: {
   const timeoutMs = opts.timeoutMs ?? ASK_DEFAULT_MS;
   const { status, json } = await longPostJson(
     `${base}/ask`,
-    { prompt: opts.prompt, timeoutMs },
+    {
+      prompt: opts.prompt,
+      timeoutMs,
+      endMarker: opts.endMarker || undefined,
+    },
     headers,
     timeoutMs + 30_000
   );
@@ -211,7 +219,14 @@ export async function cartoChatVpsAsk(opts: {
 export async function cartoChatVpsAskAsync(opts: {
   prompt: string;
   timeoutMs?: number;
-}): Promise<{ ok: true; started: true; startedAt: number; promptPreview: string }> {
+  endMarker?: string;
+}): Promise<{
+  ok: true;
+  started: true;
+  startedAt: number;
+  promptPreview: string;
+  endMarker: string;
+}> {
   const base = baseUrl();
   if (!base) {
     throw new Error(
@@ -230,13 +245,14 @@ export async function cartoChatVpsAskAsync(opts: {
     body: JSON.stringify({
       prompt: opts.prompt,
       timeoutMs: opts.timeoutMs ?? ASK_DEFAULT_MS,
+      endMarker: opts.endMarker || undefined,
     }),
     signal: AbortSignal.timeout(30_000),
   });
   const data = (await res.json().catch(() => ({}))) as {
     ok?: boolean;
     error?: string;
-    job?: { startedAt?: number; promptPreview?: string };
+    job?: { startedAt?: number; promptPreview?: string; endMarker?: string };
   };
   if (!res.ok) {
     throw new Error(data.error || `VPS Chat HTTP ${res.status}`);
@@ -246,5 +262,6 @@ export async function cartoChatVpsAskAsync(opts: {
     started: true,
     startedAt: Number(data.job?.startedAt || Date.now()),
     promptPreview: String(data.job?.promptPreview || ""),
+    endMarker: String(data.job?.endMarker || opts.endMarker || ""),
   };
 }

@@ -206,8 +206,11 @@ export async function runChatDiscover(opts: {
   };
 }
 
-/** Prompt Head of Research Influence (carto-pipeline2). */
-export function buildUserChatPrompt(company: string, custom?: string | null): string {
+/** Prompt Head of Research Influence (carto-pipeline2) + marker unique. */
+export function buildUserChatPrompt(
+  company: string,
+  custom?: string | null
+): { prompt: string; endMarker: string } {
   const c = custom?.trim();
   const base = c
     ? c.includes("{marque}")
@@ -233,11 +236,15 @@ export async function runChatVps(opts: {
   const domain = opts.domain?.trim() || null;
   const language = opts.language === "en" ? "en" : "fr";
 
-  const prompt = buildUserChatPrompt(company, opts.chatPrompt);
+  const { prompt, endMarker } = buildUserChatPrompt(company, opts.chatPrompt);
   let answer: string;
   try {
-    const asked = await cartoChatVpsAsk({ prompt, timeoutMs: 540_000 });
-    answer = stripEndMarker(asked.answer);
+    const asked = await cartoChatVpsAsk({
+      prompt,
+      timeoutMs: 540_000,
+      endMarker,
+    });
+    answer = stripEndMarker(asked.answer, endMarker);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     // Timeout / capture : la réponse est souvent déjà à l'écran.
@@ -249,7 +256,7 @@ export async function runChatVps(opts: {
     if (!canReadLast) throw e;
     console.warn("[carto-chat-vps] ask failed, fallback read-last:", msg);
     const read = await cartoChatVpsReadLast();
-    answer = stripEndMarker(read.answer);
+    answer = stripEndMarker(read.answer, endMarker);
   }
 
   const matchAsk = answerMatchesCompany(answer, company);
@@ -313,17 +320,23 @@ export async function startChatVps(opts: {
   company: string;
   startedAt: number;
   promptPreview: string;
+  endMarker: string;
 }> {
   const company = opts.company.trim();
   if (!company) throw new Error("Marque requise");
-  const prompt = buildUserChatPrompt(company, opts.chatPrompt);
-  const started = await cartoChatVpsAskAsync({ prompt, timeoutMs: 540_000 });
+  const { prompt, endMarker } = buildUserChatPrompt(company, opts.chatPrompt);
+  const started = await cartoChatVpsAskAsync({
+    prompt,
+    timeoutMs: 540_000,
+    endMarker,
+  });
   return {
     ok: true,
     started: true,
     company,
     startedAt: started.startedAt,
     promptPreview: started.promptPreview,
+    endMarker,
   };
 }
 
