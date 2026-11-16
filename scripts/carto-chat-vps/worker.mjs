@@ -442,14 +442,9 @@ const server = http.createServer(async (req, res) => {
       // Lecture écran : si un slot porte encore le marker, bind ALS via ask path n/a —
       // utilise la page du slot si trouvée
       const slot = marker ? driver.findSlotByMarker(marker) : null;
-      let result;
-      if (slot) {
-        const { AsyncLocalStorage } = await import("node:async_hooks");
-        // readLatest on that page: temporarily use pageAls via a small helper
-        result = await driver.readLatestForPage(slot.page);
-      } else {
-        result = await driver.readLatest();
-      }
+      const result = slot
+        ? await driver.readLatestForPage(slot.page)
+        : await driver.readLatest();
 
       let answer = result.answer;
       const expect = marker || String(job?.endMarker || "").trim();

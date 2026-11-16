@@ -6,13 +6,18 @@ import http from "node:http";
 import https from "node:https";
 
 export type CartoChatVpsJob = {
-  state?: "idle" | "running" | "done" | "error" | string;
+  state?: "idle" | "queued" | "running" | "done" | "error" | string;
   startedAt?: number;
   finishedAt?: number;
   answerChars?: number;
   error?: string | null;
   promptPreview?: string;
   endMarker?: string;
+  hasCertifiedAnswer?: boolean;
+  markerInjected?: boolean;
+  markerSource?: string;
+  slotId?: number | null;
+  companyHint?: string;
 };
 
 export type CartoChatVpsHealth = {
@@ -22,12 +27,18 @@ export type CartoChatVpsHealth = {
   loggedIn?: boolean;
   hasPrompt?: boolean;
   busy?: boolean;
+  slotsFull?: boolean;
+  runningCount?: number;
+  slots?: { total?: number; free?: number; busy?: number };
   lastAnswerChars?: number;
   /** true si le marker du job courant est dans la réponse à l’écran */
   hasEndMarker?: boolean;
   /** Marker attendu pour le job courant (unique par fil) */
   endMarker?: string | null;
   job?: CartoChatVpsJob;
+  /** Tous les jobs récents (parallèle) */
+  jobs?: CartoChatVpsJob[];
+  queueLength?: number;
   error?: string;
 };
 
@@ -137,8 +148,10 @@ export async function cartoChatVpsHealth(): Promise<CartoChatVpsHealth> {
   return data;
 }
 
-/** Lit la réponse déjà visible dans l’onglet Chat (sans renvoyer de prompt). */
-export async function cartoChatVpsReadLast(): Promise<CartoChatVpsAskResult> {
+/** Lit la réponse déjà visible / job certifié (sans renvoyer de prompt). */
+export async function cartoChatVpsReadLast(opts?: {
+  endMarker?: string;
+}): Promise<CartoChatVpsAskResult> {
   const base = baseUrl();
   if (!base) {
     throw new Error("CARTO_CHAT_VPS_URL manquant");
@@ -152,7 +165,9 @@ export async function cartoChatVpsReadLast(): Promise<CartoChatVpsAskResult> {
   const res = await fetch(`${base}/read-last`, {
     method: "POST",
     headers,
-    body: "{}",
+    body: JSON.stringify({
+      endMarker: opts?.endMarker || undefined,
+    }),
     signal: AbortSignal.timeout(30_000),
   });
   const data = (await res.json().catch(() => ({}))) as {

@@ -5,6 +5,8 @@
   "scripts": {
     "start": "node worker.mjs",
     "test:capture": "CARTO_CHAT_TEST_FAST=1 node test-capture-gate.mjs",
+    "test:parallel": "CARTO_CHAT_TEST_FAST=1 node test-parallel-queue.mjs",
+    "test": "npm run test:capture && npm run test:parallel",
     "install:browser": "npx playwright install chromium"
   },
   "dependencies": {

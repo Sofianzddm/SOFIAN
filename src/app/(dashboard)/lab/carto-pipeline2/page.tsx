@@ -58,6 +58,16 @@ export default function CartoAiPipelineChatLabPage() {
   const [loadingHint, setLoadingHint] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Runs VPS parallèles (bandeau) */
+  const [vpsRuns, setVpsRuns] = useState<
+    {
+      endMarker: string;
+      companyHint: string;
+      state: string;
+      answerChars: number;
+      error?: string | null;
+    }[]
+  >([]);
   const [preview, setPreview] = useState<CartoChatVpsPreviewResult | null>(
     null
   );
@@ -224,26 +234,13 @@ export default function CartoAiPipelineChatLabPage() {
           "Marker de fin manquant au lancement — impossible de distinguer l’ancien fil"
         );
       }
-      const pollStarted = Date.now();
       let sawRunning = false;
-      let sawGrowth = false;
       let lastChars = 0;
       let peakChars = 0;
-      let charsStableSince = Date.now();
       let lastStructureErr = "";
       /** Chars à l’écran au lancement — pour ignorer l’ancien GLOWUP_CART_DONE. */
       let baselineChars = -1;
       let sawFreshAnswer = false;
-
-      const companyKey = company.trim().toLowerCase();
-      const jobMentionsCompany = (preview: string) => {
-        const p = (preview || "").toLowerCase();
-        if (!companyKey) return false;
-        if (p.includes(companyKey)) return true;
-        // « Redbull » vs preview « Red Bull »
-        const compact = (s: string) => s.replace(/[^a-z0-9]+/g, "");
-        return compact(p).includes(compact(companyKey));
-      };
 
       const tryStructure = async (): Promise<boolean> => {
         setLoadingHint("Classement des contacts");
@@ -298,6 +295,7 @@ export default function CartoAiPipelineChatLabPage() {
           lastAnswerChars?: number;
           hasEndMarker?: boolean;
           endMarker?: string | null;
+          slots?: { total?: number; free?: number; busy?: number };
           job?: {
             state?: string;
             error?: string | null;
@@ -305,97 +303,119 @@ export default function CartoAiPipelineChatLabPage() {
             startedAt?: number;
             promptPreview?: string;
             endMarker?: string;
+            hasCertifiedAnswer?: boolean;
+            companyHint?: string;
           };
+          jobs?: {
+            state?: string;
+            error?: string | null;
+            answerChars?: number;
+            startedAt?: number;
+            promptPreview?: string;
+            endMarker?: string;
+            hasCertifiedAnswer?: boolean;
+            companyHint?: string;
+          }[];
           error?: string;
         };
 
-        const jobState = h.job?.state || (h.busy ? "running" : "idle");
-        const startedClose =
-          Math.abs(Number(h.job?.startedAt || 0) - ourStartedAt) <= 5_000;
-        const markerMatches =
-          Boolean(ourEndMarker) &&
-          (h.job?.endMarker === ourEndMarker ||
-            h.endMarker === ourEndMarker);
-        const jobIsOurs =
-          markerMatches &&
-          (Number(h.job?.startedAt || 0) === ourStartedAt ||
-            (startedClose &&
-              jobMentionsCompany(h.job?.promptPreview || "")) ||
-            jobMentionsCompany(h.job?.promptPreview || ""));
+        // Bandeau : tous les jobs actifs / récents
+        if (Array.isArray(h.jobs)) {
+          setVpsRuns(
+            h.jobs
+              .filter((j) =>
+                ["queued", "running", "done", "error"].includes(
+                  String(j.state || "")
+                )
+              )
+              .slice(0, 8)
+              .map((j) => ({
+                endMarker: String(j.endMarker || ""),
+                companyHint: String(j.companyHint || j.promptPreview || "").slice(
+                  0,
+                  40
+                ),
+                state: String(j.state || ""),
+                answerChars: Number(j.answerChars || 0),
+                error: j.error,
+              }))
+          );
+        }
 
-        if ((jobState === "running" || h.busy) && jobIsOurs) {
+        // ★ Job de CE run (parallèle) — pas seulement le « primary »
+        const ourJob =
+          (h.jobs || []).find((j) => j.endMarker === ourEndMarker) ||
+          (h.job?.endMarker === ourEndMarker ? h.job : undefined);
+
+        const jobState =
+          ourJob?.state ||
+          (h.job?.endMarker === ourEndMarker ? h.job.state : undefined) ||
+          "idle";
+        const markerMatches = Boolean(ourJob);
+        const jobIsOurs = markerMatches;
+
+        if (
+          (jobState === "running" || jobState === "queued") &&
+          jobIsOurs
+        ) {
           sawRunning = true;
         }
 
         const screenChars = Number(h.lastAnswerChars || 0);
-        const jobChars = Number(h.job?.answerChars || 0);
-        const chars = Math.max(jobChars, screenChars);
+        const jobChars = Number(ourJob?.answerChars || 0);
+        const chars = Math.max(jobChars, jobIsOurs ? jobChars : 0);
 
         if (jobState === "error" && jobIsOurs) {
-          if (h.hasEndMarker && (await tryStructure())) return;
-          throw new Error(h.job?.error || "Erreur Chat VPS");
+          const certified =
+            Boolean(ourJob?.hasCertifiedAnswer) ||
+            (h.hasEndMarker && h.endMarker === ourEndMarker);
+          if (certified && (await tryStructure())) return;
+          throw new Error(ourJob?.error || "Erreur Chat VPS");
         }
         if (baselineChars < 0) {
           baselineChars = screenChars;
-          // Ne pas compter l’ancien fil déjà à l’écran comme « croissance »
-          peakChars = screenChars;
-          lastChars = screenChars;
-          charsStableSince = Date.now();
+          peakChars = jobChars || screenChars;
+          lastChars = jobChars || screenChars;
         }
-        // Nouveau fil : écran plus court (fresh chat) OU job qui génère vraiment
+        // Nouveau fil : job qui génère vraiment (parallèle = ne pas se fier à l'écran global)
         if (
-          screenChars < Math.max(0, baselineChars - 400) ||
-          (jobIsOurs && jobState === "running" && jobChars >= 400)
+          (jobIsOurs && jobState === "running" && jobChars >= 200) ||
+          (jobIsOurs && jobState === "done") ||
+          (jobIsOurs && jobState === "queued")
         ) {
           sawFreshAnswer = true;
         }
         if (chars > peakChars + 60) {
           peakChars = chars;
-          sawGrowth = true;
-          charsStableSince = Date.now();
         }
-        if (Math.abs(chars - lastChars) > 60) {
-          lastChars = chars;
-          charsStableSince = Date.now();
-        } else {
-          lastChars = chars;
+        lastChars = chars;
+
+        if (jobIsOurs && (jobState === "running" || jobState === "queued")) {
+          setLoadingHint(
+            jobState === "queued"
+              ? `En file — ${company.trim()}`
+              : `Analyse ${company.trim()} · ${jobChars || 0} chars`
+          );
         }
 
-        const stableMs = Date.now() - charsStableSince;
-        const elapsed = Date.now() - pollStarted;
+        const ourCertified = Boolean(ourJob?.hasCertifiedAnswer);
 
-        // Uniquement LE bon jeton de CE run (hasEndMarker côté VPS = écran OU job certifié)
+        // Fin de CE run
         if (
-          h.hasEndMarker &&
-          markerMatches &&
           jobIsOurs &&
           sawFreshAnswer &&
-          (sawRunning || jobState === "done")
+          (ourCertified ||
+            (jobState === "done" &&
+              !ourJob?.error &&
+              (ourCertified ||
+                (h.hasEndMarker && h.endMarker === ourEndMarker) ||
+                jobChars >= 1200)))
         ) {
           if (await tryStructure()) return;
         }
 
-        if (
-          jobState === "done" &&
-          jobIsOurs &&
-          sawFreshAnswer &&
-          h.hasEndMarker
-        ) {
-          if (await tryStructure()) return;
-        }
-
-        const screenDone =
-          h.hasEndMarker &&
-          markerMatches &&
-          sawFreshAnswer &&
-          (sawRunning || sawGrowth) &&
-          sawGrowth &&
-          chars >= 1200 &&
-          stableMs >= 8_000 &&
-          elapsed >= 25_000;
-        if (screenDone) {
-          if (await tryStructure()) return;
-        }
+        void ourStartedAt;
+        void lastChars;
       }
 
       if (await tryStructure()) return;
@@ -605,21 +625,49 @@ export default function CartoAiPipelineChatLabPage() {
           <button
             type="button"
             onClick={runPreview}
-            disabled={loading || !company.trim()}
+            disabled={!company.trim()}
             className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            title="Tu peux lancer une autre marque pendant qu’une analyse tourne (max 3)"
           >
             {loading ? loadingHint || "Analyse en cours" : "Analyse"}
           </button>
           <button
             type="button"
             onClick={runReadScreen}
-            disabled={loading || !company.trim()}
+            disabled={!company.trim()}
             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 disabled:opacity-50"
             title="Si la réponse est déjà à l’écran sur le VPS"
           >
             Analyser l’écran
           </button>
         </div>
+        {vpsRuns.some((r) =>
+          ["queued", "running"].includes(r.state)
+        ) && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            <div className="font-medium">Runs Chat en cours (max 3)</div>
+            <ul className="mt-1 space-y-0.5">
+              {vpsRuns
+                .filter((r) =>
+                  ["queued", "running", "done", "error"].includes(r.state)
+                )
+                .slice(0, 5)
+                .map((r) => (
+                  <li key={r.endMarker || r.companyHint}>
+                    <span className="font-medium">
+                      {r.companyHint || r.endMarker.slice(-8) || "—"}
+                    </span>
+                    {" · "}
+                    {r.state}
+                    {r.state === "running" || r.state === "done"
+                      ? ` · ${r.answerChars} chars`
+                      : ""}
+                    {r.error ? ` · ${r.error.slice(0, 60)}` : ""}
+                  </li>
+                ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       {error && (

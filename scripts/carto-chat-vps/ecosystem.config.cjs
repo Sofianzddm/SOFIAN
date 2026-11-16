@@ -32,6 +32,8 @@ module.exports = {
         CARTO_CHAT_TIMEOUT_MS: fileEnv.CARTO_CHAT_TIMEOUT_MS || "300000",
         // Medium / Moyen (High trop long sur les cartos)
         CARTO_CHAT_EFFORT_LEVEL: "2",
+        // Jusqu'à 3 cartos Chat en parallèle (1 onglet = 1 marque)
+        CARTO_CHAT_MAX_PARALLEL: fileEnv.CARTO_CHAT_MAX_PARALLEL || "3",
       },
     },
   ],
