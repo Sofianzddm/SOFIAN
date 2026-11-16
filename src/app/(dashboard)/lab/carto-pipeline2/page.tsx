@@ -68,6 +68,8 @@ export default function CartoAiPipelineChatLabPage() {
       error?: string | null;
     }[]
   >([]);
+  /** Dernier jeton lancé via Analyse — pour « Analyser l’écran » ciblé. */
+  const [lastEndMarker, setLastEndMarker] = useState<string | null>(null);
   const [preview, setPreview] = useState<CartoChatVpsPreviewResult | null>(
     null
   );
@@ -234,6 +236,7 @@ export default function CartoAiPipelineChatLabPage() {
           "Marker de fin manquant au lancement — impossible de distinguer l’ancien fil"
         );
       }
+      setLastEndMarker(ourEndMarker);
       let sawRunning = false;
       let lastChars = 0;
       let peakChars = 0;
@@ -438,6 +441,56 @@ export default function CartoAiPipelineChatLabPage() {
     setLoading(true);
     setLoadingHint("Analyse en cours");
     try {
+      const companyKey = company.trim().toLowerCase();
+      const hintMatch = (hintRaw: string) => {
+        const hint = hintRaw.toLowerCase().replace(/\*+/g, "").trim();
+        if (!hint || !companyKey) return false;
+        return hint.includes(companyKey) || companyKey.includes(hint);
+      };
+
+      // Santé VPS : retrouver le jeton done de CETTE marque (après reload / parallèle)
+      let endMarker = lastEndMarker || undefined;
+      if (!endMarker) {
+        const hRes = await fetch("/api/lab/carto-pipeline2/health", {
+          cache: "no-store",
+        });
+        const h = (await hRes.json().catch(() => ({}))) as {
+          jobs?: {
+            endMarker?: string;
+            companyHint?: string;
+            state?: string;
+            hasCertifiedAnswer?: boolean;
+            finishedAt?: number;
+            startedAt?: number;
+          }[];
+        };
+        const candidates = (h.jobs || [])
+          .filter(
+            (j) =>
+              j.state === "done" &&
+              j.endMarker &&
+              hintMatch(String(j.companyHint || ""))
+          )
+          .sort(
+            (a, b) =>
+              Number(b.finishedAt || b.startedAt || 0) -
+              Number(a.finishedAt || a.startedAt || 0)
+          );
+        endMarker = candidates[0]?.endMarker || undefined;
+      }
+      if (!endMarker) {
+        const fromRuns = vpsRuns.find(
+          (r) => r.state === "done" && r.endMarker && hintMatch(r.companyHint)
+        );
+        endMarker = fromRuns?.endMarker;
+      }
+      if (!endMarker) {
+        throw new Error(
+          "Aucun jeton pour cette marque — relance Analyse (évite de lire une autre marque en parallèle)"
+        );
+      }
+      setLastEndMarker(endMarker);
+
       const res = await fetch("/api/lab/carto-pipeline2/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -446,6 +499,7 @@ export default function CartoAiPipelineChatLabPage() {
           domain: domain.trim() || undefined,
           language,
           mode: "read_screen",
+          endMarker,
         }),
       });
       const data = await res.json();

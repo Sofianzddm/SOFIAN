@@ -76,12 +76,16 @@ export function answerMatchesCompany(
     }
   }
 
-  // 3) Tokens individuels dans le texte normalisé
+  // 3) Tokens individuels — frontières de mot (évite « labo » ⊂ « laboratoire »)
   const tokens = companyTokens(company);
   if (tokens.length) {
-    const hit = tokens.filter(
-      (t) => a.includes(t) || aCompact.includes(t.replace(/\s+/g, ""))
-    );
+    const hit = tokens.filter((t) => {
+      const re = new RegExp(`(?:^|[^a-z0-9])${t}(?:[^a-z0-9]|$)`);
+      if (re.test(a)) return true;
+      // Compact OK seulement si token assez long (évite sous-chaînes)
+      const tc = t.replace(/\s+/g, "");
+      return tc.length >= 6 && aCompact.includes(tc);
+    });
     if (hit.length >= 1) return { ok: true };
   } else if (cCompact.length >= 3 && aCompact.includes(cCompact)) {
     return { ok: true };

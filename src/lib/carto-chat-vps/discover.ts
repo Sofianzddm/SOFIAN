@@ -354,7 +354,11 @@ export async function runChatReadScreen(opts: {
   if (!company) throw new Error("Marque requise");
 
   const expected = opts.endMarker?.trim() || null;
-  const read = await cartoChatVpsReadLast();
+  // ★ Toujours cibler CE run — sans marker, /read-last prend le « primary »
+  // (souvent une autre marque en parallèle → faux contacts).
+  const read = await cartoChatVpsReadLast(
+    expected ? { endMarker: expected } : undefined
+  );
   const raw = read.answer || "";
   if (expected && !answerHasEndMarker(raw, expected)) {
     throw new Error(
