@@ -80,6 +80,25 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Ancrages soft : livrable carto (pas juste un dump partiel). */
+function hasDeliverableAnchors(text) {
+  const t = String(text || "");
+  return (
+    /Marque\s*[—–-]\s*interne/i.test(t) ||
+    /Priorit[ée]s\s+Glow\s*Up/i.test(t) ||
+    /##\s*5\b/i.test(t) ||
+    /checklist/i.test(t)
+  );
+}
+
+export {
+  hasEndMarker,
+  stripAllEndMarkers,
+  withCorrectEndMarker,
+  hasDeliverableAnchors,
+  END_MARKER_PREFIX,
+};
+
 export class ChatGptDriver {
   constructor() {
     this.browser = null;
@@ -87,6 +106,8 @@ export class ChatGptDriver {
     this.page = null;
     this.busy = false;
     this.mode = null;
+    /** Overridable in tests (fast sleep). */
+    this._sleep = sleep;
   }
 
   async start() {
@@ -683,11 +704,75 @@ export class ChatGptDriver {
   }
 
   /**
-   * Source de vérité = croissance puis STABILITÉ du texte (pas le bouton Stop).
-   * Stop n'est qu'un hint : trop de faux positifs → lab bloqué alors que Chat a fini.
+   * Après détection du bon jeton : settle + grow-check.
+   * Retourne le texte final (avec jeton) ou null pour reprendre l'attente.
+   */
+  async confirmMarkerCapture(marker, initialText) {
+    const fast = process.env.CARTO_CHAT_TEST_FAST === "1";
+    const settleMs = fast ? 5 : 1500;
+    const growMs = fast ? 10 : 3500;
+    const maxRetries = 3;
+    let text = String(initialText || "");
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      await this._sleep(settleMs);
+      const generating = await this.isGenerating().catch(() => false);
+      const searching = await this.isWebSearching().catch(() => false);
+      if (generating || searching) {
+        console.log(
+          `[carto-chat-vps] grow-check: gen/search actif — reprise attente (try ${attempt + 1})`
+        );
+        return null;
+      }
+
+      await this._sleep(growMs);
+      const again = await this.readLastAssistantText().catch(() => "");
+      const grewHard =
+        again.length > text.length + 1500 ||
+        (text.length > 0 && again.length > text.length * 1.08);
+
+      if (grewHard) {
+        console.log(
+          `[carto-chat-vps] grow-check: +${again.length - text.length} chars — reprise attente`
+        );
+        text = again.length > text.length ? again : text;
+        // Si le jeton a disparu (réécriture) → reprendre
+        if (!hasEndMarker(again, marker)) return null;
+        // Jeton encore là mais texte a grandi → Chat continue après le code ?
+        // Reprendre pour attendre une vraie stabilisation / 2e jeton.
+        return null;
+      }
+
+      if (!hasEndMarker(again, marker) && !hasEndMarker(text, marker)) {
+        console.log(`[carto-chat-vps] grow-check: jeton disparu — reprise`);
+        return null;
+      }
+
+      const final = hasEndMarker(again, marker)
+        ? again
+        : hasEndMarker(text, marker)
+          ? text
+          : again;
+      console.log(
+        `[carto-chat-vps] CAPTURE via END_MARKER chars=${final.length} marker=${marker} (settle+grow ok)`
+      );
+      // Garde le bon jeton dans la réponse (certification worker)
+      return withCorrectEndMarker(final, marker);
+    }
+
+    if (hasEndMarker(text, marker)) {
+      return withCorrectEndMarker(text, marker);
+    }
+    return null;
+  }
+
+  /**
+   * Fin normale = UNIQUEMENT le bon jeton (+ settle/grow-check).
+   * Plus de sortie « stable 15s » sans jeton (cause capture prématurée CR).
    */
   async waitGenerationDone(prevText, timeoutMs, onProgress, endMarker) {
     const marker = endMarker || this.activeEndMarker || END_MARKER_DEFAULT;
+    const requireMarker = Boolean(marker && String(marker).trim());
     const started = Date.now();
     let stableHits = 0;
     let lastLen = -1;
@@ -696,6 +781,7 @@ export class ChatGptDriver {
     const prev = prevText || "";
     let sawGrowth = false;
     let peakLen = prev.length;
+    const pollMs = process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 700;
 
     const isNew = (text) =>
       !prev ||
@@ -734,7 +820,7 @@ export class ChatGptDriver {
             text.length <= prev.length + 80)) &&
         elapsed < 25_000
       ) {
-        await sleep(700);
+        await this._sleep(pollMs);
         continue;
       }
 
@@ -744,34 +830,35 @@ export class ChatGptDriver {
         sawGrowth = true;
       }
 
-      // ★ Jeton de fin (unique au fil) → dès qu'il apparaît, c'est fini
-      if (hasEndMarker(text, marker) && isNew(text)) {
-        await sleep(400);
-        const final = await this.readLastAssistantText();
-        if (hasEndMarker(final, marker)) {
-          console.log(
-            `[carto-chat-vps] CAPTURE via END_MARKER chars=${final.length} marker=${marker}`
-          );
-          return stripEndMarker(final, marker);
-        }
+      // ★ Seule sortie normale : bon jeton + stop/search off + grow-check
+      if (
+        requireMarker &&
+        hasEndMarker(text, marker) &&
+        isNew(text) &&
+        !generating &&
+        !searching
+      ) {
+        const confirmed = await this.confirmMarkerCapture(marker, text);
+        if (confirmed) return confirmed;
+        // reprise d'attente
+        stableHits = 0;
+        await this._sleep(pollMs);
+        continue;
       }
 
-      // Pendant « Searching N websites » : le texte intro peut être figé
-      // → on NE compte PAS les 15s stables (sinon on sort trop tôt).
       if (searching) {
         stableHits = 0;
         lastLen = len;
         if (elapsed > 8_000 && elapsed % 14_000 < 800) {
           console.log(
-            `[carto-chat-vps] web search en cours… chars=${len} (chrono stable en pause)`
+            `[carto-chat-vps] web search en cours… chars=${len} (attente jeton)`
           );
         }
-        await sleep(1000);
+        await this._sleep(process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 1000);
         continue;
       }
 
       if (len > lastLen + 25) {
-        // encore en train d'écrire
         stableHits = 0;
         lastLen = len;
         last = text;
@@ -784,9 +871,12 @@ export class ChatGptDriver {
         stableHits += 1;
         lastLen = len;
         last = text.length >= last.length ? text : last;
-        if (stableHits === 1 || stableHits % 5 === 0) {
+        if (
+          process.env.CARTO_CHAT_TEST_FAST !== "1" &&
+          (stableHits === 1 || stableHits % 5 === 0)
+        ) {
           console.log(
-            `[carto-chat-vps] stable… chars=${len} hits=${stableHits}/20 (~15s) gen=${generating}`
+            `[carto-chat-vps] stable… chars=${len} hits=${stableHits} gen=${generating} (jeton requis=${requireMarker ? "oui" : "non"})`
           );
         }
       } else if (len > lastLen) {
@@ -795,51 +885,51 @@ export class ChatGptDriver {
         stableHits = 0;
       }
 
-      if (!isNew(text) || !sawGrowth) {
-        await sleep(700);
-        continue;
-      }
-
-      // ★ FIN : plus de Searching + texte stable ~15s + assez de contenu
-      // boucle ~700ms → 15s ≈ 22 hits (20 = marge)
-      const STABLE_15S = 20;
-      const stopGone = !generating;
-      const meatyEnough =
-        len >= 1200 ||
-        /linkedin\.com\/in\//i.test(text) ||
-        /##\s*1\.|##\s*Marque|Agence/i.test(text);
-      const doneStable15 =
-        stableHits >= STABLE_15S &&
-        meatyEnough &&
-        (stopGone || elapsed > 60_000);
-
-      if (doneStable15) {
-        await sleep(600);
-        // re-check search au cas où une 2e vague démarre
-        if (await this.isWebSearching().catch(() => false)) {
-          stableHits = 0;
-          await sleep(1000);
-          continue;
+      // Sans jeton requis (legacy) : sortie stable 15s encore possible
+      if (!requireMarker && isNew(text) && sawGrowth) {
+        const STABLE_15S = 20;
+        const meatyEnough =
+          len >= 1200 ||
+          /linkedin\.com\/in\//i.test(text) ||
+          /##\s*1\.|##\s*Marque|Agence/i.test(text);
+        if (
+          stableHits >= STABLE_15S &&
+          meatyEnough &&
+          (!generating || elapsed > 60_000)
+        ) {
+          await this._sleep(process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 600);
+          if (await this.isWebSearching().catch(() => false)) {
+            stableHits = 0;
+            await this._sleep(pollMs);
+            continue;
+          }
+          const final = await this.readLastAssistantText();
+          console.log(
+            `[carto-chat-vps] CAPTURE legacy-stable chars=${final.length}`
+          );
+          return stripEndMarker(
+            final.length >= 200 ? final : last || best,
+            marker
+          );
         }
-        const final = await this.readLastAssistantText();
-        console.log(
-          `[carto-chat-vps] CAPTURE chars=${final.length} hits=${stableHits} (~15s stable, search off)`
-        );
-        return stripEndMarker(
-          final.length >= 200 ? final : last || best,
-          marker
-        );
       }
 
-      await sleep(700);
+      await this._sleep(pollMs);
     }
 
     const fallback = (await this.readLastAssistantText()) || best;
-    if (hasEndMarker(fallback, marker)) {
+    if (requireMarker && hasEndMarker(fallback, marker)) {
+      const confirmed = await this.confirmMarkerCapture(marker, fallback);
+      if (confirmed) return confirmed;
       console.log(
         `[carto-chat-vps] capture timeout+marker chars=${fallback.length}`
       );
-      return stripEndMarker(fallback, marker);
+      return withCorrectEndMarker(fallback, marker);
+    }
+    if (requireMarker) {
+      throw new Error(
+        `Timeout: jeton ${marker} absent — réponse non certifiable (${fallback.length} chars)`
+      );
     }
     if (fallback.length > 200 && isNew(fallback) && sawGrowth) {
       console.log(
@@ -1095,18 +1185,29 @@ export class ChatGptDriver {
 
   /**
    * Force LE bon jeton à la fin (Chat oublie / réécrit un ancien code).
-   * 1) si déjà le bon → purge les mauvais
-   * 2) sinon micro-prompt « écris UNIQUEMENT ce code »
-   * 3) sinon injection locale du bon code (lab + job stocké)
+   * 1) si déjà le bon → OK (injected: false)
+   * 2) sinon micro-prompt « écris UNIQUEMENT ce code » → injected: false si Chat écrit
+   * 3) sinon injection locale — injected: true (NE PAS certifier le job)
+   * @returns {{ answer: string, injected: boolean, source: 'present'|'nudge'|'injected'|'none' }}
    */
   async ensureCorrectEndMarker(answer, marker) {
     const m = String(marker || "").trim();
-    if (!m) return stripAllEndMarkers(answer || "");
+    if (!m) {
+      return {
+        answer: stripAllEndMarkers(answer || ""),
+        injected: false,
+        source: "none",
+      };
+    }
 
     let text = String(answer || "");
     if (hasEndMarker(text, m)) {
       console.log(`[carto-chat-vps] jeton OK ${m}`);
-      return withCorrectEndMarker(text, m);
+      return {
+        answer: withCorrectEndMarker(text, m),
+        injected: false,
+        source: "present",
+      };
     }
 
     const wrong = (text.match(new RegExp(`${escapeRe(END_MARKER_PREFIX)}[a-z0-9]+`, "gi")) || []);
@@ -1118,54 +1219,79 @@ export class ChatGptDriver {
       console.warn(`[carto-chat-vps] jeton manquant — relance pour ${m}`);
     }
 
-    try {
-      let box = await this.waitForPrompt(8_000);
-      if (!box) box = await this.findPromptHandle();
-      if (box) {
-        const nudge = `CODE DE FIN OBLIGATOIRE — réponds UNIQUEMENT par cette ligne exacte, rien d'autre :\n${m}`;
-        await box.click({ timeout: 4000 }).catch(() => {});
-        await box
-          .evaluate((node, value) => {
-            const el = node;
-            el.focus();
-            if (document.execCommand) {
-              document.execCommand("selectAll", false);
-              document.execCommand("delete", false);
-            }
-            const ok = document.execCommand("insertText", false, value);
-            if (!ok) el.textContent = value;
-            return (el.innerText || "").length;
-          }, nudge)
-          .catch(() => 0);
-        const send = await this.findSendButton();
-        if (send) {
-          await send.click({ timeout: 5000, noWaitAfter: true });
-        } else {
-          await box.press("Enter");
-        }
+    // Nudge seulement si contenu déjà substantiel (évite nudge sur fragment vide)
+    const meatyEnough =
+      text.length >= 1200 ||
+      /linkedin\.com\/in\//i.test(text) ||
+      /##\s*1\.|##\s*Marque|Agence/i.test(text);
 
-        const deadline = Date.now() + 90_000;
-        while (Date.now() < deadline) {
-          await sleep(900);
-          const latest = await this.readLastAssistantText().catch(() => "");
-          if (hasEndMarker(latest, m)) {
-            console.log(`[carto-chat-vps] jeton obtenu via relance ${m}`);
-            // Garde le research initial + le bon jeton (la relance n'a que le code)
-            return withCorrectEndMarker(text, m);
+    if (meatyEnough) {
+      try {
+        let box = await this.waitForPrompt(8_000);
+        if (!box) box = await this.findPromptHandle();
+        if (box) {
+          const nudge = `CODE DE FIN OBLIGATOIRE — réponds UNIQUEMENT par cette ligne exacte, rien d'autre :\n${m}`;
+          await box.click({ timeout: 4000 }).catch(() => {});
+          await box
+            .evaluate((node, value) => {
+              const el = node;
+              el.focus();
+              if (document.execCommand) {
+                document.execCommand("selectAll", false);
+                document.execCommand("delete", false);
+              }
+              const ok = document.execCommand("insertText", false, value);
+              if (!ok) el.textContent = value;
+              return (el.innerText || "").length;
+            }, nudge)
+            .catch(() => 0);
+          const send = await this.findSendButton();
+          if (send) {
+            await send.click({ timeout: 5000, noWaitAfter: true });
+          } else {
+            await box.press("Enter");
+          }
+
+          const nudgeTimeout =
+            process.env.CARTO_CHAT_TEST_FAST === "1" ? 50 : 90_000;
+          const deadline = Date.now() + nudgeTimeout;
+          while (Date.now() < deadline) {
+            await this._sleep(
+              process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 900
+            );
+            const latest = await this.readLastAssistantText().catch(() => "");
+            if (hasEndMarker(latest, m)) {
+              console.log(`[carto-chat-vps] jeton obtenu via relance ${m}`);
+              // Si Chat a réécrit une longue réponse avec jeton, la prendre ;
+              // sinon fusion research initial + jeton.
+              const research =
+                latest.length > text.length + 200 && hasDeliverableAnchors(latest)
+                  ? latest
+                  : text;
+              return {
+                answer: withCorrectEndMarker(research, m),
+                injected: false,
+                source: "nudge",
+              };
+            }
           }
         }
+      } catch (e) {
+        console.warn(
+          "[carto-chat-vps] relance jeton échouée:",
+          e instanceof Error ? e.message : e
+        );
       }
-    } catch (e) {
-      console.warn(
-        "[carto-chat-vps] relance jeton échouée:",
-        e instanceof Error ? e.message : e
-      );
     }
 
     console.warn(
-      `[carto-chat-vps] injection locale du bon jeton ${m} (Chat n'a pas écrit le code)`
+      `[carto-chat-vps] injection locale du jeton ${m} — NON CERTIFIÉ (Chat n'a pas écrit le code)`
     );
-    return withCorrectEndMarker(text, m);
+    return {
+      answer: withCorrectEndMarker(text, m),
+      injected: true,
+      source: "injected",
+    };
   }
 
   async ask(prompt, opts = {}) {
@@ -1308,16 +1434,23 @@ export class ChatGptDriver {
         await box.press("Enter");
       }
 
-      await sleep(1500);
+      await this._sleep(
+        process.env.CARTO_CHAT_TEST_FAST === "1" ? 1 : 1500
+      );
       let answer = await this.waitGenerationDone(
         beforeText,
         timeoutMs,
         opts.onProgress,
         endMarker
       );
-      // Toujours le BON jeton (jamais un ancien / jamais absent)
-      answer = await this.ensureCorrectEndMarker(answer, endMarker);
-      return { answer, url: this.page.url() };
+      // Garantit le bon jeton ; injected=true → worker ne certifie PAS
+      const ensured = await this.ensureCorrectEndMarker(answer, endMarker);
+      return {
+        answer: ensured.answer,
+        url: this.page.url(),
+        markerInjected: Boolean(ensured.injected),
+        markerSource: ensured.source,
+      };
     } finally {
       this.busy = false;
     }

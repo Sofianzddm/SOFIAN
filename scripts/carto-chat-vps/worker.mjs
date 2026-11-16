@@ -34,18 +34,86 @@ let askJob = {
   error: null,
   promptPreview: "",
   endMarker: "",
-  /** Réponse certifiée (toujours avec LE bon jeton). */
+  /** Réponse (certifiée seulement si markerInjected=false). */
   answer: "",
+  markerInjected: false,
+  markerSource: "",
 };
 
-function jobHasCorrectMarker() {
-  const m = String(askJob.endMarker || "").trim();
-  const a = String(askJob.answer || "");
+function textHasMarker(text, marker) {
+  const m = String(marker || "").trim();
+  const a = String(text || "");
   if (!m || !a) return false;
   return new RegExp(
     `\\b${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
     "i"
   ).test(a);
+}
+
+function hasDeliverableAnchors(text) {
+  const t = String(text || "");
+  return (
+    /Marque\s*[—–-]\s*interne/i.test(t) ||
+    /Priorit[ée]s\s+Glow\s*Up/i.test(t) ||
+    /##\s*5\b/i.test(t) ||
+    /checklist/i.test(t)
+  );
+}
+
+/** Certifié = done + jeton réel (pas injecté) + ancrages soft si texte long. */
+function jobHasCorrectMarker() {
+  if (askJob.state !== "done") return false;
+  if (askJob.markerInjected) return false;
+  if (!textHasMarker(askJob.answer, askJob.endMarker)) return false;
+  const a = String(askJob.answer || "");
+  // Soft guard : gros texte sans ancrage livrable → pas certified
+  if (a.length >= 8000 && !hasDeliverableAnchors(a)) return false;
+  return true;
+}
+
+function finalizeAskResult(result, endMarker, startedAt, promptPreview) {
+  const answer = String(result?.answer || "");
+  const injected = Boolean(result?.markerInjected);
+  const hasMarker = textHasMarker(answer, endMarker);
+  const anchorsOk =
+    answer.length < 8000 || hasDeliverableAnchors(answer);
+  const certified = !injected && hasMarker && anchorsOk;
+
+  if (!certified) {
+    const why = injected
+      ? "jeton injecté localement (Chat ne l'a pas écrit)"
+      : !hasMarker
+        ? "jeton absent de la réponse"
+        : "ancrages livrable manquants";
+    console.warn(
+      `[carto-chat-vps] NON CERTIFIÉ chars=${answer.length} — ${why}`
+    );
+    return {
+      state: "error",
+      startedAt,
+      finishedAt: Date.now(),
+      answerChars: answer.length,
+      error: `Capture non certifiée: ${why}`,
+      promptPreview,
+      endMarker,
+      answer,
+      markerInjected: injected,
+      markerSource: result?.markerSource || "",
+    };
+  }
+
+  return {
+    state: "done",
+    startedAt,
+    finishedAt: Date.now(),
+    answerChars: answer.length,
+    error: null,
+    promptPreview,
+    endMarker,
+    answer,
+    markerInjected: false,
+    markerSource: result?.markerSource || "present",
+  };
 }
 
 function readJson(req) {
@@ -94,10 +162,10 @@ const server = http.createServer(async (req, res) => {
         ok: false,
         error: e instanceof Error ? e.message : String(e),
       }));
-    const certified = askJob.state === "done" && jobHasCorrectMarker();
+    const certified = jobHasCorrectMarker();
     return send(res, 200, {
       ...st,
-      // Écran OU réponse job certifiée avec LE bon jeton (jamais un ancien)
+      // Écran OU réponse job certifiée avec LE bon jeton (jamais injecté)
       hasEndMarker: Boolean(st.hasEndMarker) || certified,
       endMarker: askJob.endMarker || st.endMarker || null,
       job: {
@@ -109,6 +177,8 @@ const server = http.createServer(async (req, res) => {
         promptPreview: askJob.promptPreview,
         endMarker: askJob.endMarker || "",
         hasCertifiedAnswer: certified,
+        markerInjected: Boolean(askJob.markerInjected),
+        markerSource: askJob.markerSource || "",
       },
     });
   }
@@ -124,34 +194,38 @@ const server = http.createServer(async (req, res) => {
       console.log(
         `[carto-chat-vps] /ask ${prompt.slice(0, 80).replace(/\n/g, " ")}…`
       );
+      const promptPreview = prompt.slice(0, 80).replace(/\n/g, " ");
       askJob = {
         state: "running",
         startedAt: Date.now(),
         finishedAt: 0,
         answerChars: 0,
         error: null,
-        promptPreview: prompt.slice(0, 80).replace(/\n/g, " "),
+        promptPreview,
         endMarker,
         answer: "",
+        markerInjected: false,
+        markerSource: "",
       };
       const started = Date.now();
       const result = await driver.ask(prompt, {
         timeoutMs: body.timeoutMs ? Number(body.timeoutMs) : undefined,
         endMarker: endMarker || undefined,
       });
-      askJob = {
-        state: "done",
-        startedAt: started,
-        finishedAt: Date.now(),
-        answerChars: result.answer.length,
-        error: null,
-        promptPreview: askJob.promptPreview,
-        endMarker,
-        answer: result.answer,
-      };
+      askJob = finalizeAskResult(result, endMarker, started, promptPreview);
       console.log(
-        `[carto-chat-vps] done ${((Date.now() - started) / 1000).toFixed(1)}s chars=${result.answer.length}`
+        `[carto-chat-vps] done ${((Date.now() - started) / 1000).toFixed(1)}s chars=${result.answer.length} certified=${askJob.state === "done" ? 1 : 0}`
       );
+      if (askJob.state !== "done") {
+        return send(res, 502, {
+          ok: false,
+          error: askJob.error,
+          answer: result.answer,
+          url: result.url,
+          elapsedMs: Date.now() - started,
+          markerInjected: askJob.markerInjected,
+        });
+      }
       return send(res, 200, {
         ok: true,
         answer: result.answer,
@@ -165,6 +239,7 @@ const server = http.createServer(async (req, res) => {
         state: "error",
         finishedAt: Date.now(),
         error: e instanceof Error ? e.message : "Erreur ask",
+        markerInjected: false,
       };
       return send(res, 500, {
         error: e instanceof Error ? e.message : "Erreur ask",
@@ -189,15 +264,18 @@ const server = http.createServer(async (req, res) => {
       }
       const timeoutMs = body.timeoutMs ? Number(body.timeoutMs) : undefined;
       const startedAt = Date.now();
+      const promptPreview = prompt.slice(0, 80).replace(/\n/g, " ");
       askJob = {
         state: "running",
         startedAt,
         finishedAt: 0,
         answerChars: 0,
         error: null,
-        promptPreview: prompt.slice(0, 80).replace(/\n/g, " "),
+        promptPreview,
         endMarker,
         answer: "",
+        markerInjected: false,
+        markerSource: "",
       };
       console.log(
         `[carto-chat-vps] /ask-async marker=${endMarker || "—"} ${askJob.promptPreview}…`
@@ -215,18 +293,14 @@ const server = http.createServer(async (req, res) => {
             },
           })
           .then((result) => {
-            askJob = {
-              state: "done",
-              startedAt,
-              finishedAt: Date.now(),
-              answerChars: result.answer.length,
-              error: null,
-              promptPreview: askJob.promptPreview,
+            askJob = finalizeAskResult(
+              result,
               endMarker,
-              answer: result.answer,
-            };
+              startedAt,
+              promptPreview
+            );
             console.log(
-              `[carto-chat-vps] async done chars=${result.answer.length} marker=${endMarker} certified=1`
+              `[carto-chat-vps] async ${askJob.state} chars=${result.answer.length} marker=${endMarker} certified=${askJob.state === "done" ? 1 : 0} source=${result.markerSource || "?"}`
             );
           })
           .catch((e) => {
@@ -236,9 +310,11 @@ const server = http.createServer(async (req, res) => {
               finishedAt: Date.now(),
               answerChars: askJob.answerChars || 0,
               error: e instanceof Error ? e.message : "Erreur ask",
-              promptPreview: askJob.promptPreview,
+              promptPreview,
               endMarker,
               answer: "",
+              markerInjected: false,
+              markerSource: "",
             };
             console.error("[carto-chat-vps] /ask-async error:", e);
           });
@@ -280,12 +356,17 @@ const server = http.createServer(async (req, res) => {
       }
       const result = await driver.readLatest();
       const marker = String(askJob.endMarker || "").trim();
-      // Si l'écran a un mauvais/ancien jeton, réécrit avec le bon attendu
       let answer = result.answer;
-      if (marker && askJob.state === "done") {
-        answer = await driver.ensureCorrectEndMarker(answer, marker);
-        askJob.answer = answer;
-        askJob.answerChars = answer.length;
+      // Ne jamais injecter pour « fake » une certif via /read-last
+      if (marker && textHasMarker(answer, marker)) {
+        const ensured = await driver.ensureCorrectEndMarker(answer, marker);
+        answer = ensured.answer;
+        if (!ensured.injected && askJob.state === "done") {
+          askJob.answer = answer;
+          askJob.answerChars = answer.length;
+          askJob.markerInjected = false;
+          askJob.markerSource = ensured.source;
+        }
       }
       console.log(
         `[carto-chat-vps] /read-last chars=${answer.length}`

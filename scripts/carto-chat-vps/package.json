@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node worker.mjs",
+    "test:capture": "CARTO_CHAT_TEST_FAST=1 node test-capture-gate.mjs",
     "install:browser": "npx playwright install chromium"
   },
   "dependencies": {
