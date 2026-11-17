@@ -262,6 +262,9 @@ Pour chaque personne identifiée :
 N'invente jamais de personne, de poste ou de lien LinkedIn.
 
 Si le profil exact n'est pas retrouvé, indique « LinkedIn non vérifié ».
+**CRITIQUE LinkedIn :** ne colle JAMAIS l'URL /in/ d'une autre personne sous une fiche.
+Le slug doit contenir le prénom et/ou le nom de la personne (ex. aline-rombaut).
+Si tu n'as que le lien de quelqu'un d'autre à proximité dans la page, écris « LinkedIn non vérifié ».
 
 ### ÉTAPE 6 — Classement commercial pour Glow Up Agency
 

@@ -95,56 +95,168 @@ function normPersonToken(s: string): string {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+/** Score slug /in/ ↔ prénom+nom. Contexte voisin NE suffit JAMAIS seul. */
+export function linkedInSlugMatchScore(
+  slugRaw: string,
+  prenom: string | null | undefined,
+  nom: string | null | undefined
+): number {
+  const slug = normPersonToken(slugRaw);
+  if (!slug) return 0;
+  const p = normPersonToken(prenom || "");
+  const n = normPersonToken(nom || "");
+  let score = 0;
+  if (n && n.length >= 3 && slug.includes(n)) score += 5;
+  // Noms composés (Delqué Klitting → delque)
+  for (const part of (nom || "").split(/[\s-]+/)) {
+    const t = normPersonToken(part);
+    if (t.length >= 4 && slug.includes(t)) score += 4;
+  }
+  if (p && p.length >= 3 && slug.includes(p)) score += 3;
+  if (p && n && slug.includes(p) && slug.includes(n)) score += 4;
+  return score;
+}
+
 /**
- * Chat affiche souvent « Profil » sans URL dans le texte ; les hrefs sont
- * appendés en fin (## LinkedIn URLs). On rattache par slug /in/≈ prénom+nom.
+ * Drop les LinkedIn dont le slug ne correspond pas à la personne
+ * (évite Aline → /in/cassandra-… ou /in/marie-robert-…).
+ */
+export function sanitizeContactLinkedIn(
+  c: CartoAiContactCandidate,
+  peers: CartoAiContactCandidate[] = []
+): CartoAiContactCandidate {
+  const url = c.linkedinUrl;
+  if (!url) return c;
+  const slugRaw = decodeURIComponent(
+    (url.match(/\/in\/([^/?#]+)/i) || [])[1] || ""
+  );
+  const own = linkedInSlugMatchScore(slugRaw, c.prenom, c.nom);
+  // Slug trop générique / autre personne : au moins prénom OU nom (score ≥ 3)
+  if (own < 3) {
+    return { ...c, linkedinUrl: null };
+  }
+  // Si un autre contact matche nettement mieux ce slug → on ne garde pas
+  for (const peer of peers) {
+    if (peer === c) continue;
+    if (
+      normPersonToken(peer.prenom || "") === normPersonToken(c.prenom || "") &&
+      normPersonToken(peer.nom || "") === normPersonToken(c.nom || "")
+    ) {
+      continue;
+    }
+    const other = linkedInSlugMatchScore(slugRaw, peer.prenom, peer.nom);
+    if (other >= own + 3) {
+      return { ...c, linkedinUrl: null };
+    }
+  }
+  return c;
+}
+
+/**
+ * Chat affiche souvent « Profil » sans URL ; les hrefs sont appendés en fin
+ * (## LinkedIn URLs). On rattache UNIQUEMENT si le slug /in/ matche le nom.
+ * Le texte autour ne peut que départager, jamais attribuer seul
+ * (sinon Aline récupère le LinkedIn collé sous son paragraphe).
  */
 export function attachLinkedInFromAnswer(
   contacts: CartoAiContactCandidate[],
   chatAnswer: string
 ): CartoAiContactCandidate[] {
-  const re =
-    /https?:\/\/(?:[\w.-]+\.)?linkedin\.com\/in\/[^\s)\]>"']+/gi;
   const found: Array<{ url: string; slug: string; context: string }> = [];
   const seen = new Set<string>();
-  for (const m of chatAnswer.matchAll(re)) {
-    const url = normalizeLinkedInUrl(m[0].replace(/[.,;:]+$/, ""));
-    if (!url || seen.has(url)) continue;
+  const pushFound = (rawUrl: string, index: number) => {
+    const url = normalizeLinkedInUrl(rawUrl.replace(/[.,;:]+$/, ""));
+    if (!url || seen.has(url)) return;
     seen.add(url);
     const slugRaw = decodeURIComponent(
       (url.match(/\/in\/([^/?#]+)/i) || [])[1] || ""
     );
     const slug = normPersonToken(slugRaw);
-    const i = m.index ?? 0;
-    const context = chatAnswer.slice(Math.max(0, i - 180), i + 80);
+    const context = chatAnswer.slice(Math.max(0, index - 180), index + 80);
     found.push({ url, slug, context });
+  };
+
+  // Profils /in/…
+  const reIn =
+    /https?:\/\/(?:[\w.-]+\.)?linkedin\.com\/in\/[^\s)\]>"']+/gi;
+  for (const m of chatAnswer.matchAll(reIn)) {
+    pushFound(m[0], m.index ?? 0);
   }
-  if (!found.length) return contacts;
+  // Posts → auteur = segment avant le 1er "_" (ex. aline-rombaut-31477a12b_je-suis-…-activity-)
+  const rePost =
+    /https?:\/\/(?:[\w.-]+\.)?linkedin\.com\/posts\/([^/?#\s)\]>"']+)/gi;
+  for (const m of chatAnswer.matchAll(rePost)) {
+    const postSlug = decodeURIComponent(m[1] || "")
+      .split("_")[0]
+      ?.replace(/\/+$/, "")
+      .trim();
+    if (!postSlug || postSlug.length < 3) continue;
+    pushFound(`https://www.linkedin.com/in/${postSlug}`, m.index ?? 0);
+  }
 
   const used = new Set<string>();
-  return contacts.map((c) => {
-    if (c.linkedinUrl) {
-      used.add(c.linkedinUrl);
-      return c;
-    }
-    const prenom = normPersonToken(c.prenom || "");
-    const nom = normPersonToken(c.nom || "");
-    if (!prenom && !nom) return c;
+  // 1) Nettoyer les URLs déjà posées par le LLM (souvent mal collées)
+  const cleaned = contacts.map((c) => {
+    const s = sanitizeContactLinkedIn(c, contacts);
+    if (s.linkedinUrl) used.add(s.linkedinUrl);
+    return s;
+  });
 
-    let best: { url: string; score: number } | null = null;
+  if (!found.length) return cleaned;
+
+  // 2) Attacher les hrefs orphelins si slug ≈ personne
+  return cleaned.map((c) => {
+    if (c.linkedinUrl) return c;
+    const prenom = c.prenom || "";
+    const nom = c.nom || "";
+    if (!normPersonToken(prenom) && !normPersonToken(nom)) return c;
+
+    let best: { url: string; score: number; ctxBonus: number } | null = null;
     for (const f of found) {
       if (used.has(f.url)) continue;
-      let score = 0;
-      if (prenom && f.slug.includes(prenom) && prenom.length >= 3) score += 2;
-      if (nom && f.slug.includes(nom) && nom.length >= 3) score += 3;
-      if (prenom && nom && f.slug.includes(prenom) && f.slug.includes(nom)) {
-        score += 4;
+      const slugScore = linkedInSlugMatchScore(f.slug, prenom, nom);
+      // Exige au moins prénom OU nom dans le slug (pas le contexte seul)
+      if (slugScore < 3) continue;
+
+      // Un autre contact matche-t-il mieux ce slug ?
+      let peerBetter = false;
+      for (const peer of cleaned) {
+        if (peer === c) continue;
+        const other = linkedInSlugMatchScore(f.slug, peer.prenom, peer.nom);
+        if (other >= slugScore + 3) {
+          peerBetter = true;
+          break;
+        }
       }
+      if (peerBetter) continue;
+
       const ctx = normPersonToken(f.context);
-      if (prenom && ctx.includes(prenom)) score += 1;
-      if (nom && ctx.includes(nom)) score += 2;
-      if (score >= 3 && (!best || score > best.score)) {
-        best = { url: f.url, score };
+      let ctxBonus = 0;
+      const p = normPersonToken(prenom);
+      const n = normPersonToken(nom);
+      if (p && ctx.includes(p)) ctxBonus += 1;
+      if (n && ctx.includes(n)) ctxBonus += 2;
+
+      // Slug avec seulement le prénom (cassandra-p) : exiger le nom dans le contexte
+      const hasNomInSlug =
+        (n && n.length >= 3 && f.slug.includes(n)) ||
+        (nom || "")
+          .split(/[\s-]+/)
+          .some((part) => {
+            const t = normPersonToken(part);
+            return t.length >= 4 && f.slug.includes(t);
+          });
+      if (!hasNomInSlug && slugScore < 5) {
+        if (!(n && n.length >= 3 && ctx.includes(n))) continue;
+      }
+
+      const total = slugScore * 10 + ctxBonus;
+      if (
+        !best ||
+        total > best.score * 10 + best.ctxBonus ||
+        (slugScore === best.score && ctxBonus > best.ctxBonus)
+      ) {
+        best = { url: f.url, score: slugScore, ctxBonus };
       }
     }
     if (!best) return c;
@@ -450,7 +562,9 @@ ${perimeterRules()}
 - agencies[]: agences nommées; primary:true = mandat influence/RP le plus solide.
 - poste: rôle réel — PAS "Profil LinkedIn…".
 - note: preuve courte.
-- LinkedIn: OBLIGATOIRE si URL /in/ présente (section "## LinkedIn URLs" ou sous le nom).
+- LinkedIn: uniquement si le slug /in/ correspond à CETTE personne (prénom et/ou nom dans l'URL).
+  INTERDIT d'attribuer le LinkedIn du paragraphe voisin (ex. Aline ≠ /in/cassandra-…, ≠ /in/marie-robert-…).
+  Si le bon /in/ n'est pas clair → linkedinUrl: null (mieux que faux).
 - Priorité: respecte P1–P4 du texte Chat; sinon P1 casting, P2 ops, P3 validation, P4 secondaire.
 - Réponds JSON pur.`,
   });
@@ -515,6 +629,22 @@ ${perimeterRules()}
   }
 
   normalizePerimeters(contacts, agencies);
-  const withLi = attachLinkedInFromAnswer(contacts, opts.chatAnswer);
+  let withLi = attachLinkedInFromAnswer(contacts, opts.chatAnswer);
+  // Filet Exa : LinkedIn manquants / droppés (ex. Aline Rombaut réelle)
+  try {
+    const { fillMissingLinkedInViaExa } = await import(
+      "@/lib/carto-ai/linkedin-verify"
+    );
+    withLi = await fillMissingLinkedInViaExa({
+      contacts: withLi,
+      company: opts.company,
+      maxLookups: 12,
+    });
+  } catch (e) {
+    console.warn(
+      "[carto-structure] fill LinkedIn Exa:",
+      e instanceof Error ? e.message : e
+    );
+  }
   return { contacts: withLi, agencies };
 }

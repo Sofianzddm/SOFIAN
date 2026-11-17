@@ -105,9 +105,8 @@ function matchExaLinkedin(
 }
 
 /**
- * On ne drop JAMAIS un LinkedIn déjà présent (même LLM) — priorité à ne louper aucun profil.
- * Si Exa/Apollo a un match nom → on préfère ce lien (plus fiable).
- * Sinon on garde le lien fourni, juste normalisé.
+ * Si Exa a un match nom → on préfère ce lien.
+ * Sinon on garde le lien fourni s'il matche encore le slug (sinon null).
  */
 export function attachVerifiedLinkedin(opts: {
   contacts: CartoAiContactCandidate[];
@@ -118,6 +117,7 @@ export function attachVerifiedLinkedin(opts: {
   let kept = 0;
   let upgraded = 0;
   let attached = 0;
+  let dropped = 0;
 
   const out = opts.contacts.map((c) => {
     const existing = normalizePersonLinkedin(c.linkedinUrl);
@@ -130,21 +130,131 @@ export function attachVerifiedLinkedin(opts: {
       return { ...c, linkedinUrl: matched };
     }
 
-    if (existing) {
+    if (existing && slugLooksLikePerson(existing, c.prenom, c.nom)) {
       kept += 1;
       return { ...c, linkedinUrl: existing };
     }
 
-    // Garder l'URL brute si normalise a échoué mais qu'il y a quelque chose
-    if (c.linkedinUrl?.trim()) {
-      kept += 1;
-      return c;
+    if (existing) {
+      dropped += 1;
+      return { ...c, linkedinUrl: null };
     }
     return { ...c, linkedinUrl: null };
   });
 
   console.log(
-    `[carto-ai] linkedin: kept=${kept} upgraded_exa=${upgraded} attached_exa=${attached} exa_profiles=${verified.length}`
+    `[carto-ai] linkedin: kept=${kept} upgraded_exa=${upgraded} attached_exa=${attached} dropped_mismatch=${dropped} exa_profiles=${verified.length}`
+  );
+  return out;
+}
+
+function slugLooksLikePerson(
+  url: string,
+  prenom: string | null | undefined,
+  nom: string | null | undefined
+): boolean {
+  const slug = (url.split("/in/")[1] || "").toLowerCase();
+  const tokens = nameTokens(`${prenom || ""} ${nom || ""}`);
+  if (!tokens.length || !slug) return false;
+  // Au moins 1 token significatif (≥3) dans le slug
+  return tokens.some((t) => t.length >= 3 && slug.includes(t));
+}
+
+async function exaPeopleLookup(query: string): Promise<ExaGroundingSnippet[]> {
+  const apiKey = process.env.EXA_API_KEY?.trim();
+  if (!apiKey) return [];
+  try {
+    const res = await fetch("https://api.exa.ai/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        query,
+        type: "auto",
+        category: "people",
+        numResults: 5,
+        contents: { text: { maxCharacters: 600 } },
+      }),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      results?: Array<{ title?: string; url?: string; text?: string }>;
+    };
+    return (data.results || []).map((r) => ({
+      title: String(r.title || "").trim(),
+      url: String(r.url || "").trim(),
+      text: String(r.text || "").trim(),
+      kind: "people" as const,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Filet pour les contacts sans LinkedIn après Chat/structure
+ * (ex. Aline Rombaut → /in/aline-rombaut-… alors que Chat a collé un faux lien).
+ */
+export async function fillMissingLinkedInViaExa(opts: {
+  contacts: CartoAiContactCandidate[];
+  company: string;
+  /** Max lookups Exa (P1/P2 d'abord). */
+  maxLookups?: number;
+}): Promise<CartoAiContactCandidate[]> {
+  const max = opts.maxLookups ?? 10;
+  const company = opts.company.trim();
+  const missing = opts.contacts
+    .map((c, i) => ({ c, i }))
+    .filter(({ c }) => !normalizePersonLinkedin(c.linkedinUrl))
+    .sort((a, b) => {
+      const rank = (p: string | null) =>
+        p === "P1" ? 0 : p === "P2" ? 1 : p === "P3" ? 2 : 3;
+      return rank(a.c.priorite) - rank(b.c.priorite);
+    })
+    .slice(0, max);
+
+  if (!missing.length) return opts.contacts;
+
+  const out = [...opts.contacts];
+  let filled = 0;
+
+  for (const { c, i } of missing) {
+    const name = [c.prenom, c.nom].filter(Boolean).join(" ").trim();
+    if (!name) continue;
+    const queries = [
+      `"${name}" ${company} LinkedIn`,
+      `"${name}" site:linkedin.com/in`,
+    ];
+    const batches = await Promise.all(queries.map((q) => exaPeopleLookup(q)));
+    const snippets = batches.flat();
+    // Aussi scraper les /in/ et auteurs /posts/ des titres/textes
+    const enriched: ExaGroundingSnippet[] = [];
+    for (const s of snippets) {
+      enriched.push(s);
+      const post = (s.url || "").match(
+        /linkedin\.com\/posts\/([^/?#]+)/i
+      );
+      if (post?.[1]) {
+        const slug = decodeURIComponent(post[1]).split("_")[0] || "";
+        if (slug.length >= 3) {
+          enriched.push({
+            ...s,
+            url: `https://www.linkedin.com/in/${slug}`,
+          });
+        }
+      }
+    }
+    const matched = matchExaLinkedin(c, collectVerifiedLinkedinFromExa(enriched));
+    if (matched && slugLooksLikePerson(matched, c.prenom, c.nom)) {
+      out[i] = { ...c, linkedinUrl: matched };
+      filled += 1;
+    }
+  }
+
+  console.log(
+    `[carto-ai] linkedin fill-exa: looked=${missing.length} filled=${filled}`
   );
   return out;
 }
