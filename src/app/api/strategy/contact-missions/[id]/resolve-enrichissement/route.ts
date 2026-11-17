@@ -12,7 +12,7 @@ import {
  * POST — retire une mission de la file d'enrichissement
  * (contacts prêts / traité). Notifie Casting (+ Assistante TM si gift).
  */
-const ALLOWED = ["ADMIN", "CASTING_MANAGER", "HEAD_OF", "HEAD_OF_SALES"] as const;
+const ALLOWED = ["ADMIN", "CASTING_MANAGER", "HEAD_OF", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"] as const;
 
 export async function POST(
   request: NextRequest,

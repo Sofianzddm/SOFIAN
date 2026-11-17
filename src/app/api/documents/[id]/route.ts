@@ -129,7 +129,7 @@ export async function GET(
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const ROLES_EMAIL = ["ADMIN", "HEAD_OF_SALES", "CM"];
+const ROLES_EMAIL = ["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "CM"];
 
 /**
  * PATCH /api/documents/[id]

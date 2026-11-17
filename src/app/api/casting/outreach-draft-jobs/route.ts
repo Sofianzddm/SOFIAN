@@ -12,7 +12,7 @@ export const maxDuration = 60;
 const ALLOWED_ROLES = [
   "CASTING_MANAGER",
   "STRATEGY_PLANNER",
-  "HEAD_OF_SALES",
+  "HEAD_OF_SALES", "BUSINESS_DEVELOPER",
   "ADMIN",
 ] as const;
 

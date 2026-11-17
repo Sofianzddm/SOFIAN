@@ -25,6 +25,7 @@ const roleOptions = [
   { value: "HEAD_OF", label: "Head of" },
   { value: "HEAD_OF_INFLUENCE", label: "Head of Influence" },
   { value: "HEAD_OF_SALES", label: "Head of Sales" },
+  { value: "BUSINESS_DEVELOPER", label: "Business Developer" },
   { value: "JURISTE", label: "Juriste" },
   { value: "STRATEGY_PLANNER", label: "Strategy Planner" },
   { value: "TM", label: "Talent Manager" },

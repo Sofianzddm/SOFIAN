@@ -28,7 +28,13 @@ import {
   type IndivCachedTalentResearchItem,
 } from "@/lib/indiv-talent-batch-cache";
 
-type Role = "STRATEGY_PLANNER" | "CASTING_MANAGER" | "HEAD_OF_SALES" | "HEAD_OF" | "ADMIN";
+type Role =
+  | "STRATEGY_PLANNER"
+  | "CASTING_MANAGER"
+  | "HEAD_OF_SALES"
+  | "BUSINESS_DEVELOPER"
+  | "HEAD_OF"
+  | "ADMIN";
 type Stage =
   | "STRATEGY_DEFINED"
   | "TO_DRAFT"
@@ -437,7 +443,7 @@ const STAGE_LABEL: Record<Stage, string> = {
 
 function allowedColumns(role: Role | null): Stage[] {
   if (role === "CASTING_MANAGER") return ["TO_DRAFT", "DRAFTED_FOR_VALIDATION"];
-  if (role === "HEAD_OF_SALES") return ["DRAFTED_FOR_VALIDATION", "TO_SEND"];
+  if ((role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER")) return ["DRAFTED_FOR_VALIDATION", "TO_SEND"];
   if (role === "STRATEGY_PLANNER") {
     return [
       "STRATEGY_DEFINED",
@@ -582,7 +588,7 @@ export function ProspectingPipelineClient() {
   const canUseReadyTab =
     role === "ADMIN" ||
     role === "HEAD_OF" ||
-    role === "HEAD_OF_SALES" ||
+    (role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER") ||
     role === "CASTING_MANAGER";
 
   const [holdEditor, setHoldEditor] = useState<{
@@ -3750,7 +3756,7 @@ export function ProspectingPipelineClient() {
                               : "Modifier le mail"}
                         </button>
                       )}
-                    {role === "HEAD_OF_SALES" && stage === "DRAFTED_FOR_VALIDATION" && (
+                    {(role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER") && stage === "DRAFTED_FOR_VALIDATION" && (
                       <>
                         <button
                           type="button"
@@ -3771,7 +3777,7 @@ export function ProspectingPipelineClient() {
                         </button>
                       </>
                     )}
-                    {(role === "HEAD_OF_SALES" || role === "ADMIN" || role === "HEAD_OF") &&
+                    {((role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER") || role === "ADMIN" || role === "HEAD_OF") &&
                       stage === "TO_SEND" && (
                         <>
                           <button
@@ -3794,7 +3800,7 @@ export function ProspectingPipelineClient() {
                           )}
                         </>
                       )}
-                    {(role === "HEAD_OF_SALES" || role === "ADMIN" || role === "HEAD_OF") &&
+                    {((role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER") || role === "ADMIN" || role === "HEAD_OF") &&
                       stage === "SENT" &&
                       m.scheduledSendAt && (
                         <button
@@ -3806,7 +3812,7 @@ export function ProspectingPipelineClient() {
                           Annuler l'envoi additionnel
                         </button>
                       )}
-                    {(role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_SALES" || role === "STRATEGY_PLANNER") &&
+                    {(role === "ADMIN" || role === "HEAD_OF" || (role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER") || role === "STRATEGY_PLANNER") &&
                       stage === "SENT" &&
                       reminderDue && (
                         <button
@@ -3823,7 +3829,7 @@ export function ProspectingPipelineClient() {
                           Relancer
                         </button>
                       )}
-                    {(role === "ADMIN" || role === "HEAD_OF" || role === "HEAD_OF_SALES" || role === "STRATEGY_PLANNER") &&
+                    {(role === "ADMIN" || role === "HEAD_OF" || (role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER") || role === "STRATEGY_PLANNER") &&
                       stage === "SENT" &&
                       !m.replied &&
                       (!m.relanceSentAt || !m.relance2SentAt) && (

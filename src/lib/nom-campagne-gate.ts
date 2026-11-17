@@ -38,7 +38,7 @@ async function scopeWhereForUser(user: {
       statut: { not: "PERDU" },
     };
   }
-  if (role === "HEAD_OF_SALES") {
+  if ((role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER")) {
     return { createdById: user.id };
   }
   return {};

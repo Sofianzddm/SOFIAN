@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
 
     const user = session.user as { id: string; role: string };
 
-    if (!["ADMIN", "HEAD_OF_SALES"].includes(user.role)) {
+    if (!["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"].includes(user.role)) {
       return NextResponse.json(
         { error: "Seuls les ADMIN ou HEAD_OF_SALES peuvent créer des devis libres" },
         { status: 403 }

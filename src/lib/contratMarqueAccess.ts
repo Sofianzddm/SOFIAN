@@ -33,7 +33,8 @@ export function isSalesCollab(
   }
 ): boolean {
   if (collab.isPrivate) return true;
-  return collab.accountManager?.role === "HEAD_OF_SALES";
+  const amRole = collab.accountManager?.role;
+  return amRole === "HEAD_OF_SALES" || amRole === "BUSINESS_DEVELOPER";
 }
 
 const ROLES_INFLUENCE = new Set(["TM", "HEAD_OF_INFLUENCE"]);
@@ -46,7 +47,7 @@ function isInfluenceRoleExcludedFromSalesContrat(role: ContratMarqueRole): boole
 const ROLES_CONTRAT_MARQUE_MANAGE = [
   "ADMIN",
   "HEAD_OF_INFLUENCE",
-  "HEAD_OF_SALES",
+  "HEAD_OF_SALES", "BUSINESS_DEVELOPER",
   "JURISTE",
 ] as const;
 

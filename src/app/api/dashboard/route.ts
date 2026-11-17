@@ -753,7 +753,7 @@ export async function GET(request: NextRequest) {
     // ============================================
     // HEAD_OF_SALES - Dashboard Sales
     // ============================================
-    if (role === "HEAD_OF_SALES") {
+    if ((role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER")) {
       const [
         totalMarques,
         negosEnCours,

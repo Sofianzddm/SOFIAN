@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     const now = new Date();
     const user = session.user as { id: string; role?: string };
     const isAdmin = user.role === "ADMIN";
-    const isHeadOfSales = user.role === "HEAD_OF_SALES";
+    const isHeadOfSales = (user.role === "HEAD_OF_SALES" || user.role === "BUSINESS_DEVELOPER");
     const isCm = user.role === "CM";
     const salesScopeWhere = isHeadOfSales
       ? { createdById: user.id }

@@ -21,7 +21,7 @@ export async function POST(
     }
 
     const user = session.user as { id: string; role: string };
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"].includes(user.role)) {
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "TM", "CM"].includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour envoyer un document en signature" },
         { status: 403 }

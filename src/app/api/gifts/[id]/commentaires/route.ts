@@ -113,7 +113,7 @@ export async function POST(
       const staffRoles: Role[] = [
         "HEAD_OF",
         "HEAD_OF_INFLUENCE",
-        "HEAD_OF_SALES",
+        "HEAD_OF_SALES", "BUSINESS_DEVELOPER",
         "ADMIN",
       ];
 

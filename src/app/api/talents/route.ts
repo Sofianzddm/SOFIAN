@@ -314,7 +314,7 @@ export async function POST(request: NextRequest) {
       // 2. Récupérer toutes les HEAD_OF pour les notifier (sauf le créateur)
       const headsOf = await tx.user.findMany({
         where: {
-          role: { in: ["HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "ADMIN"] },
+          role: { in: ["HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "ADMIN"] },
           actif: true,
           id: { not: user.id }, // Exclure l'utilisateur qui crée le talent
         },

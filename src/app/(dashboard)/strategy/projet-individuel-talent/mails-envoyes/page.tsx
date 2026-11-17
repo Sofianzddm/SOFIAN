@@ -86,8 +86,8 @@ type ApiResponse = {
 
 type Period = "all" | "week" | "month";
 
-const ALLOWED = ["HEAD_OF_SALES", "ADMIN", "HEAD_OF", "CASTING_MANAGER", "STRATEGY_PLANNER"];
-const CAN_MANAGE_RELANCE = ["HEAD_OF_SALES", "ADMIN", "HEAD_OF", "STRATEGY_PLANNER"];
+const ALLOWED = ["HEAD_OF_SALES", "BUSINESS_DEVELOPER", "ADMIN", "HEAD_OF", "CASTING_MANAGER", "STRATEGY_PLANNER"];
+const CAN_MANAGE_RELANCE = ["HEAD_OF_SALES", "BUSINESS_DEVELOPER", "ADMIN", "HEAD_OF", "STRATEGY_PLANNER"];
 
 function formatDate(dateStr: string) {
   const d = new Date(dateStr);

@@ -16,10 +16,14 @@ export async function POST(
 
     const user = session.user as { id: string; role: string };
 
-    // Seuls HEAD_OF_SALES et ADMIN peuvent assigner un AM
-    if (user.role !== "HEAD_OF_SALES" && user.role !== "ADMIN") {
+    // HoS / Business Developer / ADMIN peuvent assigner un AM
+    if (
+      user.role !== "HEAD_OF_SALES" &&
+      user.role !== "BUSINESS_DEVELOPER" &&
+      user.role !== "ADMIN"
+    ) {
       return NextResponse.json(
-        { error: "Seuls les HEAD_OF_SALES peuvent assigner un Account Manager" },
+        { error: "Non autorisé à assigner un Account Manager" },
         { status: 403 }
       );
     }
@@ -136,10 +140,14 @@ export async function DELETE(
 
     const user = session.user as { id: string; role: string };
 
-    // Seuls HEAD_OF_SALES et ADMIN peuvent retirer un AM
-    if (user.role !== "HEAD_OF_SALES" && user.role !== "ADMIN") {
+    // HoS / Business Developer / ADMIN peuvent retirer un AM
+    if (
+      user.role !== "HEAD_OF_SALES" &&
+      user.role !== "BUSINESS_DEVELOPER" &&
+      user.role !== "ADMIN"
+    ) {
       return NextResponse.json(
-        { error: "Seuls les HEAD_OF_SALES peuvent retirer un Account Manager" },
+        { error: "Non autorisé à retirer un Account Manager" },
         { status: 403 }
       );
     }

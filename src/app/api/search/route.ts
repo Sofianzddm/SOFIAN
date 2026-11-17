@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
       : Promise.resolve([]);
 
     // Recherche marques
-    const marquesPromise = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"].includes(userRole)
+    const marquesPromise = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "TM", "CM"].includes(userRole)
       ? prisma.marque.findMany({
           where: {
             OR: [
@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
 
     // Recherche collaborations
     // Cloisonnement pôle Sales : on filtre les privées (sauf si user = créateur ou ADMIN)
-    const collaborationsPromise = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "HEAD_OF_SALES", "CM"].includes(userRole)
+    const collaborationsPromise = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "TM", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "CM"].includes(userRole)
       ? prisma.collaboration.findMany({
           where: {
             AND: [

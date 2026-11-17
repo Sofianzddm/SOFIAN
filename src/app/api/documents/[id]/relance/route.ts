@@ -15,7 +15,7 @@ import { generateDocumentPDF, documentToPDFData } from "@/lib/documents/generate
 import { AGENCE_CONFIG } from "@/lib/documents/config";
 import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
 
-const ROLES_AUTORISES = ["ADMIN", "HEAD_OF_SALES", "CM"];
+const ROLES_AUTORISES = ["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "CM"];
 
 function diffDays(from: Date, to: Date): number {
   const ms = to.getTime() - from.getTime();

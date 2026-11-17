@@ -9,7 +9,7 @@ import { parseParisDateTimeLocalToUtc } from "@/lib/agency-outreach-send";
  * (datetime-local heure Paris, ou ISO)
  */
 
-const ALLOWED_ROLES = ["ADMIN", "HEAD_OF_SALES"] as const;
+const ALLOWED_ROLES = ["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"] as const;
 const MAX_BULK = 100;
 
 function hasAccess(role: string | undefined | null): boolean {

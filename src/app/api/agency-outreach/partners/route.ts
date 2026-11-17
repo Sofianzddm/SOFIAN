@@ -10,7 +10,7 @@ import { getAppSession } from "@/lib/getAppSession";
  * Module isolé des marques : ne touche que partners / agency_contacts.
  */
 
-const ALLOWED_ROLES = ["ADMIN", "HEAD_OF_SALES"] as const;
+const ALLOWED_ROLES = ["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"] as const;
 
 function hasAccess(role: string | undefined | null): boolean {
   return ALLOWED_ROLES.includes((role || "") as (typeof ALLOWED_ROLES)[number]);

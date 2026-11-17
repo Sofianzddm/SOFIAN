@@ -155,7 +155,7 @@ export default function NouveauDevisLibrePage() {
     setSearchQuery("");
   };
 
-  if (!session?.user || !["ADMIN", "HEAD_OF_SALES"].includes(role || "")) {
+  if (!session?.user || !["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"].includes(role || "")) {
     if (typeof window !== "undefined") {
       router.replace("/dashboard");
     }

@@ -20,7 +20,7 @@ import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
 const ALLOWED_ROLES = [
   "STRATEGY_PLANNER",
   "CASTING_MANAGER",
-  "HEAD_OF_SALES",
+  "HEAD_OF_SALES", "BUSINESS_DEVELOPER",
   "HEAD_OF",
   "ADMIN",
 ] as const;
@@ -754,7 +754,7 @@ export async function PATCH(request: NextRequest) {
     if (
       stageProvided &&
       (nextStage === "TO_SEND" || nextStage === "SENT") &&
-      session.user.role === "HEAD_OF_SALES"
+      (session.user.role === "HEAD_OF_SALES" || session.user.role === "BUSINESS_DEVELOPER")
     ) {
       const hasContact = await hasInternalContactForBrand(currentMission.targetBrand);
       if (!hasContact) {

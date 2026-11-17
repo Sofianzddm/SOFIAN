@@ -8,7 +8,7 @@ import { getAppSession } from "@/lib/getAppSession";
 
 const ALLOWED_ROLES = [
   "STRATEGY_PLANNER",
-  "HEAD_OF_SALES",
+  "HEAD_OF_SALES", "BUSINESS_DEVELOPER",
   "HEAD_OF",
   "ADMIN",
 ] as const;

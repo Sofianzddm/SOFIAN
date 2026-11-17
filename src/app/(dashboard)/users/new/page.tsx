@@ -11,6 +11,11 @@ const roleOptions = [
   { value: "HEAD_OF", label: "Head of", description: "Gestion complète de l'agence" },
   { value: "HEAD_OF_INFLUENCE", label: "Head of Influence", description: "Gestion du pôle Influence" },
   { value: "HEAD_OF_SALES", label: "Head of Sales", description: "Gestion du pôle Sales" },
+  {
+    value: "BUSINESS_DEVELOPER",
+    label: "Business Developer",
+    description: "Prospection, collabs, talents, facturation (périmètre réduit)",
+  },
   { value: "JURISTE", label: "Juriste", description: "Relecture juridique et validation des contrats" },
   { value: "STRATEGY_PLANNER", label: "Strategy Planner", description: "Pilotage stratégique des projets /strategy" },
   { value: "TM", label: "Talent Manager", description: "Gestion des talents et négociations" },

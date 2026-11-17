@@ -24,7 +24,7 @@ import { sanitizePresentationExcerpt } from "@/lib/campaign-presentation-text";
 
 export const maxDuration = 180;
 
-const ALLOWED_ROLES = ["CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"] as const;
+const ALLOWED_ROLES = ["CASTING_MANAGER", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "ADMIN"] as const;
 
 function isAllowed(role: string | undefined): boolean {
   return role !== undefined && (ALLOWED_ROLES as readonly string[]).includes(role);

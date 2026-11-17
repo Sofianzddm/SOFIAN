@@ -41,7 +41,7 @@ export function useNomCampagneGate() {
   return useContext(NomCampagneGateContext);
 }
 
-const GATE_ROLES = new Set(["TM", "HEAD_OF_SALES"]);
+const GATE_ROLES = new Set(["TM", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"]);
 
 export function NomCampagneGateProvider({
   children,

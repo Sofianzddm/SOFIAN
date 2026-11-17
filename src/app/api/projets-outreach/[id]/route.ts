@@ -102,7 +102,7 @@ function canViewCampaign(
 }
 
 function isCoreOutreachRole(role: string): boolean {
-  return ["STRATEGY_PLANNER", "CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"].includes(role);
+  return ["STRATEGY_PLANNER", "CASTING_MANAGER", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "ADMIN"].includes(role);
 }
 
 function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign>>>) {

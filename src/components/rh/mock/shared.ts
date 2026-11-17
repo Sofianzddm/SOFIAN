@@ -106,7 +106,7 @@ export const PEOPLE = [
   { n: "Inès Lettinger", i: "IL", c: "#F0C24E", r: "Account Manager", d: "Business Development", ds: "BUSINESS DEV", m: "EMP-0030", bal: "4,5", st: "ABSENT", seen: "il y a 3 j" },
   { n: "Janha Messaoudi", i: "JM", c: "#F2874E", r: "Social Media Manager", d: "Social Media", ds: "SOCIAL MEDIA", m: "EMP-0027", bal: "16,0", st: "ABSENT", seen: "il y a 3 j" },
   { n: "Daphnée Bessal", i: "DB", c: "#B48CF0", r: "Talent Manager / Cheffe de projet", d: "Talent Management", ds: "TALENT MGMT", m: "EMP-0009", bal: "21,5", st: "TÉLÉ", seen: "il y a 5 min" },
-  { n: "Joey Farrugia", i: "JF", c: "#46D6C0", r: "Talent Manager", d: "Talent Management", ds: "TALENT MGMT", m: "EMP-0012", bal: "14,0", st: "OK", seen: "il y a 25 min" },
+  { n: "Joey Farrugia", i: "JF", c: "#46D6C0", r: "Business Developer", d: "Business Development", ds: "BIZ DEV", m: "EMP-0012", bal: "14,0", st: "OK", seen: "il y a 25 min" },
   { n: "Anna Jaume", i: "AJ", c: "#5FB8E8", r: "Talent Manager / Cheffe de projet", d: "Talent Management", ds: "TALENT MGMT", m: "EMP-0015", bal: "9,0", st: "OK", seen: "il y a 2 h" },
   { n: "Coralie Loutre", i: "CL", c: "#F06FA8", r: "Talent Manager et Cheffe de projet", d: "Talent Management", ds: "TALENT MGMT", m: "EMP-0011", bal: "11,5", st: "OK", seen: "il y a 40 min" },
   { n: "Alice Marinaro", i: "AM", c: "#B48CF0", r: "Talent Manager", d: "Talent Management", ds: "TALENT MGMT", m: "EMP-0024", bal: "16,5", st: "OK", seen: "il y a 1 h" },

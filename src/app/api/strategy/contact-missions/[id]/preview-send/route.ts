@@ -15,7 +15,7 @@ import { buildCastingSendPreview } from "@/lib/casting-auto-send";
 const ALLOWED_ROLES = [
   "CASTING_MANAGER",
   "STRATEGY_PLANNER",
-  "HEAD_OF_SALES",
+  "HEAD_OF_SALES", "BUSINESS_DEVELOPER",
   "ADMIN",
   "HEAD_OF",
 ] as const;

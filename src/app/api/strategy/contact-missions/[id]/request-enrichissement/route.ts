@@ -9,7 +9,7 @@ import { notifyMarqueCompletionRequested } from "@/lib/emails/notify-enrichissem
  *
  * Body optionnel: { note?: string }
  */
-const ALLOWED = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "CASTING_MANAGER"] as const;
+const ALLOWED = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "CASTING_MANAGER"] as const;
 
 export async function POST(
   request: NextRequest,

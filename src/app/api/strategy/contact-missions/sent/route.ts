@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 
 const ALLOWED_ROLES = [
-  "HEAD_OF_SALES",
+  "HEAD_OF_SALES", "BUSINESS_DEVELOPER",
   "ADMIN",
   "HEAD_OF",
   "CASTING_MANAGER",

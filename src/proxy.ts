@@ -13,6 +13,7 @@ import { isNomCampagneGateEnabled } from "@/lib/nom-campagne-gate-paths";
 import { canViewAllTalentCollabs } from "@/lib/collab-viewer-access";
 import { isMarqueCrmReadOnly } from "@/lib/marque-crm-access";
 import { trackStaffActivityFromProxy } from "@/lib/activity-track-proxy";
+import { isBusinessDeveloperPathAllowed } from "@/lib/business-developer";
 
 const NOINDEX_HEADER = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
@@ -214,7 +215,9 @@ export async function proxy(request: NextRequest) {
   // /api/collaborations/pending-nom-campagne. Empêche le bypass par URL directe.
   if (
     isNomCampagneGateEnabled() &&
-    (effectiveRole === "TM" || effectiveRole === "HEAD_OF_SALES")
+    (effectiveRole === "TM" ||
+      effectiveRole === "HEAD_OF_SALES" ||
+      effectiveRole === "BUSINESS_DEVELOPER")
   ) {
     const locked = request.cookies.get("glowup_nm_lock")?.value === "1";
     if (locked) {
@@ -488,10 +491,11 @@ export async function proxy(request: NextRequest) {
       NextResponse.redirect(new URL("/strategy/projets/villa-cannes", request.url))
     );
   }
-  // Exception: pipeline + mails envoyés accessibles à HEAD_OF_SALES / CASTING_MANAGER / HEAD_OF
+  // Exception: pipeline (+ mails envoyés HoS) accessibles à HEAD_OF_SALES / BD / CASTING_MANAGER / HEAD_OF
   const isProspectionPipeline =
     pathname === "/strategy/projet-individuel-talent/pipeline" ||
-    pathname.startsWith("/strategy/projet-individuel-talent/pipeline/") ||
+    pathname.startsWith("/strategy/projet-individuel-talent/pipeline/");
+  const isProspectionMailsEnvoyes =
     pathname === "/strategy/projet-individuel-talent/mails-envoyes" ||
     pathname.startsWith("/strategy/projet-individuel-talent/mails-envoyes/");
 
@@ -499,11 +503,26 @@ export async function proxy(request: NextRequest) {
   if (
     effectiveRole !== "STRATEGY_PLANNER" &&
     effectiveRole !== "ADMIN" &&
-    !(isProspectionPipeline &&
-      (effectiveRole === "HEAD_OF_SALES" ||
-        effectiveRole === "CASTING_MANAGER" ||
-        effectiveRole === "HEAD_OF")) &&
+    !(
+      (isProspectionPipeline &&
+        (effectiveRole === "HEAD_OF_SALES" ||
+          effectiveRole === "BUSINESS_DEVELOPER" ||
+          effectiveRole === "CASTING_MANAGER" ||
+          effectiveRole === "HEAD_OF")) ||
+      (isProspectionMailsEnvoyes &&
+        (effectiveRole === "HEAD_OF_SALES" ||
+          effectiveRole === "CASTING_MANAGER" ||
+          effectiveRole === "HEAD_OF"))
+    ) &&
     pathname.startsWith("/strategy")
+  ) {
+    return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
+  }
+
+  // Business Developer : confinement aux modules autorisés
+  if (
+    effectiveRole === "BUSINESS_DEVELOPER" &&
+    !isBusinessDeveloperPathAllowed(pathname)
   ) {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }

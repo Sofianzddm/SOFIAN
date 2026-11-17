@@ -25,7 +25,7 @@ export async function PATCH(
     }
 
     const user = session.user as { id: string; role: string };
-    if (!["ADMIN", "HEAD_OF_SALES"].includes(user.role)) {
+    if (!["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"].includes(user.role)) {
       return NextResponse.json(
         { error: "Seuls les ADMIN ou HEAD_OF_SALES peuvent modifier des devis libres" },
         { status: 403 }
@@ -49,7 +49,7 @@ export async function PATCH(
         { status: 404 }
       );
     }
-    if (user.role === "HEAD_OF_SALES" && existing.createdById !== user.id) {
+    if ((user.role === "HEAD_OF_SALES" || user.role === "BUSINESS_DEVELOPER") && existing.createdById !== user.id) {
       return NextResponse.json(
         { error: "Accès refusé" },
         { status: 403 }

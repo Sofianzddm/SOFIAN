@@ -7,8 +7,8 @@ import {
 } from "@/lib/casting-auto-send";
 import { isValidForceReason } from "@/lib/contact-cooldown";
 
-const ALLOWED_ROLES = ["HEAD_OF_SALES", "ADMIN", "HEAD_OF", "CASTING_MANAGER"] as const;
-const FORCE_ROLES = ["CASTING_MANAGER", "ADMIN", "HEAD_OF", "HEAD_OF_SALES"] as const;
+const ALLOWED_ROLES = ["HEAD_OF_SALES", "BUSINESS_DEVELOPER", "ADMIN", "HEAD_OF", "CASTING_MANAGER"] as const;
+const FORCE_ROLES = ["CASTING_MANAGER", "ADMIN", "HEAD_OF", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"] as const;
 const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
 
 export async function POST(

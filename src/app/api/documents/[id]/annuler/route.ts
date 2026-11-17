@@ -8,9 +8,9 @@ import { StatutDocument } from "@prisma/client";
 import { getTalentIdsAccessibles } from "@/lib/delegations";
 import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
 
-const ROLES_ANNULER_DEVIS = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"] as const;
+const ROLES_ANNULER_DEVIS = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "TM", "CM"] as const;
 
-const ROLES_ANNULER_FACTURE = ["ADMIN", "HEAD_OF_SALES", "CM"] as const;
+const ROLES_ANNULER_FACTURE = ["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "CM"] as const;
 
 /**
  * POST /api/documents/[id]/annuler

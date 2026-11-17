@@ -11,7 +11,7 @@ const ROLES_OUVRIR = [
   "ADMIN",
   "HEAD_OF",
   "HEAD_OF_INFLUENCE",
-  "HEAD_OF_SALES",
+  "HEAD_OF_SALES", "BUSINESS_DEVELOPER",
   "TM",
   "CM",
 ];

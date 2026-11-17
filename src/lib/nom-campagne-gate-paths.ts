@@ -11,7 +11,7 @@ export function isNomCampagneGateEnabled(): boolean {
   return false;
 }
 
-export const NOM_CAMPAGNE_GATE_ROLES = ["TM", "HEAD_OF_SALES"] as const;
+export const NOM_CAMPAGNE_GATE_ROLES = ["TM", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"] as const;
 
 export function normalizeLabel(s: string): string {
   return s

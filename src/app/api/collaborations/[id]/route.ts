@@ -280,7 +280,7 @@ export async function PATCH(
     if (data.createdAt !== undefined) {
       const canEditDate =
         userRole === "ADMIN" ||
-        (userRole === "HEAD_OF_SALES" && existingCollab.createdById === session.user.id) ||
+        ((userRole === "HEAD_OF_SALES" || userRole === "BUSINESS_DEVELOPER") && existingCollab.createdById === session.user.id) ||
         (userRole === "CM" && existingCollab.accountManagerId === session.user.id);
       if (!canEditDate) {
         return NextResponse.json(
@@ -577,7 +577,7 @@ export async function DELETE(
     const userRole = session.user.role;
     
     // Seuls les ADMIN et HEAD_OF peuvent supprimer une collaboration
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"].includes(userRole)) {
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"].includes(userRole)) {
       return NextResponse.json({ 
         error: "Permissions insuffisantes pour supprimer une collaboration" 
       }, { status: 403 });

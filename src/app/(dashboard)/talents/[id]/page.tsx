@@ -234,14 +234,14 @@ export default function TalentDetailPage() {
     role === "ADMIN" ||
     role === "HEAD_OF" ||
     role === "HEAD_OF_INFLUENCE" ||
-    role === "HEAD_OF_SALES";
+    (role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER");
   // TM : uniquement ses talents ; ASSISTANTE_TM / Head / Admin : tous
   const showStatsEditButton = canUpdateStats && (role !== "TM" || isMyTalent);
   const canUploadPhoto =
     role === "ADMIN" ||
     role === "HEAD_OF" ||
     role === "HEAD_OF_INFLUENCE" ||
-    role === "HEAD_OF_SALES" ||
+    (role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER") ||
     role === "TM" ||
     role === "ASSISTANTE_TM";
   const canEditBio = canEditTalent;

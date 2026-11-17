@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { runMarqueDedupeAiJob } from "@/lib/marque-ai-dedupe";
 
-const ALLOWED = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "HEAD_OF_INFLUENCE"];
+const ALLOWED = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "HEAD_OF_INFLUENCE"];
 
 /**
  * GET /api/marques/dedupe-suggestions?status=PENDING&limit=50

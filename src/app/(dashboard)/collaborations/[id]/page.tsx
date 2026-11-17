@@ -245,7 +245,7 @@ const TYPE_LABELS: Record<string, string> = {
   EVENT: "Event", SHOOTING: "Shooting", AMBASSADEUR: "Ambassadeur",
 };
 
-const ROLES_ANNULER_DEVIS = new Set(["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"]);
+const ROLES_ANNULER_DEVIS = new Set(["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "TM", "CM"]);
 
 function devisALieUneFactureActive(doc: DocumentInfo, docs: DocumentInfo[]): boolean {
   return docs.some(
@@ -482,7 +482,7 @@ export default function CollabDetailPage() {
 
   useEffect(() => {
     const canFetchAm =
-      effectiveRole === "ADMIN" || effectiveRole === "HEAD_OF_SALES";
+      effectiveRole === "ADMIN" || (effectiveRole === "HEAD_OF_SALES" || effectiveRole === "BUSINESS_DEVELOPER");
     if (!canFetchAm) return;
     const fetchAms = async () => {
       try {
@@ -1379,7 +1379,7 @@ export default function CollabDetailPage() {
     !isViewOnly &&
     ["PUBLIE", "FACTURE_RECUE"].includes(collab.statut) &&
     (collab.isLongTerme || !activeFacture);
-  const canUploadSignedDevis = !isViewOnly && ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"].includes(roleForUi);
+  const canUploadSignedDevis = !isViewOnly && ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "CM"].includes(roleForUi);
   const canOuvrirDevisPartiel = !isViewOnly && ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE"].includes(roleForUi);
   const activeDevisForManualUpload = (collab.documents || []).find(
     (d) => d.type === "DEVIS" && d.statut !== "ANNULE" && !d.avoirRef
@@ -1390,9 +1390,9 @@ export default function CollabDetailPage() {
   const existingDocs = collab.documents || [];
   const canSeeContratBloc = ["ADMIN", "TM", "HEAD_OF_INFLUENCE"].includes(roleForUi);
   const canGenerateContrat = !isViewOnly && ["ADMIN", "TM"].includes(roleForUi);
-  const canEditCollabDate = !isViewOnly && (roleForUi === "ADMIN" || roleForUi === "HEAD_OF_SALES" || roleForUi === "CM");
-  const canAssignAm = !isViewOnly && (roleForUi === "ADMIN" || roleForUi === "HEAD_OF_SALES");
-  const canCorrigerMarque = !isViewOnly && ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "CM"].includes(roleForUi);
+  const canEditCollabDate = !isViewOnly && (roleForUi === "ADMIN" || (roleForUi === "HEAD_OF_SALES" || roleForUi === "BUSINESS_DEVELOPER") || roleForUi === "CM");
+  const canAssignAm = !isViewOnly && (roleForUi === "ADMIN" || (roleForUi === "HEAD_OF_SALES" || roleForUi === "BUSINESS_DEVELOPER"));
+  const canCorrigerMarque = !isViewOnly && ["ADMIN", "TM", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "CM"].includes(roleForUi);
   const contactAgenceAffiche = (
     collab.contactAgence ||
     collab.negociation?.contactAgence ||

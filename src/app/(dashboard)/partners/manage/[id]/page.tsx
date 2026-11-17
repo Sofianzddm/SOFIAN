@@ -71,7 +71,7 @@ export default function PartnerDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { data: session } = useSession();
-  const canAgencyOutreach = ["ADMIN", "HEAD_OF_SALES"].includes(
+  const canAgencyOutreach = ["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"].includes(
     session?.user?.role || ""
   );
   const [loading, setLoading] = useState(true);

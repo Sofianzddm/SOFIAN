@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 
-const ALLOWED_ROLES = ["HEAD_OF_SALES", "ADMIN", "HEAD_OF"] as const;
+const ALLOWED_ROLES = ["HEAD_OF_SALES", "BUSINESS_DEVELOPER", "ADMIN", "HEAD_OF"] as const;
 const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
 
 export async function POST(

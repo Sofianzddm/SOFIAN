@@ -432,7 +432,7 @@ export async function POST(req: NextRequest) {
       const staffRoles: Role[] = [
         "HEAD_OF",
         "HEAD_OF_INFLUENCE",
-        "HEAD_OF_SALES",
+        "HEAD_OF_SALES", "BUSINESS_DEVELOPER",
         "ADMIN",
       ];
       const destinataires = await prisma.user.findMany({

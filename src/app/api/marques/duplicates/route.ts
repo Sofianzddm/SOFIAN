@@ -8,7 +8,7 @@ import {
   loadMarquesForDedupe,
 } from "@/lib/marque-fuzzy-detect";
 
-const ALLOWED = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "HEAD_OF_INFLUENCE"];
+const ALLOWED = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "HEAD_OF_INFLUENCE"];
 
 /**
  * GET /api/marques/duplicates

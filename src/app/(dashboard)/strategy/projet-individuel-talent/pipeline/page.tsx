@@ -9,11 +9,14 @@ export default async function ProspectingPipelinePage() {
 
   const role = (session.user as { role?: string }).role ?? "";
   if (
-    role !== "STRATEGY_PLANNER" &&
-    role !== "CASTING_MANAGER" &&
-    role !== "HEAD_OF_SALES" &&
-    role !== "HEAD_OF" &&
-    role !== "ADMIN"
+    ![
+      "STRATEGY_PLANNER",
+      "CASTING_MANAGER",
+      "HEAD_OF_SALES",
+      "BUSINESS_DEVELOPER",
+      "HEAD_OF",
+      "ADMIN",
+    ].includes(role)
   ) {
     redirect("/dashboard");
   }

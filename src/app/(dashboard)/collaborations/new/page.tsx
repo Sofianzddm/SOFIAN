@@ -112,7 +112,8 @@ export default function NewCollaborationPage() {
   // Détection du rôle
   const user = session?.user as { id: string; role: string; name: string } | undefined;
   const isTM = user?.role === "TM";
-  const isHoS = user?.role === "HEAD_OF_SALES";
+  const isHoS =
+    user?.role === "HEAD_OF_SALES" || user?.role === "BUSINESS_DEVELOPER";
   // Rôles qui peuvent créer des collabs privées (pôle Sales, cloisonnées des TM)
   const canSetPrivate = isHoS || user?.role === "ADMIN" || user?.role === "HEAD_OF";
 
@@ -257,6 +258,7 @@ export default function NewCollaborationPage() {
       // (Coca × Sacha, Biotherm × Seb, etc.) sans les désarchiver.
       const includeArchived =
         user?.role === "HEAD_OF_SALES" ||
+        user?.role === "BUSINESS_DEVELOPER" ||
         user?.role === "ADMIN" ||
         user?.role === "HEAD_OF" ||
         user?.role === "HEAD_OF_INFLUENCE";

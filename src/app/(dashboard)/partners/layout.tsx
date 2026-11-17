@@ -37,7 +37,7 @@ export default function PartnersLayout({
   }, []);
 
   const canAccess =
-    userRole === "ADMIN" || userRole === "HEAD_OF_SALES";
+    userRole === "ADMIN" || (userRole === "HEAD_OF_SALES" || userRole === "BUSINESS_DEVELOPER");
 
   if (loadingRole) {
     return (

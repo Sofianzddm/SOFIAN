@@ -129,7 +129,7 @@ export default function MarquesPage() {
   const { data: session, status: sessionStatus } = useSession();
   // STRATEGY_PLANNER + CM (Account Manager) : annuaire en lecture seule.
   const readOnly = ["STRATEGY_PLANNER", "CM"].includes(session?.user?.role || "");
-  const canDedupe = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "HEAD_OF_INFLUENCE"].includes(
+  const canDedupe = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "HEAD_OF_INFLUENCE"].includes(
     session?.user?.role || ""
   );
   const [marques, setMarques] = useState<Marque[]>([]);

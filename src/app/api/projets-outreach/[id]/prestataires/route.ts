@@ -36,7 +36,7 @@ function canView(
   campaign: NonNullable<Awaited<ReturnType<typeof loadCampaignAccess>>>
 ) {
   if (!canAccessProjetsOutreach(role)) return false;
-  if (["STRATEGY_PLANNER", "CASTING_MANAGER", "HEAD_OF_SALES", "ADMIN"].includes(role)) {
+  if (["STRATEGY_PLANNER", "CASTING_MANAGER", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "ADMIN"].includes(role)) {
     return true;
   }
   if (campaign.ownerTmId === userId) return true;

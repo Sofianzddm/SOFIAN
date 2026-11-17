@@ -1,7 +1,7 @@
 export const PROJETS_OUTREACH_ROLES = [
   "STRATEGY_PLANNER",
   "CASTING_MANAGER",
-  "HEAD_OF_SALES",
+  "HEAD_OF_SALES", "BUSINESS_DEVELOPER",
   "ADMIN",
 ] as const;
 
@@ -225,7 +225,7 @@ export function bypassesWaveCastingGate(role: string | undefined | null): boolea
 }
 
 export function canSend(role: string | undefined | null): boolean {
-  return role === "HEAD_OF_SALES" || role === "ADMIN";
+  return (role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER") || role === "ADMIN";
 }
 
 export function needsPrestataires(campaign: {

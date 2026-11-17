@@ -17,7 +17,7 @@ import {
 } from "@/lib/contact-cooldown";
 import { brandsLookSame } from "@/lib/brand-match";
 
-const ALLOWED_ROLES = ["HEAD_OF_SALES", "ADMIN", "HEAD_OF", "CASTING_MANAGER"] as const;
+const ALLOWED_ROLES = ["HEAD_OF_SALES", "BUSINESS_DEVELOPER", "ADMIN", "HEAD_OF", "CASTING_MANAGER"] as const;
 
 const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
 

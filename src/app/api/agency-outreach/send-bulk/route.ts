@@ -24,7 +24,7 @@ import { translateEmail, TranslateEmailError } from "@/lib/translate-email";
  * Si `stream: true`, réponse NDJSON (progression puis résultat).
  */
 
-const ALLOWED_ROLES = ["ADMIN", "HEAD_OF_SALES"] as const;
+const ALLOWED_ROLES = ["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"] as const;
 
 type Lang = "fr" | "en";
 

@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 // Rôles autorisés à corriger les coordonnées d'un contact d'agence depuis la
 // fiche partenaire. On inclut HEAD_OF_SALES (responsable prospection) en plus
 // des gestionnaires partenaires (ADMIN / HEAD_OF).
-const MANAGE_ROLES = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"] as const;
+const MANAGE_ROLES = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"] as const;
 
 function canManage(role: string | undefined | null): boolean {
   return MANAGE_ROLES.includes((role || "") as (typeof MANAGE_ROLES)[number]);

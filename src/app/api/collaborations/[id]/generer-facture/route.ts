@@ -28,7 +28,7 @@ export async function POST(
     const user = session.user as { id: string; role: string };
 
     // Seuls ADMIN, HEAD_OF, HEAD_OF_INFLUENCE, HEAD_OF_SALES et TM peuvent générer des factures
-    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"].includes(user.role)) {
+    if (!["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "TM", "CM"].includes(user.role)) {
       return NextResponse.json(
         { error: "Permissions insuffisantes" },
         { status: 403 }

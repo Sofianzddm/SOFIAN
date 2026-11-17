@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
     // - Autres : voient les publiques OU celles qu'ils ont créées eux-mêmes
     if (isTalentCollabViewer) {
       // déjà filtré ci-dessus
-    } else if (user.role === "HEAD_OF_SALES") {
+    } else if ((user.role === "HEAD_OF_SALES" || user.role === "BUSINESS_DEVELOPER")) {
       where.createdById = user.id;
     } else if (user.role === "CM") {
       where.accountManagerId = user.id;
@@ -279,7 +279,7 @@ export async function POST(request: NextRequest) {
     const user = session.user as { id: string; role?: string };
     const role = user.role ?? "";
     // HEAD_OF_SALES peut créer des collabs (privées) pour n'importe quel talent
-    const rolesLibres = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES"];
+    const rolesLibres = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"];
     if (!rolesLibres.includes(role)) {
       const talentIds = await getTalentIdsAccessibles(user.id);
       if (!talentIds.includes(data.talentId)) {
@@ -288,11 +288,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Visibilité : seuls HEAD_OF_SALES, ADMIN et HEAD_OF peuvent créer des collabs privées (pôle Sales)
-    const rolesAutorisantPrivee = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"];
+    const rolesAutorisantPrivee = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"];
     let isPrivate = false;
     if (data.isPrivate === true && rolesAutorisantPrivee.includes(role)) {
       isPrivate = true;
-    } else if (role === "HEAD_OF_SALES" && data.isPrivate === undefined) {
+    } else if ((role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER") && data.isPrivate === undefined) {
       // Sécurité : si la HoS oublie le flag, on cloisonne par défaut
       isPrivate = true;
     }

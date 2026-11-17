@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     const user = session.user as { id: string; role: string };
 
     // ADMIN, HEAD_OF, HEAD_OF_INFLUENCE, HEAD_OF_SALES et TM peuvent créer des avoirs
-    const rolesAutorises = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "TM", "CM"];
+    const rolesAutorises = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "TM", "CM"];
     if (!rolesAutorises.includes(user.role)) {
       return NextResponse.json(
         { error: "Vous n'avez pas les droits pour créer un avoir" },

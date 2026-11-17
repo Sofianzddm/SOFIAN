@@ -12,7 +12,7 @@ import {
 const ALLOWED_ROLES = [
   "STRATEGY_PLANNER",
   "CASTING_MANAGER",
-  "HEAD_OF_SALES",
+  "HEAD_OF_SALES", "BUSINESS_DEVELOPER",
   "HEAD_OF",
   "ADMIN",
 ] as const;

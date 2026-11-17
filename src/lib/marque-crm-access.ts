@@ -15,6 +15,7 @@ export const MARQUE_CRM_WRITE_ROLES = [
   "ADMIN",
   "HEAD_OF",
   "HEAD_OF_SALES",
+  "BUSINESS_DEVELOPER",
 ] as const;
 
 /** Rôles avec accès annuaire / fiche en consultation seule. */

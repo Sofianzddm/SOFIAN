@@ -37,7 +37,7 @@ const LIST_ROLES = [
   "ADMIN",
   "HEAD_OF",
   "HEAD_OF_INFLUENCE",
-  "HEAD_OF_SALES",
+  "HEAD_OF_SALES", "BUSINESS_DEVELOPER",
   "CM",
 ] as const;
 

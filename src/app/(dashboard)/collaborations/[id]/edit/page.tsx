@@ -127,7 +127,7 @@ export default function EditCollaborationPage() {
   const fetchTalents = async () => {
     const role = (session?.user as { role?: string } | undefined)?.role;
     const includeArchived =
-      role === "HEAD_OF_SALES" ||
+      (role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER") ||
       role === "ADMIN" ||
       role === "HEAD_OF" ||
       role === "HEAD_OF_INFLUENCE";

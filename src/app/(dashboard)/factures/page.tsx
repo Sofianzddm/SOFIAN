@@ -126,7 +126,7 @@ interface QuoteStats {
 }
 
 // Accès page Factures : ADMIN, Head of Sales, Account Manager (collabs assignées)
-const ROLES_FACTURES = ["ADMIN", "HEAD_OF_SALES", "CM"];
+const ROLES_FACTURES = ["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "CM"];
 const QUOTE_STATUS_VALUES = ["DRAFT", "REGISTERED", "SENT", "VIEWED", "ACCEPTED", "DECLINED", "EXPIRED", "INVOICED", "CANCELLED"];
 // Mapping StatutDocument (Document DEVIS) → status affiché dans l’onglet Devis
 const DOC_STATUT_TO_QUOTE_STATUS: Record<string, string> = {
@@ -933,7 +933,7 @@ export default function FacturesPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {role && ["ADMIN", "HEAD_OF_SALES"].includes(role) && (
+          {role && ["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"].includes(role) && (
             <Link
               href="/factures/new"
               className="inline-flex items-center gap-2 rounded-lg bg-[#1A1110] px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-black transition-colors"
@@ -942,7 +942,7 @@ export default function FacturesPage() {
               Nouvelle facture libre
             </Link>
           )}
-          {role && ["ADMIN", "HEAD_OF_SALES"].includes(role) && (
+          {role && ["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"].includes(role) && (
             <Link
               href="/factures/new?type=avoir"
               className="inline-flex items-center gap-2 rounded-lg bg-white border border-gray-200 px-4 py-2.5 text-sm font-medium text-[#1A1110] shadow-sm hover:bg-gray-50 transition-colors"
@@ -951,7 +951,7 @@ export default function FacturesPage() {
               Nouvel avoir libre
             </Link>
           )}
-          {role && ["ADMIN", "HEAD_OF_SALES"].includes(role) && (
+          {role && ["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"].includes(role) && (
             <Link
               href="/devis/new"
               className="inline-flex items-center gap-2 rounded-lg bg-white border border-gray-200 px-4 py-2.5 text-sm font-medium text-[#1A1110] shadow-sm hover:bg-gray-50 transition-colors"
