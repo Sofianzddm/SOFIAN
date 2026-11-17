@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Loader2,
   StickyNote,
@@ -80,6 +80,13 @@ export function ContactActivitiesPanel({
 
   const apiBase = `/api/marques/${marqueId}/contacts/${contactId}/activities`;
 
+  // Évite une boucle infinie : le parent passe souvent un callback inline
+  // qui change à chaque setState → ne pas le mettre dans les deps de load.
+  const onCountChangeRef = useRef(onCountChange);
+  useEffect(() => {
+    onCountChangeRef.current = onCountChange;
+  }, [onCountChange]);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -89,13 +96,13 @@ export function ContactActivitiesPanel({
       if (!res.ok) throw new Error(data.error || "Impossible de charger les notes");
       const list = (data.activities || []) as ContactActivity[];
       setActivities(list);
-      onCountChange?.(list.length);
+      onCountChangeRef.current?.(list.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
       setLoading(false);
     }
-  }, [apiBase, onCountChange]);
+  }, [apiBase]);
 
   useEffect(() => {
     void load();

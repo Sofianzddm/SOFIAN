@@ -4194,7 +4194,9 @@ export default function MarqueRecordPage({
           }))}
           onClose={() => setDrawerContactId(null)}
           onActivityCountChange={(contactId, n) =>
-            setActivityCounts((prev) => ({ ...prev, [contactId]: n }))
+            setActivityCounts((prev) =>
+              prev[contactId] === n ? prev : { ...prev, [contactId]: n }
+            )
           }
           onSaved={(updated) => {
             setMarque((prev) => {
