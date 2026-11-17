@@ -506,7 +506,6 @@ export async function proxy(request: NextRequest) {
     !(
       (isProspectionPipeline &&
         (effectiveRole === "HEAD_OF_SALES" ||
-          effectiveRole === "BUSINESS_DEVELOPER" ||
           effectiveRole === "CASTING_MANAGER" ||
           effectiveRole === "HEAD_OF")) ||
       (isProspectionMailsEnvoyes &&

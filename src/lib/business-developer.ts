@@ -22,9 +22,6 @@ export function isHosOrBusinessDeveloper(
  */
 export const BD_ALLOWED_PATH_PREFIXES = [
   "/dashboard",
-  "/agency-outreach",
-  "/partners",
-  "/strategy/projet-individuel-talent/pipeline",
   "/projets-outreach",
   "/notifications",
   "/talents",

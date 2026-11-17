@@ -13,7 +13,6 @@ export default async function ProspectingPipelinePage() {
       "STRATEGY_PLANNER",
       "CASTING_MANAGER",
       "HEAD_OF_SALES",
-      "BUSINESS_DEVELOPER",
       "HEAD_OF",
       "ADMIN",
     ].includes(role)

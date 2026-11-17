@@ -77,7 +77,7 @@ const OLD_ROSE = "#C08B8B";
 const TEA_GREEN = "#C8F285";
 const OLD_LACE = "#F5EBE0";
 
-const ALLOWED = ["ADMIN", "HEAD_OF_SALES", "BUSINESS_DEVELOPER"];
+const ALLOWED = ["ADMIN", "HEAD_OF_SALES"];
 
 type TargetStatus = "TO_CONTACT" | "WAITING" | "TO_RECONTACT" | "STOPPED";
 type ListTab = TargetStatus | "INVALID_EMAIL";
