@@ -378,12 +378,13 @@ export function BrandEnrichPanel({
   }, [people, contacts]);
 
   // Préremplit Client / Agence selon périmètre analyse ou domaine email.
+  // Met à jour si on passe en agence (périmètre / domaine) même après 1er render.
   useEffect(() => {
     if (people.length === 0) return;
     setAgencyAssign((prev) => {
+      let changed = false;
       const next = { ...prev };
       for (const p of people) {
-        if (next[p.key]) continue;
         const draftEmail = (drafts[p.key] || "").trim();
         const suggested =
           agencyNameFromPerimetre(p.perimetre) ||
@@ -398,15 +399,41 @@ export function BrandEnrichPanel({
           email: draftEmail || null,
           perimetre: p.perimetre,
         });
-        next[p.key] = agencySide
-          ? {
-              kind: "agency",
-              partnerId: hit?.id || null,
-              partnerName: hit?.name || suggested,
-            }
-          : { kind: "client", partnerId: null, partnerName: "" };
+        const existing = next[p.key];
+        if (!existing) {
+          next[p.key] = agencySide
+            ? {
+                kind: "agency",
+                partnerId: hit?.id || null,
+                partnerName: hit?.name || suggested,
+              }
+            : { kind: "client", partnerId: null, partnerName: "" };
+          changed = true;
+          continue;
+        }
+        // Upgrade client → agence si le signal arrive plus tard (périmètre / mail).
+        if (agencySide && existing.kind === "client") {
+          next[p.key] = {
+            kind: "agency",
+            partnerId: hit?.id || existing.partnerId,
+            partnerName: hit?.name || suggested || existing.partnerName,
+          };
+          changed = true;
+        } else if (
+          agencySide &&
+          existing.kind === "agency" &&
+          !existing.partnerName &&
+          (hit?.name || suggested)
+        ) {
+          next[p.key] = {
+            kind: "agency",
+            partnerId: hit?.id || existing.partnerId,
+            partnerName: hit?.name || suggested,
+          };
+          changed = true;
+        }
       }
-      return next;
+      return changed ? next : prev;
     });
   }, [people, drafts, agencyOptions]);
 

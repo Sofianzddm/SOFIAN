@@ -411,7 +411,9 @@ export async function routeMarqueContactToAgencyProspecting(opts: {
   const hasOverride = Boolean(opts.partnerId || overrideName);
 
   if (!email || !email.includes("@")) {
-    // Périmètre / choix UI : lie l'agence CRM, pas d'enrôlement sans email.
+    // Sans email : on lie l'agence sur la fiche marque, mais on NE sort PAS
+    // de la file d'enrichissement — l'étape 2 doit encore trouver le mail
+    // et confirmer / choisir l'agence.
     const fromPerim = agencyNameFromPerimetre(contact.perimetre);
     if (!hasOverride && !fromPerim) return { routed: false, enrolled: false };
     let partner = opts.partnerId
@@ -432,19 +434,15 @@ export async function routeMarqueContactToAgencyProspecting(opts: {
       source: "CARTO",
       createdById: opts.userId,
     });
-    await prisma.marqueContact.update({
-      where: { id: contact.id },
-      data: {
-        outreachExcluded: true,
-        ...(overrideName || fromPerim
-          ? {
-              perimetre:
-                contact.perimetre?.trim() ||
-                `Agence ${partner.name}`,
-            }
-          : {}),
-      },
-    });
+    const nextPerim =
+      contact.perimetre?.trim() ||
+      (overrideName || fromPerim ? `Agence ${partner.name}` : null);
+    if (nextPerim && nextPerim !== contact.perimetre) {
+      await prisma.marqueContact.update({
+        where: { id: contact.id },
+        data: { perimetre: nextPerim },
+      });
+    }
     return {
       routed: true,
       partnerId: partner.id,
