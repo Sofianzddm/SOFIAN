@@ -547,12 +547,13 @@ export async function routeMarqueContactToAgencyProspecting(opts: {
     userId: opts.userId,
     contactIds: [agencyContact.id],
   });
+  // Déjà en cycle (souvent via une autre marque) = quand même « mis ».
 
   return {
     routed: true,
     partnerId: partner.id,
     partnerName: partner.name,
     agencyContactId: agencyContact.id,
-    enrolled: enroll.enrolled > 0,
+    enrolled: enroll.enrolled > 0 || enroll.alreadyTracked > 0,
   };
 }

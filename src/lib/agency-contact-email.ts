@@ -82,7 +82,7 @@ export async function tryEnrollAgencyAfterEmailComplete(opts: {
   userId: string;
   /** Si fourni, n'enrôle que ces contacts (ceux validés au « Prêt »). */
   contactIds?: string[];
-}): Promise<{ enrolled: number; stillQueued: number }> {
+}): Promise<{ enrolled: number; alreadyTracked: number; stillQueued: number }> {
   const partner = await prisma.partner.findUnique({
     where: { id: opts.partnerId },
     select: {
@@ -106,7 +106,7 @@ export async function tryEnrollAgencyAfterEmailComplete(opts: {
       },
     },
   });
-  if (!partner) return { enrolled: 0, stillQueued: 0 };
+  if (!partner) return { enrolled: 0, alreadyTracked: 0, stillQueued: 0 };
 
   // Si on valide toute la fiche (sans filtre d'ids), on attend qu'il ne reste
   // plus aucun mail manquant sur l'agence hors exclus.
@@ -120,12 +120,14 @@ export async function tryEnrollAgencyAfterEmailComplete(opts: {
       },
     });
     if (missingEmail > 0) {
-      return { enrolled: 0, stillQueued: missingEmail };
+      return { enrolled: 0, alreadyTracked: 0, stillQueued: missingEmail };
     }
   }
 
   const market = partner.market === "BENELUX" ? "BENELUX" : "FR";
   let enrolled = 0;
+  /** Déjà en cycle agence (souvent via une autre marque) — on garde le lien. */
+  let alreadyTracked = 0;
 
   for (const c of partner.agencyContacts) {
     const email = (c.email || "").trim().toLowerCase();
@@ -136,9 +138,26 @@ export async function tryEnrollAgencyAfterEmailComplete(opts: {
 
     const existing = await prisma.agencyOutreachTarget.findUnique({
       where: { email },
-      select: { id: true },
+      select: { id: true, partnerId: true, agencyContactId: true },
     });
-    if (existing) continue;
+    if (existing) {
+      // Même agence : déjà suivi (ex. autre marque) → on rattache le contact
+      // courant et on compte comme présent, sans recréer la cible.
+      if (existing.partnerId === partner.id) {
+        if (existing.agencyContactId !== c.id) {
+          await prisma.agencyOutreachTarget.update({
+            where: { id: existing.id },
+            data: { agencyContactId: c.id },
+          });
+        }
+        await prisma.agencyContact.update({
+          where: { id: c.id },
+          data: { emailLookupStatus: "FOUND", emailSuggested: null, excluded: false },
+        });
+        alreadyTracked += 1;
+      }
+      continue;
+    }
 
     await prisma.agencyOutreachTarget.create({
       data: {
@@ -161,5 +180,5 @@ export async function tryEnrollAgencyAfterEmailComplete(opts: {
     enrolled += 1;
   }
 
-  return { enrolled, stillQueued: 0 };
+  return { enrolled, alreadyTracked, stillQueued: 0 };
 }

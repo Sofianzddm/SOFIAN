@@ -281,7 +281,6 @@ export async function POST(request: NextRequest) {
         if (!contact) {
           return NextResponse.json({ error: "Contact introuvable." }, { status: 404 });
         }
-        blockedFromCycle = await isAlreadyTracked(contact.source === "AO");
         const written = await writeMarqueContactEmail(id, marqueId, email);
         if (written.blockedAsTalent) {
           return NextResponse.json(
@@ -292,8 +291,11 @@ export async function POST(request: NextRequest) {
             { status: 422 }
           );
         }
-        // Lab/carto2 / enrichissement : choix UI ou auto → prospection agence.
-        if (!blockedFromCycle && contact.source !== "AO") {
+        // Lab/carto2 / enrichissement → prospection agence.
+        // Toujours tenter le routage agence AVANT le garde « déjà suivi » :
+        // un contact Zmirov/Heaven déjà en cycle pour une autre marque doit
+        // quand même être rattaché à CETTE fiche (Partner + AgencyContact).
+        if (contact.source !== "AO") {
           const routed = await routeMarqueContactToAgencyProspecting({
             marqueId,
             marqueContactId: id,
@@ -311,6 +313,10 @@ export async function POST(request: NextRequest) {
             if (routed.enrolled) agencyEnrolled += 1;
             blockedFromCycle = true;
           }
+        }
+        // Pas agence → conflit cross-pipeline bloque seulement l'enrôlement client.
+        if (!blockedFromCycle) {
+          blockedFromCycle = await isAlreadyTracked(contact.source === "AO");
         }
       }
       saved.push(email);
