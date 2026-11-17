@@ -102,15 +102,28 @@ export async function enrollInfluenceContacts(opts: {
     await import("@/lib/casting-recipient-guard");
   const blocklist = await loadCastingRecipientBlocklist();
 
+  const { routeMarqueContactToAgencyProspecting } = await import(
+    "@/lib/agency-partner"
+  );
+
   let enrolled = 0;
   for (const c of contacts) {
     const email = (c.email || "").trim().toLowerCase();
     if (!isValidEmail(email)) continue;
 
+    // Domaine / périmètre agence → prospection agence, jamais outreach clients.
+    const routed = await routeMarqueContactToAgencyProspecting({
+      marqueId: opts.marqueId,
+      marqueContactId: c.id,
+      userId: opts.createdById,
+    });
+    if (routed.routed) continue;
+
     if (
       isForbiddenCastingRecipient(
         { email, prenom: c.prenom, nom: c.nom },
-        blocklist
+        blocklist,
+        { brand: opts.company }
       )
     ) {
       await prisma.marqueContact.update({
@@ -549,6 +562,16 @@ export async function enrollOneFrContactNow(opts: {
   const email = (contact.email || "").trim().toLowerCase();
   if (!isValidEmail(email)) return false;
 
+  const { routeMarqueContactToAgencyProspecting } = await import(
+    "@/lib/agency-partner"
+  );
+  const routed = await routeMarqueContactToAgencyProspecting({
+    marqueId: contact.marqueId,
+    marqueContactId: contact.id,
+    userId: opts.userId,
+  });
+  if (routed.routed) return false;
+
   // L'unicité est sur email (pas sur marqueContactId) : un target déjà créé
   // pour cet email (autre fiche / orphelin) ne doit pas retenter un create.
   const existingByEmail = await prisma.outreachTarget.findUnique({
@@ -563,7 +586,8 @@ export async function enrollOneFrContactNow(opts: {
   if (
     isForbiddenCastingRecipient(
       { email, prenom: contact.prenom, nom: contact.nom },
-      blocklist
+      blocklist,
+      { brand: contact.marque?.nom }
     )
   ) {
     await prisma.marqueContact.update({

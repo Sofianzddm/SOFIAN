@@ -23,7 +23,12 @@ export async function writeMarqueContactEmail(
 
   const contact = await prisma.marqueContact.findFirst({
     where: { id, marqueId },
-    select: { prenom: true, nom: true },
+    select: {
+      prenom: true,
+      nom: true,
+      diffusionOptOut: true,
+      marque: { select: { nom: true } },
+    },
   });
   if (contact) {
     const blocklist = await loadCastingRecipientBlocklist();
@@ -34,7 +39,8 @@ export async function writeMarqueContactEmail(
           prenom: contact.prenom,
           nom: contact.nom,
         },
-        blocklist
+        blocklist,
+        { brand: contact.marque?.nom }
       )
     ) {
       await prisma.marqueContact.update({
@@ -78,6 +84,10 @@ export async function writeMarqueContactEmail(
       email: normalized,
       emailLookupStatus: "FOUND",
       emailSuggested: null,
+      emailLookupQueuedAt: null,
+      // Réouvre le contact si un save précédent l'avait exclus à tort
+      // (ex. hard-block L’Oréal avant exception Margiela).
+      ...(contact?.diffusionOptOut ? {} : { outreachExcluded: false }),
     },
   });
   return { deduped: false };

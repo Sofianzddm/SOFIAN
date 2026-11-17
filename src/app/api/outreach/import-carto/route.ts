@@ -6,6 +6,7 @@ import { findCrossPipelineConflict } from "@/lib/outreach-bridge";
 import { aoFileNameFromOriginal, extractWorksheetAsXlsx, parseWorksheetCartoRows } from "@/lib/carto-excel";
 import { queueMarqueEnrichissement } from "@/lib/envoyer-marque-outreach";
 import { contactPersonKey } from "@/lib/contact-person-key";
+import { syncMarqueAgenciesFromCartoContacts } from "@/lib/agency-partner";
 
 /**
  * POST → importe une cartographie de contacts (fichier Claude / Excel collé)
@@ -448,6 +449,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Emails @woo.paris / @nicework.fr / … ou périmètre agence → lien CRM Agences.
+    let agenciesLinked = 0;
+    for (const id of brandCache.keys()) {
+      try {
+        const sync = await syncMarqueAgenciesFromCartoContacts({
+          marqueId: id,
+          createdById: session.user.id,
+        });
+        agenciesLinked += sync.linked;
+      } catch (e) {
+        console.warn("[import-carto] sync agences:", e);
+      }
+    }
+
     return NextResponse.json({
       marqueId,
       company,
@@ -458,6 +473,7 @@ export async function POST(request: NextRequest) {
       aoFileStored,
       aoContactsCreated,
       queuedForEnrichment,
+      agenciesLinked,
     });
   } catch (error) {
     console.error("POST /api/outreach/import-carto:", error);

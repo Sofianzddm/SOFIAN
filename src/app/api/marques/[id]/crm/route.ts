@@ -40,6 +40,8 @@ export async function GET(
       return NextResponse.json({ error: "Marque introuvable" }, { status: 404 });
     }
 
+    const contactIds = marque.contacts.map((c) => c.id);
+
     const [
       inboundOpportunities,
       contactMissions,
@@ -49,6 +51,7 @@ export async function GET(
       opportunitesMarque,
       demandesEntrantes,
       quotes,
+      contactActivities,
     ] = await Promise.all([
       prisma.inboundOpportunity.findMany({
         where: { marqueId: id },
@@ -162,6 +165,24 @@ export async function GET(
           createdAt: true,
         },
       }),
+      contactIds.length === 0
+        ? Promise.resolve([])
+        : prisma.marqueContactActivity.findMany({
+            where: { contactId: { in: contactIds } },
+            orderBy: { occurredAt: "desc" },
+            take: 40,
+            select: {
+              id: true,
+              type: true,
+              body: true,
+              callOutcome: true,
+              occurredAt: true,
+              createdByName: true,
+              contact: {
+                select: { id: true, prenom: true, nom: true },
+              },
+            },
+          }),
     ]);
 
     type TimelineItem = {
@@ -252,13 +273,57 @@ export async function GET(
         meta: { status: d.status },
       });
     }
+    for (const q of quotes) {
+      timeline.push({
+        id: `devis-${q.id}`,
+        type: "DEVIS",
+        label: q.reference,
+        sublabel: q.totalTTC != null ? `${q.totalTTC} €` : undefined,
+        date: q.createdAt.toISOString(),
+        href: `/quotes/${q.id}`,
+        meta: { status: q.status, totalTTC: q.totalTTC },
+      });
+    }
+
+    const callOutcomeLabel: Record<string, string> = {
+      CONNECTED: "Joint",
+      NO_ANSWER: "Pas de réponse",
+      VOICEMAIL: "Messagerie",
+      BUSY: "Occupé",
+    };
+    for (const a of contactActivities) {
+      const contactName = [a.contact.prenom, a.contact.nom].filter(Boolean).join(" ");
+      const isCall = a.type === "CALL";
+      const preview = a.body.length > 120 ? `${a.body.slice(0, 120)}…` : a.body;
+      timeline.push({
+        id: `contact-act-${a.id}`,
+        type: isCall ? "APPEL" : "NOTE_CONTACT",
+        label: isCall
+          ? `Appel · ${contactName}${a.callOutcome ? ` (${callOutcomeLabel[a.callOutcome] || a.callOutcome})` : ""}`
+          : `Note · ${contactName}`,
+        sublabel: [preview, a.createdByName].filter(Boolean).join(" · "),
+        date: a.occurredAt.toISOString(),
+        href: `/marques/${id}?tab=contacts`,
+        meta: {
+          status: isCall ? a.callOutcome || "CALL" : "NOTE",
+          contactId: a.contact.id,
+        },
+      });
+    }
 
     timeline.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
+    const activityNoteCount = contactActivities.filter((a) => a.type === "NOTE").length;
+    const activityCallCount = contactActivities.filter((a) => a.type === "CALL").length;
+
     return NextResponse.json({
       marque,
-      counts: marque._count,
-      timeline: timeline.slice(0, 80),
+      counts: {
+        ...marque._count,
+        contactNotes: activityNoteCount,
+        contactCalls: activityCallCount,
+      },
+      timeline: timeline.slice(0, 100),
       inboundOpportunities,
       contactMissions,
       negociations,
@@ -267,6 +332,7 @@ export async function GET(
       opportunitesMarque,
       demandesEntrantes,
       quotes,
+      contactActivities,
     });
   } catch (error) {
     console.error("GET /api/marques/[id]/crm:", error);

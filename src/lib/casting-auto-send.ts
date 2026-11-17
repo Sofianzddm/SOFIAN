@@ -178,10 +178,13 @@ export function parseCastingContacts(raw: unknown): CastingContact[] {
 }
 
 async function filterAllowedCastingContacts(
-  contacts: CastingContact[]
+  contacts: CastingContact[],
+  brand?: string | null
 ): Promise<CastingContact[]> {
   const blocklist = await loadCastingRecipientBlocklist();
-  return contacts.filter((c) => !isForbiddenCastingRecipient(c, blocklist));
+  return contacts.filter(
+    (c) => !isForbiddenCastingRecipient(c, blocklist, { brand })
+  );
 }
 
 /**
@@ -256,7 +259,8 @@ export async function preflightCastingSend(
     };
   }
   const contacts = await filterAllowedCastingContacts(
-    parseCastingContacts(mission.clientContacts)
+    parseCastingContacts(mission.clientContacts),
+    mission.targetBrand
   );
   if (contacts.length === 0) {
     return {
@@ -541,7 +545,8 @@ export async function buildCastingSendPreview(
   };
 
   const allContacts = await filterAllowedCastingContacts(
-    parseCastingContacts(mission.clientContacts)
+    parseCastingContacts(mission.clientContacts),
+    mission.targetBrand
   );
   // Pas encore de contact sur la carte : on montre quand même l'aperçu avec
   // un contact fictif (les variables sont remplacées par Prénom / Nom) pour
@@ -751,7 +756,8 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
   };
 
   const allContacts = await filterAllowedCastingContacts(
-    parseCastingContacts(mission.clientContacts)
+    parseCastingContacts(mission.clientContacts),
+    mission.targetBrand
   );
   const alreadySent = extractAlreadySentEmails(mission.sentMessageIds);
   const newContacts = allContacts.filter(
@@ -1931,7 +1937,8 @@ export async function executeCastingRelance(
           firstname: contactForGuard?.firstname,
           lastname: contactForGuard?.lastname,
         },
-        recipientBlocklist
+        recipientBlocklist,
+        { brand: mission.targetBrand }
       )
     ) {
       continue;

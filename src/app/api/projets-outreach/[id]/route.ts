@@ -282,9 +282,16 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
   };
 }
 
-async function attachMarqueContacts<T extends { missions: Array<{ marqueId: string | null; marqueContacts: unknown[] }> }>(
-  campaign: T
-): Promise<T> {
+async function attachMarqueContacts<
+  T extends {
+    missions: Array<{
+      marqueId: string | null;
+      marqueNom?: string | null;
+      targetBrand?: string | null;
+      marqueContacts: unknown[];
+    }>;
+  }
+>(campaign: T): Promise<T> {
   const marqueIds = Array.from(
     new Set(
       campaign.missions
@@ -293,6 +300,15 @@ async function attachMarqueContacts<T extends { missions: Array<{ marqueId: stri
     )
   );
   if (marqueIds.length === 0) return campaign;
+
+  const brandByMarqueId = new Map<string, string>();
+  for (const m of campaign.missions) {
+    if (!m.marqueId) continue;
+    const brand = String(m.marqueNom || m.targetBrand || "").trim();
+    if (brand && !brandByMarqueId.has(m.marqueId)) {
+      brandByMarqueId.set(m.marqueId, brand);
+    }
+  }
 
   const rows = await prisma.marqueContact.findMany({
     where: {
@@ -340,7 +356,8 @@ async function attachMarqueContacts<T extends { missions: Array<{ marqueId: stri
     if (
       isForbiddenCastingRecipient(
         { email, firstname, lastname },
-        blocklist
+        blocklist,
+        { brand: brandByMarqueId.get(r.marqueId) }
       )
     ) {
       continue;

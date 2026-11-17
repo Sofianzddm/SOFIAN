@@ -7,6 +7,7 @@ import {
   canUpdateMarqueBilling,
   canWriteMarqueCrm,
 } from "@/lib/marque-crm-access";
+import { syncMarqueAgenciesFromCartoContacts } from "@/lib/agency-partner";
 
 // GET - Détail d'une marque
 export async function GET(
@@ -140,6 +141,30 @@ export async function GET(
         { message: "Marque non trouvée" },
         { status: 404 }
       );
+    }
+
+    // Backfill : contacts carto @woo.paris / Nice Work / … → section Agences.
+    try {
+      const agencySync = await syncMarqueAgenciesFromCartoContacts({
+        marqueId: id,
+        createdById: session.user.id,
+      });
+      if (agencySync.linked > 0) {
+        marque.partners = await prisma.marquePartner.findMany({
+          where: { marqueId: id },
+          select: {
+            id: true,
+            source: true,
+            createdAt: true,
+            partner: {
+              select: { id: true, name: true, slug: true, market: true },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+        });
+      }
+    } catch (e) {
+      console.warn("[marques GET] sync agences:", e);
     }
 
     // Si un target est en cycle mais détaché du contact (FK null après fusion),

@@ -109,7 +109,8 @@ async function searchAppContacts(brand: string): Promise<{
       (c) =>
         !isForbiddenCastingRecipient(
           { email: c.email, firstname: c.firstname, lastname: c.lastname },
-          blocklist
+          blocklist,
+          { brand }
         )
     );
 
@@ -142,7 +143,8 @@ export async function GET(request: NextRequest) {
       if (
         isForbiddenCastingRecipient(
           { email, firstname: c.firstname, lastname: c.lastname },
-          blocklist
+          blocklist,
+          { brand }
         )
       ) {
         continue;

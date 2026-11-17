@@ -32,6 +32,11 @@ import {
   type DetectedEmailPattern,
   type EmailSuggestion,
 } from "@/lib/email-pattern";
+import {
+  agencyNameFromEmailDomain,
+  agencyNameFromPerimetre,
+  isAgencySideContact,
+} from "@/lib/agency-domains";
 
 const INK = "#1A1110";
 const ROSE = "#C08B8B";
@@ -93,6 +98,14 @@ type Person = {
   source: "CARTO" | "AO" | null;
   refs: PersonRef[];
 };
+
+type AgencyAssign = {
+  kind: "client" | "agency";
+  partnerId: string | null;
+  partnerName: string;
+};
+
+type PartnerOption = { id: string; name: string };
 
 const personMarketSelection = (p: Person): PersonMarket => {
   const hasFr = p.refs.some((r) => r.market === "FR");
@@ -280,6 +293,19 @@ export function BrandEnrichPanel({
     Record<string, EmailVerifyResult>
   >({});
   const [busy, setBusy] = useState(false);
+  const [agencyOptions, setAgencyOptions] = useState<PartnerOption[]>([]);
+  const [agencyAssign, setAgencyAssign] = useState<
+    Record<string, AgencyAssign>
+  >({});
+
+  useEffect(() => {
+    fetch("/api/partners/options")
+      .then((r) => (r.ok ? r.json() : { partners: [] }))
+      .then((d) =>
+        setAgencyOptions(Array.isArray(d.partners) ? d.partners : [])
+      )
+      .catch(() => setAgencyOptions([]));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -350,6 +376,39 @@ export function BrandEnrichPanel({
       return next;
     });
   }, [people, contacts]);
+
+  // Préremplit Client / Agence selon périmètre analyse ou domaine email.
+  useEffect(() => {
+    if (people.length === 0) return;
+    setAgencyAssign((prev) => {
+      const next = { ...prev };
+      for (const p of people) {
+        if (next[p.key]) continue;
+        const draftEmail = (drafts[p.key] || "").trim();
+        const suggested =
+          agencyNameFromPerimetre(p.perimetre) ||
+          agencyNameFromEmailDomain(draftEmail) ||
+          "";
+        const hit = suggested
+          ? agencyOptions.find(
+              (o) => o.name.toLowerCase() === suggested.toLowerCase()
+            )
+          : undefined;
+        const agencySide = isAgencySideContact({
+          email: draftEmail || null,
+          perimetre: p.perimetre,
+        });
+        next[p.key] = agencySide
+          ? {
+              kind: "agency",
+              partnerId: hit?.id || null,
+              partnerName: hit?.name || suggested,
+            }
+          : { kind: "client", partnerId: null, partnerName: "" };
+      }
+      return next;
+    });
+  }, [people, drafts, agencyOptions]);
 
   const livePattern = useMemo((): DetectedEmailPattern | null => {
     const row = contacts.find((c) => c.pattern?.kind && c.pattern?.domain);
@@ -508,6 +567,25 @@ export function BrandEnrichPanel({
     const email = (drafts[p.key] || "").trim().toLowerCase();
     if (!isNf && !isValidEmail(email)) return;
 
+    const assign = agencyAssign[p.key] || {
+      kind: "client" as const,
+      partnerId: null,
+      partnerName: "",
+    };
+    const domainAgency = !isNf
+      ? agencyNameFromEmailDomain(email)
+      : null;
+    const effectiveAgency =
+      assign.kind === "agency" || Boolean(domainAgency);
+    const agencyName =
+      assign.partnerName.trim() || domainAgency || "";
+    if (!isNf && effectiveAgency && !assign.partnerId && !agencyName) {
+      setFlash(
+        `Choisis ou crée une agence pour ${[p.prenom, p.nom].filter(Boolean).join(" ") || "ce contact"}.`
+      );
+      return;
+    }
+
     const name = [p.prenom, p.nom].filter(Boolean).join(" ") || "Contact";
     setSavingPersonKey(p.key);
     setFlash(null);
@@ -517,11 +595,22 @@ export function BrandEnrichPanel({
         email?: string;
         notFound?: boolean;
         bothMarkets?: boolean;
+        agencyPartnerId?: string | null;
+        agencyName?: string | null;
+        forceClient?: boolean;
       };
       const bothMarkets =
         !isNf &&
         p.refs.some((r) => r.market === "FR") &&
         p.refs.some((r) => r.market === "BENELUX");
+
+      const agencyPayload = effectiveAgency
+        ? {
+            agencyPartnerId: assign.partnerId,
+            agencyName: agencyName || null,
+            forceClient: false as const,
+          }
+        : { forceClient: true as const };
 
       const groups = new Map<
         string,
@@ -541,11 +630,13 @@ export function BrandEnrichPanel({
                 id: ref.id,
                 email,
                 ...(bothMarkets ? { bothMarkets: true } : {}),
+                ...agencyPayload,
               }
         );
       }
 
       let totalEnrolled = 0;
+      let agencyRouted = 0;
       for (const g of groups.values()) {
         const res = await fetch("/api/outreach/email-lookup/ready", {
           method: "POST",
@@ -559,6 +650,7 @@ export function BrandEnrichPanel({
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Échec de l'enregistrement");
         totalEnrolled += data.enrolled || 0;
+        agencyRouted += data.routedToAgency || 0;
       }
 
       setContacts((prev) =>
@@ -579,13 +671,28 @@ export function BrandEnrichPanel({
         delete next[p.key];
         return next;
       });
+      setAgencyAssign((prev) => {
+        const next = { ...prev };
+        delete next[p.key];
+        return next;
+      });
+      if (agencyRouted > 0) {
+        fetch("/api/partners/options")
+          .then((r) => (r.ok ? r.json() : { partners: [] }))
+          .then((d) =>
+            setAgencyOptions(Array.isArray(d.partners) ? d.partners : [])
+          )
+          .catch(() => undefined);
+      }
 
       setFlash(
-        totalEnrolled > 0
-          ? `${name} enregistré — ${totalEnrolled} en outreach.`
-          : isNf
-            ? `${name} marqué sans email.`
-            : `${name} enregistré.`
+        agencyRouted > 0
+          ? `${name} → prospection agence${agencyName ? ` (${agencyName})` : ""}.`
+          : totalEnrolled > 0
+            ? `${name} enregistré — ${totalEnrolled} en outreach.`
+            : isNf
+              ? `${name} marqué sans email.`
+              : `${name} enregistré.`
       );
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Erreur");
@@ -910,6 +1017,148 @@ export function BrandEnrichPanel({
                         })}
                       </div>
                     </div>
+                    {(() => {
+                      const assign = agencyAssign[p.key] || {
+                        kind: "client" as const,
+                        partnerId: null,
+                        partnerName: "",
+                      };
+                      const emailNow = (drafts[p.key] || "").trim();
+                      const domainAgency =
+                        agencyNameFromEmailDomain(emailNow);
+                      const lockedAgency = Boolean(domainAgency);
+                      const effectiveKind = lockedAgency
+                        ? "agency"
+                        : assign.kind;
+                      const creating =
+                        effectiveKind === "agency" &&
+                        Boolean(assign.partnerName.trim()) &&
+                        !agencyOptions.some(
+                          (o) =>
+                            o.name.toLowerCase() ===
+                            assign.partnerName.trim().toLowerCase()
+                        );
+                      return (
+                        <div className="mt-3 space-y-2 rounded-lg border border-[#E5E0DA] bg-[#FAFAF8] px-3 py-2.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-gray-500">
+                              Rattachement :
+                            </span>
+                            <div
+                              className="inline-flex overflow-hidden rounded-md border"
+                              style={{ borderColor: "#E5E0DA" }}
+                            >
+                              {(
+                                [
+                                  ["client", "Client direct"],
+                                  ["agency", "Agence"],
+                                ] as const
+                              ).map(([kind, label]) => {
+                                const selected = effectiveKind === kind;
+                                return (
+                                  <button
+                                    key={kind}
+                                    type="button"
+                                    disabled={
+                                      busy ||
+                                      savingPersonKey === p.key ||
+                                      (lockedAgency && kind === "client")
+                                    }
+                                    onClick={() =>
+                                      setAgencyAssign((prev) => ({
+                                        ...prev,
+                                        [p.key]: {
+                                          kind,
+                                          partnerId:
+                                            kind === "agency"
+                                              ? prev[p.key]?.partnerId || null
+                                              : null,
+                                          partnerName:
+                                            kind === "agency"
+                                              ? prev[p.key]?.partnerName ||
+                                                domainAgency ||
+                                                agencyNameFromPerimetre(
+                                                  p.perimetre
+                                                ) ||
+                                                ""
+                                              : "",
+                                        },
+                                      }))
+                                    }
+                                    className="px-2.5 py-1 text-[11px] font-semibold transition disabled:opacity-40"
+                                    style={
+                                      selected
+                                        ? {
+                                            backgroundColor:
+                                              kind === "agency" ? "#3730A3" : INK,
+                                            color: "#fff",
+                                          }
+                                        : {
+                                            backgroundColor: "#fff",
+                                            color: "#9CA3AF",
+                                          }
+                                    }
+                                  >
+                                    {label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {lockedAgency ? (
+                              <span className="text-[10px] font-medium text-indigo-700">
+                                Domaine @{emailNow.split("@")[1]} → agence
+                              </span>
+                            ) : null}
+                          </div>
+                          {effectiveKind === "agency" ? (
+                            <div className="space-y-1">
+                              <label className="block text-[11px] text-gray-500">
+                                Choisir une agence existante ou taper un nom pour
+                                en créer une
+                              </label>
+                              <input
+                                list={`agency-options-${p.key}`}
+                                value={
+                                  assign.partnerName || domainAgency || ""
+                                }
+                                disabled={busy || savingPersonKey === p.key}
+                                placeholder="ex. Monks, WOÔ, Nice Work…"
+                                onChange={(e) => {
+                                  const name = e.target.value;
+                                  const hit = agencyOptions.find(
+                                    (o) =>
+                                      o.name.toLowerCase() ===
+                                      name.trim().toLowerCase()
+                                  );
+                                  setAgencyAssign((prev) => ({
+                                    ...prev,
+                                    [p.key]: {
+                                      kind: "agency",
+                                      partnerId: hit?.id || null,
+                                      partnerName: name,
+                                    },
+                                  }));
+                                }}
+                                className="w-full rounded-lg border border-[#E5E0DA] bg-white px-3 py-2 text-sm outline-none focus:border-[#C08B8B]"
+                                style={{ color: INK }}
+                              />
+                              <datalist id={`agency-options-${p.key}`}>
+                                {agencyOptions.map((o) => (
+                                  <option key={o.id} value={o.name} />
+                                ))}
+                              </datalist>
+                              <p className="text-[11px] text-gray-400">
+                                {creating
+                                  ? `Nouvelle agence « ${assign.partnerName.trim()} » sera créée à l’enregistrement.`
+                                  : assign.partnerId
+                                    ? "Agence existante — liée à la fiche marque + prospection agence."
+                                    : "Sélectionne dans la liste ou saisis un nouveau nom."}
+                              </p>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <button

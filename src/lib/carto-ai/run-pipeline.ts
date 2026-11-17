@@ -20,6 +20,7 @@ import {
 } from "@/lib/envoyer-marque-outreach";
 import { CARTO_AI_MAX_CONTACTS } from "@/lib/carto-ai/constants";
 import type { CartoAiContactCandidate } from "@/lib/carto-ai/types";
+import { syncMarqueAgenciesFromCartoContacts } from "@/lib/agency-partner";
 
 function clean(v: unknown): string | null {
   const s = typeof v === "string" ? v.trim() : "";
@@ -242,6 +243,31 @@ async function commitFrance(opts: {
       contactIds: enrichedIds.length ? enrichedIds : undefined,
     });
     enrolled = enroll.enrolled;
+  }
+
+  try {
+    await syncMarqueAgenciesFromCartoContacts({
+      marqueId,
+      createdById: opts.userId,
+    });
+  } catch (e) {
+    console.warn("[carto-ai] sync agences:", e);
+  }
+
+  // Contacts déjà emailés (carto / auto-enrich) → prospection agence si domaine.
+  try {
+    const { routeMarqueContactToAgencyProspecting } = await import(
+      "@/lib/agency-partner"
+    );
+    for (const cid of contactIds) {
+      await routeMarqueContactToAgencyProspecting({
+        marqueId,
+        marqueContactId: cid,
+        userId: opts.userId,
+      });
+    }
+  } catch (e) {
+    console.warn("[carto-ai] route agences:", e);
   }
 
   console.log(

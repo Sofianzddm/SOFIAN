@@ -504,6 +504,11 @@ export async function syncPipelineContactsToMarque(
   const { isForbiddenCastingRecipient, loadCastingRecipientBlocklist } =
     await import("@/lib/casting-recipient-guard");
   const blocklist = await loadCastingRecipientBlocklist();
+  const marque = await client.marque.findUnique({
+    where: { id: marqueId },
+    select: { nom: true },
+  });
+  const brand = marque?.nom || null;
 
   for (const c of contacts) {
     const email = String(c.email || "").trim().toLowerCase();
@@ -513,7 +518,8 @@ export async function syncPipelineContactsToMarque(
     if (
       isForbiddenCastingRecipient(
         { email, firstname, lastname },
-        blocklist
+        blocklist,
+        { brand }
       )
     ) {
       continue;

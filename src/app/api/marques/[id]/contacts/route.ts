@@ -8,6 +8,7 @@ import {
   canManageDiffusionOptOut,
   canWriteMarqueCrm,
 } from "@/lib/marque-crm-access";
+import { syncMarqueAgenciesFromCartoContacts } from "@/lib/agency-partner";
 
 /**
  * POST → ajout rapide d'un contact depuis la fiche marque (sans passer par
@@ -99,9 +100,23 @@ export async function POST(
       });
     }
 
+    // @monks.com / @woo.paris / … → Partner + AgencyContact
+    let agencySync = null;
+    if (email) {
+      try {
+        agencySync = await syncMarqueAgenciesFromCartoContacts({
+          marqueId: id,
+          createdById: session.user.id,
+        });
+      } catch (e) {
+        console.warn("[contacts POST] sync agences:", e);
+      }
+    }
+
     return NextResponse.json(
       {
         contact,
+        agencySync,
         awaitingResolved:
           awaitingResolved && awaitingResolved.resolvedCount > 0
             ? {
@@ -146,6 +161,11 @@ export async function PATCH(
       nom?: string;
       poste?: string;
       telephone?: string;
+      linkedinUrl?: string;
+      priorite?: string;
+      perimetre?: string;
+      localisation?: string;
+      principal?: boolean;
       diffusionOptOut?: boolean;
       addSousMarqueId?: string;
       removeSousMarqueId?: string;
@@ -272,14 +292,19 @@ export async function PATCH(
       return NextResponse.json({ ok: true, target: { id: target.id, nom: target.nom } });
     }
 
-    // Mode « édition contact » : modifier email / prénom / nom / poste / téléphone
-    // directement depuis la fiche marque (sans passer par la page d'édition).
+    // Mode « édition contact » : champs fiche + langue depuis le drawer CRM.
     const wantsFieldEdit =
       body.email !== undefined ||
       body.prenom !== undefined ||
       body.nom !== undefined ||
       body.poste !== undefined ||
-      body.telephone !== undefined;
+      body.telephone !== undefined ||
+      body.linkedinUrl !== undefined ||
+      body.priorite !== undefined ||
+      body.perimetre !== undefined ||
+      body.localisation !== undefined ||
+      body.principal !== undefined ||
+      body.language !== undefined;
     if (wantsFieldEdit) {
       const contact = await prisma.marqueContact.findFirst({
         where: { id: contactId, marqueId: id },
@@ -295,6 +320,12 @@ export async function PATCH(
         nom?: string;
         poste?: string | null;
         telephone?: string | null;
+        linkedinUrl?: string | null;
+        priorite?: string | null;
+        perimetre?: string | null;
+        localisation?: string | null;
+        principal?: boolean;
+        language?: string;
       } = {};
 
       let newEmail: string | null = null;
@@ -330,6 +361,45 @@ export async function PATCH(
       if (body.poste !== undefined) data.poste = (body.poste || "").trim() || null;
       if (body.telephone !== undefined)
         data.telephone = (body.telephone || "").trim() || null;
+      if (body.linkedinUrl !== undefined) {
+        const url = (body.linkedinUrl || "").trim();
+        if (url && !/^https?:\/\//i.test(url) && !url.includes("linkedin.com")) {
+          return NextResponse.json({ error: "URL LinkedIn invalide." }, { status: 400 });
+        }
+        data.linkedinUrl = url || null;
+      }
+      if (body.priorite !== undefined) {
+        const p = (body.priorite || "").trim().toUpperCase();
+        if (p && !["P1", "P2", "P3"].includes(p)) {
+          return NextResponse.json({ error: "Priorité invalide (P1/P2/P3)." }, { status: 400 });
+        }
+        data.priorite = p || null;
+      }
+      if (body.perimetre !== undefined)
+        data.perimetre = (body.perimetre || "").trim() || null;
+      if (body.localisation !== undefined)
+        data.localisation = (body.localisation || "").trim() || null;
+      if (typeof body.principal === "boolean") data.principal = body.principal;
+
+      let languageToPropagate: "fr" | "en" | null = null;
+      if (body.language !== undefined) {
+        if (body.language !== "fr" && body.language !== "en") {
+          return NextResponse.json(
+            { error: "Langue invalide (français ou anglais)." },
+            { status: 400 }
+          );
+        }
+        data.language = body.language;
+        languageToPropagate = body.language;
+      }
+
+      // Un seul principal par marque : si on pose principal=true, on retire les autres.
+      if (data.principal === true) {
+        await prisma.marqueContact.updateMany({
+          where: { marqueId: id, principal: true, id: { not: contact.id } },
+          data: { principal: false },
+        });
+      }
 
       const updated = await prisma.marqueContact.update({
         where: { id: contact.id },
@@ -346,6 +416,14 @@ export async function PATCH(
         });
       }
 
+      const emailForLang = (updated.email || contact.email || "").trim().toLowerCase();
+      if (languageToPropagate && emailForLang) {
+        await prisma.outreachTarget.updateMany({
+          where: { marqueId: id, email: emailForLang },
+          data: { language: languageToPropagate },
+        });
+      }
+
       let awaitingResolved = null;
       if (body.email !== undefined && newEmail) {
         const { resolveAwaitingEnrichissementForMarque } = await import(
@@ -357,8 +435,21 @@ export async function PATCH(
         });
       }
 
+      let agencySync = null;
+      if (updated.email) {
+        try {
+          agencySync = await syncMarqueAgenciesFromCartoContacts({
+            marqueId: id,
+            createdById: session.user.id,
+          });
+        } catch (e) {
+          console.warn("[contacts PATCH] sync agences:", e);
+        }
+      }
+
       return NextResponse.json({
         contact: updated,
+        agencySync,
         awaitingResolved:
           awaitingResolved && awaitingResolved.resolvedCount > 0
             ? {
@@ -370,37 +461,10 @@ export async function PATCH(
       });
     }
 
-    if (body.language !== "fr" && body.language !== "en") {
-      return NextResponse.json(
-        { error: "Langue invalide (français ou anglais)." },
-        { status: 400 }
-      );
-    }
-    const language: "fr" | "en" = body.language;
-
-    const contact = await prisma.marqueContact.findFirst({
-      where: { id: contactId, marqueId: id },
-      select: { id: true, email: true },
-    });
-    if (!contact) {
-      return NextResponse.json({ error: "Contact non trouvé." }, { status: 404 });
-    }
-
-    const updated = await prisma.marqueContact.update({
-      where: { id: contact.id },
-      data: { language },
-    });
-
-    // Propage la langue à la cible Outreach déjà dans le cycle (matché par email).
-    const email = (contact.email || "").trim().toLowerCase();
-    if (email) {
-      await prisma.outreachTarget.updateMany({
-        where: { marqueId: id, email },
-        data: { language },
-      });
-    }
-
-    return NextResponse.json({ contact: updated });
+    return NextResponse.json(
+      { error: "Aucun champ à mettre à jour." },
+      { status: 400 }
+    );
   } catch (error) {
     console.error("PATCH /api/marques/[id]/contacts:", error);
     return NextResponse.json(

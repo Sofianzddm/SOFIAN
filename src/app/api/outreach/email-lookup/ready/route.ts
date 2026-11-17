@@ -13,6 +13,7 @@ import {
 } from "@/lib/agency-contact-email";
 import { writeMarqueContactEmail } from "@/lib/marque-contact-email";
 import { refreshFwClientStatut } from "@/lib/fw-prospection";
+import { routeMarqueContactToAgencyProspecting } from "@/lib/agency-partner";
 
 /**
  * POST → valide toute la fiche enrichissement d'un coup (« Prêt »).
@@ -103,6 +104,12 @@ export async function POST(request: NextRequest) {
         email?: string;
         notFound?: boolean;
         bothMarkets?: boolean;
+        /** Étape 2 enrichissement : Partner choisi. */
+        agencyPartnerId?: string | null;
+        /** Étape 2 : nom libre → crée / réutilise l'agence. */
+        agencyName?: string | null;
+        /** Étape 2 : forcer client direct (pas de routage agence). */
+        forceClient?: boolean;
       }>;
     };
 
@@ -139,6 +146,9 @@ export async function POST(request: NextRequest) {
      * le CRM (sortie de QUEUED), mais on n'enrôle pas dans le cycle local.
      */
     const skippedAlreadyTracked: string[] = [];
+    /** Contacts FR détournés vers prospection agence (domaine / périmètre). */
+    const routedToAgency: string[] = [];
+    let agencyEnrolled = 0;
 
     for (const row of rows) {
       const id = String(row.id || "").trim();
@@ -209,7 +219,13 @@ export async function POST(request: NextRequest) {
             blocklist
           )
         ) {
-          continue;
+          return NextResponse.json(
+            {
+              error:
+                "Cet email correspond à un talent Glow Up ou un domaine bloqué — non enregistré.",
+            },
+            { status: 422 }
+          );
         }
         await prisma.fwContact.update({
           where: { id },
@@ -229,7 +245,15 @@ export async function POST(request: NextRequest) {
         }
         blockedFromCycle = await isAlreadyTracked(false);
         const written = await writeAgencyContactEmail(id, marqueId, email);
-        if (written.blockedAsTalent) continue;
+        if (written.blockedAsTalent) {
+          return NextResponse.json(
+            {
+              error:
+                "Cet email correspond à un talent Glow Up ou un domaine bloqué — non enregistré.",
+            },
+            { status: 422 }
+          );
+        }
       } else if (market === "BENELUX") {
         const contact = await prisma.beneluxContact.findFirst({
           where: { id, companyId: marqueId },
@@ -240,7 +264,15 @@ export async function POST(request: NextRequest) {
         }
         blockedFromCycle = await isAlreadyTracked(contact.source === "AO");
         const written = await writeBeneluxContactEmail(id, marqueId, email);
-        if (written.blockedAsTalent) continue;
+        if (written.blockedAsTalent) {
+          return NextResponse.json(
+            {
+              error:
+                "Cet email correspond à un talent Glow Up ou un domaine bloqué — non enregistré.",
+            },
+            { status: 422 }
+          );
+        }
       } else {
         const contact = await prisma.marqueContact.findFirst({
           where: { id, marqueId },
@@ -251,10 +283,38 @@ export async function POST(request: NextRequest) {
         }
         blockedFromCycle = await isAlreadyTracked(contact.source === "AO");
         const written = await writeMarqueContactEmail(id, marqueId, email);
-        if (written.blockedAsTalent) continue;
+        if (written.blockedAsTalent) {
+          return NextResponse.json(
+            {
+              error:
+                "Cet email correspond à un talent Glow Up ou un domaine bloqué — non enregistré.",
+            },
+            { status: 422 }
+          );
+        }
+        // Lab/carto2 / enrichissement : choix UI ou auto → prospection agence.
+        if (!blockedFromCycle && contact.source !== "AO") {
+          const routed = await routeMarqueContactToAgencyProspecting({
+            marqueId,
+            marqueContactId: id,
+            userId: session.user.id,
+            partnerId: row.agencyPartnerId || null,
+            partnerName: row.agencyName || null,
+            forceClient: row.forceClient === true,
+          });
+          if (routed.routed) {
+            routedToAgency.push(
+              routed.partnerName
+                ? `${email} → ${routed.partnerName}`
+                : email
+            );
+            if (routed.enrolled) agencyEnrolled += 1;
+            blockedFromCycle = true;
+          }
+        }
       }
       saved.push(email);
-      // Conflit cross-pipeline → CRM OK / hors file, mais pas d'enrôlement local.
+      // Conflit cross-pipeline / routage agence → CRM OK, pas d'enrôlement clients.
       if (!blockedFromCycle) enrollableIds.push(id);
     }
 
@@ -369,6 +429,12 @@ export async function POST(request: NextRequest) {
           ? ` · auto FR + BE (${sibling.enrolled} sur marché frère)`
           : ` · aussi présent(e) sur marché frère (déjà en cycle)`
         : "";
+    const agencyNote =
+      routedToAgency.length > 0
+        ? ` · ${routedToAgency.length} vers prospection agence${
+            agencyEnrolled > 0 ? ` (${agencyEnrolled} enrôlé${agencyEnrolled > 1 ? "s" : ""})` : ""
+          }`
+        : "";
     const suffix =
       sibling.matched > 0
         ? " FR + BE"
@@ -377,9 +443,9 @@ export async function POST(request: NextRequest) {
           : "";
     const message =
       totalEnrolled > 0
-        ? `${totalEnrolled} contact(s) envoyés dans « À contacter »${suffix}.${skippedNote}${crossNote}${awaitingNote}`
+        ? `${totalEnrolled} contact(s) envoyés dans « À contacter »${suffix}.${skippedNote}${crossNote}${agencyNote}${awaitingNote}`
         : saved.length > 0
-          ? `${saved.length} email(s) enregistrés${suffix}.${skippedNote}${crossNote}${awaitingNote}`
+          ? `${saved.length} email(s) enregistrés${suffix}.${skippedNote}${crossNote}${agencyNote}${awaitingNote}`
           : skippedAlreadyTracked.length > 0
             ? `Fiche sortie de file${suffix} : ${skippedAlreadyTracked.length} déjà suivi(s) ailleurs (hors cycle).`
             : `${notFoundCount} contact(s) marqués sans email${suffix}.`;
@@ -390,6 +456,9 @@ export async function POST(request: NextRequest) {
       notFound: notFoundCount,
       skippedAlreadyTracked: skippedAlreadyTracked.length,
       skippedDetails: skippedAlreadyTracked,
+      routedToAgency: routedToAgency.length,
+      agencyEnrolled,
+      routedToAgencyDetails: routedToAgency,
       enrolled: totalEnrolled,
       enrolledLocal: enroll.enrolled,
       enrolledSibling: sibling.enrolled,

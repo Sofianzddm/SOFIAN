@@ -83,8 +83,31 @@ const HARD_BLOCKED_CASTING_EMAIL_DOMAINS = [
 const HARD_BLOCKED_CASTING_BRAND_RE =
   /l['’`´]?or[eé]al|\bloreal\b|\bnyx\b/i;
 
-export function isHardBlockedCastingEmail(
+/**
+ * Exception métier : Maison Margiela Fragrances (licence L’Oréal Luxe).
+ * Autorise les @*.loreal.com uniquement pour cette marque.
+ */
+const LOREAL_HARD_BLOCK_EXEMPT_BRAND_RE =
+  /maison\s*margiela|margiela\s*fragrances?/i;
+
+export type CastingRecipientGuardOpts = {
+  /** Marque / targetBrand de la mission — peut lever le hard-block L’Oréal. */
+  brand?: string | null;
+};
+
+export function isLorealHardBlockExemptBrand(
   value: string | undefined | null
+): boolean {
+  return LOREAL_HARD_BLOCK_EXEMPT_BRAND_RE.test(String(value || ""));
+}
+
+function isLorealCorporateDomain(domain: string): boolean {
+  return /(?:^|\.)loreal\.com$/i.test(domain);
+}
+
+export function isHardBlockedCastingEmail(
+  value: string | undefined | null,
+  opts?: CastingRecipientGuardOpts
 ): boolean {
   const email = String(value || "")
     .trim()
@@ -93,13 +116,21 @@ export function isHardBlockedCastingEmail(
   if (HARD_BLOCKED_CASTING_EMAILS.has(email)) return true;
   const domain = email.split("@")[1] || "";
   if (!domain) return false;
-  return HARD_BLOCKED_CASTING_EMAIL_DOMAINS.some((re) => re.test(domain));
+  const allowLoreal =
+    Boolean(opts?.brand) && isLorealHardBlockExemptBrand(opts?.brand);
+  return HARD_BLOCKED_CASTING_EMAIL_DOMAINS.some((re) => {
+    if (!re.test(domain)) return false;
+    if (allowLoreal && isLorealCorporateDomain(domain)) return false;
+    return true;
+  });
 }
 
 export function isHardBlockedCastingBrand(
   value: string | undefined | null
 ): boolean {
-  return HARD_BLOCKED_CASTING_BRAND_RE.test(String(value || ""));
+  const brand = String(value || "");
+  if (isLorealHardBlockExemptBrand(brand)) return false;
+  return HARD_BLOCKED_CASTING_BRAND_RE.test(brand);
 }
 
 function normalizePersonTokens(...parts: Array<string | null | undefined>): string[] {
@@ -224,13 +255,14 @@ export function isForbiddenCastingRecipient(
     prenom?: string | null;
     nom?: string | null;
   },
-  blocklist?: CastingRecipientBlocklist | null
+  blocklist?: CastingRecipientBlocklist | null,
+  opts?: CastingRecipientGuardOpts
 ): boolean {
   const email = String(contact.email || "")
     .trim()
     .toLowerCase();
   if (isInternalGlowUpEmail(email)) return true;
-  if (isHardBlockedCastingEmail(email)) return true;
+  if (isHardBlockedCastingEmail(email, opts)) return true;
   if (email && blocklist?.emails.has(email)) return true;
 
   const firstname = contact.firstname ?? contact.prenom;

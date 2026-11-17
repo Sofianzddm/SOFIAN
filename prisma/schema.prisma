@@ -1049,6 +1049,7 @@ model MarqueContact {
   quotes             Quote[]
   outreachTargets    OutreachTarget[]
   demandeGiftMarques DemandeGiftMarque[]
+  activities         MarqueContactActivity[]
 
   // Sous-marques (marques filles) sur lesquelles ce contact intervient.
   // Un contact reste rattaché à sa marque (souvent la mère) mais peut couvrir
@@ -1058,6 +1059,38 @@ model MarqueContact {
   @@index([emailLookupStatus])
   @@index([marqueId, emailLookupStatus])
   @@map("marque_contacts")
+}
+
+/// Note libre ou journal d'appel rattaché à un contact marque (CRM HubSpot-like).
+enum MarqueContactActivityType {
+  NOTE
+  CALL
+}
+
+model MarqueContactActivity {
+  id String @id @default(cuid())
+
+  contactId String
+  contact   MarqueContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  type MarqueContactActivityType
+  /// Contenu de la note, ou résumé de l'échange téléphonique.
+  body String @db.Text
+
+  /// CALL : CONNECTED | NO_ANSWER | VOICEMAIL | BUSY
+  callOutcome String?
+  /// Date réelle de l'appel / de la note (peut différer de createdAt).
+  occurredAt DateTime @default(now())
+
+  createdById   String?
+  createdByName String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([contactId, occurredAt])
+  @@index([contactId, createdAt])
+  @@map("marque_contact_activities")
 }
 
 // Liaison plusieurs-à-plusieurs entre un contact et les sous-marques qu'il couvre.

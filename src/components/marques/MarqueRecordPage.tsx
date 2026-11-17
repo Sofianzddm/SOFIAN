@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * Fiche CRM unifiée FR / BENELUX — même layout « record page » :
- * topbar, identité, stats, panneau latéral, onglets (Activité, Contacts,
- * Carto, AO, Collabs). Le marché ne change que les endpoints et les
- * sections absentes côté BENELUX (groupe, AO, collabs créées…).
+ * Fiche CRM unifiée FR / BENELUX — layout type HubSpot Company record :
+ * header (lifecycle + Actions), centre (Overview / Activité / …),
+ * sidebar droite (About + Associations + Attachments).
+ * BENELUX : mêmes endpoints adaptés ; pas de groupe / AO / création collab.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -46,9 +46,18 @@ import {
   GitMerge,
   ArrowLeftRight,
   Search,
+  ChevronDown,
+  MoreHorizontal,
+  Paperclip,
 } from "lucide-react";
 import { MarqueCrmTab } from "@/app/(dashboard)/marques/[id]/MarqueCrmTab";
 import { ImportCartoModal } from "@/components/outreach/ImportCartoModal";
+import { ContactRecordDrawer } from "@/components/marques/ContactRecordDrawer";
+import {
+  agencyNameFromEmailDomain,
+  agencyNameFromPerimetre,
+  isAgencySideContact,
+} from "@/lib/agency-domains";
 import {
   canAccessFullMarqueCrm,
   canManageDiffusionOptOut,
@@ -88,6 +97,7 @@ type Contact = {
   diffusionOptOutAt?: string | null;
   outreachTargets?: OutreachInfo[];
   sousMarques?: { marque: { id: string; nom: string } }[];
+  _count?: { activities?: number };
 };
 
 interface MarqueDetail {
@@ -257,15 +267,15 @@ function SectionCard({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)]">
-      <div className="flex items-center justify-between px-4 pt-3.5 pb-2">
-        <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400">
+    <div className="rounded-xl bg-white ring-1 ring-black/[0.06]">
+      <div className="flex items-center justify-between px-3.5 pt-3 pb-1.5">
+        <h3 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-gray-400">
           <Icon className="w-3.5 h-3.5" />
           {title}
         </h3>
         {action}
       </div>
-      <div className="px-4 pb-4">{children}</div>
+      <div className="px-3.5 pb-3.5">{children}</div>
     </div>
   );
 }
@@ -510,7 +520,12 @@ export default function MarqueRecordPage({
   const canStrategy = !isBenelux && ["ADMIN", "STRATEGY_PLANNER"].includes(session?.user?.role || "");
   const [marque, setMarque] = useState<MarqueDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"activite" | "contacts" | "carto" | "ao" | "collabs">("activite");
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "activite" | "contacts" | "agences" | "carto" | "ao" | "collabs"
+  >("overview");
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [drawerContactId, setDrawerContactId] = useState<string | null>(null);
+  const [activityCounts, setActivityCounts] = useState<Record<string, number>>({});
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
   const [logoError, setLogoError] = useState(false);
 
@@ -620,7 +635,15 @@ export default function MarqueRecordPage({
       if (res.ok) {
         const data = await res.json();
         // BENELUX GET renvoie parfois { company } en plus — on prend la forme MarqueDetail.
-        setMarque(data.id ? data : data.company);
+        const next = data.id ? data : data.company;
+        setMarque(next);
+        if (next?.contacts && Array.isArray(next.contacts)) {
+          const counts: Record<string, number> = {};
+          for (const c of next.contacts as Contact[]) {
+            if (c._count?.activities != null) counts[c.id] = c._count.activities;
+          }
+          setActivityCounts((prev) => ({ ...counts, ...prev }));
+        }
       }
     } catch (error) {
       console.error("Erreur:", error);
@@ -1405,12 +1428,17 @@ export default function MarqueRecordPage({
   const totalCA = marque.collaborations
     .filter((c) => c.statut !== "PERDU" && c.statut !== "NEGO")
     .reduce((acc, c) => acc + Number(c.montantBrut), 0);
+  /** Tous les contacts CRM (hors AO) — lookup drawer / sync. */
   const crmContacts = marque.contacts.filter((c) => c.source !== "AO");
-  const contactsInCycle = crmContacts.filter((c) =>
+  /** Domaine connu OU périmètre « Agence … » → onglet Agences, pas client direct. */
+  const agencyContacts = crmContacts.filter(isAgencySideContact);
+  /** Clients directs de la marque. */
+  const directContacts = crmContacts.filter((c) => !isAgencySideContact(c));
+  const contactsInCycle = directContacts.filter((c) =>
     (c.outreachTargets || []).some((t) => t.status !== "STOPPED")
   ).length;
-  const cartoCount = marque.contacts.filter((c) => c.source === "CARTO").length;
-  const repliedCount = crmContacts.filter((c) =>
+  const cartoCount = directContacts.filter((c) => c.source === "CARTO").length;
+  const repliedCount = directContacts.filter((c) =>
     (c.outreachTargets || []).some((t) => t.lastRepliedAt)
   ).length;
   const siteDomain = marque.siteWeb ? marque.siteWeb.replace(/^https?:\/\//, "").split("/")[0] : null;
@@ -1419,60 +1447,75 @@ export default function MarqueRecordPage({
     return acc;
   }, {});
 
-  const STATS: { label: string; value: string; sub: string | null; icon: typeof Euro | typeof Handshake | typeof Send | typeof Users | typeof Repeat | typeof Clock; tint: string }[] = [
-    ...(!readOnly
-      ? [
-          isBenelux
-            ? {
-                label: marque._count.collaborations > 0 ? "CA total" : "En prospection",
-                value:
-                  marque._count.collaborations > 0
-                    ? formatMoney(totalCA)
-                    : String(contactsInCycle),
-                sub:
-                  marque._count.collaborations > 0
-                    ? `${marque._count.collaborations} collab${marque._count.collaborations > 1 ? "s" : ""} (fiche FR liée)`
-                    : "cycle outreach BENELUX",
-                icon: marque._count.collaborations > 0 ? Euro : Send,
-                tint: "text-emerald-600 bg-emerald-50",
-              }
-            : {
-            label: "CA total",
-            value: formatMoney(totalCA),
-            sub: marque._count.collaborations > 0 ? `${marque._count.collaborations} collab${marque._count.collaborations > 1 ? "s" : ""}` : "aucune collab",
-            icon: Euro,
-            tint: "text-emerald-600 bg-emerald-50",
-          },
-        ]
-      : [
-          {
-            label: "Collaborations",
-            value: String(marque._count.collaborations),
-            sub: null,
-            icon: Handshake,
-            tint: "text-emerald-600 bg-emerald-50",
-          },
-        ]),
+  const hasSignedCollab = marque.collaborations.some(
+    (c) => c.statut !== "PERDU" && c.statut !== "NEGO"
+  );
+  const hasNego = marque.collaborations.some((c) => c.statut === "NEGO");
+  const lifecycle: { label: string; bg: string; color: string } = hasSignedCollab
+    ? { label: "Client", bg: "#ECFDF5", color: "#047857" }
+    : hasNego
+      ? { label: "En négo", bg: "#FFFBEB", color: "#B45309" }
+      : contactsInCycle > 0
+        ? { label: "En cycle", bg: "#EEF2FF", color: "#3730A3" }
+        : { label: "Prospect", bg: "#F3F4F6", color: "#4B5563" };
+
+  const nextRecontactAt = directContacts
+    .flatMap((c) => c.outreachTargets || [])
+    .filter((t) => t.status !== "STOPPED" && t.nextRecontactAt)
+    .map((t) => t.nextRecontactAt as string)
+    .sort()[0] || null;
+
+  const principalContact =
+    directContacts.find((c) => c.principal) || directContacts[0] || null;
+
+  const overviewMetrics: { label: string; value: string; sub?: string | null }[] = [
+    !readOnly
+      ? {
+          label: isBenelux && marque._count.collaborations === 0 ? "En cycle" : "CA signé",
+          value:
+            isBenelux && marque._count.collaborations === 0
+              ? String(contactsInCycle)
+              : formatMoney(totalCA),
+          sub:
+            isBenelux && marque._count.collaborations === 0
+              ? "outreach BENELUX"
+              : `${marque._count.collaborations} collab${marque._count.collaborations > 1 ? "s" : ""}`,
+        }
+      : {
+          label: "Collaborations",
+          value: String(marque._count.collaborations),
+        },
     {
       label: "Contacts",
-      value: String(crmContacts.length),
-      sub: cartoCount > 0 ? `${cartoCount} via carto` : null,
-      icon: Users,
-      tint: "text-blue-600 bg-blue-50",
+      value: String(directContacts.length),
+      sub:
+        contactsInCycle > 0
+          ? `${contactsInCycle} en cycle${repliedCount > 0 ? ` · ${repliedCount} réponses` : ""}`
+          : cartoCount > 0
+            ? `${cartoCount} via carto`
+            : agencyContacts.length > 0
+              ? `${agencyContacts.length} côté agence`
+              : null,
     },
     {
-      label: "En cycle outreach",
-      value: String(contactsInCycle),
-      sub: repliedCount > 0 ? `${repliedCount} a répondu` : "relance auto J+3 · 45j",
-      icon: Repeat,
-      tint: "text-purple-600 bg-purple-50",
+      label: "Prochain recontact",
+      value: nextRecontactAt
+        ? new Date(nextRecontactAt).toLocaleDateString("fr-FR", {
+            day: "2-digit",
+            month: "short",
+          })
+        : "—",
+      sub: nextRecontactAt
+        ? (() => {
+            const d = daysUntil(nextRecontactAt);
+            return d !== null ? (d > 0 ? `dans ${d}j` : "imminent") : null;
+          })()
+        : "aucun cycle actif",
     },
     {
       label: "Paiement",
       value: `${marque.delaiPaiement || 30}j`,
       sub: marque.modePaiement || "Virement",
-      icon: Clock,
-      tint: "text-orange-600 bg-orange-50",
     },
   ];
 
@@ -1680,14 +1723,53 @@ export default function MarqueRecordPage({
     }
   };
 
+  const partnerLinks = marque.partners || [];
+  /** Pistes agence hors domaine connu (périmètre / slug partner) — pas encore en Partner. */
+  const agencyContactHints = crmContacts.filter((c) => {
+    if (isAgencySideContact(c)) return false; // déjà dans agencyContacts
+    const email = (c.email || "").toLowerCase();
+    if (!email.includes("@")) return false;
+    const domain = email.split("@")[1] || "";
+    if (!domain || domain.includes("gmail.") || domain.includes("outlook.")) return false;
+    const brandDomain = siteDomain?.toLowerCase().replace(/^www\./, "") || "";
+    if (brandDomain && (domain === brandDomain || domain.endsWith(`.${brandDomain}`))) {
+      return false;
+    }
+    const perim = (c.perimetre || "").toLowerCase();
+    return (
+      /agence|agency|nice work|wo[ôo]|ykone|monks|matriochka|heaven|burson|reech|beastly/i.test(
+        perim
+      ) ||
+      partnerLinks.some(
+        (p) =>
+          domain.includes(p.partner.slug.replace(/-/g, "")) ||
+          domain.includes(p.partner.name.toLowerCase().replace(/\s+/g, ""))
+      )
+    );
+  });
+
   const TABS = [
-    { id: "activite" as const, label: "Activité 360°", icon: Activity, badge: null as number | null },
-    { id: "contacts" as const, label: "Contacts", icon: Users, badge: crmContacts.length || null },
+    { id: "overview" as const, label: "Overview", icon: Building2, badge: null as number | null },
+    { id: "activite" as const, label: "Activité", icon: Activity, badge: null as number | null },
+    { id: "contacts" as const, label: "Contacts", icon: Users, badge: directContacts.length || null },
+    ...(!isBenelux
+      ? [
+          {
+            id: "agences" as const,
+            label: "Agences",
+            icon: Briefcase,
+            badge: (partnerLinks.length ||
+              agencyContacts.length ||
+              agencyContactHints.length ||
+              null) as number | null,
+          },
+        ]
+      : []),
     ...(cartoContacts.length > 0 || cartoFiles.length > 0
       ? [{ id: "carto" as const, label: "Cartographie", icon: FileSpreadsheet, badge: (cartoContacts.length || null) as number | null }]
       : []),
     ...(canFullCrm
-      ? [{ id: "ao" as const, label: "Achats - AO", icon: Briefcase, badge: (aoContacts.length || aoFiles.length || null) as number | null }]
+      ? [{ id: "ao" as const, label: "Achats", icon: Briefcase, badge: (aoContacts.length || aoFiles.length || null) as number | null }]
       : []),
     { id: "collabs" as const, label: "Collaborations", icon: Handshake, badge: marque._count.collaborations || null },
   ];
@@ -1746,140 +1828,9 @@ export default function MarqueRecordPage({
             </span>
           </div>
 
-          {(!readOnly || canStrategy) && (
-            <div className="flex items-center gap-2 shrink-0">
-              {canStrategy && (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setStrategyPickerOpen((o) => !o)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors"
-                    style={{ color: INK }}
-                  >
-                    {sendingToProject ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: ROSE }} />
-                    ) : (
-                      <Briefcase className="w-3.5 h-3.5" style={{ color: ROSE }} />
-                    )}
-                    Stratégie
-                  </button>
-                  {strategyPickerOpen && (
-                    <>
-                      <div className="fixed inset-0 z-10" onClick={() => setStrategyPickerOpen(false)} />
-                      <div className="absolute right-0 top-full mt-1.5 z-20 w-60 rounded-xl bg-white ring-1 ring-black/[0.08] shadow-lg py-1.5">
-                        <p className="px-3 pt-1 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400">
-                          Envoyer vers un projet
-                        </p>
-                        {STRATEGY_PROJECTS.map((projet) => (
-                          <button
-                            key={projet.slug}
-                            type="button"
-                            disabled={!!sendingToProject}
-                            onClick={() => sendToStrategyProject(projet)}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-left hover:bg-gray-50 transition-colors disabled:opacity-50"
-                            style={{ color: INK }}
-                          >
-                            {sendingToProject === projet.slug ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" style={{ color: ROSE }} />
-                            ) : (
-                              <Briefcase className="w-3.5 h-3.5 shrink-0 text-gray-300" />
-                            )}
-                            {projet.nom}
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-              {!readOnly && (
-              <>
-              <Link
-                href={outreachHref}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors"
-                style={{ color: INK }}
-              >
-                <Repeat className="w-3.5 h-3.5" style={{ color: ROSE }} />
-                Outreach
-              </Link>
-              {!isBenelux && (
-              <Link
-                href={`/collaborations/new?marque=${marque.id}`}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors"
-                style={{ color: INK }}
-              >
-                <Plus className="w-3.5 h-3.5" style={{ color: ROSE }} />
-                Collab
-              </Link>
-              )}
-              {canMerge && (
-                <button
-                  type="button"
-                  onClick={() => setSimilarPanelOpen((o) => !o)}
-                  className="relative flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors"
-                  style={{
-                    color: INK,
-                    ...(similarPanelOpen || similarMatches.length > 0
-                      ? { backgroundColor: "#FFF8F0", boxShadow: "inset 0 0 0 1px #F5E6D3" }
-                      : {}),
-                  }}
-                  title="Voir les fiches similaires et fusionner les doublons"
-                >
-                  {similarLoading ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: ROSE }} />
-                  ) : (
-                    <GitMerge className="w-3.5 h-3.5" style={{ color: ROSE }} />
-                  )}
-                  Doublons
-                  {similarChecked && similarMatches.length > 0 && (
-                    <span
-                      className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white"
-                      style={{ backgroundColor: ROSE }}
-                    >
-                      {similarMatches.length}
-                    </span>
-                  )}
-                </button>
-              )}
-              {canOutreach && (
-                <button
-                  type="button"
-                  onClick={transferMarket}
-                  disabled={transferringMarket}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-wait"
-                  style={{ color: INK }}
-                  title={isBenelux ? "Passer cette fiche en CRM France" : "Passer cette fiche en annuaire BENELUX"}
-                >
-                  {transferringMarket ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: ROSE }} />
-                  ) : (
-                    <ArrowLeftRight className="w-3.5 h-3.5" style={{ color: ROSE }} />
-                  )}
-                  {isBenelux ? "→ France" : "→ BENELUX"}
-                </button>
-              )}
-              <Link
-                href={isBenelux ? `/marques/benelux/${marque.id}/edit` : `/marques/${marque.id}/edit`}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 text-[13px] font-semibold rounded-lg text-white transition-opacity hover:opacity-90"
-                style={{ backgroundColor: INK }}
-              >
-                <Pencil className="w-3.5 h-3.5" />
-                Modifier
-              </Link>
-              <button
-                onClick={handleDelete}
-                className="p-2 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                title="Supprimer la marque"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-              </>
-              )}
-            </div>
-          )}
         </div>
 
-        {strategyFlash && (
+                {strategyFlash && (
           <div
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] ring-1 ring-inset"
             style={
@@ -1954,70 +1905,213 @@ export default function MarqueRecordPage({
             </div>
           );
         })()}
-        <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-white ring-1 ring-black/[0.07] shadow-sm flex items-center justify-center overflow-hidden shrink-0">
-            {siteDomain && !logoError ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={`https://www.google.com/s2/favicons?domain=${siteDomain}&sz=128`}
-                alt={marque.nom}
-                className="w-9 h-9 object-contain"
-                onError={() => setLogoError(true)}
-              />
-            ) : (
-              <span className="text-2xl font-bold" style={{ color: ROSE }}>
-                {marque.nom.charAt(0).toUpperCase()}
-              </span>
+        {/* ====================== Record header (HubSpot-style) ====================== */}
+        <div className="rounded-xl bg-white ring-1 ring-black/[0.06] px-4 py-4 sm:px-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3.5 min-w-0">
+              <div className="w-12 h-12 rounded-lg bg-[#FAF9F7] ring-1 ring-black/[0.06] flex items-center justify-center overflow-hidden shrink-0">
+                {siteDomain && !logoError ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`https://www.google.com/s2/favicons?domain=${siteDomain}&sz=128`}
+                    alt={marque.nom}
+                    className="w-7 h-7 object-contain"
+                    onError={() => setLogoError(true)}
+                  />
+                ) : (
+                  <span className="text-lg font-bold" style={{ color: ROSE }}>
+                    {marque.nom.charAt(0).toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-[22px] font-semibold tracking-[-0.02em] leading-tight truncate" style={{ color: INK }}>
+                    {marque.nom}
+                  </h1>
+                  <span
+                    className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold shrink-0"
+                    style={{ backgroundColor: lifecycle.bg, color: lifecycle.color }}
+                  >
+                    {lifecycle.label}
+                  </span>
+                  {isBenelux && (
+                    <span
+                      className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wide shrink-0"
+                      style={{ backgroundColor: "#FEF3C7", color: "#92400E" }}
+                    >
+                      BENELUX
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[13px] text-gray-500">
+                  {marque.secteur && <span>{marque.secteur}</span>}
+                  {siteDomain && (
+                    <a
+                      href={marque.siteWeb!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 hover:underline"
+                      style={{ color: ROSE }}
+                    >
+                      <Globe className="w-3.5 h-3.5" />
+                      {siteDomain}
+                    </a>
+                  )}
+                  {marque.ville && (
+                    <span className="flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5" />
+                      {marque.ville}
+                      {marque.pays ? `, ${marque.pays}` : ""}
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1 text-gray-400">
+                    <Calendar className="w-3.5 h-3.5" />
+                    depuis{" "}
+                    {new Date(marque.createdAt).toLocaleDateString("fr-FR", {
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {(!readOnly || canStrategy) && (
+              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                {!readOnly && !isBenelux && (
+                  <Link
+                    href={`/collaborations/new?marque=${marque.id}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50"
+                    style={{ color: INK }}
+                  >
+                    <Plus className="w-3.5 h-3.5" style={{ color: ROSE }} />
+                    Collab
+                  </Link>
+                )}
+                {!readOnly && (
+                  <Link
+                    href={isBenelux ? `/marques/benelux/${marque.id}/edit` : `/marques/${marque.id}/edit`}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-[13px] font-semibold rounded-lg text-white hover:opacity-90"
+                    style={{ backgroundColor: INK }}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    Modifier
+                  </Link>
+                )}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setActionsMenuOpen((o) => !o)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[13px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50"
+                    style={{ color: INK }}
+                  >
+                    <MoreHorizontal className="w-4 h-4" />
+                    Actions
+                    <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                  </button>
+                  {actionsMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setActionsMenuOpen(false)} />
+                      <div className="absolute right-0 top-full mt-1.5 z-20 w-56 rounded-xl bg-white ring-1 ring-black/[0.08] shadow-lg py-1.5">
+                        {!readOnly && (
+                          <Link
+                            href={outreachHref}
+                            className="flex items-center gap-2 px-3 py-2 text-[13px] hover:bg-gray-50"
+                            style={{ color: INK }}
+                            onClick={() => setActionsMenuOpen(false)}
+                          >
+                            <Repeat className="w-3.5 h-3.5 text-gray-400" />
+                            Outreach
+                          </Link>
+                        )}
+                        {canStrategy && (
+                          <>
+                            <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                              Stratégie
+                            </p>
+                            {STRATEGY_PROJECTS.map((projet) => (
+                              <button
+                                key={projet.slug}
+                                type="button"
+                                disabled={!!sendingToProject}
+                                onClick={() => {
+                                  setActionsMenuOpen(false);
+                                  void sendToStrategyProject(projet);
+                                }}
+                                className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-left hover:bg-gray-50 disabled:opacity-50"
+                                style={{ color: INK }}
+                              >
+                                {sendingToProject === projet.slug ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: ROSE }} />
+                                ) : (
+                                  <Briefcase className="w-3.5 h-3.5 text-gray-400" />
+                                )}
+                                {projet.nom}
+                              </button>
+                            ))}
+                          </>
+                        )}
+                        {canMerge && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActionsMenuOpen(false);
+                              setSimilarPanelOpen((o) => !o);
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-left hover:bg-gray-50"
+                            style={{ color: INK }}
+                          >
+                            <GitMerge className="w-3.5 h-3.5 text-gray-400" />
+                            Doublons
+                            {similarChecked && similarMatches.length > 0 && (
+                              <span
+                                className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white"
+                                style={{ backgroundColor: ROSE }}
+                              >
+                                {similarMatches.length}
+                              </span>
+                            )}
+                          </button>
+                        )}
+                        {canOutreach && !readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActionsMenuOpen(false);
+                              void transferMarket();
+                            }}
+                            disabled={transferringMarket}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-left hover:bg-gray-50 disabled:opacity-50"
+                            style={{ color: INK }}
+                          >
+                            {transferringMarket ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: ROSE }} />
+                            ) : (
+                              <ArrowLeftRight className="w-3.5 h-3.5 text-gray-400" />
+                            )}
+                            {isBenelux ? "→ France" : "→ BENELUX"}
+                          </button>
+                        )}
+                        {!readOnly && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActionsMenuOpen(false);
+                              void handleDelete();
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-left text-red-600 hover:bg-red-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Supprimer
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
             )}
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap min-w-0">
-              <h1 className="text-[26px] font-bold tracking-[-0.02em] leading-tight truncate" style={{ color: INK }}>
-                {marque.nom}
-              </h1>
-              {isBenelux && (
-                <span
-                  className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wide shrink-0"
-                  style={{ backgroundColor: "#FEF3C7", color: "#92400E" }}
-                >
-                  🇧🇪 BENELUX
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-[13px] text-gray-500">
-              {marque.secteur && (
-                <span
-                  className="px-2 py-[2px] rounded-md text-xs font-medium ring-1 ring-inset ring-black/[0.06]"
-                  style={{ backgroundColor: "#F5EBE0", color: INK }}
-                >
-                  {marque.secteur}
-                </span>
-              )}
-              {siteDomain && (
-                <a
-                  href={marque.siteWeb!}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 hover:underline"
-                  style={{ color: ROSE }}
-                >
-                  <Globe className="w-3.5 h-3.5" />
-                  {siteDomain}
-                </a>
-              )}
-              {marque.ville && (
-                <span className="flex items-center gap-1">
-                  <MapPin className="w-3.5 h-3.5" />
-                  {marque.ville}
-                  {marque.pays ? `, ${marque.pays}` : ""}
-                </span>
-              )}
-              <span className="flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5" />
-                {isBenelux ? "Prospect depuis" : "Client depuis"}{" "}
-                {new Date(marque.createdAt).toLocaleDateString("fr-FR", { month: "short", year: "numeric" })}
-              </span>
-            </div>
           </div>
         </div>
 
@@ -2210,324 +2304,77 @@ export default function MarqueRecordPage({
           </div>
         )}
 
-        {/* ====================== Stat cards ====================== */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {STATS.map((stat) => (
-            <div
-              key={stat.label}
-              className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] px-4 py-3.5 flex items-start justify-between"
-            >
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400">{stat.label}</p>
-                <p className="text-[22px] font-bold tabular-nums mt-0.5 truncate" style={{ color: INK }}>
-                  {stat.value}
-                </p>
-                {stat.sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{stat.sub}</p>}
-              </div>
-              <div className={`p-2 rounded-xl shrink-0 ${stat.tint}`}>
-                <stat.icon className="w-4 h-4" />
-              </div>
-            </div>
-          ))}
-        </div>
-
         {/* ====================== Body ====================== */}
-        <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-5 items-start">
-          {/* ---------- Panneau latéral ---------- */}
-          <aside className="space-y-4 lg:sticky lg:top-5">
-            <SectionCard title="À propos" icon={Building2}>
-              <div>
-                {marque.siteWeb && (
-                  <DetailRow
-                    label="Site"
-                    value={
-                      <a href={marque.siteWeb} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: ROSE }}>
-                        {siteDomain}
-                      </a>
-                    }
-                  />
-                )}
-                {marque.secteur && <DetailRow label="Secteur" value={marque.secteur} />}
-                {(marque.adresseRue || marque.ville) && (
-                  <DetailRow
-                    label="Adresse"
-                    value={
-                      <span className="block leading-snug">
-                        {marque.adresseRue && (
-                          <>
-                            {marque.adresseRue}
-                            <br />
-                          </>
-                        )}
-                        {marque.adresseComplement && (
-                          <>
-                            {marque.adresseComplement}
-                            <br />
-                          </>
-                        )}
-                        {[marque.codePostal, marque.ville].filter(Boolean).join(" ")}
-                        {marque.pays ? `, ${marque.pays}` : ""}
-                      </span>
-                    }
-                  />
-                )}
-                <DetailRow
-                  label="Créée le"
-                  value={new Date(marque.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
-                />
-              </div>
-            </SectionCard>
-
-            {!isBenelux && (
-            <SectionCard title="Groupe" icon={Building2}>
-              <div className="space-y-3">
-                {/* Marque mère */}
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400 mb-1">
-                    Marque mère
-                  </p>
-                  {marque.parent ? (
-                    <div className="flex items-center justify-between gap-2">
-                      <Link
-                        href={`/marques/${marque.parent.id}`}
-                        className="text-[13px] font-medium hover:underline truncate"
-                        style={{ color: INK }}
-                      >
-                        {marque.parent.nom}
-                      </Link>
-                      {!readOnly && (
-                        <button
-                          onClick={detachParent}
-                          disabled={hierarchyBusy}
-                          className="text-gray-300 hover:text-red-500 shrink-0 disabled:opacity-50"
-                          title="Détacher de la marque mère"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  ) : readOnly ? (
-                    <p className="text-xs text-gray-300 italic">Aucune</p>
-                  ) : parentPickerOpen ? (
-                    <HierarchyPicker
-                      items={allMarques.filter(
-                        (m) =>
-                          m.id !== marque.id &&
-                          !(marque.children || []).some((c) => c.id === m.id)
-                      )}
-                      busy={hierarchyBusy}
-                      placeholder="Chercher ou créer la marque mère…"
-                      query={hierarchyQuery}
-                      onQuery={setHierarchyQuery}
-                      onPick={attachParent}
-                      onCreate={createAndAttachParent}
-                      createLabel="Créer la mère"
-                      onCancel={() => {
-                        setParentPickerOpen(false);
-                        setHierarchyQuery("");
-                      }}
-                    />
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setChildPickerOpen(false);
-                        setParentPickerOpen(true);
-                        setHierarchyError(null);
-                        setHierarchyQuery("");
-                        loadAllMarques();
-                      }}
-                      className="text-[13px] hover:underline inline-flex items-center gap-1"
-                      style={{ color: ROSE }}
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Rattacher à une mère
-                    </button>
-                  )}
-                </div>
-
-                {/* Marques filles */}
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400 mb-1">
-                    Sous-marques
-                    {marque.children && marque.children.length > 0
-                      ? ` (${marque.children.length})`
-                      : ""}
-                  </p>
-                  {marque.children && marque.children.length > 0 && (
-                    <ul className="space-y-1 mb-1.5">
-                      {marque.children.map((c) => (
-                        <li key={c.id} className="flex items-center justify-between gap-2">
-                          <Link
-                            href={`/marques/${c.id}`}
-                            className="text-[13px] hover:underline truncate"
-                            style={{ color: INK }}
-                          >
-                            {c.nom}
-                            {(() => {
-                              const n = c._count.contacts + c._count.sousMarqueContacts;
-                              return (
-                                <span className="text-gray-400 text-xs ml-1.5">
-                                  {n} contact{n > 1 ? "s" : ""}
-                                </span>
-                              );
-                            })()}
-                          </Link>
-                          {!readOnly && (
-                            <button
-                              onClick={() => detachChild(c.id)}
-                              disabled={hierarchyBusy}
-                              className="text-gray-300 hover:text-red-500 shrink-0 disabled:opacity-50"
-                              title="Détacher cette sous-marque"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {!readOnly &&
-                    (childPickerOpen ? (
-                      <HierarchyPicker
-                        items={allMarques.filter(
-                          (m) =>
-                            m.id !== marque.id &&
-                            m.id !== marque.parent?.id &&
-                            !(marque.children || []).some((c) => c.id === m.id)
-                        )}
-                        busy={hierarchyBusy}
-                        placeholder="Chercher ou créer une sous-marque…"
-                        query={hierarchyQuery}
-                        onQuery={setHierarchyQuery}
-                        onPick={attachChild}
-                        onCreate={createAndAttachChild}
-                        createLabel="Créer la sous-marque"
-                        onCancel={() => {
-                          setChildPickerOpen(false);
-                          setHierarchyQuery("");
-                        }}
-                      />
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setParentPickerOpen(false);
-                          setChildPickerOpen(true);
-                          setHierarchyError(null);
-                          setHierarchyQuery("");
-                          loadAllMarques();
-                        }}
-                        className="text-[13px] hover:underline inline-flex items-center gap-1"
-                        style={{ color: ROSE }}
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        Ajouter une sous-marque
-                      </button>
-                    ))}
-                  {(!marque.children || marque.children.length === 0) &&
-                    !childPickerOpen &&
-                    readOnly && <p className="text-xs text-gray-300 italic">Aucune</p>}
-                </div>
-
-                {hierarchyError && (
-                  <p className="text-xs text-red-600">{hierarchyError}</p>
-                )}
-              </div>
-            </SectionCard>
-            )}
-
-            {!isBenelux && (marque.partners || []).length > 0 && (
-              <SectionCard title="Agences" icon={Briefcase}>
-                <ul className="space-y-2">
-                  {(marque.partners || []).map((link) => (
-                    <li key={link.id} className="flex items-center justify-between gap-2 min-w-0">
-                      <Link
-                        href={`/partners/manage/${link.partner.id}`}
-                        className="text-[13px] font-medium hover:underline truncate"
-                        style={{ color: INK }}
-                      >
-                        {link.partner.name}
-                      </Link>
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 shrink-0">
-                        {link.source === "INBOUND" ? "Inbound" : link.source}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-[11px] text-gray-400 mt-2 leading-snug">
-                  Liées en CRM uniquement — pas d’enrôlement Outreach Clients.
-                </p>
-              </SectionCard>
-            )}
-
-            <SectionCard title="Facturation" icon={ReceiptText}>
-              <div>
-                {marque.raisonSociale && <DetailRow label="Raison sociale" value={marque.raisonSociale} />}
-                {marque.formeJuridique && <DetailRow label="Forme" value={marque.formeJuridique} />}
-                {marque.siret && <DetailRow label="SIRET" value={marque.siret} mono />}
-                {marque.numeroTVA && <DetailRow label="TVA" value={marque.numeroTVA} mono />}
-                <DetailRow label="Délai" value={`${marque.delaiPaiement || 30} jours`} />
-                <DetailRow
-                  label="Mode"
-                  value={
-                    <span className="inline-flex items-center gap-1">
-                      <Banknote className="w-3.5 h-3.5 text-gray-300" />
-                      {marque.modePaiement || "Virement"}
-                    </span>
-                  }
-                />
-                <DetailRow label="Devise" value={marque.devise || "EUR"} />
-                {!marque.raisonSociale && !marque.siret && (
-                  <p className="text-xs text-gray-300 italic pt-2">
-                    Infos légales à compléter via « Modifier »
-                  </p>
-                )}
-              </div>
-            </SectionCard>
-
-            {marque.notes && (
-              <SectionCard title="Notes" icon={StickyNote}>
-                <p className="text-[13px] text-gray-600 leading-relaxed whitespace-pre-line">{marque.notes}</p>
-              </SectionCard>
-            )}
-          </aside>
-
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px] gap-5 items-start">
           {/* ---------- Zone principale ---------- */}
           <main className="min-w-0 space-y-4">
-            {/* Tabs segmentés */}
-            <div
-              className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-xl bg-white p-1 shadow-[0_1px_2px_rgba(16,12,10,0.04)] ring-1 ring-black/[0.06]"
-              style={{ scrollbarWidth: "none" }}
-            >
-              {TABS.map((tab) => {
-                const active = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3.5 py-1.5 text-[13px] font-medium transition-all ${
-                      active ? "text-white shadow-sm" : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
-                    }`}
-                    style={active ? { backgroundColor: INK } : undefined}
-                  >
-                    <tab.icon className="w-3.5 h-3.5" />
-                    {tab.label}
-                    {tab.badge !== null && (
-                      <span
-                        className={`text-[10px] font-bold px-1.5 rounded-full tabular-nums ${
-                          active ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"
-                        }`}
-                      >
-                        {tab.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+            {/* Tabs HubSpot */}
+            <div className="border-b border-black/[0.06] overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+              <div className="flex items-end gap-0 min-w-max">
+                {TABS.map((tab) => {
+                  const active = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`relative flex shrink-0 items-center gap-1.5 px-3.5 py-2.5 text-[13px] font-medium transition-colors ${
+                        active ? "" : "text-gray-500 hover:text-gray-800"
+                      }`}
+                      style={active ? { color: INK } : undefined}
+                    >
+                      <tab.icon className="w-3.5 h-3.5" />
+                      {tab.label}
+                      {tab.badge !== null && (
+                        <span className="text-[10px] font-bold px-1.5 rounded-full tabular-nums bg-gray-100 text-gray-500">
+                          {tab.badge}
+                        </span>
+                      )}
+                      {active && (
+                        <span className="absolute left-2 right-2 bottom-0 h-0.5 rounded-full" style={{ backgroundColor: INK }} />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+
+
+            {activeTab === "overview" && (
+              <div className="rounded-xl bg-white ring-1 ring-black/[0.06] p-5 space-y-5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-0 divide-x divide-black/[0.06]">
+                  {overviewMetrics.map((m) => (
+                    <div key={m.label} className="px-3 first:pl-0 last:pr-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-gray-400">{m.label}</p>
+                      <p className="text-[18px] font-semibold tabular-nums mt-0.5" style={{ color: INK }}>{m.value}</p>
+                      {m.sub && <p className="text-[11px] text-gray-400 mt-0.5 truncate">{m.sub}</p>}
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-[12px] font-semibold uppercase tracking-[0.06em] text-gray-400">Activité récente</h3>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("activite")}
+                      className="text-[12px] font-medium hover:underline"
+                      style={{ color: ROSE }}
+                    >
+                      Voir tout
+                    </button>
+                  </div>
+                  {isBenelux && !marque.linkedMarqueId ? (
+                    <p className="text-[13px] text-gray-400">Aucune fiche France liée — activité métier limitée.</p>
+                  ) : (
+                    <MarqueCrmTab marqueId={marque.linkedMarqueId || marque.id} limit={5} hideFilters />
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* ============ Activité ============ */}
             {activeTab === "activite" && (
-              <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] p-5">
+              <div className="rounded-xl bg-white ring-1 ring-black/[0.06] p-5">
                 {isBenelux && !marque.linkedMarqueId ? (
                   <div className="py-6 text-center">
                     <p className="text-[14px] font-semibold" style={{ color: INK }}>
@@ -2554,18 +2401,30 @@ export default function MarqueRecordPage({
 
             {/* ============ Contacts ============ */}
             {activeTab === "contacts" && (
-              <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] overflow-hidden">
-                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 border-b border-gray-100">
+              <div className="rounded-xl bg-white ring-1 ring-black/[0.06] overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-black/[0.06]">
                   <div className="text-[13px] text-gray-500">
                     <span className="font-semibold" style={{ color: INK }}>
-                      {crmContacts.length}
+                      {directContacts.length}
                     </span>{" "}
-                    contact{crmContacts.length > 1 ? "s" : ""}
+                    contact{directContacts.length > 1 ? "s" : ""} direct
+                    {directContacts.length > 1 ? "s" : ""}
                     {cartoCount > 0 && (
                       <span className="inline-flex items-center gap-1 ml-2 text-xs text-gray-400">
                         <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
                         {cartoCount} via cartographie
                       </span>
+                    )}
+                    {agencyContacts.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("agences")}
+                        className="inline-flex items-center gap-1 ml-2 text-xs font-medium hover:underline"
+                        style={{ color: "#4338CA" }}
+                      >
+                        <Briefcase className="w-3 h-3" />
+                        {agencyContacts.length} côté agence →
+                      </button>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
@@ -2672,21 +2531,23 @@ export default function MarqueRecordPage({
                   </div>
                 )}
 
-                {crmContacts.length === 0 &&
+                {directContacts.length === 0 &&
                 !showAddContact &&
                 (!marque.sousMarqueContacts || marque.sousMarqueContacts.length === 0) ? (
                   <div className="text-center py-14">
                     <Users className="w-10 h-10 text-gray-200 mx-auto mb-3" />
-                    <p className="text-sm text-gray-400">Aucun contact enregistré</p>
+                    <p className="text-sm text-gray-400">Aucun contact client direct</p>
                     <p className="text-xs text-gray-300 mt-1">
-                      {canOutreach && !readOnly
-                        ? "Ajoute un contact, ou importe directement une cartographie via « Importer une carto »."
-                        : "Ajoute un contact ici, ou importe une cartographie depuis Outreach."}
+                      {agencyContacts.length > 0
+                        ? "Les emails d’agence (@monks.com, @woo.paris…) sont dans l’onglet Agences."
+                        : canOutreach && !readOnly
+                          ? "Ajoute un contact, ou importe directement une cartographie via « Importer une carto »."
+                          : "Ajoute un contact ici, ou importe une cartographie depuis Outreach."}
                     </p>
                   </div>
                 ) : (
                   <div className="divide-y divide-gray-50">
-                    {crmContacts.map((contact) => {
+                    {directContacts.map((contact) => {
                       const outreach = (contact.outreachTargets || [])[0] || null;
                       return (
                         <div key={contact.id} className="group px-5 py-3.5 hover:bg-gray-50/60 transition-colors">
@@ -2706,9 +2567,20 @@ export default function MarqueRecordPage({
                             {/* Identité */}
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[14px] font-semibold" style={{ color: INK }}>
-                                  {[contact.prenom, contact.nom].filter(Boolean).join(" ")}
-                                </span>
+                                {!isBenelux ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setDrawerContactId(contact.id)}
+                                    className="text-[14px] font-semibold hover:underline text-left"
+                                    style={{ color: INK }}
+                                  >
+                                    {[contact.prenom, contact.nom].filter(Boolean).join(" ")}
+                                  </button>
+                                ) : (
+                                  <span className="text-[14px] font-semibold" style={{ color: INK }}>
+                                    {[contact.prenom, contact.nom].filter(Boolean).join(" ")}
+                                  </span>
+                                )}
                                 {contact.principal && (
                                   <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-[2px] rounded-md ring-1 ring-inset ring-black/[0.06]" style={{ backgroundColor: "#F5EBE0", color: INK }}>
                                     <Star className="w-2.5 h-2.5" style={{ color: ROSE }} />
@@ -2862,11 +2734,26 @@ export default function MarqueRecordPage({
                                     Ajouter un email
                                   </button>
                                 )}
-                                {contact.telephone && (
-                                  <span className="inline-flex items-center gap-1.5 text-[12.5px] text-gray-600">
+                                {contact.telephone ? (
+                                  <a
+                                    href={`tel:${contact.telephone.replace(/\s/g, "")}`}
+                                    className="inline-flex items-center gap-1.5 text-[12.5px] text-gray-600 hover:text-gray-900"
+                                  >
                                     <Phone className="w-3.5 h-3.5 text-gray-300" />
                                     {contact.telephone}
-                                  </span>
+                                  </a>
+                                ) : (
+                                  !isBenelux &&
+                                  !readOnly && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setDrawerContactId(contact.id)}
+                                      className="inline-flex items-center gap-1.5 text-xs text-gray-400 italic hover:text-gray-700"
+                                    >
+                                      <Phone className="w-3.5 h-3.5" />
+                                      Ajouter un téléphone
+                                    </button>
+                                  )
                                 )}
                               </div>
 
@@ -3093,6 +2980,28 @@ export default function MarqueRecordPage({
                               {outreach && outreach.cycleCount > 0 && (
                                 <span className="text-[10px] text-gray-300 tabular-nums">Cycle {outreach.cycleCount}</span>
                               )}
+                              {!isBenelux && (
+                                <button
+                                  type="button"
+                                  onClick={() => setDrawerContactId(contact.id)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold ring-1 ring-black/[0.08] bg-white text-gray-600 hover:bg-gray-50"
+                                  title="Ouvrir la fiche contact"
+                                >
+                                  <StickyNote className="w-3 h-3" />
+                                  Fiche
+                                  {(() => {
+                                    const n =
+                                      activityCounts[contact.id] ??
+                                      contact._count?.activities ??
+                                      0;
+                                    return n > 0 ? (
+                                      <span className="tabular-nums text-[10px] text-gray-400">
+                                        {n}
+                                      </span>
+                                    ) : null;
+                                  })()}
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -3151,7 +3060,188 @@ export default function MarqueRecordPage({
               </div>
             )}
 
-            {/* ============ Collaborations ============ */}
+            {/* ============ Agences ============ */}
+            {activeTab === "agences" && !isBenelux && (
+              <div className="rounded-xl bg-white ring-1 ring-black/[0.06] overflow-hidden">
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-black/[0.06]">
+                  <div className="text-[13px] text-gray-500">
+                    <span className="font-semibold" style={{ color: INK }}>
+                      {partnerLinks.length}
+                    </span>{" "}
+                    agence{partnerLinks.length > 1 ? "s" : ""} liée
+                    {partnerLinks.length > 1 ? "s" : ""}
+                    {(agencyContacts.length > 0 || agencyContactHints.length > 0) && (
+                      <span className="text-gray-400">
+                        {" "}
+                        · {agencyContacts.length + agencyContactHints.length} contact
+                        {agencyContacts.length + agencyContactHints.length > 1 ? "s" : ""}{" "}
+                        côté agence
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400 max-w-sm text-right leading-snug">
+                    Pas en client direct — emails @monks.com, @woo.paris, @nicework.fr… vivent ici.
+                  </p>
+                </div>
+
+                {partnerLinks.length === 0 &&
+                agencyContacts.length === 0 &&
+                agencyContactHints.length === 0 ? (
+                  <div className="text-center py-14 px-5">
+                    <Briefcase className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+                    <p className="text-sm text-gray-400">Aucune agence détectée</p>
+                    <p className="text-xs text-gray-300 mt-1 max-w-md mx-auto">
+                      Dès qu&apos;un contact est tagué « Agence … » à l&apos;analyse ou a un email
+                      @monks.com / @woo.paris…, elle apparaît ici.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {partnerLinks.map((link) => {
+                      const slugKey = link.partner.slug.replace(/-/g, "").toLowerCase();
+                      const nameKey = link.partner.name.toLowerCase().replace(/\s+/g, "");
+                      const related = [...agencyContacts, ...agencyContactHints].filter((c) => {
+                        const domain = (c.email || "").toLowerCase().split("@")[1] || "";
+                        const perim = (c.perimetre || "").toLowerCase();
+                        const agencyLabel = (
+                          agencyNameFromEmailDomain(c.email) ||
+                          agencyNameFromPerimetre(c.perimetre) ||
+                          ""
+                        ).toLowerCase();
+                        return (
+                          domain.includes(slugKey) ||
+                          domain.includes(nameKey.slice(0, 6)) ||
+                          (agencyLabel &&
+                            (agencyLabel.includes(nameKey.slice(0, 5)) ||
+                              link.partner.name.toLowerCase().includes(agencyLabel) ||
+                              agencyLabel.includes(link.partner.name.toLowerCase()))) ||
+                          perim.includes(link.partner.name.toLowerCase())
+                        );
+                      });
+                      return (
+                        <div key={link.id} className="px-5 py-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Link
+                                  href={`/partners/manage/${link.partner.id}`}
+                                  className="text-[15px] font-semibold hover:underline"
+                                  style={{ color: INK }}
+                                >
+                                  {link.partner.name}
+                                </Link>
+                                <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                                  {link.source === "CARTO"
+                                    ? "Carto"
+                                    : link.source === "INBOUND"
+                                      ? "Inbound"
+                                      : link.source}
+                                </span>
+                                {link.partner.market && (
+                                  <span className="text-[10px] text-gray-400">
+                                    {link.partner.market}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[12px] text-gray-400 mt-0.5">
+                                Fiche Partner CRM · pas d&apos;enrôlement Outreach Clients
+                              </p>
+                            </div>
+                            <Link
+                              href={`/partners/manage/${link.partner.id}`}
+                              className="shrink-0 text-[12px] font-medium hover:underline"
+                              style={{ color: ROSE }}
+                            >
+                              Ouvrir
+                            </Link>
+                          </div>
+                          {related.length > 0 && (
+                            <ul className="mt-3 space-y-2">
+                              {related.map((c) => (
+                                <li
+                                  key={c.id}
+                                  className="flex items-center justify-between gap-3 rounded-lg bg-[#FAF9F7] px-3 py-2"
+                                >
+                                  <div className="min-w-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => setDrawerContactId(c.id)}
+                                      className="text-[13px] font-medium hover:underline text-left"
+                                      style={{ color: INK }}
+                                    >
+                                      {[c.prenom, c.nom].filter(Boolean).join(" ")}
+                                    </button>
+                                    <p className="text-[11px] text-gray-400 truncate">
+                                      {[c.poste, c.email].filter(Boolean).join(" · ")}
+                                    </p>
+                                  </div>
+                                  {c.email && (
+                                    <a
+                                      href={`mailto:${c.email}`}
+                                      className="text-[11px] font-medium shrink-0"
+                                      style={{ color: ROSE }}
+                                    >
+                                      Email
+                                    </a>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {[...agencyContacts, ...agencyContactHints]
+                      .filter((c) => {
+                        // Déjà listés sous un partner lié
+                        return !partnerLinks.some((link) => {
+                          const slugKey = link.partner.slug.replace(/-/g, "").toLowerCase();
+                          const nameKey = link.partner.name.toLowerCase().replace(/\s+/g, "");
+                          const domain = (c.email || "").toLowerCase().split("@")[1] || "";
+                          const agencyLabel =
+                            agencyNameFromEmailDomain(c.email)?.toLowerCase() || "";
+                          return (
+                            domain.includes(slugKey) ||
+                            domain.includes(nameKey.slice(0, 6)) ||
+                            (agencyLabel &&
+                              link.partner.name.toLowerCase().includes(agencyLabel))
+                          );
+                        });
+                      })
+                      .map((c) => (
+                        <div key={`hint-${c.id}`} className="px-5 py-3.5 flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[13px] font-medium" style={{ color: INK }}>
+                              {[c.prenom, c.nom].filter(Boolean).join(" ")}
+                              {agencyNameFromEmailDomain(c.email) && (
+                                <span className="ml-2 text-[10px] font-semibold text-indigo-700">
+                                  {agencyNameFromEmailDomain(c.email)}
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-[12px] text-gray-400 truncate">
+                              {[c.email, c.perimetre || c.poste].filter(Boolean).join(" · ")}
+                            </p>
+                            <p className="text-[10px] text-amber-700 mt-0.5">
+                              Contact agence (pas encore liée en Partner)
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setDrawerContactId(c.id)}
+                            className="text-[12px] font-medium hover:underline shrink-0"
+                            style={{ color: ROSE }}
+                          >
+                            Fiche
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* ============ Cartographie importée ============ */}
             {activeTab === "carto" && (
               <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] overflow-hidden">
@@ -3592,7 +3682,7 @@ export default function MarqueRecordPage({
             )}
 
             {activeTab === "collabs" && (
-              <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] overflow-hidden">
+              <div className="rounded-xl bg-white ring-1 ring-black/[0.06] overflow-hidden">
                 {marque.collaborations.length === 0 ? (
                   <div className="text-center py-14">
                     <Handshake className="w-10 h-10 text-gray-200 mx-auto mb-3" />
@@ -3679,7 +3769,392 @@ export default function MarqueRecordPage({
               </div>
             )}
           </main>
+          {/* ---------- Sidebar About + Associations ---------- */}
+          <aside className="space-y-3 lg:sticky lg:top-5 order-first lg:order-last">
+            <SectionCard title="About" icon={Building2}>
+              <div>
+                {marque.siteWeb && (
+                  <DetailRow
+                    label="Site"
+                    value={
+                      <a href={marque.siteWeb} target="_blank" rel="noopener noreferrer" className="hover:underline" style={{ color: ROSE }}>
+                        {siteDomain}
+                      </a>
+                    }
+                  />
+                )}
+                {marque.secteur && <DetailRow label="Secteur" value={marque.secteur} />}
+                {(marque.adresseRue || marque.ville) && (
+                  <DetailRow
+                    label="Adresse"
+                    value={
+                      <span className="block leading-snug">
+                        {marque.adresseRue && (
+                          <>
+                            {marque.adresseRue}
+                            <br />
+                          </>
+                        )}
+                        {marque.adresseComplement && (
+                          <>
+                            {marque.adresseComplement}
+                            <br />
+                          </>
+                        )}
+                        {[marque.codePostal, marque.ville].filter(Boolean).join(" ")}
+                        {marque.pays ? `, ${marque.pays}` : ""}
+                      </span>
+                    }
+                  />
+                )}
+                <DetailRow
+                  label="Lifecycle"
+                  value={
+                    <span className="font-medium" style={{ color: lifecycle.color }}>
+                      {lifecycle.label}
+                    </span>
+                  }
+                />
+                <DetailRow
+                  label="Créée le"
+                  value={new Date(marque.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
+                />
+                <DetailRow label="Délai paiement" value={`${marque.delaiPaiement || 30} jours`} />
+                <DetailRow label="Mode" value={marque.modePaiement || "Virement"} />
+                <DetailRow label="Devise" value={marque.devise || "EUR"} />
+                {marque.raisonSociale && <DetailRow label="Raison sociale" value={marque.raisonSociale} />}
+                {marque.siret && <DetailRow label="SIRET" value={marque.siret} mono />}
+                {marque.numeroTVA && <DetailRow label="TVA" value={marque.numeroTVA} mono />}
+              </div>
+            </SectionCard>
+
+            {principalContact && (
+              <SectionCard
+                title="Contact principal"
+                icon={Users}
+                action={
+                  !isBenelux ? (
+                    <button
+                      type="button"
+                      onClick={() => setDrawerContactId(principalContact.id)}
+                      className="text-[11px] font-medium hover:underline"
+                      style={{ color: ROSE }}
+                    >
+                      Ouvrir
+                    </button>
+                  ) : undefined
+                }
+              >
+                <div className="space-y-1.5">
+                  <button
+                    type="button"
+                    onClick={() => !isBenelux && setDrawerContactId(principalContact.id)}
+                    className="text-[13px] font-semibold text-left hover:underline"
+                    style={{ color: INK }}
+                  >
+                    {[principalContact.prenom, principalContact.nom].filter(Boolean).join(" ")}
+                  </button>
+                  {principalContact.poste && (
+                    <p className="text-[12px] text-gray-500">{principalContact.poste}</p>
+                  )}
+                  {principalContact.email && (
+                    <a href={`mailto:${principalContact.email}`} className="flex items-center gap-1.5 text-[12.5px] hover:underline" style={{ color: ROSE }}>
+                      <Mail className="w-3.5 h-3.5" />
+                      {principalContact.email}
+                    </a>
+                  )}
+                  {principalContact.telephone ? (
+                    <a
+                      href={`tel:${principalContact.telephone.replace(/\s/g, "")}`}
+                      className="flex items-center gap-1.5 text-[12.5px] text-gray-600 hover:text-gray-900"
+                    >
+                      <Phone className="w-3.5 h-3.5 text-gray-300" />
+                      {principalContact.telephone}
+                    </a>
+                  ) : (
+                    !isBenelux &&
+                    !readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => setDrawerContactId(principalContact.id)}
+                        className="flex items-center gap-1.5 text-[12px] text-gray-400 italic hover:text-gray-700"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        Ajouter un téléphone
+                      </button>
+                    )
+                  )}
+                </div>
+              </SectionCard>
+            )}
+
+            <SectionCard
+              title="Associations"
+              icon={Handshake}
+              action={
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("contacts")}
+                  className="text-[11px] font-medium hover:underline"
+                  style={{ color: ROSE }}
+                >
+                  Voir tout
+                </button>
+              }
+            >
+              <div className="space-y-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-gray-400 mb-1.5">
+                    Contacts clients ({directContacts.length})
+                  </p>
+                  {directContacts.length === 0 ? (
+                    <p className="text-xs text-gray-300 italic">
+                      {agencyContacts.length > 0
+                        ? `Aucun · ${agencyContacts.length} côté agence`
+                        : "Aucun"}
+                    </p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {directContacts.slice(0, 5).map((c) => (
+                        <li key={c.id} className="flex items-center gap-2 min-w-0">
+                          <div
+                            className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                            style={{ background: c.principal ? `linear-gradient(135deg, ${ROSE}, #9C6B6B)` : "#3A2E2A" }}
+                          >
+                            {initials(c.prenom, c.nom)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[12.5px] font-medium truncate" style={{ color: INK }}>
+                              {[c.prenom, c.nom].filter(Boolean).join(" ")}
+                            </p>
+                            {c.poste && <p className="text-[11px] text-gray-400 truncate">{c.poste}</p>}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-gray-400">
+                      Collaborations ({marque._count.collaborations})
+                    </p>
+                    {!readOnly && (
+                      <span className="text-[11px] tabular-nums text-gray-500">{formatMoney(totalCA)}</span>
+                    )}
+                  </div>
+                  {marque.collaborations.length === 0 ? (
+                    <p className="text-xs text-gray-300 italic">Aucune</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {marque.collaborations.slice(0, 3).map((collab) => (
+                        <li key={collab.id}>
+                          <Link href={`/collaborations/${collab.id}`} className="flex items-center justify-between gap-2 hover:underline">
+                            <span className="text-[12.5px] truncate" style={{ color: INK }}>
+                              {collab.talent.prenom} {collab.talent.nom}
+                            </span>
+                            {!readOnly && (
+                              <span className="text-[11px] tabular-nums text-gray-500 shrink-0">
+                                {formatMoney(collab.montantBrut)}
+                              </span>
+                            )}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {marque.collaborations.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("collabs")}
+                      className="mt-1.5 text-[11px] font-medium hover:underline"
+                      style={{ color: ROSE }}
+                    >
+                      Voir les collabs
+                    </button>
+                  )}
+                </div>
+
+                {!isBenelux && (
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-gray-400 mb-1.5">
+                      Groupe
+                    </p>
+                    {marque.parent ? (
+                      <Link href={`/marques/${marque.parent.id}`} className="text-[12.5px] font-medium hover:underline block truncate" style={{ color: INK }}>
+                        Mère · {marque.parent.nom}
+                      </Link>
+                    ) : (
+                      !readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChildPickerOpen(false);
+                            setParentPickerOpen(true);
+                            setHierarchyError(null);
+                            setHierarchyQuery("");
+                            loadAllMarques();
+                          }}
+                          className="text-[12px] hover:underline inline-flex items-center gap-1"
+                          style={{ color: ROSE }}
+                        >
+                          <Plus className="w-3 h-3" />
+                          Rattacher à une mère
+                        </button>
+                      )
+                    )}
+                    {parentPickerOpen && !marque.parent && !readOnly && (
+                      <HierarchyPicker
+                        items={allMarques.filter(
+                          (m) =>
+                            m.id !== marque.id &&
+                            !(marque.children || []).some((c) => c.id === m.id)
+                        )}
+                        busy={hierarchyBusy}
+                        placeholder="Chercher ou créer la marque mère…"
+                        query={hierarchyQuery}
+                        onQuery={setHierarchyQuery}
+                        onPick={attachParent}
+                        onCreate={createAndAttachParent}
+                        createLabel="Créer la mère"
+                        onCancel={() => {
+                          setParentPickerOpen(false);
+                          setHierarchyQuery("");
+                        }}
+                      />
+                    )}
+                    {(marque.children || []).length > 0 && (
+                      <ul className="mt-1 space-y-1">
+                        {(marque.children || []).slice(0, 4).map((c) => (
+                          <li key={c.id}>
+                            <Link href={`/marques/${c.id}`} className="text-[12px] hover:underline truncate block" style={{ color: INK }}>
+                              {c.nom}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {!readOnly && (
+                      childPickerOpen ? (
+                        <HierarchyPicker
+                          items={allMarques.filter(
+                            (m) =>
+                              m.id !== marque.id &&
+                              m.id !== marque.parent?.id &&
+                              !(marque.children || []).some((c) => c.id === m.id)
+                          )}
+                          busy={hierarchyBusy}
+                          placeholder="Chercher ou créer une sous-marque…"
+                          query={hierarchyQuery}
+                          onQuery={setHierarchyQuery}
+                          onPick={attachChild}
+                          onCreate={createAndAttachChild}
+                          createLabel="Créer la sous-marque"
+                          onCancel={() => {
+                            setChildPickerOpen(false);
+                            setHierarchyQuery("");
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setParentPickerOpen(false);
+                            setChildPickerOpen(true);
+                            setHierarchyError(null);
+                            setHierarchyQuery("");
+                            loadAllMarques();
+                          }}
+                          className="mt-1 text-[12px] hover:underline inline-flex items-center gap-1"
+                          style={{ color: ROSE }}
+                        >
+                          <Plus className="w-3 h-3" />
+                          Sous-marque
+                        </button>
+                      )
+                    )}
+                    {hierarchyError && <p className="text-xs text-red-600 mt-1">{hierarchyError}</p>}
+                  </div>
+                )}
+
+                {!isBenelux && (
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-gray-400 mb-1.5">
+                      Agences
+                    </p>
+                    {(marque.partners || []).length === 0 ? (
+                      <p className="text-[11px] text-gray-300 italic leading-snug">
+                        Auto si email agence (@monks.com, @woo.paris…) — hors contacts directs.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {(marque.partners || []).map((link) => (
+                          <li key={link.id} className="flex items-center justify-between gap-2 min-w-0">
+                            <Link
+                              href={`/partners/manage/${link.partner.id}`}
+                              className="text-[12.5px] font-medium hover:underline truncate"
+                              style={{ color: INK }}
+                            >
+                              {link.partner.name}
+                            </Link>
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 shrink-0">
+                              {link.source === "CARTO"
+                                ? "Carto"
+                                : link.source === "INBOUND"
+                                  ? "Inbound"
+                                  : link.source}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            </SectionCard>
+
+            {(cartoFiles.length > 0 || aoFiles.length > 0) && (
+              <SectionCard title="Attachments" icon={Paperclip}>
+                <ul className="space-y-1.5">
+                  {cartoFiles.map((f) => (
+                    <li key={f.id}>
+                      <a
+                        href={`${recordApi}/carto-files/${f.id}`}
+                        className="flex items-center gap-1.5 text-[12.5px] hover:underline min-w-0"
+                        style={{ color: INK }}
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                        <span className="truncate">{f.fileName}</span>
+                      </a>
+                    </li>
+                  ))}
+                  {canFullCrm &&
+                    aoFiles.map((f) => (
+                      <li key={f.id}>
+                        <a
+                          href={`${recordApi}/carto-files/${f.id}`}
+                          className="flex items-center gap-1.5 text-[12.5px] hover:underline min-w-0"
+                          style={{ color: INK }}
+                        >
+                          <Briefcase className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                          <span className="truncate">{f.fileName}</span>
+                        </a>
+                      </li>
+                    ))}
+                </ul>
+              </SectionCard>
+            )}
+
+            {marque.notes && (
+              <SectionCard title="Notes" icon={StickyNote}>
+                <p className="text-[13px] text-gray-600 leading-relaxed whitespace-pre-line">{marque.notes}</p>
+              </SectionCard>
+            )}
+          </aside>
+
         </div>
+
       </div>
 
       {showImportCarto && (
@@ -3699,6 +4174,55 @@ export default function MarqueRecordPage({
           }}
           showMarket={false}
           onError={(message) => alert(message)}
+        />
+      )}
+
+      {!isBenelux && (
+        <ContactRecordDrawer
+          open={Boolean(drawerContactId)}
+          marqueId={marque.id}
+          contact={
+            drawerContactId
+              ? crmContacts.find((c) => c.id === drawerContactId) || null
+              : null
+          }
+          readOnly={readOnly}
+          linkedAgencies={(marque.partners || []).map((l) => ({
+            id: l.partner.id,
+            name: l.partner.name,
+            slug: l.partner.slug,
+          }))}
+          onClose={() => setDrawerContactId(null)}
+          onActivityCountChange={(contactId, n) =>
+            setActivityCounts((prev) => ({ ...prev, [contactId]: n }))
+          }
+          onSaved={(updated) => {
+            setMarque((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                contacts: prev.contacts.map((c) => {
+                  if (c.id !== updated.id) {
+                    return updated.principal ? { ...c, principal: false } : c;
+                  }
+                  return {
+                    ...c,
+                    prenom: updated.prenom,
+                    nom: updated.nom,
+                    poste: updated.poste,
+                    email: updated.email,
+                    telephone: updated.telephone,
+                    linkedinUrl: updated.linkedinUrl,
+                    priorite: updated.priorite,
+                    perimetre: updated.perimetre,
+                    localisation: updated.localisation,
+                    language: updated.language,
+                    principal: updated.principal,
+                  };
+                }),
+              };
+            });
+          }}
         />
       )}
     </div>
