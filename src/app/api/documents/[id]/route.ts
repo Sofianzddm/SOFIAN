@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import { prisma } from "@/lib/prisma";
 import { denyIfUnassignedCm } from "@/lib/account-manager-assign";
+import { canBusinessDeveloperAccessDocument } from "@/lib/business-developer";
 
 export async function GET(
   request: NextRequest,
@@ -104,8 +105,20 @@ export async function GET(
       );
     }
 
+    const user = session.user as { id: string; role?: string };
+    if (
+      !canBusinessDeveloperAccessDocument(user.role, user.id, {
+        createdById: document.createdById,
+        collaboration: document.collaboration
+          ? { createdById: (document.collaboration as { createdById?: string | null }).createdById }
+          : null,
+      })
+    ) {
+      return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
+    }
+
     // Infos confidentielles : seul l'admin voit "Payé" (marque nous a réglé) et les infos de paiement
-    const isAdmin = (session.user as { role?: string }).role === "ADMIN";
+    const isAdmin = user.role === "ADMIN";
     const payload = isAdmin
       ? document
       : {

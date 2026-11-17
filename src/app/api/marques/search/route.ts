@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { marqueSlug } from "@/lib/marque-resolver";
+import { isBusinessDeveloper } from "@/lib/business-developer";
+import { marqueAssignedWhere } from "@/lib/marque-crm-access";
 
 function normalize(s: string) {
   return s
@@ -81,12 +83,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
     const role = (session.user as { role?: string }).role || "";
+    const userId = (session.user as { id?: string }).id || "";
     if (role === "TALENT") {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
     const q = (request.nextUrl.searchParams.get("q") || "").trim();
     const listAll = q.length < 2;
+    const bdScope = isBusinessDeveloper(role) ? marqueAssignedWhere(userId) : {};
 
     const select = {
       id: true,
@@ -99,6 +103,7 @@ export async function GET(request: NextRequest) {
 
     if (listAll) {
       const rows = await prisma.marque.findMany({
+        where: bdScope,
         select,
         orderBy: { nom: "asc" },
         take: 2000,
@@ -222,6 +227,21 @@ export async function GET(request: NextRequest) {
       nomContains,
     ]) {
       for (const row of batch) byId.set(row.id, row);
+    }
+
+    // BD : uniquement les marques de son portefeuille assigné.
+    if (isBusinessDeveloper(role) && byId.size > 0) {
+      const allowed = await prisma.marque.findMany({
+        where: {
+          id: { in: [...byId.keys()] },
+          ...marqueAssignedWhere(userId),
+        },
+        select: { id: true },
+      });
+      const allowedIds = new Set(allowed.map((a) => a.id));
+      for (const id of [...byId.keys()]) {
+        if (!allowedIds.has(id)) byId.delete(id);
+      }
     }
 
     const qNorm = normalize(q);

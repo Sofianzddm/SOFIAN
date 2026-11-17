@@ -377,6 +377,7 @@ model User {
 
   collabsGerees         Collaboration[]        @relation("AccountManagerCollabs")
   collabsCreees         Collaboration[]        @relation("CollaborationCreatedBy")
+  marquesAssignees      Marque[]               @relation("MarquesAssignees")
   // Historique documents / devis
   quotesCreated         Quote[]
   documentEvents        DocumentEvent[]
@@ -824,6 +825,10 @@ model Marque {
   sourceInitiale   Source?
   prospectePar     String?
 
+  /// Business Developer assigné (portefeuille client — pas le CRM complet).
+  assignedToId String?
+  assignedTo   User?   @relation("MarquesAssignees", fields: [assignedToId], references: [id], onDelete: SetNull)
+
   // Hiérarchie marque mère → marques filles (ex. Unilever → Dove, Axe…).
   // Auto-relation : une marque a une mère optionnelle et des filles.
   parentMarqueId String?
@@ -860,6 +865,7 @@ model Marque {
 
   @@index([slug])
   @@index([parentMarqueId])
+  @@index([assignedToId])
   @@map("marques")
 }
 

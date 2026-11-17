@@ -4,10 +4,14 @@
  * - Nav / écriture courante : ADMIN, HEAD_OF, HEAD_OF_SALES
  *   (+ STRATEGY_PLANNER et CM en lecture seule : clients / mails, hors Achats-AO).
  * - Couche « complète » (Achats-AO, fichiers AO, sync) : ADMIN + HEAD_OF_SALES (Leyna).
+ * - Business Developer : pas le CRM complet — uniquement les marques
+ *   explicitement assignées (`Marque.assignedToId`).
  * - Facturation collab (adresse / SIRET / TVA) : TM, CM, HEAD_OF_INFLUENCE
  *   en plus des rôles d’écriture CRM — nécessaire pour compléter une marque
  *   avant devis / facture sans ouvrir tout le CRM.
  */
+
+import { isBusinessDeveloper } from "@/lib/business-developer";
 
 export const MARQUE_CRM_FULL_ROLES = ["ADMIN", "HEAD_OF_SALES"] as const;
 
@@ -15,11 +19,14 @@ export const MARQUE_CRM_WRITE_ROLES = [
   "ADMIN",
   "HEAD_OF",
   "HEAD_OF_SALES",
-  "BUSINESS_DEVELOPER",
 ] as const;
 
 /** Rôles avec accès annuaire / fiche en consultation seule. */
-export const MARQUE_CRM_READ_ONLY_ROLES = ["STRATEGY_PLANNER", "CM"] as const;
+export const MARQUE_CRM_READ_ONLY_ROLES = [
+  "STRATEGY_PLANNER",
+  "CM",
+  "BUSINESS_DEVELOPER",
+] as const;
 
 /**
  * Rôles opé collab autorisés à compléter les infos de facturation d’une marque
@@ -29,6 +36,7 @@ export const MARQUE_BILLING_UPDATE_ROLES = [
   "TM",
   "CM",
   "HEAD_OF_INFLUENCE",
+  "BUSINESS_DEVELOPER",
 ] as const;
 
 export function canAccessFullMarqueCrm(
@@ -47,7 +55,7 @@ export function canMutateFullMarqueCrm(
   return canAccessFullMarqueCrm(role);
 }
 
-/** Créer / éditer / supprimer une marque (hors lecture seule). */
+/** Créer / éditer / supprimer une marque (hors lecture seule / hors portefeuille BD). */
 export function canWriteMarqueCrm(role: string | undefined | null): boolean {
   return (
     !!role &&
@@ -68,7 +76,7 @@ export function canManageDiffusionOptOut(
 
 /**
  * Mettre à jour les champs de facturation (adresse, SIRET, TVA…) —
- * CRM write OU rôles opé collab (TM / CM / Head of Influence).
+ * CRM write OU rôles opé collab (TM / CM / Head of Influence / BD assigné).
  */
 export function canUpdateMarqueBilling(
   role: string | undefined | null
@@ -80,10 +88,28 @@ export function canUpdateMarqueBilling(
   );
 }
 
-/** Consultation seule (Account Manager, Strategy Planner). */
+/** Consultation seule (Account Manager, Strategy Planner, Business Developer). */
 export function isMarqueCrmReadOnly(role: string | undefined | null): boolean {
   return (
     !!role &&
     (MARQUE_CRM_READ_ONLY_ROLES as readonly string[]).includes(role)
   );
+}
+
+/** Filtre Prisma : portefeuille marques du Business Developer. */
+export function marqueAssignedWhere(userId: string) {
+  return { assignedToId: userId };
+}
+
+/**
+ * BD : accès fiche uniquement si marque assignée.
+ * Autres rôles : pas de contrainte d’assignation ici.
+ */
+export function canBusinessDeveloperAccessMarque(
+  role: string | null | undefined,
+  userId: string,
+  assignedToId: string | null | undefined
+): boolean {
+  if (!isBusinessDeveloper(role)) return true;
+  return Boolean(assignedToId && assignedToId === userId);
 }

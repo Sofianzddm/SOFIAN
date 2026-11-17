@@ -45,3 +45,23 @@ export function isBusinessDeveloperPathAllowed(pathname: string): boolean {
     (p) => pathname === p || pathname.startsWith(`${p}/`)
   );
 }
+
+/**
+ * Factures / devis : le BD ne voit que ses documents
+ * (créés par elle, ou issus d’une collab qu’elle a créée).
+ */
+export function canBusinessDeveloperAccessDocument(
+  role: string | null | undefined,
+  userId: string,
+  doc: {
+    createdById?: string | null;
+    collaboration?: { createdById?: string | null } | null;
+  }
+): boolean {
+  if (!isBusinessDeveloper(role)) return true;
+  if (doc.createdById && doc.createdById === userId) return true;
+  if (doc.collaboration?.createdById && doc.collaboration.createdById === userId) {
+    return true;
+  }
+  return false;
+}

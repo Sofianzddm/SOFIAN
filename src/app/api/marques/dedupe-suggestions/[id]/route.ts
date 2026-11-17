@@ -6,7 +6,7 @@ import {
   rejectDedupeSuggestion,
 } from "@/lib/marque-ai-dedupe";
 
-const ALLOWED = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "HEAD_OF_INFLUENCE"];
+const ALLOWED = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "HEAD_OF_INFLUENCE"];
 
 /**
  * POST /api/marques/dedupe-suggestions/[id]

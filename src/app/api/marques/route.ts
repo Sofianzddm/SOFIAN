@@ -4,7 +4,11 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
 import { assertNomMarqueGateCleared } from "@/lib/nom-campagne-gate";
-import { canWriteMarqueCrm } from "@/lib/marque-crm-access";
+import {
+  canWriteMarqueCrm,
+  marqueAssignedWhere,
+} from "@/lib/marque-crm-access";
+import { isBusinessDeveloper } from "@/lib/business-developer";
 
 // GET - Liste des marques
 export async function GET() {
@@ -29,9 +33,17 @@ export async function GET() {
       );
     }
 
-    // Toutes les marques FR restent listées. Celles liées au BENELUX portent
-    // un badge « liée BE » (via beneluxLinks) pour éviter la confusion.
+    const role = session.user.role as string | undefined;
+    const userId = session.user.id as string;
+    // BD : uniquement le portefeuille assigné (vide tant qu’aucune marque n’est liée).
+    const bdWhere = isBusinessDeveloper(role)
+      ? marqueAssignedWhere(userId)
+      : {};
+
+    // Toutes les marques FR restent listées (sauf BD). Celles liées au BENELUX
+    // portent un badge « liée BE » (via beneluxLinks) pour éviter la confusion.
     const marques = await prisma.marque.findMany({
+      where: bdWhere,
       include: {
         contacts: {
           select: {

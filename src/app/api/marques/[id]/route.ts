@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import {
   canAccessFullMarqueCrm,
+  canBusinessDeveloperAccessMarque,
   canUpdateMarqueBilling,
   canWriteMarqueCrm,
 } from "@/lib/marque-crm-access";
@@ -143,6 +144,19 @@ export async function GET(
       );
     }
 
+    if (
+      !canBusinessDeveloperAccessMarque(
+        session.user.role,
+        session.user.id as string,
+        marque.assignedToId
+      )
+    ) {
+      return NextResponse.json(
+        { message: "Marque non assignée à votre portefeuille" },
+        { status: 403 }
+      );
+    }
+
     // Backfill : contacts carto @woo.paris / Nice Work / … → section Agences.
     try {
       const agencySync = await syncMarqueAgenciesFromCartoContacts({
@@ -232,6 +246,7 @@ export async function PUT(
     }
 
     const role = session.user.role;
+    const userId = session.user.id as string;
     const canFullWrite = canWriteMarqueCrm(role);
     const canBilling = canUpdateMarqueBilling(role);
     if (!canBilling) {
@@ -242,9 +257,23 @@ export async function PUT(
     }
 
     const { id } = await params;
+    const existing = await prisma.marque.findUnique({
+      where: { id },
+      select: { id: true, assignedToId: true },
+    });
+    if (!existing) {
+      return NextResponse.json({ message: "Marque non trouvée" }, { status: 404 });
+    }
+    if (!canBusinessDeveloperAccessMarque(role, userId, existing.assignedToId)) {
+      return NextResponse.json(
+        { message: "Marque non assignée à votre portefeuille" },
+        { status: 403 }
+      );
+    }
+
     const data = await request.json();
 
-    // TM / CM / HoI : uniquement les champs de facturation (modal devis/facture).
+    // TM / CM / HoI / BD : uniquement les champs de facturation (modal devis/facture).
     // Le CRM complet (nom, contacts, hiérarchie…) reste réservé aux rôles write.
     if (!canFullWrite) {
       if (data.contacts || "parentMarqueId" in data || data.nom) {
