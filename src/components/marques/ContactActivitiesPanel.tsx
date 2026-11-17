@@ -11,6 +11,9 @@ import {
   PhoneMissed,
   PhoneOff,
   Voicemail,
+  Paperclip,
+  FileText,
+  X,
 } from "lucide-react";
 
 const INK = "#16110F";
@@ -24,6 +27,8 @@ export type ContactActivity = {
   occurredAt: string;
   createdByName: string | null;
   createdAt: string;
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
 };
 
 const CALL_OUTCOMES: {
@@ -51,6 +56,13 @@ function formatWhen(iso: string): string {
   });
 }
 
+function isPdfFile(file: File): boolean {
+  return (
+    file.type === "application/pdf" ||
+    file.name.toLowerCase().endsWith(".pdf")
+  );
+}
+
 export function ContactActivitiesPanel({
   marqueId,
   contactId,
@@ -69,6 +81,7 @@ export function ContactActivitiesPanel({
   const [error, setError] = useState<string | null>(null);
   const [composer, setComposer] = useState<"NOTE" | "CALL" | null>(null);
   const [body, setBody] = useState("");
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [callOutcome, setCallOutcome] = useState("CONNECTED");
   const [occurredAt, setOccurredAt] = useState(() => {
     const d = new Date();
@@ -77,6 +90,7 @@ export function ContactActivitiesPanel({
   });
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const apiBase = `/api/marques/${marqueId}/contacts/${contactId}/activities`;
 
@@ -111,25 +125,66 @@ export function ContactActivitiesPanel({
   const resetComposer = () => {
     setComposer(null);
     setBody("");
+    setPdfFile(null);
     setCallOutcome("CONNECTED");
     const d = new Date();
     d.setSeconds(0, 0);
     setOccurredAt(d.toISOString().slice(0, 16));
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const onPickPdf = (file: File | null) => {
+    if (!file) {
+      setPdfFile(null);
+      return;
+    }
+    if (!isPdfFile(file)) {
+      setError("Seuls les fichiers PDF sont acceptés.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    setError(null);
+    setPdfFile(file);
   };
 
   const submit = async () => {
-    if (!composer || !body.trim()) return;
+    if (!composer) return;
+    const text = body.trim();
+    if (composer === "CALL" && !text) return;
+    if (composer === "NOTE" && !text && !pdfFile) return;
+
     setSaving(true);
     setError(null);
     try {
+      let attachmentUrl: string | null = null;
+      let attachmentName: string | null = null;
+
+      if (composer === "NOTE" && pdfFile) {
+        const { uploadFileViaPresignedUrl } = await import(
+          "@/lib/s3-upload-client"
+        );
+        attachmentUrl = await uploadFileViaPresignedUrl(
+          `${apiBase}/presign`,
+          {
+            fileName: pdfFile.name || "note.pdf",
+            size: pdfFile.size,
+            contentType: "application/pdf",
+          },
+          pdfFile
+        );
+        attachmentName = pdfFile.name || "piece-jointe.pdf";
+      }
+
       const res = await fetch(apiBase, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: composer,
-          body: body.trim(),
+          body: text,
           callOutcome: composer === "CALL" ? callOutcome : null,
           occurredAt: occurredAt ? new Date(occurredAt).toISOString() : null,
+          attachmentUrl,
+          attachmentName,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -160,6 +215,11 @@ export function ContactActivitiesPanel({
     }
   };
 
+  const canSubmit =
+    composer === "CALL"
+      ? Boolean(body.trim())
+      : Boolean(body.trim() || pdfFile);
+
   return (
     <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -170,7 +230,11 @@ export function ContactActivitiesPanel({
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={() => setComposer((c) => (c === "NOTE" ? null : "NOTE"))}
+              onClick={() => {
+                setPdfFile(null);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+                setComposer((c) => (c === "NOTE" ? null : "NOTE"));
+              }}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold ring-1 ring-black/[0.08] bg-white hover:bg-gray-50"
               style={{ color: INK }}
             >
@@ -179,7 +243,11 @@ export function ContactActivitiesPanel({
             </button>
             <button
               type="button"
-              onClick={() => setComposer((c) => (c === "CALL" ? null : "CALL"))}
+              onClick={() => {
+                setPdfFile(null);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+                setComposer((c) => (c === "CALL" ? null : "CALL"));
+              }}
               className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold ring-1 ring-black/[0.08] bg-white hover:bg-gray-50"
               style={{ color: INK }}
             >
@@ -238,6 +306,45 @@ export function ContactActivitiesPanel({
             }
             className="w-full px-2.5 py-2 rounded-md text-[13px] ring-1 ring-black/[0.08] bg-white focus:outline-none focus:ring-2 resize-y min-h-[72px]"
           />
+          {composer === "NOTE" && (
+            <div className="space-y-1.5">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                onChange={(e) => onPickPdf(e.target.files?.[0] || null)}
+              />
+              {pdfFile ? (
+                <div className="flex items-center gap-2 rounded-md bg-gray-50 ring-1 ring-black/[0.06] px-2.5 py-2">
+                  <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: ROSE }} />
+                  <span className="text-[12px] text-gray-700 truncate flex-1">
+                    {pdfFile.name}
+                  </span>
+                  <span className="text-[11px] text-gray-400 tabular-nums shrink-0">
+                    {(pdfFile.size / 1024 / 1024).toFixed(1)} Mo
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onPickPdf(null)}
+                    className="p-1 rounded text-gray-400 hover:text-gray-700 hover:bg-white"
+                    title="Retirer le PDF"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-semibold text-gray-600 ring-1 ring-black/[0.08] bg-white hover:bg-gray-50"
+                >
+                  <Paperclip className="w-3 h-3" style={{ color: ROSE }} />
+                  Joindre un PDF
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -249,7 +356,7 @@ export function ContactActivitiesPanel({
             <button
               type="button"
               onClick={() => void submit()}
-              disabled={saving || !body.trim()}
+              disabled={saving || !canSubmit}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-white rounded-md hover:opacity-90 disabled:opacity-40"
               style={{ backgroundColor: INK }}
             >
@@ -312,9 +419,24 @@ export function ContactActivitiesPanel({
                       </button>
                     )}
                   </div>
-                  <p className="text-[13px] text-gray-700 mt-1 whitespace-pre-wrap leading-relaxed">
-                    {a.body}
-                  </p>
+                  {a.body && !(a.attachmentUrl && a.body.startsWith("PJ : ")) && (
+                    <p className="text-[13px] text-gray-700 mt-1 whitespace-pre-wrap leading-relaxed">
+                      {a.body}
+                    </p>
+                  )}
+                  {a.attachmentUrl && (
+                    <a
+                      href={a.attachmentUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1.5 max-w-full px-2 py-1.5 rounded-md text-[12px] font-medium text-gray-700 bg-gray-50 ring-1 ring-black/[0.06] hover:bg-gray-100"
+                    >
+                      <FileText className="w-3.5 h-3.5 shrink-0" style={{ color: ROSE }} />
+                      <span className="truncate">
+                        {a.attachmentName || "Pièce jointe.pdf"}
+                      </span>
+                    </a>
+                  )}
                 </div>
               </div>
             </li>

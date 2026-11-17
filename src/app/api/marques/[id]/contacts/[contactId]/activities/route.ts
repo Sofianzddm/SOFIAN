@@ -4,10 +4,12 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { canWriteMarqueCrm } from "@/lib/marque-crm-access";
 import { MarqueContactActivityType } from "@prisma/client";
+import { deleteFromS3, isS3Url } from "@/lib/s3";
 
 type RouteContext = { params: Promise<{ id: string; contactId: string }> };
 
 const CALL_OUTCOMES = new Set(["CONNECTED", "NO_ANSWER", "VOICEMAIL", "BUSY"]);
+const MAX_ATTACHMENT_NAME = 200;
 
 async function assertContactOnMarque(marqueId: string, contactId: string) {
   return prisma.marqueContact.findFirst({
@@ -19,6 +21,45 @@ async function assertContactOnMarque(marqueId: string, contactId: string) {
       marqueId: true,
     },
   });
+}
+
+function isCloudinaryUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return (
+      u.protocol === "https:" &&
+      (u.hostname === "res.cloudinary.com" ||
+        u.hostname.endsWith(".cloudinary.com"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedAttachmentUrl(url: string): boolean {
+  return isS3Url(url) || isCloudinaryUrl(url);
+}
+
+function sanitizeAttachmentName(raw: string): string {
+  const cleaned = raw
+    .replace(/[/\\]/g, "-")
+    .replace(/[^\w.\- ()[\]]+/g, "_")
+    .trim()
+    .slice(0, MAX_ATTACHMENT_NAME);
+  if (!cleaned) return "piece-jointe.pdf";
+  return cleaned.toLowerCase().endsWith(".pdf") ? cleaned : `${cleaned}.pdf`;
+}
+
+async function deleteAttachmentQuietly(url: string | null | undefined) {
+  if (!url) return;
+  try {
+    if (isS3Url(url)) {
+      await deleteFromS3(url);
+    }
+    // Cloudinary : on laisse l’objet (pas de helper commun ici) ; l’URL reste orphan.
+  } catch (e) {
+    console.error("delete contact activity attachment:", e);
+  }
 }
 
 export async function GET(_request: NextRequest, { params }: RouteContext) {
@@ -68,6 +109,8 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       body?: string;
       callOutcome?: string | null;
       occurredAt?: string | null;
+      attachmentUrl?: string | null;
+      attachmentName?: string | null;
     };
 
     const typeRaw = String(body.type || "").toUpperCase();
@@ -80,19 +123,44 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const type = typeRaw as MarqueContactActivityType;
 
     const text = String(body.body || "").trim();
-    if (!text) {
+    const attachmentUrlRaw = String(body.attachmentUrl || "").trim();
+    const hasAttachment = Boolean(attachmentUrlRaw);
+
+    if (hasAttachment && type !== "NOTE") {
+      return NextResponse.json(
+        { error: "Les pièces jointes PDF sont réservées aux notes." },
+        { status: 400 }
+      );
+    }
+
+    if (!text && !hasAttachment) {
       return NextResponse.json(
         {
           error:
             type === "CALL"
               ? "Indique ce qui s’est dit (ou le motif de non-jointure)."
-              : "Le contenu de la note est requis.",
+              : "Ajoute un texte ou une pièce jointe PDF.",
         },
         { status: 400 }
       );
     }
     if (text.length > 8000) {
       return NextResponse.json({ error: "Texte trop long (max 8000)." }, { status: 400 });
+    }
+
+    let attachmentUrl: string | null = null;
+    let attachmentName: string | null = null;
+    if (hasAttachment) {
+      if (!isAllowedAttachmentUrl(attachmentUrlRaw)) {
+        return NextResponse.json(
+          { error: "URL de pièce jointe invalide." },
+          { status: 400 }
+        );
+      }
+      attachmentUrl = attachmentUrlRaw;
+      attachmentName = sanitizeAttachmentName(
+        String(body.attachmentName || "piece-jointe.pdf")
+      );
     }
 
     let callOutcome: string | null = null;
@@ -123,9 +191,11 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       data: {
         contactId,
         type,
-        body: text,
+        body: text || (attachmentName ? `PJ : ${attachmentName}` : "Pièce jointe"),
         callOutcome,
         occurredAt,
+        attachmentUrl,
+        attachmentName,
         createdById: session.user.id || null,
         createdByName,
       },
@@ -164,13 +234,14 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
 
     const existing = await prisma.marqueContactActivity.findFirst({
       where: { id: activityId, contactId },
-      select: { id: true },
+      select: { id: true, attachmentUrl: true },
     });
     if (!existing) {
       return NextResponse.json({ error: "Activité introuvable" }, { status: 404 });
     }
 
     await prisma.marqueContactActivity.delete({ where: { id: activityId } });
+    await deleteAttachmentQuietly(existing.attachmentUrl);
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("DELETE contact activities:", error);

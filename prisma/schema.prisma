@@ -1089,6 +1089,10 @@ model MarqueContactActivity {
   /// Date réelle de l'appel / de la note (peut différer de createdAt).
   occurredAt DateTime @default(now())
 
+  /// PJ PDF (S3 en priorité, Cloudinary en fallback) — notes uniquement.
+  attachmentUrl  String?
+  attachmentName String?
+
   createdById   String?
   createdByName String?
 
