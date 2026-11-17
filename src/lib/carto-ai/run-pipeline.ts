@@ -27,13 +27,16 @@ function clean(v: unknown): string | null {
   return s || null;
 }
 
-export type CartoAiFicheMarket = "FR" | "BENELUX";
+export type CartoAiFicheMarket = "FR" | "BENELUX" | "BOTH";
 
 export type CartoAiCommitResult = {
   marqueId: string;
   company: string;
   market: CartoAiFicheMarket;
   fichePath: string;
+  /** Présent si market=BOTH — fiche Benelux créée/liée. */
+  marqueIdBe?: string;
+  fichePathBe?: string;
   created: number;
   skipped: number;
   emailsAuto: number;
@@ -487,7 +490,7 @@ async function commitBenelux(opts: {
 
 export async function commitCartoAiPipeline(opts: {
   company: string;
-  /** Fiche FR (marqueId) ou Benelux (companyId). */
+  /** Fiche FR (marqueId) ou Benelux (companyId). Absente → find-or-create par nom. */
   marqueId?: string | null;
   domain?: string | null;
   language: "fr" | "en";
@@ -499,6 +502,49 @@ export async function commitCartoAiPipeline(opts: {
   const company = opts.company.trim();
   if (!company && !opts.marqueId) throw new Error("Fiche requise");
   if (!opts.selectedRows.length) throw new Error("Aucun contact sélectionné");
+
+  if (opts.market === "BOTH") {
+    const fr = await commitFrance({
+      company: company || "Marque",
+      marqueId: opts.marqueId,
+      domain: opts.domain,
+      language: opts.language,
+      selectedRows: opts.selectedRows,
+      userId: opts.userId,
+      skipAutoEnrich: opts.skipAutoEnrich,
+    });
+    const be = await commitBenelux({
+      company: fr.company || company || "Entreprise",
+      companyId: null,
+      domain: opts.domain,
+      language: opts.language,
+      selectedRows: opts.selectedRows,
+      userId: opts.userId,
+      skipAutoEnrich: opts.skipAutoEnrich,
+    });
+    try {
+      await prisma.beneluxCompany.update({
+        where: { id: be.marqueId },
+        data: { linkedMarqueId: fr.marqueId },
+      });
+    } catch (e) {
+      console.warn("[carto-ai] link BE→FR:", e);
+    }
+    return {
+      marqueId: fr.marqueId,
+      company: fr.company,
+      market: "BOTH",
+      fichePath: fr.fichePath,
+      marqueIdBe: be.marqueId,
+      fichePathBe: be.fichePath,
+      created: fr.created + be.created,
+      skipped: fr.skipped + be.skipped,
+      emailsAuto: fr.emailsAuto + be.emailsAuto,
+      queued: fr.queued + be.queued,
+      enrolled: fr.enrolled + be.enrolled,
+      contactIds: [...fr.contactIds, ...be.contactIds],
+    };
+  }
 
   if (opts.market === "BENELUX") {
     return commitBenelux({

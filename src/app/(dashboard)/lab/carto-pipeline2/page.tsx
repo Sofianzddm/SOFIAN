@@ -15,7 +15,7 @@ import type { CartoChatVpsPreviewResult } from "@/lib/carto-chat-vps/types";
 import { BrandEnrichPanel } from "@/components/enrichissement/BrandEnrichPanel";
 
 type ContactCouche = "marque" | "agence" | "autre";
-type FicheMarket = "FR" | "BENELUX";
+type FicheMarket = "FR" | "BENELUX" | "BOTH";
 
 /** Prompt research — jeton de fin ajouté côté serveur (buildUserChatPrompt). */
 const DEFAULT_CHAT_PROMPT = CARTO_CHAT_RESEARCH_PROMPT;
@@ -25,6 +25,8 @@ type CommitResult = {
   company: string;
   market?: FicheMarket;
   fichePath?: string;
+  marqueIdBe?: string;
+  fichePathBe?: string;
   created: number;
   skipped: number;
   emailsAuto: number;
@@ -53,6 +55,8 @@ export default function CartoAiPipelineChatLabPage() {
   const [ficheQuery, setFicheQuery] = useState("");
   const [marqueId, setMarqueId] = useState<string | null>(null);
   const [marqueNom, setMarqueNom] = useState<string | null>(null);
+  /** true = créer / find-or-create au commit (pas de fiche sélectionnée). */
+  const [creatingFiche, setCreatingFiche] = useState(false);
   const [marqueHits, setMarqueHits] = useState<MarqueHit[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingHint, setLoadingHint] = useState<string | null>(null);
@@ -85,7 +89,8 @@ export default function CartoAiPipelineChatLabPage() {
     }
     const t = window.setTimeout(async () => {
       try {
-        if (ficheMarket === "BENELUX") {
+        // FR+BE : on cherche la fiche France (Benelux find-or-create au commit)
+    if (ficheMarket === "BENELUX") {
           const res = await fetch(
             `/api/benelux-outreach/companies?q=${encodeURIComponent(q)}`
           );
@@ -527,8 +532,20 @@ export default function CartoAiPipelineChatLabPage() {
 
   async function runCommit() {
     if (!preview || selectedRows.length === 0) return;
-    if (!marqueId || !marqueNom) {
-      setError("Étape 1 : sélectionne une fiche client FR ou Benelux");
+    const targetName = (
+      marqueNom ||
+      ficheQuery.trim() ||
+      preview.company ||
+      company
+    ).trim();
+    if (!marqueId && !creatingFiche && !targetName) {
+      setError(
+        "Étape 1 : sélectionne une fiche, ou crée-en une (FR / Benelux / FR+BE)"
+      );
+      return;
+    }
+    if (!targetName) {
+      setError("Nom de marque requis");
       return;
     }
     setError(null);
@@ -538,8 +555,9 @@ export default function CartoAiPipelineChatLabPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          company: marqueNom,
-          marqueId,
+          company: targetName,
+          // Pas d’id → find-or-create côté serveur (création)
+          marqueId: creatingFiche ? undefined : marqueId || undefined,
           domain: preview.domain || domain.trim() || undefined,
           language,
           market: ficheMarket,
@@ -562,12 +580,32 @@ export default function CartoAiPipelineChatLabPage() {
     setMarqueId(m.id);
     setMarqueNom(m.nom);
     setFicheQuery(m.nom);
+    setCreatingFiche(false);
+    setMarqueHits([]);
+  }
+
+  function draftCreateFiche() {
+    const nom = (
+      ficheQuery.trim() ||
+      preview?.company ||
+      company
+    ).trim();
+    if (!nom) {
+      setError("Indique un nom de marque à créer");
+      return;
+    }
+    setError(null);
+    setMarqueId(null);
+    setMarqueNom(nom);
+    setFicheQuery(nom);
+    setCreatingFiche(true);
     setMarqueHits([]);
   }
 
   function clearMarque() {
     setMarqueId(null);
     setMarqueNom(null);
+    setCreatingFiche(false);
     setFicheQuery("");
     setMarqueHits([]);
   }
@@ -575,6 +613,12 @@ export default function CartoAiPipelineChatLabPage() {
   function switchFicheMarket(next: FicheMarket) {
     setFicheMarket(next);
     clearMarque();
+  }
+
+  function ficheMarketLabel(m: FicheMarket = ficheMarket) {
+    if (m === "BOTH") return "FR + Benelux";
+    if (m === "BENELUX") return "Benelux";
+    return "France";
   }
 
   if (status === "loading") {
@@ -605,9 +649,7 @@ export default function CartoAiPipelineChatLabPage() {
           <p className="mt-1 text-sm text-gray-500">
             {commitResult.created} ajouté(s) · {commitResult.skipped} déjà
             présents · fiche{" "}
-            {(commitResult.market || ficheMarket) === "BENELUX"
-              ? "Benelux"
-              : "France"}
+            {ficheMarketLabel(commitResult.market || ficheMarket)}
             {commitResult.fichePath ? (
               <>
                 {" · "}
@@ -615,7 +657,20 @@ export default function CartoAiPipelineChatLabPage() {
                   href={commitResult.fichePath}
                   className="underline hover:text-gray-800"
                 >
-                  ouvrir la fiche
+                  {(commitResult.market || ficheMarket) === "BENELUX"
+                    ? "ouvrir Benelux"
+                    : "ouvrir FR"}
+                </Link>
+              </>
+            ) : null}
+            {commitResult.fichePathBe ? (
+              <>
+                {" · "}
+                <Link
+                  href={commitResult.fichePathBe}
+                  className="underline hover:text-gray-800"
+                >
+                  ouvrir Benelux
                 </Link>
               </>
             ) : null}
@@ -630,7 +685,11 @@ export default function CartoAiPipelineChatLabPage() {
 
         <BrandEnrichPanel
           marqueId={commitResult.marqueId}
-          market={commitResult.market || ficheMarket}
+          market={
+            (commitResult.market || ficheMarket) === "BENELUX"
+              ? "BENELUX"
+              : "FR"
+          }
           company={commitResult.company}
           fichePath={commitResult.fichePath}
           onBack={() => setPhase("carto")}
@@ -890,33 +949,34 @@ export default function CartoAiPipelineChatLabPage() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => switchFicheMarket("FR")}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                    ficheMarket === "FR"
-                      ? "bg-gray-900 text-white"
-                      : "border border-gray-300 text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  Fiche France
-                </button>
-                <button
-                  type="button"
-                  onClick={() => switchFicheMarket("BENELUX")}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                    ficheMarket === "BENELUX"
-                      ? "bg-gray-900 text-white"
-                      : "border border-gray-300 text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  Fiche Benelux
-                </button>
+                {(
+                  [
+                    ["FR", "🇫🇷 FR"],
+                    ["BENELUX", "🇧🇪 BE"],
+                    ["BOTH", "FR+BE"],
+                  ] as const
+                ).map(([m, label]) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => switchFicheMarket(m)}
+                    className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                      ficheMarket === m
+                        ? "bg-gray-900 text-white"
+                        : "border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
               <label className="relative block max-w-md text-sm">
                 <span className="mb-1 block text-gray-700">
-                  Rechercher une fiche{" "}
-                  {ficheMarket === "BENELUX" ? "Benelux" : "France"}
+                  {ficheMarket === "BOTH"
+                    ? "Rechercher une fiche France (Benelux auto)"
+                    : ficheMarket === "BENELUX"
+                      ? "Rechercher une fiche Benelux"
+                      : "Rechercher une fiche France"}
                 </span>
                 <input
                   value={ficheQuery}
@@ -924,12 +984,13 @@ export default function CartoAiPipelineChatLabPage() {
                     setFicheQuery(e.target.value);
                     setMarqueId(null);
                     setMarqueNom(null);
+                    setCreatingFiche(false);
                   }}
-                  placeholder={preview.company || "Rechercher une fiche…"}
+                  placeholder={preview.company || "Rechercher ou créer…"}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2"
                   autoComplete="off"
                 />
-                {marqueHits.length > 0 && !marqueId && (
+                {marqueHits.length > 0 && !marqueId && !creatingFiche && (
                   <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg">
                     {marqueHits.slice(0, 8).map((m) => (
                       <li key={m.id}>
@@ -950,12 +1011,42 @@ export default function CartoAiPipelineChatLabPage() {
                         </button>
                       </li>
                     ))}
+                    <li className="border-t border-gray-100">
+                      <button
+                        type="button"
+                        onClick={draftCreateFiche}
+                        className="w-full px-3 py-2 text-left text-sm font-medium text-emerald-800 hover:bg-emerald-50"
+                      >
+                        Créer «{" "}
+                        {(
+                          ficheQuery.trim() ||
+                          preview.company ||
+                          company ||
+                          "…"
+                        ).trim()}{" "}
+                        » ({ficheMarketLabel()})
+                      </button>
+                    </li>
                   </ul>
                 )}
-                {marqueId && marqueNom ? (
+                {!marqueId && !creatingFiche && ficheQuery.trim().length >= 2 && (
+                  <button
+                    type="button"
+                    onClick={draftCreateFiche}
+                    className="mt-2 text-xs font-medium text-emerald-800 underline"
+                  >
+                    Créer « {ficheQuery.trim()} » · {ficheMarketLabel()}
+                  </button>
+                )}
+                {(marqueId || creatingFiche) && marqueNom ? (
                   <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-emerald-700">
-                    Fiche {ficheMarket === "BENELUX" ? "Benelux" : "France"} :{" "}
-                    {marqueNom}
+                    {creatingFiche ? "Création" : "Fiche"} {ficheMarketLabel()}{" "}
+                    : {marqueNom}
+                    {ficheMarket === "BOTH" && creatingFiche
+                      ? " (FR + Benelux)"
+                      : ficheMarket === "BOTH" && !creatingFiche
+                        ? " (+ Benelux lié auto)"
+                        : ""}
                     <button
                       type="button"
                       onClick={clearMarque}
@@ -966,8 +1057,8 @@ export default function CartoAiPipelineChatLabPage() {
                   </p>
                 ) : (
                   <p className="mt-1 text-xs text-gray-500">
-                    Sélectionne une fiche existante pour passer à
-                    l&apos;enrichissement
+                    Sélectionne une fiche existante, ou crée-en une si elle
+                    n&apos;existe pas
                   </p>
                 )}
               </label>
@@ -979,8 +1070,8 @@ export default function CartoAiPipelineChatLabPage() {
                   Étape 2 · Enrichissement
                 </p>
                 <p className="mt-0.5 text-sm text-gray-900">
-                  Enregistre sur la fiche puis enrichis ici (emails, FR/BE,
-                  langue FR/EN par contact)
+                  Enregistre sur la/les fiche(s) puis enrichis ici (emails,
+                  FR/BE, langue FR/EN par contact)
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
@@ -988,7 +1079,9 @@ export default function CartoAiPipelineChatLabPage() {
                   type="button"
                   onClick={runCommit}
                   disabled={
-                    committing || selectedRows.length === 0 || !marqueId
+                    committing ||
+                    selectedRows.length === 0 ||
+                    !(marqueId || creatingFiche || ficheQuery.trim() || preview.company)
                   }
                   className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
                 >
@@ -997,9 +1090,9 @@ export default function CartoAiPipelineChatLabPage() {
                     : `Passer à l'enrichissement (${selectedRows.length})`}
                 </button>
                 <span className="text-xs text-gray-500">
-                  {marqueId
-                    ? `→ ${marqueNom} · ${ficheMarket === "BENELUX" ? "Benelux" : "France"}`
-                    : "Sélectionne d’abord une fiche (étape 1)"}
+                  {marqueId || creatingFiche
+                    ? `→ ${marqueNom} · ${ficheMarketLabel()}${creatingFiche ? " · création" : ""}`
+                    : "Sélectionne ou crée une fiche (étape 1)"}
                 </span>
               </div>
             </div>

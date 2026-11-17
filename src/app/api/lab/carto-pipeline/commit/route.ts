@@ -48,7 +48,13 @@ export async function POST(request: NextRequest) {
 
     const language = body.language === "en" ? "en" : "fr";
     const domain = String(body.domain || "").trim() || null;
-    const market = body.market === "BENELUX" ? "BENELUX" : "FR";
+    const marketRaw = String(body.market || "FR").toUpperCase();
+    const market =
+      marketRaw === "BENELUX" || marketRaw === "BE"
+        ? "BENELUX"
+        : marketRaw === "BOTH" || marketRaw === "FR+BE" || marketRaw === "FR_BE"
+          ? "BOTH"
+          : "FR";
 
     const result = await commitCartoAiPipeline({
       company: company || "Marque",
