@@ -59,7 +59,6 @@ const menuItems = [
       "HEAD_OF",
       "HEAD_OF_INFLUENCE",
       "HEAD_OF_SALES",
-      "BUSINESS_DEVELOPER",
       "TM",
       "CM",
       "TALENT",

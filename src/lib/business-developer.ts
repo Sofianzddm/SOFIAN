@@ -21,7 +21,6 @@ export function isHosOrBusinessDeveloper(
  * (RH salarié autorisé hors menu pour ne pas bloquer l’espace RH.)
  */
 export const BD_ALLOWED_PATH_PREFIXES = [
-  "/dashboard",
   "/projets-outreach",
   "/notifications",
   "/talents",
@@ -36,6 +35,9 @@ export const BD_ALLOWED_PATH_PREFIXES = [
   "/kit/",
 ] as const;
 
+/** Landing post-login pour le Business Developer (pas de dashboard). */
+export const BD_HOME_PATH = "/collaborations";
+
 export function isBusinessDeveloperPathAllowed(pathname: string): boolean {
   if (pathname === "/login" || pathname.startsWith("/api/")) return true;
   return BD_ALLOWED_PATH_PREFIXES.some(
@@ -44,8 +46,7 @@ export function isBusinessDeveloperPathAllowed(pathname: string): boolean {
 }
 
 /**
- * Factures / devis : le BD ne voit que ses documents
- * (créés par elle, ou issus d’une collab qu’elle a créée).
+ * Factures / devis : le BD ne voit que ses documents (créés par elle).
  */
 export function canBusinessDeveloperAccessDocument(
   role: string | null | undefined,
@@ -56,9 +57,5 @@ export function canBusinessDeveloperAccessDocument(
   }
 ): boolean {
   if (!isBusinessDeveloper(role)) return true;
-  if (doc.createdById && doc.createdById === userId) return true;
-  if (doc.collaboration?.createdById && doc.collaboration.createdById === userId) {
-    return true;
-  }
-  return false;
+  return Boolean(doc.createdById && doc.createdById === userId);
 }

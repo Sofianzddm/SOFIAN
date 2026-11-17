@@ -16,19 +16,29 @@ export async function GET(request: NextRequest) {
     const isHeadOfSales = user.role === "HEAD_OF_SALES";
     const isBusinessDeveloper = user.role === "BUSINESS_DEVELOPER";
     const isCm = user.role === "CM";
-    // HoS / BD : uniquement leurs documents (créés par eux ou sur leurs collabs).
-    // BD n’a jamais la vue globale ADMIN.
-    const ownDocsWhere = {
-      OR: [
-        { createdById: user.id },
-        { collaboration: { createdById: user.id } },
-      ],
-    };
-    const salesScopeWhere = isHeadOfSales || isBusinessDeveloper
-      ? ownDocsWhere
-      : isCm
-        ? { collaboration: { accountManagerId: user.id } }
-        : {};
+    // BD : UNIQUEMENT ses documents (créés par elle).
+    // HoS : ses docs + docs sur ses collabs.
+    const ownDocsWhere = isBusinessDeveloper
+      ? { createdById: user.id }
+      : {
+          OR: [
+            { createdById: user.id },
+            { collaboration: { createdById: user.id } },
+          ],
+        };
+    const ownCollabWhere = { createdById: user.id };
+    const salesScopeWhere =
+      isHeadOfSales || isBusinessDeveloper
+        ? ownDocsWhere
+        : isCm
+          ? { collaboration: { accountManagerId: user.id } }
+          : {};
+    const collabScopeWhere =
+      isHeadOfSales || isBusinessDeveloper
+        ? ownCollabWhere
+        : isCm
+          ? { accountManagerId: user.id }
+          : {};
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
@@ -139,6 +149,7 @@ export async function GET(request: NextRequest) {
     const collabsAvecFacture = await prisma.collaboration.findMany({
       where: {
         statut: { in: ["FACTURE_RECUE", "PAYE", "PUBLIE"] },
+        ...collabScopeWhere,
       },
       include: {
         talent: { select: { prenom: true, nom: true } },
@@ -179,6 +190,7 @@ export async function GET(request: NextRequest) {
         type: "FACTURE",
         statut: "PAYE",
         datePaiement: { gte: startOfMonth },
+        ...salesScopeWhere,
       },
     });
 
@@ -187,6 +199,7 @@ export async function GET(request: NextRequest) {
       _sum: { montantNet: true },
       where: {
         paidAt: { gte: startOfMonth },
+        ...collabScopeWhere,
       },
     });
 
@@ -203,6 +216,7 @@ export async function GET(request: NextRequest) {
         type: "FACTURE",
         statut: "PAYE",
         datePaiement: { gte: startOfLastMonth, lte: endOfLastMonth },
+        ...salesScopeWhere,
       },
     });
 
@@ -210,6 +224,7 @@ export async function GET(request: NextRequest) {
       _sum: { montantNet: true },
       where: {
         paidAt: { gte: startOfLastMonth, lte: endOfLastMonth },
+        ...collabScopeWhere,
       },
     });
 
@@ -225,6 +240,7 @@ export async function GET(request: NextRequest) {
         type: "FACTURE",
         statut: "PAYE",
         datePaiement: { gte: startOfYear },
+        ...salesScopeWhere,
       },
     });
 
@@ -232,6 +248,7 @@ export async function GET(request: NextRequest) {
       _sum: { montantNet: true },
       where: {
         paidAt: { gte: startOfYear },
+        ...collabScopeWhere,
       },
     });
 
@@ -251,6 +268,7 @@ export async function GET(request: NextRequest) {
         type: "FACTURE",
         statut: { in: ["ENVOYE", "VALIDE"] },
         dateEcheance: { lt: now },
+        ...salesScopeWhere,
       },
     });
 
@@ -259,6 +277,7 @@ export async function GET(request: NextRequest) {
       where: {
         type: "FACTURE",
         statut: { in: ["ENVOYE", "VALIDE"] },
+        ...salesScopeWhere,
       },
     });
 
@@ -267,6 +286,7 @@ export async function GET(request: NextRequest) {
       where: {
         factureTalentRecueAt: { not: null },
         paidAt: null,
+        ...collabScopeWhere,
       },
     });
 
@@ -285,6 +305,7 @@ export async function GET(request: NextRequest) {
           type: "FACTURE",
           statut: "PAYE",
           datePaiement: { gte: monthStart, lte: monthEnd },
+          ...salesScopeWhere,
         },
       });
 
@@ -292,6 +313,7 @@ export async function GET(request: NextRequest) {
         _sum: { montantNet: true },
         where: {
           paidAt: { gte: monthStart, lte: monthEnd },
+          ...collabScopeWhere,
         },
       });
 

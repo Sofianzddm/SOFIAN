@@ -68,6 +68,12 @@ export function resolvePostLoginPath(
     if (safe?.startsWith("/rh")) return safe;
     return safe || "/strategy/projets/villa-cannes";
   }
+  if (role === "BUSINESS_DEVELOPER") {
+    if (safe && safe !== "/dashboard" && !safe.startsWith("/dashboard/")) {
+      return safe;
+    }
+    return "/collaborations";
+  }
 
   return safe || "/dashboard";
 }

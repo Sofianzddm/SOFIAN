@@ -13,7 +13,10 @@ import { isNomCampagneGateEnabled } from "@/lib/nom-campagne-gate-paths";
 import { canViewAllTalentCollabs } from "@/lib/collab-viewer-access";
 import { isMarqueCrmReadOnly } from "@/lib/marque-crm-access";
 import { trackStaffActivityFromProxy } from "@/lib/activity-track-proxy";
-import { isBusinessDeveloperPathAllowed } from "@/lib/business-developer";
+import {
+  BD_HOME_PATH,
+  isBusinessDeveloperPathAllowed,
+} from "@/lib/business-developer";
 
 const NOINDEX_HEADER = "noindex, nofollow, noarchive, nosnippet, noimageindex";
 
@@ -518,12 +521,17 @@ export async function proxy(request: NextRequest) {
     return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
   }
 
-  // Business Developer : confinement aux modules autorisés
-  if (
-    effectiveRole === "BUSINESS_DEVELOPER" &&
-    !isBusinessDeveloperPathAllowed(pathname)
-  ) {
-    return withNoIndex(NextResponse.redirect(new URL("/dashboard", request.url)));
+  // Business Developer : confinement aux modules autorisés (pas de dashboard)
+  if (effectiveRole === "BUSINESS_DEVELOPER") {
+    if (
+      pathname === "/dashboard" ||
+      pathname.startsWith("/dashboard/") ||
+      !isBusinessDeveloperPathAllowed(pathname)
+    ) {
+      return withNoIndex(
+        NextResponse.redirect(new URL(BD_HOME_PATH, request.url))
+      );
+    }
   }
 
   return withNoIndex(NextResponse.next());

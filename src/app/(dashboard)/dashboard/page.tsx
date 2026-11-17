@@ -363,9 +363,7 @@ export default function DashboardPage() {
       {role === "ADMIN" && <AdminDashboard data={data} absences={absences} />}
       {role === "HEAD_OF_INFLUENCE" && <HeadOfInfluenceDashboard data={data} absences={absences} />}
       {role === "HEAD_OF" && <HeadOfDashboard data={data} role={role} />}
-      {(role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER") && (
-        <HeadOfSalesDashboard />
-      )}
+      {role === "HEAD_OF_SALES" && <HeadOfSalesDashboard />}
       {role === "CM" && <CMDashboard data={data} />}
       {role === "TM" && <TMDashboard data={data} />}
       {role === "CASTING_MANAGER" && <CastingManagerDashboard />}
