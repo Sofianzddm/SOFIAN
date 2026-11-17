@@ -52,14 +52,21 @@ export async function GET(request: NextRequest) {
         })
       : Promise.resolve([]);
 
-    // Recherche marques
+    // Recherche marques (BD : portefeuille assigné uniquement)
     const marquesPromise = ["ADMIN", "HEAD_OF", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "BUSINESS_DEVELOPER", "TM", "CM"].includes(userRole)
       ? prisma.marque.findMany({
           where: {
-            OR: [
-              { nom: { contains: query, mode: "insensitive" } },
-              { raisonSociale: { contains: query, mode: "insensitive" } },
-              { secteur: { contains: query, mode: "insensitive" } },
+            AND: [
+              {
+                OR: [
+                  { nom: { contains: query, mode: "insensitive" } },
+                  { raisonSociale: { contains: query, mode: "insensitive" } },
+                  { secteur: { contains: query, mode: "insensitive" } },
+                ],
+              },
+              userRole === "BUSINESS_DEVELOPER"
+                ? { assignedToId: session.user.id }
+                : {},
             ],
           },
           select: {
@@ -91,13 +98,16 @@ export async function GET(request: NextRequest) {
                 ? {}
                 : userRole === "CM"
                   ? { accountManagerId: session.user.id }
-                  : {
-                      OR: [
-                        { isPrivate: false },
-                        { createdById: session.user.id },
-                        { accountManagerId: session.user.id },
-                      ],
-                    },
+                  : userRole === "HEAD_OF_SALES" ||
+                      userRole === "BUSINESS_DEVELOPER"
+                    ? { createdById: session.user.id }
+                    : {
+                        OR: [
+                          { isPrivate: false },
+                          { createdById: session.user.id },
+                          { accountManagerId: session.user.id },
+                        ],
+                      },
             ],
           },
           select: {

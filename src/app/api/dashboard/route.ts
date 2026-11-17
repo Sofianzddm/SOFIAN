@@ -753,20 +753,31 @@ export async function GET(request: NextRequest) {
     // ============================================
     // HEAD_OF_SALES - Dashboard Sales
     // ============================================
-    if ((role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER")) {
+    if (role === "HEAD_OF_SALES" || role === "BUSINESS_DEVELOPER") {
+      const ownCollabWhere = { createdById: user.id };
+      const marquesWhere =
+        role === "BUSINESS_DEVELOPER"
+          ? { assignedToId: user.id }
+          : {};
       const [
         totalMarques,
         negosEnCours,
         caMois,
         caAnnee,
       ] = await Promise.all([
-        prisma.marque.count(),
-        prisma.negociation.count({ 
-          where: { statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] } } 
-        }),
+        prisma.marque.count({ where: marquesWhere }),
+        // BD / HoS : pas le pipeline négo global
+        role === "BUSINESS_DEVELOPER"
+          ? Promise.resolve(0)
+          : prisma.negociation.count({
+              where: {
+                statut: { in: ["BROUILLON", "EN_ATTENTE", "EN_DISCUSSION"] },
+              },
+            }),
         prisma.collaboration.aggregate({
           _sum: { montantBrut: true },
           where: {
+            ...ownCollabWhere,
             statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
             createdAt: { gte: startOfMonth },
             AND: [hideSofianPrivateCollabsWhere({ email: session.user.email })],
@@ -775,6 +786,7 @@ export async function GET(request: NextRequest) {
         prisma.collaboration.aggregate({
           _sum: { montantBrut: true },
           where: {
+            ...ownCollabWhere,
             statut: { in: ["EN_COURS", "PUBLIE", "FACTURE_RECUE", "PAYE"] },
             createdAt: { gte: startOfYear },
             AND: [hideSofianPrivateCollabsWhere({ email: session.user.email })],
@@ -783,7 +795,7 @@ export async function GET(request: NextRequest) {
       ]);
 
       return NextResponse.json({
-        role: "HEAD_OF_SALES",
+        role: role === "BUSINESS_DEVELOPER" ? "BUSINESS_DEVELOPER" : "HEAD_OF_SALES",
         stats: {
           totalMarques,
           collabsNego: negosEnCours,

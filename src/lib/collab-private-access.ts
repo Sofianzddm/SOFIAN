@@ -22,6 +22,11 @@ export function canAccessPrivateCollab(
   },
   user: { id: string; role?: string; email?: string | null }
 ): boolean {
+  // Pôle Sales (HoS + BD) : UNIQUEMENT leurs propres collabs (privées ou non).
+  if (user.role === "HEAD_OF_SALES" || user.role === "BUSINESS_DEVELOPER") {
+    return Boolean(collab.createdById && collab.createdById === user.id);
+  }
+
   if (!collab.isPrivate) return true;
 
   const creatorIsSofian = isSofianEmail(collab.createdBy?.email);

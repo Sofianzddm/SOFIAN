@@ -84,14 +84,17 @@ export async function GET(request: NextRequest) {
     }
 
     // Cloisonnement strict pôle Sales :
-    // - HEAD_OF_SALES : ne voit QUE ses propres collabs (pôle Sales 100% séparé)
+    // - HEAD_OF_SALES / BUSINESS_DEVELOPER : QUE leurs propres collabs
     // - CM (Account Manager) : UNIQUEMENT les collabs qui lui sont assignées
     // - ADMIN : voit tout
     // - Viewer collabs : déjà filtré (publiques uniquement)
     // - Autres : voient les publiques OU celles qu'ils ont créées eux-mêmes
     if (isTalentCollabViewer) {
       // déjà filtré ci-dessus
-    } else if ((user.role === "HEAD_OF_SALES" || user.role === "BUSINESS_DEVELOPER")) {
+    } else if (
+      user.role === "HEAD_OF_SALES" ||
+      user.role === "BUSINESS_DEVELOPER"
+    ) {
       where.createdById = user.id;
     } else if (user.role === "CM") {
       where.accountManagerId = user.id;
