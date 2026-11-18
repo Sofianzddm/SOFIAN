@@ -1,3 +1,5 @@
+import { PORTFOLIO_FALLBACK_FROM_EMAIL } from "@/lib/marque-portfolio";
+
 export const PROJETS_OUTREACH_ROLES = [
   "STRATEGY_PLANNER",
   "CASTING_MANAGER",
@@ -315,7 +317,7 @@ export function canTransitionTo(
   }
 }
 
-export const DEFAULT_SENDER_EMAIL = "leyna@glowupagence.fr";
+export const DEFAULT_SENDER_EMAIL = PORTFOLIO_FALLBACK_FROM_EMAIL;
 
 export type CampaignActivityType =
   | "CREATED"

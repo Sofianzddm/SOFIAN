@@ -22,7 +22,11 @@ export async function GET(request: NextRequest) {
     // STRATEGY_PLANNER : lecture seule pour afficher le nom de la boîte
     // d'envoi de ses projets (Ski Trip → Ines).
     // Rôles mailer (dont CM / Account Manager) : sélecteur d'expéditeur.
-    if (!isMailerRole(role) && role !== "STRATEGY_PLANNER") {
+    if (
+      !isMailerRole(role) &&
+      role !== "STRATEGY_PLANNER" &&
+      role !== "BUSINESS_DEVELOPER"
+    ) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 

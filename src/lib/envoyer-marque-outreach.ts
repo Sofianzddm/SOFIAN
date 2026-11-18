@@ -29,6 +29,7 @@ import {
   ENROLLABLE_BENELUX_CONTACT_WHERE,
   ENROLLABLE_CONTACT_WHERE,
 } from "@/lib/diffusion-opt-out";
+import { resolvePortfolioSender } from "@/lib/marque-portfolio";
 
 export type EnvoyerOutreachResult =
   | {
@@ -106,6 +107,8 @@ export async function enrollInfluenceContacts(opts: {
     "@/lib/agency-partner"
   );
 
+  const portfolioFrom = await resolvePortfolioSender(opts.marqueId);
+
   let enrolled = 0;
   for (const c of contacts) {
     const email = (c.email || "").trim().toLowerCase();
@@ -155,6 +158,7 @@ export async function enrollInfluenceContacts(opts: {
           email,
           company: opts.company,
           language: c.language === "en" ? "en" : "fr",
+          fromEmail: portfolioFrom.fromEmail,
           createdById: opts.createdById,
         },
       });
@@ -603,6 +607,8 @@ export async function enrollOneFrContactNow(opts: {
   });
   if (conflict) return false;
 
+  const portfolioFrom = await resolvePortfolioSender(contact.marqueId);
+
   try {
     await prisma.outreachTarget.create({
       data: {
@@ -613,6 +619,7 @@ export async function enrollOneFrContactNow(opts: {
         email,
         company: contact.marque.nom,
         language: contact.language === "en" ? "en" : "fr",
+        fromEmail: portfolioFrom.fromEmail,
         createdById: opts.userId,
       },
     });

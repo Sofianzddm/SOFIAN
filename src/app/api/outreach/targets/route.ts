@@ -7,6 +7,7 @@ import { tryEnrollMarqueAfterEmailComplete } from "@/lib/envoyer-marque-outreach
 import { emailHasDiffusionOptOut } from "@/lib/diffusion-opt-out";
 import { findLastInboundExchanges } from "@/lib/last-inbound-exchange";
 import { normalizeEmail } from "@/lib/normalize-email";
+import { resolvePortfolioSender } from "@/lib/marque-portfolio";
 
 /**
  * GET  → liste des clients du cycle Outreach (toutes files) + stats
@@ -145,8 +146,8 @@ export async function POST(request: NextRequest) {
 
     const language = body.language === "en" ? "en" : "fr";
 
-    // Boîte expéditrice du cycle (optionnel, défaut Leyna) : choix réservé à
-    // l'ADMIN — la casting manager envoie toujours depuis Leyna.
+    // Boîte expéditrice : override ADMIN explicite, sinon portefeuille marque
+    // (Leyna / Joey, fallback Leyna).
     let fromEmail: string | null = null;
     const rawFromEmail =
       session.user.role === "ADMIN" ? (body.fromEmail || "").trim().toLowerCase() : "";
@@ -273,6 +274,10 @@ export async function POST(request: NextRequest) {
           ? "en"
           : "fr";
 
+      if (!fromEmail) {
+        fromEmail = (await resolvePortfolioSender(contact.marqueId)).fromEmail;
+      }
+
       const target = await prisma.outreachTarget.create({
         data: {
           marqueId: contact.marqueId,
@@ -337,6 +342,10 @@ export async function POST(request: NextRequest) {
       where: { marqueId, email: { equals: email, mode: "insensitive" } },
       select: { id: true },
     });
+
+    if (!fromEmail) {
+      fromEmail = (await resolvePortfolioSender(marqueId)).fromEmail;
+    }
 
     const target = await prisma.outreachTarget.create({
       data: {

@@ -24,7 +24,12 @@ export function isMailerRole(role: string | undefined | null): role is MailerRol
  * Ne donne PAS accès au rédacteur /admin/mailer.
  */
 export function canConnectGmail(role: string | undefined | null): boolean {
-  return isMailerRole(role) || role === "ASSISTANTE_TM";
+  return (
+    isMailerRole(role) ||
+    role === "ASSISTANTE_TM" ||
+    // Joey : boîte portefeuille pour les mails sales de ses clients.
+    role === "BUSINESS_DEVELOPER"
+  );
 }
 
 /**

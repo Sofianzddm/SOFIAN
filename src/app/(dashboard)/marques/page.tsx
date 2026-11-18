@@ -24,7 +24,17 @@ import {
   ChevronRight,
   Loader2,
   GitMerge,
+  Briefcase,
 } from "lucide-react";
+import { portfolioDisplayName } from "@/lib/marque-portfolio";
+
+type PortfolioOwner = {
+  id: string;
+  prenom: string;
+  nom: string;
+  email: string;
+  role: string;
+};
 
 interface Marque {
   id: string;
@@ -40,6 +50,8 @@ interface Marque {
     principal: boolean;
   }[];
   parent?: { id: string; nom: string } | null;
+  assignedToId?: string | null;
+  assignedTo?: PortfolioOwner | null;
   _count: {
     collaborations: number;
   };
@@ -131,6 +143,9 @@ export default function MarquesPage() {
   const readOnly = ["STRATEGY_PLANNER", "CM", "BUSINESS_DEVELOPER"].includes(
     session?.user?.role || ""
   );
+  const canAssignPortfolio = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES"].includes(
+    session?.user?.role || ""
+  );
   const canDedupe = ["ADMIN", "HEAD_OF", "HEAD_OF_SALES", "HEAD_OF_INFLUENCE"].includes(
     session?.user?.role || ""
   );
@@ -138,6 +153,10 @@ export default function MarquesPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterSecteur, setFilterSecteur] = useState("");
+  /** "" = tous · "unassigned" · userId */
+  const [filterPortfolio, setFilterPortfolio] = useState("");
+  const [portfolioOwners, setPortfolioOwners] = useState<PortfolioOwner[]>([]);
+  const [assigningId, setAssigningId] = useState<string | null>(null);
   // Annuaire affiché : marques FR (CRM complet) ou prospects BENELUX (annuaire
   // de prospection, 100 % séparé en base). Pas de BENELUX pour STRATEGY_PLANNER
   // (API outreach réservée ADMIN / CASTING_MANAGER).
@@ -179,10 +198,30 @@ export default function MarquesPage() {
     }
     setLoading(true);
     setFilterSecteur("");
+    setFilterPortfolio("");
     if (market === "BENELUX") fetchBeneluxCompanies();
     else fetchMarques();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [market, readOnly, sessionStatus]);
+
+  useEffect(() => {
+    if (sessionStatus === "loading" || isBenelux) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/marques/portfolio-owners");
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) {
+          setPortfolioOwners(Array.isArray(data.owners) ? data.owners : []);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionStatus, isBenelux]);
 
   const fetchMarques = async () => {
     try {
@@ -238,6 +277,37 @@ export default function MarquesPage() {
     }
   };
 
+  const handleAssign = async (marqueId: string, assignedToId: string | null) => {
+    setAssigningId(marqueId);
+    try {
+      const res = await fetch(`/api/marques/${marqueId}/assign`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignedToId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Attribution impossible");
+        return;
+      }
+      setMarques((prev) =>
+        prev.map((m) =>
+          m.id === marqueId
+            ? {
+                ...m,
+                assignedToId: data.assignedToId ?? null,
+                assignedTo: data.assignedTo ?? null,
+              }
+            : m
+        )
+      );
+    } catch {
+      alert("Attribution impossible");
+    } finally {
+      setAssigningId(null);
+    }
+  };
+
   const allSecteurs = useMemo(
     () => [...new Set(marques.map((m) => m.secteur).filter(Boolean))].sort() as string[],
     [marques]
@@ -254,14 +324,33 @@ export default function MarquesPage() {
           (m.siteWeb || "").toLowerCase().includes(q) ||
           (m.ville || "").toLowerCase().includes(q);
         const matchSecteur = !filterSecteur || m.secteur === filterSecteur;
-        return matchSearch && matchSecteur;
+        const matchPortfolio =
+          isBenelux ||
+          !filterPortfolio ||
+          (filterPortfolio === "unassigned"
+            ? !m.assignedToId
+            : m.assignedToId === filterPortfolio);
+        return matchSearch && matchSecteur && matchPortfolio;
       })
       .sort(
         (a, b) =>
           (b._count?.collaborations ?? 0) - (a._count?.collaborations ?? 0) ||
           a.nom.localeCompare(b.nom, "fr")
       );
-  }, [marques, search, filterSecteur]);
+  }, [marques, search, filterSecteur, filterPortfolio, isBenelux]);
+
+  const portfolioStats = useMemo(() => {
+    if (isBenelux) return [];
+    const unassigned = marques.filter((m) => !m.assignedToId).length;
+    return [
+      { id: "unassigned", label: "Non attribués", count: unassigned },
+      ...portfolioOwners.map((o) => ({
+        id: o.id,
+        label: portfolioDisplayName(o),
+        count: marques.filter((m) => m.assignedToId === o.id).length,
+      })),
+    ];
+  }, [marques, portfolioOwners, isBenelux]);
 
   const totalCollabs = marques.reduce((acc, m) => acc + (m._count?.collaborations ?? 0), 0);
   const totalContacts = marques.reduce((acc, m) => acc + (m.contacts?.length ?? 0), 0);
@@ -297,7 +386,9 @@ export default function MarquesPage() {
                 ? `${marques.length} entreprise${marques.length > 1 ? "s" : ""} prospect${
                     marques.length > 1 ? "s" : ""
                   } BENELUX — séparées de vos marques FR`
-                : `${marques.length} marque${marques.length > 1 ? "s" : ""} dans le CRM — fiches partagées avec toute l'équipe`}
+                : session?.user?.role === "BUSINESS_DEVELOPER"
+                  ? `${marques.length} marque${marques.length > 1 ? "s" : ""} dans ton portefeuille`
+                  : `${marques.length} marque${marques.length > 1 ? "s" : ""} dans le CRM — portefeuilles Leyna / Joey`}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -381,6 +472,24 @@ export default function MarquesPage() {
               className="w-full pl-9 pr-4 py-2 rounded-xl bg-white ring-1 ring-black/[0.07] text-[13px] placeholder:text-gray-300 focus:outline-none focus:ring-2 shadow-[0_1px_2px_rgba(16,12,10,0.04)]"
             />
           </div>
+          {!isBenelux && portfolioOwners.length > 0 && (
+            <select
+              value={filterPortfolio}
+              onChange={(e) => setFilterPortfolio(e.target.value)}
+              className="px-3.5 py-2 rounded-xl bg-white ring-1 ring-black/[0.07] text-[13px] text-gray-600 focus:outline-none focus:ring-2 appearance-none min-w-[180px] shadow-[0_1px_2px_rgba(16,12,10,0.04)]"
+            >
+              <option value="">Tous les portefeuilles</option>
+              <option value="unassigned">Non attribués</option>
+              {portfolioOwners.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {portfolioDisplayName(o)}
+                  {portfolioStats.find((s) => s.id === o.id)
+                    ? ` (${portfolioStats.find((s) => s.id === o.id)!.count})`
+                    : ""}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             value={filterSecteur}
             onChange={(e) => setFilterSecteur(e.target.value)}
@@ -394,6 +503,37 @@ export default function MarquesPage() {
             ))}
           </select>
         </div>
+
+        {!isBenelux && portfolioStats.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {portfolioStats.map((s) => {
+              const active =
+                filterPortfolio === s.id ||
+                (s.id === "unassigned" && filterPortfolio === "unassigned");
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() =>
+                    setFilterPortfolio((prev) => (prev === s.id ? "" : s.id))
+                  }
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[12px] font-semibold ring-1 transition-colors ${
+                    active
+                      ? "text-white"
+                      : "bg-white text-gray-600 ring-black/[0.07] hover:bg-gray-50"
+                  }`}
+                  style={active ? { backgroundColor: INK, boxShadow: "inset 0 0 0 1px transparent" } : undefined}
+                >
+                  <Briefcase className="w-3 h-3" />
+                  {s.label}
+                  <span className={`tabular-nums ${active ? "text-white/70" : "text-gray-400"}`}>
+                    {s.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* ====================== Liste ====================== */}
         {loading ? (
@@ -429,10 +569,17 @@ export default function MarquesPage() {
         ) : (
           <div className="rounded-2xl bg-white ring-1 ring-black/[0.06] shadow-[0_1px_2px_rgba(16,12,10,0.04)] overflow-hidden">
             {/* En-tête de colonnes */}
-            <div className="hidden md:grid grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1fr)_repeat(2,90px)_110px] gap-3 px-5 py-2.5 border-b border-gray-100 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-300">
+            <div
+              className={`hidden md:grid gap-3 px-5 py-2.5 border-b border-gray-100 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-300 ${
+                isBenelux
+                  ? "grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1fr)_repeat(2,90px)_110px]"
+                  : "grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1fr)_120px_repeat(2,80px)_110px]"
+              }`}
+            >
               <span>Marque</span>
               <span>Site</span>
               <span>Localisation</span>
+              {!isBenelux && <span>Portefeuille</span>}
               <span className="text-right">Contacts</span>
               <span className="text-right">{isBenelux ? "Prospects" : "Collabs"}</span>
               <span />
@@ -451,7 +598,11 @@ export default function MarquesPage() {
                         isBenelux ? `/marques/benelux/${marque.id}` : `/marques/${marque.id}`
                       )
                     }
-                    className="group grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1fr)_repeat(2,90px)_110px] gap-3 items-center px-5 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors"
+                    className={`group grid grid-cols-[minmax(0,1fr)_auto] gap-3 items-center px-5 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors ${
+                      isBenelux
+                        ? "md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.4fr)_minmax(0,1fr)_repeat(2,90px)_110px]"
+                        : "md:grid-cols-[minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1fr)_120px_repeat(2,80px)_110px]"
+                    }`}
                   >
                     {/* Marque */}
                     <div className="flex items-center gap-3 min-w-0">
@@ -555,6 +706,42 @@ export default function MarquesPage() {
                       )}
                     </div>
 
+                    {/* Portefeuille Leyna / Joey */}
+                    {!isBenelux && (
+                      <div
+                        className="hidden md:block min-w-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {canAssignPortfolio && portfolioOwners.length > 0 ? (
+                          <select
+                            value={marque.assignedToId || ""}
+                            disabled={assigningId === marque.id}
+                            onChange={(e) =>
+                              void handleAssign(
+                                marque.id,
+                                e.target.value ? e.target.value : null
+                              )
+                            }
+                            className="w-full max-w-[120px] px-2 py-1 rounded-md text-[12px] font-medium bg-white ring-1 ring-black/[0.08] text-gray-700 focus:outline-none focus:ring-2 disabled:opacity-50"
+                          >
+                            <option value="">—</option>
+                            {portfolioOwners.map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {portfolioDisplayName(o)}
+                              </option>
+                            ))}
+                          </select>
+                        ) : marque.assignedTo ? (
+                          <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-gray-600">
+                            <Briefcase className="w-3 h-3 text-gray-300" />
+                            {portfolioDisplayName(marque.assignedTo)}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-200">—</span>
+                        )}
+                      </div>
+                    )}
+
                     {/* Contacts */}
                     <div className="hidden md:flex items-center justify-end gap-1.5 text-[13px] tabular-nums text-gray-600">
                       <Users className="w-3.5 h-3.5 text-gray-300" />
@@ -598,7 +785,8 @@ export default function MarquesPage() {
             {/* Pied de liste */}
             <div className="px-5 py-2.5 border-t border-gray-100 text-xs text-gray-300">
               {filteredMarques.length} résultat{filteredMarques.length > 1 ? "s" : ""}
-              {(search || filterSecteur) && ` · filtré sur ${marques.length}`}
+              {(search || filterSecteur || filterPortfolio) &&
+                ` · filtré sur ${marques.length}`}
             </div>
           </div>
         )}

@@ -26,6 +26,15 @@ export async function GET(
     const marque = await prisma.marque.findUnique({
       where: { id: id },
       include: {
+        assignedTo: {
+          select: {
+            id: true,
+            prenom: true,
+            nom: true,
+            email: true,
+            role: true,
+          },
+        },
         contacts: {
           // NOT source=AO excluait aussi source null (bug Nuxe = 0 contacts).
           where: canFullCrm

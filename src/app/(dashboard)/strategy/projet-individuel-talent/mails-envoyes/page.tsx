@@ -58,6 +58,7 @@ type SentMission = {
   subject: string | null;
   body: string | null;
   clientLanguage: "FR" | "EN" | null;
+  fromEmail?: string | null;
   recipients: Recipient[];
   recipientEmails: string[];
   failedEmails: { email: string; error: string }[];
@@ -880,7 +881,7 @@ export default function PipelineMailsEnvoyesPage() {
             Mails envoyés — pipeline prospection talent
           </h1>
           <p className="text-sm text-slate-500">
-            Mails sortants depuis <strong>leyna@glowupagence.fr</strong>, suivis (ouvertures, clics) et relance auto J+3.
+            Mails sortants depuis la boîte du portefeuille (Leyna ou Joey), suivis (ouvertures, clics) et relance auto J+3.
           </p>
         </div>
         <Link
@@ -1245,7 +1246,8 @@ export default function PipelineMailsEnvoyesPage() {
             <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white p-4">
               <div className="min-w-0">
                 <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Mail envoyé depuis leyna@glowupagence.fr
+                  Mail envoyé depuis{" "}
+                  {openMail.fromEmail || "la boîte du portefeuille"}
                 </p>
                 <h2 className="mt-1 truncate text-lg font-semibold text-slate-900">
                   {openMail.subject || "(sans objet)"}
@@ -1494,7 +1496,7 @@ export default function PipelineMailsEnvoyesPage() {
                   {relancePreview.mission.targetBrand}
                 </h2>
                 <p className="mt-1 text-xs text-slate-500">
-                  Réponse au même thread Gmail, depuis leyna@glowupagence.fr
+                  Réponse au même thread Gmail, depuis la boîte du mail initial
                   {relancePreview.mission.relanceSentAt
                     ? ` · R1 déjà envoyée le ${formatDate(relancePreview.mission.relanceSentAt)}`
                     : ""}

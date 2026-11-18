@@ -80,8 +80,18 @@ export async function GET(req: NextRequest) {
           .filter((c) => c.email);
         const sentMessageIds =
           m.sentMessageIds && typeof m.sentMessageIds === "object"
-            ? (m.sentMessageIds as Record<string, { messageId?: string; threadId?: string; error?: string }>)
+            ? (m.sentMessageIds as Record<
+                string,
+                { messageId?: string; threadId?: string; error?: string; fromEmail?: string }
+              >)
             : {};
+        let fromEmail = "leyna@glowupagence.fr";
+        for (const rec of Object.values(sentMessageIds)) {
+          if (rec?.messageId && !rec.error && rec.fromEmail) {
+            fromEmail = rec.fromEmail.trim().toLowerCase() || fromEmail;
+            break;
+          }
+        }
 
         return {
           id: m.id,
@@ -98,6 +108,7 @@ export async function GET(req: NextRequest) {
           subject: m.draftEmailSubject ?? null,
           body: m.draftEmailBody ?? null,
           clientLanguage: m.clientLanguage ?? null,
+          fromEmail,
           recipients,
           recipientEmails: Object.keys(sentMessageIds).filter(
             (k) => !sentMessageIds[k]?.error

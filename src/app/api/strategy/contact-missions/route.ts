@@ -16,6 +16,7 @@ import {
   syncMissionClientContactsToMarque,
 } from "@/lib/marque-resolver";
 import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
+import { PORTFOLIO_FALLBACK_FROM_EMAIL } from "@/lib/marque-portfolio";
 
 const ALLOWED_ROLES = [
   "STRATEGY_PLANNER",
@@ -27,6 +28,23 @@ const ALLOWED_ROLES = [
 
 function isAllowed(role: string | undefined): boolean {
   return role !== undefined && (ALLOWED_ROLES as readonly string[]).includes(role);
+}
+
+/** Hint UI : boîte portefeuille (sans vérif token — l’envoi réel fallback Leyna). */
+function portfolioFromEmailHint(marque: {
+  assignedTo?: {
+    email?: string | null;
+    gmailToken?: { email?: string | null } | null;
+  } | null;
+} | null | undefined): string {
+  const e = (
+    marque?.assignedTo?.gmailToken?.email ||
+    marque?.assignedTo?.email ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
+  return e.includes("@") ? e : PORTFOLIO_FALLBACK_FROM_EMAIL;
 }
 
 /**
@@ -158,7 +176,19 @@ export async function GET(request: NextRequest) {
       const missionInclude = {
         talent: { select: { id: true, prenom: true, nom: true } },
         campaign: { select: { id: true, title: true, createdById: true, isActive: true } },
-        marque: { select: { id: true, nom: true } },
+        marque: {
+          select: {
+            id: true,
+            nom: true,
+            assignedTo: {
+              select: {
+                prenom: true,
+                email: true,
+                gmailToken: { select: { email: true } },
+              },
+            },
+          },
+        },
       } as const;
 
       // Pour le blocage marque (20 j / tous talents) il faut :
@@ -260,6 +290,7 @@ export async function GET(request: NextRequest) {
             targetBrand: m.targetBrand,
             marqueId: m.marqueId ?? slugHit?.marqueId ?? null,
             marqueNom: m.marque?.nom ?? slugHit?.marqueNom ?? null,
+            portfolioFromEmail: portfolioFromEmailHint(m.marque),
             strategyReason: m.strategyReason,
             recommendedAngle: m.recommendedAngle,
             objective: m.objective,
@@ -314,7 +345,19 @@ export async function GET(request: NextRequest) {
       include: {
         talent: { select: { id: true, prenom: true, nom: true } },
         campaign: { select: { id: true, title: true } },
-        marque: { select: { id: true, nom: true } },
+        marque: {
+          select: {
+            id: true,
+            nom: true,
+            assignedTo: {
+              select: {
+                prenom: true,
+                email: true,
+                gmailToken: { select: { email: true } },
+              },
+            },
+          },
+        },
       },
       take: 300,
     });
@@ -335,6 +378,7 @@ export async function GET(request: NextRequest) {
         targetBrand: m.targetBrand,
         marqueId: m.marqueId ?? slugHit?.marqueId ?? null,
         marqueNom: m.marque?.nom ?? slugHit?.marqueNom ?? null,
+        portfolioFromEmail: portfolioFromEmailHint(m.marque),
         strategyReason: m.strategyReason,
         recommendedAngle: m.recommendedAngle,
         objective: m.objective,

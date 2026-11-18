@@ -32,6 +32,7 @@ import {
   buildOutreachRelanceTemplate,
   LEYNA_FROM_EMAIL,
 } from "@/lib/casting-auto-send";
+import { ownerFirstnameFromEmail } from "@/lib/marque-portfolio";
 import {
   collectCastingGmailIdsForEmail,
   evaluateEmailSendGuard,
@@ -329,6 +330,7 @@ export async function executeOutreachSend(
     lastname: target.lastname || "",
     company: target.company || "",
     marques: await coveredBrandsLabel(target.marqueContactId, target.company || ""),
+    ownerFirstname: ownerFirstnameFromEmail(fromEmail),
   };
   const personalizedSubject = applyCastingTemplateVars(subjectTpl, vars);
   const { ensureTalentExtralinksInHtml } = await import(
@@ -794,17 +796,17 @@ export async function executeOutreachRelance(
     touch.bodyHtml || ""
   );
 
+  const fromEmail = outreachFromEmail({ fromEmail: touch.fromEmail });
   const vars = {
     firstname: target.firstname || "",
     lastname: target.lastname || "",
     company: target.company || "",
     marques: await coveredBrandsLabel(target.marqueContactId, target.company || ""),
+    ownerFirstname: ownerFirstnameFromEmail(fromEmail),
   };
   const bodyWithVars = applyCastingTemplateVars(bodyTemplate, vars);
   const body = normalizeEditorHtmlForEmail(bodyWithVars);
   const trackedBody = injectOutreachTracking(body, touch.id);
-
-  const fromEmail = outreachFromEmail({ fromEmail: touch.fromEmail });
 
   const fromName = await getGmailFromName(fromEmail);
   const originalPersonalized = applyCastingTemplateVars(touch.bodyHtml || "", vars);

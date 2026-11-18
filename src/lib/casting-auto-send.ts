@@ -1,5 +1,5 @@
 /**
- * Envoi automatique des mails de prospection talent depuis la boite de Leyna.
+ * Envoi automatique des mails de prospection talent (casting / pipeline).
  *
  * Utilise par :
  *  - POST /api/strategy/contact-missions/[id]/send-now (declenchement client a J+30s)
@@ -8,7 +8,8 @@
  *
  * Regle metier :
  *  - 1 mail par contact client
- *  - From: leyna@glowupagence.fr
+ *  - From: boîte du portefeuille marque (Leyna / Joey), fallback Leyna
+ *  - Relances: même boîte que le mail initial (thread Gmail)
  *  - Variables {{contact.firstname}}, {{contact.lastname}}, {{contact.company}},
  *    {{owner.firstname}} sont remplacees au moment de l'envoi
  *  - Tracking ouvertures/clics : désactivé (anti-spam)
@@ -52,11 +53,17 @@ import {
   computeStaggeredSendTimesFrom,
   shouldStaggerBulk,
 } from "@/lib/email-send-pacing";
+import {
+  PORTFOLIO_FALLBACK_FROM_EMAIL,
+  PORTFOLIO_FALLBACK_OWNER_FIRSTNAME,
+  ownerFirstnameFromEmail,
+  resolvePortfolioSender,
+} from "@/lib/marque-portfolio";
 
 export { isInternalGlowUpEmail } from "@/lib/casting-recipient-guard";
 
-export const LEYNA_FROM_EMAIL = "leyna@glowupagence.fr";
-export const LEYNA_OWNER_FIRSTNAME = "Leyna";
+export const LEYNA_FROM_EMAIL = PORTFOLIO_FALLBACK_FROM_EMAIL;
+export const LEYNA_OWNER_FIRSTNAME = PORTFOLIO_FALLBACK_OWNER_FIRSTNAME;
 /** Alias historique — fenêtre du plafond 1 mail / mois / ligne. */
 export const CASTING_COOLDOWN_DAYS = 30;
 /**
@@ -85,6 +92,8 @@ type SentMessageRecord = {
   messageId?: string;
   threadId?: string;
   error?: string;
+  /** Boîte utilisée pour l’envoi initial (relances restent dessus). */
+  fromEmail?: string;
   /**
    * Créneau d'envoi anti-rafale (ISO). Présent tant que le mail n'est pas
    * parti ; effacé dès qu'un messageId est posé.
@@ -101,6 +110,20 @@ type SentMessageRecord = {
   lastClickUrl?: string;
 };
 
+/** Boîte du premier envoi réussi d’une mission (sinon fallback Leyna). */
+export function castingThreadFromEmail(
+  sentByEmail: Record<string, SentMessageRecord> | null | undefined
+): string {
+  if (sentByEmail && typeof sentByEmail === "object") {
+    for (const record of Object.values(sentByEmail)) {
+      if (record?.messageId && !record.error && record.fromEmail) {
+        return record.fromEmail.trim().toLowerCase() || LEYNA_FROM_EMAIL;
+      }
+    }
+  }
+  return LEYNA_FROM_EMAIL;
+}
+
 type SendOutcome = {
   attempted: number;
   succeeded: number;
@@ -115,7 +138,13 @@ type SendOutcome = {
  */
 export function applyCastingTemplateVars(
   text: string,
-  contact: { firstname: string; lastname: string; company: string; marques?: string }
+  contact: {
+    firstname: string;
+    lastname: string;
+    company: string;
+    marques?: string;
+    ownerFirstname?: string;
+  }
 ): string {
   if (!text) return text;
   const prenom = (contact.firstname || "").trim();
@@ -124,12 +153,14 @@ export function applyCastingTemplateVars(
   // Marques couvertes (sous-marques) : « Dove, Axe ». Si le contact ne couvre
   // pas d'autres marques, on retombe sur la marque principale (jamais vide).
   const marquesCouvertes = (contact.marques || "").trim() || marque;
+  const owner =
+    (contact.ownerFirstname || "").trim() || LEYNA_OWNER_FIRSTNAME;
   let s = text;
   s = s.replace(/\{\{\s*contact\.firstname\s*\}\}/gi, prenom || "—");
   s = s.replace(/\{\{\s*contact\.lastname\s*\}\}/gi, nom);
   s = s.replace(/\{\{\s*contact\.company\s*\}\}/gi, marque);
   s = s.replace(/\{\{\s*contact\.marques\s*\}\}/gi, marquesCouvertes);
-  s = s.replace(/\{\{\s*owner\.firstname\s*\}\}/gi, LEYNA_OWNER_FIRSTNAME);
+  s = s.replace(/\{\{\s*owner\.firstname\s*\}\}/gi, owner);
   return s;
 }
 
@@ -508,6 +539,7 @@ export async function buildCastingSendPreview(
       : sourceLang;
 
   const contactLangByEmail = await loadBrandContactLanguages(mission);
+  const sender = await resolvePortfolioSender(mission.marqueId);
 
   const versions = new Map<"fr" | "en", { subject: string; body: string }>();
   versions.set(sourceLang, { subject: subjectTpl, body: bodyTpl });
@@ -577,6 +609,7 @@ export async function buildCastingSendPreview(
       firstname: contact.firstname || "",
       lastname: contact.lastname || "",
       company: String(mission.targetBrand || ""),
+      ownerFirstname: sender.ownerFirstname,
     };
     recipients.push({
       email,
@@ -602,7 +635,7 @@ export async function buildCastingSendPreview(
   }
 
   return {
-    fromEmail: LEYNA_FROM_EMAIL,
+    fromEmail: sender.fromEmail,
     targetBrand: String(mission.targetBrand || "").trim(),
     sourceLanguage: sourceLang,
     recipients,
@@ -718,6 +751,9 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
 
   // Map email -> langue, lue depuis la fiche client (fiche marque).
   const contactLangByEmail = await loadBrandContactLanguages(mission);
+  const sender = await resolvePortfolioSender(mission.marqueId);
+  const fromEmail = sender.fromEmail;
+  const ownerFirstname = sender.ownerFirstname;
 
   // Cache des versions traduites par langue (la source n'est jamais retraduite).
   const versions = new Map<"fr" | "en", { subject: string; body: string }>();
@@ -916,6 +952,7 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
         firstname: contact.firstname || "",
         lastname: contact.lastname || "",
         company: String(mission.targetBrand || ""),
+        ownerFirstname,
       }),
       String(mission.targetBrand || "")
     );
@@ -923,23 +960,28 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
       firstname: contact.firstname || "",
       lastname: contact.lastname || "",
       company: String(mission.targetBrand || ""),
+      ownerFirstname,
     });
     const trackedBody = injectCastingTracking(personalizedBody, missionId, email);
     try {
       const messageId = await sendGmail({
-        fromEmail: LEYNA_FROM_EMAIL,
+        fromEmail,
         to: email,
         subject: personalizedSubject,
         htmlBody: trackedBody,
         attachments: presentationAttachments,
       });
       outcome.succeeded += 1;
-      outcome.byEmail[email] = { messageId, threadId: messageId };
+      outcome.byEmail[email] = {
+        messageId,
+        threadId: messageId,
+        fromEmail,
+      };
     } catch (error) {
       outcome.failed += 1;
       const msg = error instanceof Error ? error.message : "Erreur Gmail inconnue";
       outcome.errors.push(`${email} : ${msg}`);
-      outcome.byEmail[email] = { error: msg };
+      outcome.byEmail[email] = { error: msg, fromEmail };
     }
   }
 
@@ -1563,8 +1605,11 @@ export async function buildCastingRelanceDraft(
 
     // Un contact qui a répondu (ou dont l'adresse est en bounce) est exclu
     // de la relance : elle ne part que vers ceux restés sans réponse.
+    const threadFrom =
+      (record.fromEmail || "").trim().toLowerCase() ||
+      castingThreadFromEmail(sentByEmail);
     try {
-      const activity = await checkThreadActivity(LEYNA_FROM_EMAIL, record.threadId);
+      const activity = await checkThreadActivity(threadFrom, record.threadId);
       if (activity.replied) {
         skipped.push({ email, firstname, lastname, reason: "replied" });
         continue;
@@ -1582,6 +1627,7 @@ export async function buildCastingRelanceDraft(
       firstname,
       lastname,
       company: targetBrand,
+      ownerFirstname: ownerFirstnameFromEmail(threadFrom),
     });
     recipients.push({
       email,
@@ -1886,8 +1932,17 @@ export async function executeCastingRelance(
     return v;
   };
 
-  const fromName = await getGmailFromName(LEYNA_FROM_EMAIL);
-  const senderLabel = `${fromName} <${LEYNA_FROM_EMAIL}>`;
+  const defaultFromEmail = castingThreadFromEmail(sentByEmail);
+  const defaultOwnerFirstname = ownerFirstnameFromEmail(defaultFromEmail);
+  const fromNameCache = new Map<string, string>();
+  const senderLabelFor = async (fromEmail: string) => {
+    let name = fromNameCache.get(fromEmail);
+    if (!name) {
+      name = await getGmailFromName(fromEmail);
+      fromNameCache.set(fromEmail, name);
+    }
+    return `${name} <${fromEmail}>`;
+  };
 
   const excluded = new Set(
     (options.excludeEmails || []).map((e) => e.trim().toLowerCase()).filter(Boolean)
@@ -1947,9 +2002,14 @@ export async function executeCastingRelance(
     // répondu, et on ne relance pas une adresse en échec de remise (bounce).
     // Vérifié thread par thread via Gmail, sauf si l'appelant (cron) vient
     // déjà de faire cette vérification (skipReplyCheck).
+    const fromEmail =
+      (record.fromEmail || "").trim().toLowerCase() || defaultFromEmail;
+    const ownerFirstname =
+      ownerFirstnameFromEmail(fromEmail) || defaultOwnerFirstname;
+
     if (!options.skipReplyCheck) {
       try {
-        const activity = await checkThreadActivity(LEYNA_FROM_EMAIL, record.threadId);
+        const activity = await checkThreadActivity(fromEmail, record.threadId);
         if (activity.replied) {
           skippedReplied += 1;
           repliedDetected.push(email);
@@ -1974,7 +2034,12 @@ export async function executeCastingRelance(
     );
     const firstname = contact?.firstname || "";
     const lastname = contact?.lastname || "";
-    const vars = { firstname, lastname, company: targetBrand };
+    const vars = {
+      firstname,
+      lastname,
+      company: targetBrand,
+      ownerFirstname,
+    };
     // Langue du thread de CE contact (fiche client + langue réelle du brouillon).
     const contactLang = threadLangFor(email);
     const ver = await getRelanceVersion(contactLang);
@@ -1985,6 +2050,7 @@ export async function executeCastingRelance(
     // Citation du mail d'origine + In-Reply-To : la relance devient une vraie
     // réponse, threadée côté destinataire (le contenu initial reste visible
     // même si l'original est tombé dans ses spams).
+    const senderLabel = await senderLabelFor(fromEmail);
     const quotedOriginal =
       options.skipQuotedOriginal || !ver.originalBodyTpl
         ? ""
@@ -2006,7 +2072,7 @@ export async function executeCastingRelance(
       (round === 2 ? relance1Ids[email] || relance1Ids[email.toLowerCase()] : undefined) ||
       record.messageId;
     const inReplyTo = replyToMessageId
-      ? (await getMessageRfcId(LEYNA_FROM_EMAIL, replyToMessageId)) || undefined
+      ? (await getMessageRfcId(fromEmail, replyToMessageId)) || undefined
       : undefined;
 
     try {
@@ -2014,10 +2080,9 @@ export async function executeCastingRelance(
         applyCastingTemplateVars(ver.subject, vars),
         targetBrand
       );
-      // Signature déjà dans le body IA (« Leyna / Glow Up Agence ») :
-      // ne PAS ré-appender la signature Gmail (sinon doublon + trimmed content).
+      // Signature déjà dans le body IA — ne PAS ré-appender la signature Gmail.
       const messageId = await sendGmail({
-        fromEmail: LEYNA_FROM_EMAIL,
+        fromEmail,
         to: email,
         subject: personalizedSubject,
         htmlBody: finalHtml,

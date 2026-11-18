@@ -57,6 +57,8 @@ type Mission = {
   /** Nom canonique de la fiche marque liée (ex. « Miu Miu »), si `marqueId` résolu. */
   marqueNom?: string | null;
   marqueId?: string | null;
+  /** Boîte d’envoi hint (portefeuille Leyna/Joey, fallback Leyna). */
+  portfolioFromEmail?: string | null;
   strategyReason: string;
   recommendedAngle: string | null;
   objective: string | null;
@@ -108,7 +110,15 @@ type ScheduledSend = {
   missionId: string;
   brandLabel: string;
   scheduledAt: number;
+  fromEmail?: string;
 };
+
+const DEFAULT_PORTFOLIO_FROM = "leyna@glowupagence.fr";
+
+function missionFromEmail(m: { portfolioFromEmail?: string | null }): string {
+  const e = (m.portfolioFromEmail || "").trim().toLowerCase();
+  return e.includes("@") ? e : DEFAULT_PORTFOLIO_FROM;
+}
 
 /** Date réelle de rédaction (snapshot serveur) sinon dernière màj carte. */
 function missionDraftWrittenAt(m: Mission): Date | null {
@@ -843,6 +853,7 @@ export function ProspectingPipelineClient() {
         missionId: m.id,
         brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
         scheduledAt: new Date(m.scheduledSendAt!).getTime(),
+        fromEmail: missionFromEmail(m),
       }));
     setScheduledSends((prev) => {
       const byId = new Map(prev.map((s) => [s.missionId, s]));
@@ -1384,6 +1395,7 @@ export function ProspectingPipelineClient() {
               missionId: m.id,
               brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
               scheduledAt,
+              fromEmail: missionFromEmail(m),
             },
           ]);
           if (isAlreadySent) {
@@ -1392,7 +1404,7 @@ export function ProspectingPipelineClient() {
             );
           } else {
             setSuccess(
-              `${cleaned.length} contact(s) enregistré(s). Envoi auto dans 30s depuis leyna@glowupagence.fr.${translateNote}${unlockNote}`
+              `${cleaned.length} contact(s) enregistré(s). Envoi auto dans 30s depuis ${missionFromEmail(m)}.${translateNote}${unlockNote}`
             );
           }
           await loadMissions();
@@ -1464,9 +1476,12 @@ export function ProspectingPipelineClient() {
           missionId: m.id,
           brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
           scheduledAt,
+          fromEmail: missionFromEmail(m),
         },
       ]);
-      setSuccess(`Envoi programmé dans 30s vers ${brandDisplayName(m)} (boîte Leyna).`);
+      setSuccess(
+        `Envoi programmé dans 30s vers ${brandDisplayName(m)} (depuis ${missionFromEmail(m)}).`
+      );
       await loadMissions();
       // Si une partie des contacts est bloquée cooldown, proposer le bypass tout de suite.
       setUpdatingId(null);
@@ -1569,6 +1584,7 @@ export function ProspectingPipelineClient() {
         missionId: m.id,
         brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
         scheduledAt,
+        fromEmail: missionFromEmail(m),
       },
     ]);
     if (!options.silent) {
@@ -1577,7 +1593,7 @@ export function ProspectingPipelineClient() {
           ? sendData.reachableContacts
           : contacts.length;
       setSuccess(
-        `${n} contact(s) — envoi programmé dans 30s vers ${brandDisplayName(m)} (boîte Leyna).`
+        `${n} contact(s) — envoi programmé dans 30s vers ${brandDisplayName(m)} (depuis ${missionFromEmail(m)}).`
       );
     }
     return {
@@ -3771,7 +3787,7 @@ export function ProspectingPipelineClient() {
                           disabled={updatingId === m.id}
                           onClick={() => void scheduleSend(m)}
                           className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700"
-                          title="Valide et déclenche l'envoi auto depuis leyna@glowupagence.fr dans 30s"
+                          title={`Valide et déclenche l'envoi auto depuis ${missionFromEmail(m)} dans 30s`}
                         >
                           {updatingId === m.id ? "Validation..." : "Valider → envoi auto"}
                         </button>
@@ -4380,7 +4396,8 @@ export function ProspectingPipelineClient() {
                   Envoi auto dans {remaining}s
                 </p>
                 <p className="mt-1 text-xs text-gray-600">
-                  {planned.brandLabel} · depuis leyna@glowupagence.fr
+                  {planned.brandLabel} · depuis{" "}
+                  {planned.fromEmail || DEFAULT_PORTFOLIO_FROM}
                 </p>
                 <button
                   type="button"
@@ -4548,6 +4565,7 @@ export function ProspectingPipelineClient() {
                   missionId: groupKey,
                   brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
                   scheduledAt: scheduledAt2,
+                  fromEmail: missionFromEmail(m),
                 },
               ]);
               await loadMissions();
@@ -4568,6 +4586,7 @@ export function ProspectingPipelineClient() {
               missionId: groupKey,
               brandLabel: `${m.creatorName} → ${brandDisplayName(m)}`,
               scheduledAt,
+              fromEmail: missionFromEmail(m),
             },
           ]);
           await loadMissions();

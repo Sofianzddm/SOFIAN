@@ -30,6 +30,7 @@ import {
   INBOUND_MARQUE_RECONTACT_DAYS,
 } from "@/lib/outreach-constants";
 import { findOrCreatePartnerByName, linkPartnerToMarque } from "@/lib/agency-partner";
+import { resolvePortfolioSender } from "@/lib/marque-portfolio";
 import {
   emailDomain,
   isGenericEmailDomain,
@@ -544,6 +545,13 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
 
   const entry = resolveEntry(enrollmentMode, "client", input.lastExchangeAt, origin);
 
+  // Inbound hors scope portefeuille : fromEmail null → défaut Leyna à l'envoi.
+  // Sortant / default : boîte du portefeuille marque.
+  const fromEmail =
+    enrollmentMode === "inbound"
+      ? null
+      : (await resolvePortfolioSender(marqueId)).fromEmail;
+
   const target = await prisma.outreachTarget.create({
     data: {
       marqueId,
@@ -553,6 +561,7 @@ export async function bridgeContactToOutreach(input: BridgeInput): Promise<Bridg
       email,
       company,
       language,
+      fromEmail,
       status: entry.status,
       nextRecontactAt: entry.nextRecontactAt,
       autoRescheduleReason: entry.reason,

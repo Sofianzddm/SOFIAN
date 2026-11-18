@@ -54,6 +54,15 @@ export async function GET() {
           },
         },
         parent: { select: { id: true, nom: true } },
+        assignedTo: {
+          select: {
+            id: true,
+            prenom: true,
+            nom: true,
+            email: true,
+            role: true,
+          },
+        },
         beneluxLinks: {
           select: { id: true, nom: true },
           take: 1,

@@ -64,6 +64,7 @@ import {
   canWriteMarqueCrm,
   isMarqueCrmReadOnly,
 } from "@/lib/marque-crm-access";
+import { portfolioDisplayName } from "@/lib/marque-portfolio";
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -100,6 +101,14 @@ type Contact = {
   _count?: { activities?: number };
 };
 
+type PortfolioOwner = {
+  id: string;
+  prenom: string;
+  nom: string;
+  email: string;
+  role: string;
+};
+
 interface MarqueDetail {
   id: string;
   nom: string;
@@ -119,6 +128,8 @@ interface MarqueDetail {
   modePaiement: string | null;
   devise: string | null;
   createdAt: string;
+  assignedToId?: string | null;
+  assignedTo?: PortfolioOwner | null;
   contacts: Contact[];
   cartoFiles?: {
     id: string;
@@ -517,9 +528,12 @@ export default function MarqueRecordPage({
   // Masqué côté BENELUX (pas de feuille AO).
   const canFullCrm = !isBenelux && canAccessFullMarqueCrm(session?.user?.role);
   const canMerge = !isBenelux && canWriteMarqueCrm(session?.user?.role);
+  const canAssignPortfolio = canMerge;
   const canStrategy = !isBenelux && ["ADMIN", "STRATEGY_PLANNER"].includes(session?.user?.role || "");
   const [marque, setMarque] = useState<MarqueDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [portfolioOwners, setPortfolioOwners] = useState<PortfolioOwner[]>([]);
+  const [assigningPortfolio, setAssigningPortfolio] = useState(false);
   const [activeTab, setActiveTab] = useState<
     "overview" | "activite" | "contacts" | "agences" | "carto" | "ao" | "collabs"
   >("overview");
@@ -656,6 +670,58 @@ export default function MarqueRecordPage({
     aoSyncTriedRef.current = false;
     if (params.id) fetchMarque();
   }, [params.id, fetchMarque]);
+
+  useEffect(() => {
+    if (isBenelux) {
+      setPortfolioOwners([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/marques/portfolio-owners");
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) {
+          setPortfolioOwners(Array.isArray(data.owners) ? data.owners : []);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isBenelux]);
+
+  const assignPortfolio = async (assignedToId: string | null) => {
+    if (!marque || isBenelux || !canAssignPortfolio) return;
+    setAssigningPortfolio(true);
+    try {
+      const res = await fetch(`/api/marques/${marque.id}/assign`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignedToId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Attribution impossible");
+        return;
+      }
+      setMarque((prev) =>
+        prev
+          ? {
+              ...prev,
+              assignedToId: data.assignedToId ?? null,
+              assignedTo: data.assignedTo ?? null,
+            }
+          : prev
+      );
+    } catch {
+      alert("Attribution impossible");
+    } finally {
+      setAssigningPortfolio(false);
+    }
+  };
 
   // Imports AO antérieurs : fichier stocké sans contacts → sync à l'ouverture de l'onglet
   useEffect(() => {
@@ -3784,6 +3850,37 @@ export default function MarqueRecordPage({
                   />
                 )}
                 {marque.secteur && <DetailRow label="Secteur" value={marque.secteur} />}
+                {!isBenelux && (
+                  <DetailRow
+                    label="Portefeuille"
+                    value={
+                      canAssignPortfolio && portfolioOwners.length > 0 ? (
+                        <select
+                          value={marque.assignedToId || ""}
+                          disabled={assigningPortfolio}
+                          onChange={(e) =>
+                            void assignPortfolio(e.target.value ? e.target.value : null)
+                          }
+                          className="w-full max-w-[160px] px-2 py-1 rounded-md text-[12px] font-medium bg-white ring-1 ring-black/[0.08] text-gray-700 focus:outline-none focus:ring-2 disabled:opacity-50"
+                        >
+                          <option value="">Non attribué</option>
+                          {portfolioOwners.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {portfolioDisplayName(o)}
+                            </option>
+                          ))}
+                        </select>
+                      ) : marque.assignedTo ? (
+                        <span className="inline-flex items-center gap-1.5 font-medium">
+                          <Briefcase className="w-3 h-3 text-gray-400" />
+                          {portfolioDisplayName(marque.assignedTo)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">Non attribué</span>
+                      )
+                    }
+                  />
+                )}
                 {(marque.adresseRue || marque.ville) && (
                   <DetailRow
                     label="Adresse"
