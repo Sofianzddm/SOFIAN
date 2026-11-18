@@ -67,6 +67,7 @@ export default function CartoAiPipelineChatLabPage() {
   const [company, setCompany] = useState("");
   const [domain, setDomain] = useState("");
   const [language, setLanguage] = useState<"fr" | "en">("fr");
+  /** FR (ou FR+BE) → toujours Benelux ensuite. Défaut FR. */
   const [ficheMarket, setFicheMarket] = useState<FicheMarket>("FR");
   const [ficheQuery, setFicheQuery] = useState("");
   const [marqueId, setMarqueId] = useState<string | null>(null);
@@ -591,11 +592,14 @@ export default function CartoAiPipelineChatLabPage() {
     }
   }
 
+  /** FR ou FR+BE → toujours enchaîner Benelux après (même parcours). */
+  const wantsFrThenBe =
+    ficheMarket === "FR" || ficheMarket === "BOTH";
+
   async function runCommit() {
     if (!preview || selectedRows.length === 0) return;
     const frBeContinuation =
       pipelinePhase === "carto_be" &&
-      ficheMarket === "BOTH" &&
       Boolean(commitResult?.marqueIdBe);
     const targetName = (
       marqueNom ||
@@ -626,11 +630,13 @@ export default function CartoAiPipelineChatLabPage() {
     setError(null);
     setCommitting(true);
     try {
+      // FR seul = même commit que BOTH (contacts FR + coquille BE liée).
       const commitMarket: FicheMarket = frBeContinuation
         ? "BENELUX"
-        : ficheMarket === "BENELUX" || pipelinePhase === "carto_be"
+        : ficheMarket === "BENELUX" ||
+            (pipelinePhase === "carto_be" && !commitResult?.marqueIdBe)
           ? "BENELUX"
-          : ficheMarket === "BOTH"
+          : wantsFrThenBe
             ? "BOTH"
             : "FR";
 
@@ -655,9 +661,10 @@ export default function CartoAiPipelineChatLabPage() {
       if (!res.ok) throw new Error(data.error || "Échec enregistrement");
       const result = data as CommitResult;
       if (frBeContinuation || commitMarket === "BENELUX") {
-        if (frBeContinuation) {
+        if (frBeContinuation || commitResult) {
           // Garde les ids FR du premier commit
           setBeCommitResult(result);
+          if (!commitResult) setCommitResult(result);
         } else {
           setCommitResult(result);
           setBeCommitResult(result);
@@ -708,6 +715,20 @@ export default function CartoAiPipelineChatLabPage() {
     if (!id) {
       setError(
         "Attribution portefeuille disponible uniquement sur une fiche France"
+      );
+      return;
+    }
+    // FR+BE : interdiction d’attribuer avant enrichissement Benelux (étape 4).
+    if (
+      (ficheMarket === "BOTH" || commitResult?.marqueIdBe) &&
+      !beCommitResult
+    ) {
+      if (commitResult?.marqueIdBe) {
+        continueToBeneluxCarto();
+        return;
+      }
+      setError(
+        "Fais d’abord l’analyse + enrichissement Benelux (étapes 3–4), puis l’attribution."
       );
       return;
     }
@@ -832,21 +853,28 @@ export default function CartoAiPipelineChatLabPage() {
 
   if (pipelinePhase === "assign" && commitResult) {
     const frId = frMarqueIdForAssign();
-    const stepNum = ficheMarket === "BOTH" ? "5" : "3";
-    const dualFiche = ficheMarket === "BOTH" && Boolean(commitResult.marqueIdBe);
+    const dualFiche = Boolean(commitResult.marqueIdBe);
+    const beStillTodo = dualFiche && !beCommitResult;
     return (
       <div className="mx-auto max-w-5xl space-y-6 p-6">
         <div>
           <p className="text-xs uppercase tracking-wide text-amber-700">
-            Lab caché · carto AI · étape {stepNum}
+            Lab caché · carto AI ·{" "}
+            {beStillTodo
+              ? "trop tôt — Benelux pas fait"
+              : dualFiche
+                ? "étape 5 · attribution"
+                : "fin · attribution"}
           </p>
           <h1 className="mt-1 text-2xl font-semibold text-gray-900">
             Attribuer le client · {commitResult.company}
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            {dualFiche
-              ? "Leyna ou Joey — attribution sur la fiche FR et la fiche Benelux liée. Les mails sales partent de sa boîte."
-              : "Portefeuille Leyna ou Joey — les mails sales partiront depuis sa boîte."}
+            {beStillTodo
+              ? "L’attribution vient après l’enrichissement Benelux. Reprends l’analyse BE d’abord."
+              : dualFiche
+                ? "Leyna ou Joey — attribution sur la fiche FR et la fiche Benelux liée."
+                : "Portefeuille Leyna ou Joey — les mails sales partiront depuis sa boîte."}
           </p>
         </div>
 
@@ -856,7 +884,21 @@ export default function CartoAiPipelineChatLabPage() {
           </div>
         )}
 
-        {assignedLabel ? (
+        {beStillTodo ? (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="flex-1 text-sm text-amber-950">
+              Ordre : enrich FR → analyse BE (3) → enrich BE (4) → attribution
+              (5).
+            </p>
+            <button
+              type="button"
+              onClick={continueToBeneluxCarto}
+              className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white"
+            >
+              Aller à l’étape 3 · analyse Benelux
+            </button>
+          </div>
+        ) : assignedLabel ? (
           <div className="space-y-4 rounded-xl border border-emerald-200 bg-emerald-50 p-5">
             <p className="text-sm font-medium text-emerald-900">
               Attribué à {assignedLabel}
@@ -936,7 +978,7 @@ export default function CartoAiPipelineChatLabPage() {
                 type="button"
                 onClick={() =>
                   setPipelinePhase(
-                    ficheMarket === "BOTH" || ficheMarket === "BENELUX"
+                    dualFiche || ficheMarket === "BENELUX"
                       ? "enrich_be"
                       : "enrich_fr"
                   )
@@ -969,19 +1011,14 @@ export default function CartoAiPipelineChatLabPage() {
     : commitResult;
 
   if (enrichActive && enrichSource) {
+    // FR ou FR+BE : après enrich FR → toujours Benelux (jamais d’attribution ici).
     const showContinueBe =
-      pipelinePhase === "enrich_fr" &&
-      ficheMarket === "BOTH" &&
-      Boolean(commitResult?.marqueIdBe);
+      pipelinePhase === "enrich_fr" && Boolean(commitResult?.marqueIdBe);
     const canAssignFr = Boolean(frMarqueIdForAssign());
-    // Ordre strict FR+BE : attribution uniquement après enrich_be + commit BE.
-    // FR seul : après enrich_fr.
     const showFinishAssign =
       canAssignFr &&
-      ((pipelinePhase === "enrich_fr" && ficheMarket === "FR") ||
-        (pipelinePhase === "enrich_be" &&
-          ficheMarket === "BOTH" &&
-          Boolean(beCommitResult)));
+      pipelinePhase === "enrich_be" &&
+      Boolean(beCommitResult);
 
     return (
       <div className="mx-auto max-w-5xl space-y-6 p-6">
@@ -1050,9 +1087,8 @@ export default function CartoAiPipelineChatLabPage() {
         ) : showFinishAssign ? (
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
             <p className="flex-1 text-sm text-emerald-950">
-              {ficheMarket === "BOTH"
-                ? "Enrichissement Benelux terminé — attribue Leyna ou Joey (applique FR + Benelux lié)."
-                : "Enrichissement terminé — choisis à qui attribuer le client (Leyna / Joey)."}
+              Enrichissement Benelux terminé — attribue Leyna ou Joey (FR +
+              Benelux lié).
             </p>
             <button
               type="button"
@@ -1077,11 +1113,9 @@ export default function CartoAiPipelineChatLabPage() {
     );
   }
 
-  /** Étape 3 du parcours FR+BE (fiche BE déjà créée au commit FR). */
+  /** Étape 3 : fiche BE déjà créée au commit FR (FR ou FR+BE). */
   const isFrBeBeneluxPass =
-    pipelinePhase === "carto_be" &&
-    ficheMarket === "BOTH" &&
-    Boolean(commitResult?.marqueIdBe);
+    pipelinePhase === "carto_be" && Boolean(commitResult?.marqueIdBe);
 
   const cartoStepLabel = isFrBeBeneluxPass
     ? "étape 3 · analyse Benelux"
@@ -1385,9 +1419,9 @@ export default function CartoAiPipelineChatLabPage() {
                   <div className="flex flex-wrap gap-2">
                     {(
                       [
-                        ["FR", "🇫🇷 FR"],
-                        ["BENELUX", "🇧🇪 BE"],
+                        ["FR", "🇫🇷 FR → puis BE"],
                         ["BOTH", "FR+BE"],
+                        ["BENELUX", "BE seul"],
                       ] as const
                     ).map(([m, label]) => (
                       <button
@@ -1404,13 +1438,17 @@ export default function CartoAiPipelineChatLabPage() {
                       </button>
                     ))}
                   </div>
+                  {ficheMarket !== "BENELUX" ? (
+                    <p className="text-xs text-amber-800">
+                      Après l’enrichissement FR : analyse BE → enrich BE →
+                      attribution Leyna/Joey (les deux fiches).
+                    </p>
+                  ) : null}
                   <label className="relative block max-w-md text-sm">
                     <span className="mb-1 block text-gray-700">
-                      {ficheMarket === "BOTH"
-                        ? "Rechercher une fiche France (Benelux auto)"
-                        : ficheMarket === "BENELUX"
-                          ? "Rechercher une fiche Benelux"
-                          : "Rechercher une fiche France"}
+                      {ficheMarket === "BENELUX"
+                        ? "Rechercher une fiche Benelux"
+                        : "Rechercher une fiche France (Benelux lié auto)"}
                     </span>
                     <input
                       value={ficheQuery}
