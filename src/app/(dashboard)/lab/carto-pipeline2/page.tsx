@@ -733,15 +733,23 @@ export default function CartoAiPipelineChatLabPage() {
       const res = await fetch(`/api/marques/${id}/assign`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assignedToId: assignPick }),
+        body: JSON.stringify({
+          assignedToId: assignPick,
+          marqueIdBe: commitResult?.marqueIdBe || undefined,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data.error || "Attribution impossible");
       }
       const owner = data.assignedTo as PortfolioOwner | undefined;
+      const name = owner ? portfolioDisplayName(owner) : "Attribué";
+      const onBoth =
+        ficheMarket === "BOTH" ||
+        data.appliedToBenelux === true ||
+        Boolean(commitResult?.marqueIdBe);
       setAssignedLabel(
-        owner ? portfolioDisplayName(owner) : "Attribué"
+        onBoth ? `${name} · FR + Benelux (lié)` : name
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
@@ -825,6 +833,7 @@ export default function CartoAiPipelineChatLabPage() {
   if (pipelinePhase === "assign" && commitResult) {
     const frId = frMarqueIdForAssign();
     const stepNum = ficheMarket === "BOTH" ? "5" : "3";
+    const dualFiche = ficheMarket === "BOTH" && Boolean(commitResult.marqueIdBe);
     return (
       <div className="mx-auto max-w-5xl space-y-6 p-6">
         <div>
@@ -835,8 +844,9 @@ export default function CartoAiPipelineChatLabPage() {
             Attribuer le client · {commitResult.company}
           </h1>
           <p className="mt-1 text-sm text-gray-500">
-            Portefeuille Leyna ou Joey — les mails sales partiront depuis sa
-            boîte.
+            {dualFiche
+              ? "Leyna ou Joey — attribution sur la fiche FR et la fiche Benelux liée. Les mails sales partent de sa boîte."
+              : "Portefeuille Leyna ou Joey — les mails sales partiront depuis sa boîte."}
           </p>
         </div>
 
@@ -916,7 +926,11 @@ export default function CartoAiPipelineChatLabPage() {
                 disabled={assigning || !assignPick || !frId}
                 className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
               >
-                {assigning ? "Attribution…" : "Confirmer l’attribution"}
+                {assigning
+                  ? "Attribution…"
+                  : dualFiche
+                    ? "Confirmer · FR + Benelux"
+                    : "Confirmer l’attribution"}
               </button>
               <button
                 type="button"
@@ -960,12 +974,14 @@ export default function CartoAiPipelineChatLabPage() {
       ficheMarket === "BOTH" &&
       Boolean(commitResult?.marqueIdBe);
     const canAssignFr = Boolean(frMarqueIdForAssign());
+    // Ordre strict FR+BE : attribution uniquement après enrich_be + commit BE.
+    // FR seul : après enrich_fr.
     const showFinishAssign =
       canAssignFr &&
       ((pipelinePhase === "enrich_fr" && ficheMarket === "FR") ||
         (pipelinePhase === "enrich_be" &&
-          (ficheMarket === "BOTH" || ficheMarket === "BENELUX")) ||
-        (pipelinePhase === "enrich_fr" && ficheMarket === "BOTH"));
+          ficheMarket === "BOTH" &&
+          Boolean(beCommitResult)));
 
     return (
       <div className="mx-auto max-w-5xl space-y-6 p-6">
@@ -1020,8 +1036,8 @@ export default function CartoAiPipelineChatLabPage() {
         {showContinueBe ? (
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
             <p className="flex-1 text-sm text-amber-950">
-              Enrichissement FR terminé ? Enchaîne sur l’analyse Benelux (même
-              prompt, marché BE).
+              Enrichissement FR terminé. Suite obligatoire : analyse Benelux →
+              sélection → enrichissement BE → attribution (FR + BE).
             </p>
             <button
               type="button"
@@ -1030,21 +1046,13 @@ export default function CartoAiPipelineChatLabPage() {
             >
               Continuer · analyse Benelux (étape 3)
             </button>
-            {showFinishAssign ? (
-              <button
-                type="button"
-                onClick={goToAssign}
-                className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-950"
-              >
-                Attribuer sans Benelux
-              </button>
-            ) : null}
           </div>
         ) : showFinishAssign ? (
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
             <p className="flex-1 text-sm text-emerald-950">
-              Enrichissement terminé — choisis à qui attribuer le client
-              (Leyna / Joey).
+              {ficheMarket === "BOTH"
+                ? "Enrichissement Benelux terminé — attribue Leyna ou Joey (applique FR + Benelux lié)."
+                : "Enrichissement terminé — choisis à qui attribuer le client (Leyna / Joey)."}
             </p>
             <button
               type="button"

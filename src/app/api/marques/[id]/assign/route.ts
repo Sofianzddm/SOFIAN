@@ -8,8 +8,10 @@ import { isMarquePortfolioRole } from "@/lib/marque-portfolio";
 type RouteContext = { params: Promise<{ id: string }> };
 
 /**
- * PATCH — Attribue la marque au portefeuille Leyna ou Joey.
- * Body: { assignedToId: string | null }
+ * PATCH — Attribue la marque FR au portefeuille Leyna ou Joey.
+ * Body: { assignedToId: string | null, marqueIdBe?: string }
+ * Si marqueIdBe (ou fiches BE déjà linkedMarqueId) : garantit le lien FR↔BE
+ * pour que le portefeuille s’applique aussi à la fiche Benelux liée.
  */
 export async function PATCH(request: NextRequest, { params }: RouteContext) {
   try {
@@ -32,6 +34,8 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
 
     const body = (await request.json().catch(() => ({}))) as {
       assignedToId?: string | null;
+      /** Fiche Benelux à (re)lier explicitement à cette marque FR. */
+      marqueIdBe?: string | null;
     };
 
     if (!("assignedToId" in body)) {
@@ -62,6 +66,30 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       }
     }
 
+    const marqueIdBe = String(body.marqueIdBe || "").trim() || null;
+    if (marqueIdBe) {
+      const be = await prisma.beneluxCompany.findUnique({
+        where: { id: marqueIdBe },
+        select: { id: true },
+      });
+      if (!be) {
+        return NextResponse.json(
+          { error: "Fiche Benelux introuvable" },
+          { status: 404 }
+        );
+      }
+      await prisma.beneluxCompany.update({
+        where: { id: marqueIdBe },
+        data: { linkedMarqueId: id },
+      });
+    }
+
+    // Toute fiche BE déjà liée reste liée ; on compte pour le feedback UI.
+    const linkedBe = await prisma.beneluxCompany.findMany({
+      where: { linkedMarqueId: id },
+      select: { id: true, nom: true },
+    });
+
     const marque = await prisma.marque.update({
       where: { id },
       data: { assignedToId },
@@ -80,7 +108,11 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       },
     });
 
-    return NextResponse.json(marque);
+    return NextResponse.json({
+      ...marque,
+      linkedBenelux: linkedBe,
+      appliedToBenelux: linkedBe.length > 0,
+    });
   } catch (error) {
     console.error("PATCH marque assign:", error);
     return NextResponse.json({ error: "Erreur serveur" }, { status: 500 });

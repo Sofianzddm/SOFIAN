@@ -504,6 +504,7 @@ export async function commitCartoAiPipeline(opts: {
   if (!opts.selectedRows.length) throw new Error("Aucun contact sélectionné");
 
   if (opts.market === "BOTH") {
+    // FR : contacts sélectionnés. BE : coquille vide liée (contacts = analyse BE plus tard).
     const fr = await commitFrance({
       company: company || "Marque",
       marqueId: opts.marqueId,
@@ -513,18 +514,11 @@ export async function commitCartoAiPipeline(opts: {
       userId: opts.userId,
       skipAutoEnrich: opts.skipAutoEnrich,
     });
-    const be = await commitBenelux({
-      company: fr.company || company || "Entreprise",
-      companyId: null,
-      domain: opts.domain,
-      language: opts.language,
-      selectedRows: opts.selectedRows,
-      userId: opts.userId,
-      skipAutoEnrich: opts.skipAutoEnrich,
-    });
+    const beName = fr.company || company || "Entreprise";
+    const beShell = await findOrCreateBeneluxCompany(beName, opts.userId);
     try {
       await prisma.beneluxCompany.update({
-        where: { id: be.marqueId },
+        where: { id: beShell.id },
         data: { linkedMarqueId: fr.marqueId },
       });
     } catch (e) {
@@ -535,14 +529,14 @@ export async function commitCartoAiPipeline(opts: {
       company: fr.company,
       market: "BOTH",
       fichePath: fr.fichePath,
-      marqueIdBe: be.marqueId,
-      fichePathBe: be.fichePath,
-      created: fr.created + be.created,
-      skipped: fr.skipped + be.skipped,
-      emailsAuto: fr.emailsAuto + be.emailsAuto,
-      queued: fr.queued + be.queued,
-      enrolled: fr.enrolled + be.enrolled,
-      contactIds: [...fr.contactIds, ...be.contactIds],
+      marqueIdBe: beShell.id,
+      fichePathBe: `/marques/benelux/${beShell.id}`,
+      created: fr.created,
+      skipped: fr.skipped,
+      emailsAuto: fr.emailsAuto,
+      queued: fr.queued,
+      enrolled: fr.enrolled,
+      contactIds: fr.contactIds,
     };
   }
 
