@@ -57,8 +57,8 @@ import {
   PORTFOLIO_FALLBACK_FROM_EMAIL,
   PORTFOLIO_FALLBACK_OWNER_FIRSTNAME,
   ownerFirstnameFromEmail,
-  resolvePortfolioSender,
 } from "@/lib/marque-portfolio";
+import { resolvePortfolioSender } from "@/lib/marque-portfolio-server";
 
 export { isInternalGlowUpEmail } from "@/lib/casting-recipient-guard";
 

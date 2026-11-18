@@ -29,7 +29,7 @@ import {
   ENROLLABLE_BENELUX_CONTACT_WHERE,
   ENROLLABLE_CONTACT_WHERE,
 } from "@/lib/diffusion-opt-out";
-import { resolvePortfolioSender } from "@/lib/marque-portfolio";
+import { resolvePortfolioSender } from "@/lib/marque-portfolio-server";
 
 export type EnvoyerOutreachResult =
   | {

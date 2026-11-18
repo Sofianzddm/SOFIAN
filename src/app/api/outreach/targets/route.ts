@@ -7,7 +7,7 @@ import { tryEnrollMarqueAfterEmailComplete } from "@/lib/envoyer-marque-outreach
 import { emailHasDiffusionOptOut } from "@/lib/diffusion-opt-out";
 import { findLastInboundExchanges } from "@/lib/last-inbound-exchange";
 import { normalizeEmail } from "@/lib/normalize-email";
-import { resolvePortfolioSender } from "@/lib/marque-portfolio";
+import { resolvePortfolioSender } from "@/lib/marque-portfolio-server";
 
 /**
  * GET  → liste des clients du cycle Outreach (toutes files) + stats

@@ -1,12 +1,7 @@
 /**
- * Portefeuille clients marques : chaque marque est attribuée à Leyna (HoS)
- * ou Joey (Business Developer) via `Marque.assignedToId`.
- *
- * Les mails sales liés à une marque partent de la boîte Gmail du propriétaire
- * (fallback Leyna si non attribué / token absent).
+ * Portefeuille clients marques : helpers / constantes (safe client + serveur).
+ * La résolution Gmail async est dans `marque-portfolio-server.ts`.
  */
-
-import prisma from "@/lib/prisma";
 
 export const MARQUE_PORTFOLIO_ROLES = [
   "HEAD_OF_SALES",
@@ -69,74 +64,3 @@ export type PortfolioSender = {
   /** true si on est retombé sur Leyna (non attribué ou token manquant). */
   usedFallback: boolean;
 };
-
-function leynaSender(
-  assignedToId: string | null = null,
-  usedFallback = true
-): PortfolioSender {
-  return {
-    fromEmail: PORTFOLIO_FALLBACK_FROM_EMAIL,
-    ownerFirstname: PORTFOLIO_FALLBACK_OWNER_FIRSTNAME,
-    assignedToId,
-    usedFallback,
-  };
-}
-
-/**
- * Résout la boîte Gmail d’envoi pour une marque (portefeuille).
- * Fallback Leyna si non attribué ou si aucun GmailToken pour l’assignee.
- */
-export async function resolvePortfolioSender(
-  marqueId: string | null | undefined
-): Promise<PortfolioSender> {
-  const id = String(marqueId || "").trim();
-  if (!id) return leynaSender(null, true);
-
-  const marque = await prisma.marque.findUnique({
-    where: { id },
-    select: {
-      assignedToId: true,
-      assignedTo: {
-        select: {
-          id: true,
-          prenom: true,
-          nom: true,
-          email: true,
-          role: true,
-          gmailToken: { select: { email: true } },
-        },
-      },
-    },
-  });
-
-  const assignee = marque?.assignedTo;
-  if (!assignee || !isMarquePortfolioRole(assignee.role)) {
-    return leynaSender(marque?.assignedToId ?? null, true);
-  }
-
-  const candidate = (
-    assignee.gmailToken?.email ||
-    assignee.email ||
-    ""
-  )
-    .trim()
-    .toLowerCase();
-  if (!candidate.includes("@")) {
-    return leynaSender(assignee.id, true);
-  }
-
-  const token = await prisma.gmailToken.findUnique({
-    where: { email: candidate },
-    select: { id: true },
-  });
-  if (!token) {
-    return leynaSender(assignee.id, true);
-  }
-
-  return {
-    fromEmail: candidate,
-    ownerFirstname: portfolioDisplayName(assignee),
-    assignedToId: assignee.id,
-    usedFallback: false,
-  };
-}

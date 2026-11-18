@@ -30,7 +30,7 @@ import {
   INBOUND_MARQUE_RECONTACT_DAYS,
 } from "@/lib/outreach-constants";
 import { findOrCreatePartnerByName, linkPartnerToMarque } from "@/lib/agency-partner";
-import { resolvePortfolioSender } from "@/lib/marque-portfolio";
+import { resolvePortfolioSender } from "@/lib/marque-portfolio-server";
 import {
   emailDomain,
   isGenericEmailDomain,
