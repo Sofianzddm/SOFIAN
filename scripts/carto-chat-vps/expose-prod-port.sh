@@ -40,7 +40,8 @@ fi
 # Recharge env pm2
 export $(grep -v '^#' "$ENV_FILE" | xargs)
 cd "$DIR"
-pm2 restart carto-chat-vps --update-env
+bash "$DIR/safe-restart-carto-chat.sh" --wait || \
+  echo "WARN: restart Contabo reporté (busy) — bash $DIR/safe-restart-carto-chat.sh --wait"
 sleep 2
 
 echo ""

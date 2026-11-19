@@ -1319,6 +1319,16 @@ export default function OutreachPage() {
     if (activeTab !== "TO_CONTACT" && activeTab !== "TO_RECONTACT") return [];
     return visibleGroups
       .filter((g) => g.targets.length > 0)
+      // Mail déjà prêt → hors wizard, visible dans la file « Prêt à contrôler ».
+      .filter(
+        (g) =>
+          !g.targets.some(
+            (t) =>
+              Boolean((t.draftSubject || "").trim()) &&
+              Boolean((t.draftBodyHtml || "").trim()) &&
+              !t.scheduledSendAt
+          )
+      )
       .map((g) => groupToCastingBrand(g));
   }, [visibleGroups, activeTab, groupToCastingBrand]);
 
@@ -1329,11 +1339,17 @@ export default function OutreachPage() {
       (b) => b.groupKey === wizardFocusGroupKey
     );
     if (fromList.length > 0) return fromList;
+    // Ne pas réinjecter une marque déjà prête (sortie wizard).
     const group = visibleGroups.find((g) => g.groupKey === wizardFocusGroupKey);
-    if (group && group.targets.length > 0) {
-      return [groupToCastingBrand(group)];
-    }
-    return [];
+    if (!group || group.targets.length === 0) return [];
+    const alreadyReady = group.targets.some(
+      (t) =>
+        Boolean((t.draftSubject || "").trim()) &&
+        Boolean((t.draftBodyHtml || "").trim()) &&
+        !t.scheduledSendAt
+    );
+    if (alreadyReady) return [];
+    return [groupToCastingBrand(group)];
   }, [
     castingBrands,
     wizardFocusGroupKey,

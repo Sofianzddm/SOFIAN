@@ -72,7 +72,9 @@ if [[ -f "$ENV_FILE" ]]; then
   fi
   set -a && source "$ENV_FILE" && set +a
   cd "$DIR"
-  pm2 restart carto-chat-vps --update-env || true
+  # Pas de restart mid-run (perd la capture Contabo).
+  bash "$DIR/safe-restart-carto-chat.sh" --wait || \
+    echo "WARN: restart Contabo reporté (busy) — bash $DIR/safe-restart-carto-chat.sh --wait"
   sleep 2
 fi
 

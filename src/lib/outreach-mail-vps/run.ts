@@ -109,6 +109,12 @@ export async function startOutreachMailVps(input: OutreachMailVpsPromptInput) {
     presetMarker
   );
 
+  /** 1 Instant … 2 Medium … 3 High. Test A/B Instant (défaut 1). */
+  const outreachEffort = (() => {
+    const n = Number(process.env.OUTREACH_CHAT_EFFORT_LEVEL || 1);
+    return Number.isFinite(n) && n >= 1 && n <= 5 ? n : 1;
+  })();
+
   // Joey = nouvelle BD, jamais d’échange → 1 seul tour mail cold (pas de Gmail Leyna).
   if (isJoeySender(input.fromEmail)) {
     const started = await cartoChatVpsAskAsync({
@@ -116,7 +122,7 @@ export async function startOutreachMailVps(input: OutreachMailVpsPromptInput) {
       steps: [{ prompt: mail.prompt, endMarker: mail.endMarker }],
       timeoutMs: OUTREACH_PIPELINE_TIMEOUT_MS,
       endMarker: mail.endMarker,
-      effortLevel: 3,
+      effortLevel: outreachEffort,
       kind: "outreach",
     });
     return {
@@ -144,7 +150,7 @@ export async function startOutreachMailVps(input: OutreachMailVpsPromptInput) {
     ],
     timeoutMs: OUTREACH_PIPELINE_TIMEOUT_MS,
     endMarker: mail.endMarker,
-    effortLevel: 3,
+    effortLevel: outreachEffort,
     kind: "outreach",
   });
 

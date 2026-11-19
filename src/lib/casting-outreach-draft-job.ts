@@ -348,6 +348,40 @@ const VPS_TIMEOUT_MS = 22 * 60_000;
 /** Par tick process : évite de tuer le serverless à 800s. */
 const VPS_TICK_BUDGET_MS = 90_000;
 
+/**
+ * Erreurs poll Contabo qui ne doivent PAS marquer l’item failed :
+ * réseau, abort, job encore en erreur temporaire — on reprend au tick suivant.
+ */
+export function isSoftOutreachVpsPollError(msg: string): boolean {
+  const m = String(msg || "").toLowerCase();
+  if (!m) return true;
+  // Deadline métier (après recovery) = hard fail, pas soft.
+  if (m.includes("timeout serveur") || m.includes("pas de mail prêt")) {
+    return false;
+  }
+  return (
+    m.includes("abort") ||
+    m.includes("aborted") ||
+    m.includes("timeout") ||
+    m.includes("etimedout") ||
+    m.includes("econnreset") ||
+    m.includes("econnrefused") ||
+    m.includes("fetch failed") ||
+    m.includes("network") ||
+    m.includes("socket") ||
+    m.includes("réponse chat vide") ||
+    m.includes("reponse chat vide") ||
+    m.includes("lecture serveur") ||
+    m.includes("job chat en erreur") ||
+    m.includes("vps chat http 5") ||
+    m.includes("vps chat http 502") ||
+    m.includes("vps chat http 503") ||
+    m.includes("vps chat http 504") ||
+    m.includes("undici") ||
+    m.includes("other side closed")
+  );
+}
+
 type BrandResearchStore = BrandResearch & {
   _vps?: {
     endMarker?: string;
@@ -406,6 +440,29 @@ async function pollOutreachVpsUntilReady(opts: {
     }))
     .filter((t) => t.name);
   const knownTalentNames = knownTalents.map((t) => t.name);
+
+  const tryReadCertifiedMail = async () => {
+    const ready = await readOutreachMailVps({
+      brandName,
+      endMarker,
+      structure: {
+        joey: Boolean(brandResearch._vps?.joeyCold),
+        talentNames: knownTalentNames,
+      },
+    });
+    if (!ready.ready) return null;
+    return {
+      subject: String(ready.subject || "").trim(),
+      bodyHtml: String(ready.bodyHtml || "").trim(),
+      notes: String(ready.notes || "").trim() || null,
+      engine:
+        String((ready as { engine?: string }).engine || "").trim() || null,
+      answerChars: Number(ready.answerChars || 0),
+      promptPreview: String(
+        (ready as { promptPreview?: string }).promptPreview || ""
+      ),
+    };
+  };
 
   while (Date.now() < tickDeadline && Date.now() < globalDeadline) {
     if (await isDraftJobCancelled(jobId)) {
@@ -513,29 +570,17 @@ async function pollOutreachVpsUntilReady(opts: {
       }
 
       // Contabo → API structure (comme carto) ; parse local = filet.
-      const ready = await readOutreachMailVps({
-        brandName,
-        endMarker,
-        structure: {
-          joey: Boolean(brandResearch._vps?.joeyCold),
-          talentNames: knownTalentNames,
-        },
-      });
-      if (ready.ready) {
-        subject = String(ready.subject || "").trim();
-        bodyHtml = String(ready.bodyHtml || "").trim();
-        vpsNotes = String(ready.notes || "").trim() || null;
-        mailEngine =
-          String(
-            (ready as { engine?: string }).engine || ""
-          ).trim() || null;
+      const ready = await tryReadCertifiedMail();
+      if (ready && ready.subject && ready.bodyHtml) {
+        subject = ready.subject;
+        bodyHtml = ready.bodyHtml;
+        vpsNotes = ready.notes;
+        mailEngine = ready.engine;
         // Alertes / tone = déjà posés au tour 1 (stepAnswers[0]) — ne pas écraser.
         break;
       }
-      const chars = Number(ready.answerChars || 0);
-      const preview = String(
-        (ready as { promptPreview?: string }).promptPreview || ""
-      );
+      const chars = Number(ready?.answerChars || 0);
+      const preview = String(ready?.promptPreview || "");
       await prisma.castingOutreachDraftJob.update({
         where: { id: jobId },
         data: {
@@ -549,14 +594,73 @@ async function pollOutreachVpsUntilReady(opts: {
         },
       });
     } catch (e) {
-      return {
-        ok: false,
-        brandName,
-        error:
-          e instanceof Error ? e.message : "Lecture serveur impossible",
-      };
+      const msg =
+        e instanceof Error ? e.message : "Lecture serveur impossible";
+      if (isSoftOutreachVpsPollError(msg)) {
+        console.warn(
+          `[outreach-draft-job] poll soft ${brandName}: ${msg}`
+        );
+        try {
+          await prisma.castingOutreachDraftJob.update({
+            where: { id: jobId },
+            data: {
+              currentBrandName:
+                `Serveur · sync · ${brandName} · reprise…`.slice(0, 80),
+            },
+          });
+        } catch {
+          /* soft */
+        }
+        // Continuer le poll dans ce tick — ne pas failed dur.
+      } else {
+        // Erreur « dure » : dernière chance certified avant failed.
+        try {
+          const salvaged = await tryReadCertifiedMail();
+          if (salvaged?.subject && salvaged.bodyHtml) {
+            subject = salvaged.subject;
+            bodyHtml = salvaged.bodyHtml;
+            vpsNotes = salvaged.notes;
+            mailEngine = salvaged.engine;
+            console.info(
+              `[outreach-draft-job] recovery certified après erreur ${brandName}`
+            );
+            break;
+          }
+        } catch (recoverErr) {
+          console.warn(
+            `[outreach-draft-job] recovery fail ${brandName}:`,
+            recoverErr instanceof Error ? recoverErr.message : recoverErr
+          );
+        }
+        return {
+          ok: false,
+          brandName,
+          error: msg,
+        };
+      }
     }
     await sleep(VPS_POLL_MS);
+  }
+
+  if (!subject || !bodyHtml) {
+    // Timeout ou fin de tick : toujours tenter recovery certified (cas ERAM/Peugeot).
+    try {
+      const salvaged = await tryReadCertifiedMail();
+      if (salvaged?.subject && salvaged.bodyHtml) {
+        subject = salvaged.subject;
+        bodyHtml = salvaged.bodyHtml;
+        vpsNotes = salvaged.notes;
+        mailEngine = salvaged.engine;
+        console.info(
+          `[outreach-draft-job] recovery certified fin-poll ${brandName}`
+        );
+      }
+    } catch (recoverErr) {
+      console.warn(
+        `[outreach-draft-job] recovery fin-poll fail ${brandName}:`,
+        recoverErr instanceof Error ? recoverErr.message : recoverErr
+      );
+    }
   }
 
   if (!subject || !bodyHtml) {
@@ -2064,6 +2168,20 @@ async function processOutreachDraftJobTickUnlocked(
 
   for (const { next, result, error } of settled) {
     if (error) {
+      // Réseau / abort Contabo : garder running pour le prochain tick (pas failed).
+      if (isSoftOutreachVpsPollError(error)) {
+        console.warn(
+          `[outreach-draft-job] item soft ${next.brandName}: ${error}`
+        );
+        await prisma.castingOutreachDraftItem.updateMany({
+          where: { id: next.id, status: "running" },
+          data: {
+            error: "VPS_PENDING",
+            // garder startedAt — budget global Contabo inchangé
+          },
+        });
+        continue;
+      }
       await prisma.castingOutreachDraftItem.update({
         where: { id: next.id },
         data: {

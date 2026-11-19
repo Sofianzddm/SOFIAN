@@ -378,8 +378,8 @@ export async function cartoChatVpsAskAsync(opts: {
   timeoutMs?: number;
   endMarker?: string;
   /**
-   * 1–5. Si omis → effort VPS (CARTO_CHAT_EFFORT_LEVEL, High carto).
-   * Outreach pipeline = 3 (High).
+   * 1–5. Si omis → effort VPS (CARTO_CHAT_EFFORT_LEVEL).
+   * Outreach : OUTREACH_CHAT_EFFORT_LEVEL (défaut Instant = 1).
    */
   effortLevel?: number;
   /**

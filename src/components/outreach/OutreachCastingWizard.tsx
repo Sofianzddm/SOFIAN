@@ -590,6 +590,34 @@ export default function OutreachCastingWizard({
     [brands]
   );
 
+  /** Mail réellement prêt (sujet + corps) — pas un placeholder Contabo. */
+  const brandHasReadyMail = useCallback(
+    (b: OutreachCastingBrand) => {
+      const local = localDrafts[b.groupKey];
+      if (
+        String(local?.subject || "").trim() &&
+        String(local?.bodyHtml || "").trim()
+      ) {
+        return true;
+      }
+      return b.targets.some(
+        (t) =>
+          Boolean((t.draftSubject || "").trim()) &&
+          Boolean((t.draftBodyHtml || "").trim())
+      );
+    },
+    [localDrafts]
+  );
+
+  /**
+   * Marques encore dans le wizard. Dès qu’un mail est prêt, il sort
+   * (contrôle dans la file Outreach « Prêt à contrôler »).
+   */
+  const activeWizardBrands = useMemo(
+    () => brandsWithCache.filter((b) => !brandHasReadyMail(b)),
+    [brandsWithCache, brandHasReadyMail]
+  );
+
   // Init sélection + skips à l’ouverture.
   useEffect(() => {
     if (!open) {
@@ -775,9 +803,11 @@ export default function OutreachCastingWizard({
     setIndex(startIdx >= 0 ? startIdx : 0);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open
 
-  // Après reload targets (job VPS fini), injecte le récap Chat dans les brouillons locaux.
+  // Après reload targets (job serveur fini), hydrate brouillons + « Prêt à contrôler ».
+  // Important : un placeholder chatVps (subject/body vides) ne doit PAS bloquer le vrai mail.
   useEffect(() => {
     if (!open) return;
+    const readyFromTargets: string[] = [];
     setLocalDrafts((prev) => {
       let changed = false;
       const next = { ...prev };
@@ -785,28 +815,55 @@ export default function OutreachCastingWizard({
         const snap =
           b.targets.find((t) => t.castingResearchSnapshot?.chatVps)
             ?.castingResearchSnapshot?.chatVps || null;
-        if (!snap) continue;
-        const cur = next[b.groupKey];
-        if (cur && !cur.chatVps) {
-          next[b.groupKey] = { ...cur, chatVps: snap };
-          changed = true;
-        } else if (!cur) {
-          const existing = b.targets.find(
-            (t) =>
-              (t.draftSubject || "").trim() && (t.draftBodyHtml || "").trim()
-          );
-          if (existing) {
+        const existing = b.targets.find(
+          (t) =>
+            (t.draftSubject || "").trim() && (t.draftBodyHtml || "").trim()
+        );
+        if (existing) {
+          const subject = String(existing.draftSubject || "").trim();
+          const bodyHtml = String(existing.draftBodyHtml || "").trim();
+          const cur = next[b.groupKey];
+          const needsBody =
+            !cur ||
+            !(cur.subject || "").trim() ||
+            !(cur.bodyHtml || "").trim();
+          if (needsBody) {
             next[b.groupKey] = {
-              subject: String(existing.draftSubject || "").trim(),
-              bodyHtml: String(existing.draftBodyHtml || "").trim(),
-              chatVps: snap,
+              subject,
+              bodyHtml,
+              chatVps: snap || cur?.chatVps || null,
             };
+            changed = true;
+          } else if (cur && !cur.chatVps && snap) {
+            next[b.groupKey] = { ...cur, chatVps: snap };
+            changed = true;
+          }
+          readyFromTargets.push(b.groupKey);
+          continue;
+        }
+        if (snap) {
+          const cur = next[b.groupKey];
+          if (cur && !cur.chatVps) {
+            next[b.groupKey] = { ...cur, chatVps: snap };
             changed = true;
           }
         }
       }
       return changed ? next : prev;
     });
+    if (readyFromTargets.length > 0) {
+      setReadyKeys((prev) => {
+        const next = new Set(prev);
+        let changed = false;
+        for (const k of readyFromTargets) {
+          if (!next.has(k)) {
+            next.add(k);
+            changed = true;
+          }
+        }
+        return changed ? Array.from(next) : prev;
+      });
+    }
   }, [open, brands]);
 
   // Charge le presskit selon le marché (pas en mode projet).
@@ -860,7 +917,33 @@ export default function OutreachCastingWizard({
     };
   }, [open, talentMarket]);
 
-  const current = brandsWithCache[index] || null;
+  const current = activeWizardBrands[index] || null;
+
+  // Index collé au lot actif (mails prêts retirés au fil de l’eau).
+  useEffect(() => {
+    if (!open) return;
+    if (activeWizardBrands.length === 0) {
+      if (index !== 0) setIndex(0);
+      return;
+    }
+    if (index >= activeWizardBrands.length) {
+      setIndex(activeWizardBrands.length - 1);
+    }
+  }, [open, activeWizardBrands, index]);
+
+  // Plus aucune marque à caster / contrôler ici → écran review (job Contabo peut continuer).
+  useEffect(() => {
+    if (!open) return;
+    if (activeWizardBrands.length > 0) return;
+    if (!(serverDraftRunning || fitRunning)) return;
+    if (phase === "casting" || phase === "writing") setPhase("review");
+  }, [
+    open,
+    activeWizardBrands.length,
+    serverDraftRunning,
+    fitRunning,
+    phase,
+  ]);
 
   useEffect(() => {
     setExpandedFitId(null);
@@ -1174,7 +1257,7 @@ export default function OutreachCastingWizard({
       onFlash?.("error", "Sélectionne au moins un talent, ou passe la marque.");
       return;
     }
-    if (index < brandsWithCache.length - 1) {
+    if (index < activeWizardBrands.length - 1) {
       setIndex((i) => i + 1);
     } else {
       setPhase("review");
@@ -1187,7 +1270,7 @@ export default function OutreachCastingWizard({
     current,
     selectedByBrand,
     index,
-    brandsWithCache.length,
+    activeWizardBrands.length,
     writableBrands.length,
     onFlash,
   ]);
@@ -1204,7 +1287,7 @@ export default function OutreachCastingWizard({
       );
       return next;
     });
-    if (index < brandsWithCache.length - 1) {
+    if (index < activeWizardBrands.length - 1) {
       setIndex((i) => i + 1);
     } else {
       setPhase("review");
@@ -1212,7 +1295,7 @@ export default function OutreachCastingWizard({
   }, [
     current,
     index,
-    brandsWithCache.length,
+    activeWizardBrands.length,
     skipStorageKey,
     isProjectMode,
     isIndivMode,
@@ -1231,14 +1314,14 @@ export default function OutreachCastingWizard({
         );
         return next;
       });
-      const idx = brandsWithCache.findIndex((b) => b.groupKey === groupKey);
+      const idx = activeWizardBrands.findIndex((b) => b.groupKey === groupKey);
       if (idx >= 0) {
         setIndex(idx);
         setPhase("casting");
       }
     },
     [
-      brandsWithCache,
+      activeWizardBrands,
       skipStorageKey,
       isProjectMode,
       isIndivMode,
@@ -2798,8 +2881,17 @@ export default function OutreachCastingWizard({
           )
         );
 
-        const doneItems = (data.items || []).filter((it) => it.status === "done");
+        const doneItems = (data.items || []).filter((it) => {
+          if (it.status !== "done") return false;
+          return (
+            Boolean(String(it.draftSubject || "").trim()) &&
+            Boolean(String(it.draftBodyHtml || "").trim())
+          );
+        });
         if (doneItems.length > 0) {
+          const freshReady = doneItems.filter(
+            (it) => !readyKeysRef.current.includes(it.missionId)
+          );
           setReadyKeys((prev) => {
             const next = new Set(prev);
             for (const it of doneItems) next.add(it.missionId);
@@ -2808,16 +2900,16 @@ export default function OutreachCastingWizard({
           setLocalDrafts((prev) => {
             const next = { ...prev };
             for (const it of doneItems) {
-              const subject = String(it.draftSubject || "").trim();
-              const bodyHtml = String(it.draftBodyHtml || "").trim();
-              if (subject && bodyHtml) {
-                next[it.missionId] = { subject, bodyHtml };
-              }
+              next[it.missionId] = {
+                subject: String(it.draftSubject || "").trim(),
+                bodyHtml: String(it.draftBodyHtml || "").trim(),
+              };
               autoWriteDoneKeysRef.current.add(it.missionId);
               pendingServerDraftKeysRef.current.delete(it.missionId);
             }
             return next;
           });
+          if (freshReady.length > 0) onDraftsWritten?.();
         }
         const completedNow = Number(data.completed || 0);
         if (completedNow > serverDraftNotifiedCompletedRef.current) {
@@ -3577,8 +3669,17 @@ export default function OutreachCastingWizard({
           setProjectCacheTick((n) => n + 1);
         }
 
-        const doneItems = (data.items || []).filter((it) => it.status === "done");
+        // Prêt = status done + sujet + corps (sinon pas de sortie wizard).
+        const doneItems = (data.items || []).filter((it) => {
+          if (it.status !== "done") return false;
+          const subject = String(it.draftSubject || "").trim();
+          const bodyHtml = String(it.draftBodyHtml || "").trim();
+          return Boolean(subject && bodyHtml);
+        });
         if (doneItems.length > 0) {
+          const freshReady = doneItems.filter(
+            (it) => !readyKeysRef.current.includes(it.groupKey)
+          );
           setReadyKeys((prev) => {
             const next = new Set(prev);
             for (const it of doneItems) next.add(it.groupKey);
@@ -3589,18 +3690,18 @@ export default function OutreachCastingWizard({
             for (const it of doneItems) {
               const subject = String(it.draftSubject || "").trim();
               const bodyHtml = String(it.draftBodyHtml || "").trim();
-              if (subject && bodyHtml) {
-                next[it.groupKey] = {
-                  subject,
-                  bodyHtml,
-                  chatVps: it.chatVps || prev[it.groupKey]?.chatVps || null,
-                };
-              }
+              next[it.groupKey] = {
+                subject,
+                bodyHtml,
+                chatVps: it.chatVps || prev[it.groupKey]?.chatVps || null,
+              };
               autoWriteDoneKeysRef.current.add(it.groupKey);
               pendingServerDraftKeysRef.current.delete(it.groupKey);
             }
             return next;
           });
+          // Sortie immédiate → file Outreach « Prêt à contrôler ».
+          if (freshReady.length > 0) onDraftsWritten?.();
         }
         // Échec : retire « Mail prêt » / aperçu local (sinon l’ancien brouillon reste).
         const failedItems = (data.items || []).filter(
@@ -3837,7 +3938,7 @@ export default function OutreachCastingWizard({
         void pollOutreachServerDraft(data.jobId);
         serverDraftPollRef.current = setInterval(() => {
           void pollOutreachServerDraft(data.jobId!);
-        }, 3000);
+        }, 1500);
       } catch (e) {
         for (const k of groupKeys) serverDraftQueuedRef.current.delete(k);
         setServerDraftRunning(false);
@@ -4046,7 +4147,7 @@ export default function OutreachCastingWizard({
           void pollOutreachServerDraft(data.active.id);
           serverDraftPollRef.current = setInterval(() => {
             void pollOutreachServerDraft(data.active!.id);
-          }, 3000);
+          }, 1500);
           onFlash?.(
             "success",
             "Rédaction reprise — tu peux quitter, ça continue."
@@ -4348,18 +4449,15 @@ export default function OutreachCastingWizard({
           </button>
         </div>
 
-        {/* Progress pills */}
-        {phase === "casting" && brandsWithCache.length > 0 && (
+        {/* Progress pills — uniquement marques encore dans le wizard */}
+        {phase === "casting" && activeWizardBrands.length > 0 && (
           <div className="flex shrink-0 gap-1 overflow-x-auto border-b px-4 py-2" style={{ borderColor: "#E5E0DA" }}>
-            {brandsWithCache.map((b, i) => {
+            {activeWizardBrands.map((b, i) => {
               const sel = (selectedByBrand[b.groupKey] || []).length;
               const isSkip = skipped.has(b.groupKey);
-              const hasDraft =
-                Boolean(localDrafts[b.groupKey]) ||
-                readyKeys.includes(b.groupKey);
               const isDone =
                 isIndivMode || isProjectMode
-                  ? isSkip || hasDraft
+                  ? isSkip
                   : isSkip || sel > 0;
               const isCurrent = i === index;
               return (
@@ -4367,11 +4465,7 @@ export default function OutreachCastingWizard({
                   key={b.groupKey}
                   type="button"
                   onClick={() => setIndex(i)}
-                  title={
-                    hasDraft
-                      ? `${b.company} · mail prêt`
-                      : b.company
-                  }
+                  title={b.company}
                   className="h-2 w-6 shrink-0 rounded-full transition"
                   style={{
                     background: isCurrent
@@ -4388,11 +4482,14 @@ export default function OutreachCastingWizard({
 
         {/* Body */}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {brandsWithCache.length === 0 ? (
+          {brandsWithCache.length === 0 ||
+          (activeWizardBrands.length === 0 && !serverDraftRunning && !fitRunning) ? (
             <div className="p-8 text-center text-sm text-slate-500">
-              {isIndivMode || isProjectMode
-                ? "Aucune marque dans ce lot."
-                : "Aucune marque à caster dans cette file. Recharge la page ou change d’onglet."}
+              {brandsWithCache.length === 0 && readyKeys.length === 0
+                ? isIndivMode || isProjectMode
+                  ? "Aucune marque dans ce lot."
+                  : "Aucune marque à caster dans cette file. Recharge la page ou change d’onglet."
+                : "Mails prêts sortis du wizard — contrôle-les dans la file « Prêt à contrôler »."}
             </div>
           ) : phase === "casting" && current ? (
             <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -4407,7 +4504,7 @@ export default function OutreachCastingWizard({
                       {current.company}
                     </h2>
                     <p className="m-0 mt-1 text-xs text-slate-500">
-                      Marque {index + 1}/{brandsWithCache.length}
+                      Marque {index + 1}/{activeWizardBrands.length}
                       {current.alsoInSiblingMarket ? " · FR+BE" : current.pipeline === "BENELUX" ? " · BE" : " · FR"}
                       {" · "}
                       {current.targets.length} contact
@@ -5363,11 +5460,10 @@ export default function OutreachCastingWizard({
                       ) : null}
                     </div>
                     <p className="m-0 text-sm" style={{ color: LICORICE }}>
-                      {writableBrands.length} marque
-                      {writableBrands.length > 1 ? "s" : ""} avec talents ·{" "}
-                      {readyKeys.length} brouillon
-                      {readyKeys.length > 1 ? "s" : ""} prêt
-                      {readyKeys.length > 1 ? "s" : ""}
+                      {activeWizardBrands.length} encore dans le wizard
+                      {readyKeys.length > 0
+                        ? ` · ${readyKeys.length} sorti${readyKeys.length > 1 ? "s" : ""} → Prêt à contrôler`
+                        : ""}
                       {negoReviewKeys.length > 0
                         ? ` · ${negoReviewKeys.length} avec revue négo (suite prudente)`
                         : ""}
@@ -5376,7 +5472,7 @@ export default function OutreachCastingWizard({
                 );
               })()}
               <ul className="m-0 space-y-2 p-0 list-none">
-                {brandsWithCache.map((b) => {
+                {activeWizardBrands.map((b) => {
                   const isSkip = skipped.has(b.groupKey);
                   const sel = selectedByBrand[b.groupKey] || [];
                   const ready = readyKeys.includes(b.groupKey);
@@ -5435,7 +5531,7 @@ export default function OutreachCastingWizard({
                         <button
                           type="button"
                           onClick={() => {
-                            const idx = brandsWithCache.findIndex(
+                            const idx = activeWizardBrands.findIndex(
                               (x) => x.groupKey === b.groupKey
                             );
                             if (idx >= 0) {
@@ -5454,23 +5550,15 @@ export default function OutreachCastingWizard({
                             type="button"
                             onClick={() => {
                               const d = localDrafts[b.groupKey];
-                              const idx = brandsWithCache.findIndex(
-                                (x) => x.groupKey === b.groupKey
+                              onReviewBrand(
+                                b.groupKey,
+                                d
+                                  ? {
+                                      subject: d.subject,
+                                      bodyHtml: d.bodyHtml,
+                                    }
+                                  : undefined
                               );
-                              if (idx >= 0) {
-                                setIndex(idx);
-                                setPhase("casting");
-                              } else {
-                                onReviewBrand(
-                                  b.groupKey,
-                                  d
-                                    ? {
-                                        subject: d.subject,
-                                        bodyHtml: d.bodyHtml,
-                                      }
-                                    : undefined
-                                );
-                              }
                             }}
                             className="rounded-lg border px-2.5 py-1 text-xs font-medium"
                             style={{

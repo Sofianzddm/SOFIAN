@@ -71,7 +71,16 @@ pm2 logs casting-roster-fit-worker
 pm2 restart casting-roster-fit-worker
 ```
 
+**Contabo / carto-chat-vps** — ne jamais `pm2 restart carto-chat-vps` pendant un mail High en cours (perd la capture). Utiliser :
+
+```bash
+bash scripts/carto-chat-vps/safe-restart-carto-chat.sh        # refuse si busy
+bash scripts/carto-chat-vps/safe-restart-carto-chat.sh --wait  # attend idle (max 25 min)
+```
+
 Jobs parallèles : jusqu’à `CASTING_FIT_MAX_PARALLEL` (défaut 40) jobs actifs, **1 marque / job** par tick.
+
+Outreach Contabo : stuck watchdog = **25 min** (`CASTING_OUTREACH_STUCK_MS`), pas 8 min (aligné sur timeout ~22 min).
 
 ## Upgrade
 
@@ -81,6 +90,8 @@ git pull   # ou rsync
 pnpm install --frozen-lockfile
 pnpm exec prisma generate
 pm2 restart casting-roster-fit-worker
+# Contabo : uniquement si idle
+bash scripts/carto-chat-vps/safe-restart-carto-chat.sh --wait
 ```
 
 Sans ce restart après un pull qui ajoute outreach/indiv draft, les rédactions restent en `pending` à 0/N.

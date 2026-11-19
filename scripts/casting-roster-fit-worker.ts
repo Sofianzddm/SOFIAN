@@ -19,6 +19,10 @@ import { processProjectDraftJobTick } from "../src/lib/casting-project-draft-job
 
 const POLL_IDLE_MS = Number(process.env.CASTING_FIT_POLL_MS || 5000);
 const STUCK_BRAND_MS = Number(process.env.CASTING_FIT_STUCK_MS || 8 * 60 * 1000);
+/** Outreach Contabo = jusqu’à ~22 min — ne pas reset à 8 min (casse le poll). */
+const STUCK_OUTREACH_MS = Number(
+  process.env.CASTING_OUTREACH_STUCK_MS || 25 * 60 * 1000
+);
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -70,10 +74,11 @@ async function recoverStuck() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const outreachItem = (prisma as any).castingOutreachDraftItem;
   if (outreachItem?.updateMany) {
+    const outreachCutoff = new Date(Date.now() - STUCK_OUTREACH_MS);
     const stuckOutreach = await outreachItem.updateMany({
       where: {
         status: "running",
-        startedAt: { lt: cutoff },
+        startedAt: { lt: outreachCutoff },
       },
       data: {
         status: "pending",
@@ -83,7 +88,7 @@ async function recoverStuck() {
     });
     if (stuckOutreach.count > 0) {
       console.warn(
-        `[casting-fit-worker] recovered ${stuckOutreach.count} stuck outreach draft item(s)`
+        `[casting-fit-worker] recovered ${stuckOutreach.count} stuck outreach draft item(s) (>${Math.round(STUCK_OUTREACH_MS / 60000)}min)`
       );
     }
   } else {

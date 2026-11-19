@@ -54,11 +54,15 @@ fi
 export $(grep -v '^#' "$ENV_FILE" | xargs)
 
 if pm2 describe carto-chat-vps >/dev/null 2>&1; then
-  pm2 restart carto-chat-vps --update-env
+  # Jamais de kill mid-run Contabo (mails High en cours).
+  bash "$WORKER_DIR/safe-restart-carto-chat.sh" --wait || {
+    echo "WARN: Contabo busy trop longtemps — restart reporté. Relancer :"
+    echo "  bash $WORKER_DIR/safe-restart-carto-chat.sh --wait"
+  }
 else
   pm2 start ecosystem.config.cjs --update-env
+  pm2 save
 fi
-pm2 save
 
 echo ""
 echo "OK — worker carto-chat-vps."
