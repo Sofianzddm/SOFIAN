@@ -740,6 +740,8 @@ export function isFactoryOutreachSubject(subject: string): boolean {
   if (/bel objet ancré|voir règles OBJET/i.test(s)) return true;
   if (/^\[accroche|^\[REMPLACE/i.test(s)) return true;
   if (/quelques profils pour vos prochaines campagnes/i.test(s)) return true;
+  if (/d[ée]couvrez nos talents/i.test(s)) return true;
+  if (/pour vos prochaines activations/i.test(s)) return true;
   if (/idées?\s+côté\s+influence/i.test(s)) return true;
   if (/proposition de (?:créateurs|talents)/i.test(s)) return true;
   // Manque le format obligatoire « … x Glow Up — »

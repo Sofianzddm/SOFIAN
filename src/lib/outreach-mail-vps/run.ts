@@ -200,7 +200,46 @@ export async function readOutreachMailVps(opts: {
     }
     const chatAnswer = stripEndMarker(raw, expected);
 
-    // 1) Primary — Chat API structure (comme carto) — seulement réponse certifiée
+    // 1) Primary — parse SUBJECT/BODY Contabo tel quel (ce que tu vois sur Chat).
+    //    openai-structure (gpt-4o-mini) passait avant et réécrivait parfois un mail
+    //    générique ≠ transcript (cas fascent « Découvrez nos talents… »).
+    try {
+      const parsed = parseOutreachMailVpsAnswer(raw, expected);
+      const blob = `${parsed.subject}\n${parsed.notes}\n${parsed.bodyHtml}`;
+      if (!answerMatchesBrand(blob, opts.brandName)) {
+        console.warn(
+          `[outreach-mail-vps] parse refusée — marque attendue « ${opts.brandName} », sujet: ${parsed.subject}`
+        );
+        lastFailure = `MAIL_WRONG_BRAND — attendu « ${opts.brandName} », reçu « ${parsed.subject} »`;
+      } else {
+        lastFailure = "";
+        console.info(
+          `[outreach-mail-vps] local-parse ok brand=${opts.brandName} chars=${chatAnswer.length}`
+        );
+        return {
+          ready: true as const,
+          brandName: opts.brandName,
+          subject: parsed.subject,
+          bodyHtml: parsed.bodyHtml,
+          notes: parsed.notes,
+          recap: parsed.recap,
+          chatAnswer,
+          engine: "local-parse" as const,
+          pipelineStep: Number(
+            (job as { pipelineStep?: number } | undefined)?.pipelineStep || 2
+          ),
+        };
+      }
+    } catch (e) {
+      lastFailure =
+        e instanceof Error ? e.message : "Parse mail VPS impossible";
+      console.warn(
+        "[outreach-mail-vps] local-parse fail → structure API:",
+        lastFailure
+      );
+    }
+
+    // 2) Fallback — Chat API structure seulement si Contabo n'a pas un SUBJECT/BODY propre
     if (allowStructure && structureEnabled) {
       try {
         const structured = await structureOutreachMailAnswer({
@@ -219,7 +258,7 @@ export async function readOutreachMailVps(opts: {
         } else {
           lastFailure = "";
           console.info(
-            `[outreach-mail-vps] structure API ok brand=${opts.brandName} chars=${chatAnswer.length}`
+            `[outreach-mail-vps] structure API ok (fallback) brand=${opts.brandName} chars=${chatAnswer.length}`
           );
           return {
             ready: true as const,
@@ -237,7 +276,7 @@ export async function readOutreachMailVps(opts: {
         }
       } catch (e) {
         console.warn(
-          "[outreach-mail-vps] structure API fail → parse local:",
+          "[outreach-mail-vps] structure API fail:",
           e instanceof Error ? e.message : e
         );
         lastFailure =
@@ -245,36 +284,7 @@ export async function readOutreachMailVps(opts: {
       }
     }
 
-    // 2) Fallback — parse SUBJECT/BODY Contabo (ancien chemin)
-    try {
-      const parsed = parseOutreachMailVpsAnswer(raw, expected);
-      const blob = `${parsed.subject}\n${parsed.notes}\n${parsed.bodyHtml}`;
-      if (!answerMatchesBrand(blob, opts.brandName)) {
-        console.warn(
-          `[outreach-mail-vps] parse refusée — marque attendue « ${opts.brandName} », sujet: ${parsed.subject}`
-        );
-        lastFailure = `MAIL_WRONG_BRAND — attendu « ${opts.brandName} », reçu « ${parsed.subject} »`;
-        return null;
-      }
-      lastFailure = "";
-      return {
-        ready: true as const,
-        brandName: opts.brandName,
-        subject: parsed.subject,
-        bodyHtml: parsed.bodyHtml,
-        notes: parsed.notes,
-        recap: parsed.recap,
-        chatAnswer,
-        engine: "local-parse" as const,
-        pipelineStep: Number(
-          (job as { pipelineStep?: number } | undefined)?.pipelineStep || 2
-        ),
-      };
-    } catch (e) {
-      lastFailure =
-        e instanceof Error ? e.message : "Parse mail VPS impossible";
-      return null;
-    }
+    return null;
   };
 
   if (job?.state === "error") {
