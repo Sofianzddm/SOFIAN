@@ -61,23 +61,21 @@ const ASK_DEFAULT_MS = 540_000;
 export type CartoChatVpsKind = "carto" | "outreach";
 
 /**
- * Carto → CARTO_CHAT_VPS_* (Contabo historique).
- * Outreach / roster → OUTREACH_CHAT_VPS_* si défini, sinon fallback CARTO.
+ * Deux Contabo distincts — JAMAIS de fallback croisé.
+ * - carto / lab → CARTO_CHAT_VPS_*
+ * - outreach / casting → OUTREACH_CHAT_VPS_* uniquement
  */
 function baseUrl(kind?: CartoChatVpsKind): string {
   if (kind === "outreach") {
-    const outreach = (process.env.OUTREACH_CHAT_VPS_URL || "")
-      .trim()
-      .replace(/\/$/, "");
-    if (outreach) return outreach;
+    return (process.env.OUTREACH_CHAT_VPS_URL || "").trim().replace(/\/$/, "");
   }
+  // kind === "carto" ou omis (lab) → carto seulement
   return (process.env.CARTO_CHAT_VPS_URL || "").trim().replace(/\/$/, "");
 }
 
 function secret(kind?: CartoChatVpsKind): string {
   if (kind === "outreach") {
-    const outreach = (process.env.OUTREACH_CHAT_VPS_SECRET || "").trim();
-    if (outreach) return outreach;
+    return (process.env.OUTREACH_CHAT_VPS_SECRET || "").trim();
   }
   return (process.env.CARTO_CHAT_VPS_SECRET || "").trim();
 }
@@ -146,7 +144,7 @@ export function isCartoChatVpsConfigured(kind?: CartoChatVpsKind): boolean {
   return Boolean(baseUrl(kind));
 }
 
-/** Outreach dédié (nouveau VPS) ou fallback carto. */
+/** Outreach dédié (VPS Contabo séparé — pas de fallback carto). */
 export function isOutreachChatVpsConfigured(): boolean {
   return isCartoChatVpsConfigured("outreach");
 }
@@ -161,7 +159,7 @@ export async function cartoChatVpsHealth(opts?: {
       ok: false,
       error:
         kind === "outreach"
-          ? "OUTREACH_CHAT_VPS_URL (ou CARTO_CHAT_VPS_URL) manquant"
+          ? "OUTREACH_CHAT_VPS_URL manquant"
           : "CARTO_CHAT_VPS_URL manquant",
     };
   }
@@ -194,7 +192,7 @@ export async function cartoChatVpsReadLast(opts?: {
   if (!base) {
     throw new Error(
       kind === "outreach"
-        ? "OUTREACH_CHAT_VPS_URL (ou CARTO_CHAT_VPS_URL) manquant"
+        ? "OUTREACH_CHAT_VPS_URL manquant"
         : "CARTO_CHAT_VPS_URL manquant"
     );
   }
@@ -277,16 +275,25 @@ export async function cartoChatVpsAsk(opts: {
   };
 }
 
-/** Annule un job Contabo / carto par endMarker (queued ou running). */
+/** Annule un job par endMarker — `kind` OBLIGATOIRE (carto ≠ outreach). */
 export async function cartoChatVpsCancel(opts: {
   endMarker: string;
-  kind?: CartoChatVpsKind;
+  kind: CartoChatVpsKind;
 }): Promise<{ ok: boolean; cancelled?: boolean; error?: string }> {
   const kind = opts.kind;
+  if (kind !== "carto" && kind !== "outreach") {
+    return { ok: false, error: "kind carto|outreach requis" };
+  }
   const base = baseUrl(kind);
   const marker = String(opts.endMarker || "").trim();
   if (!base || !marker) {
-    return { ok: false, error: "base URL / endMarker manquant" };
+    return {
+      ok: false,
+      error:
+        kind === "outreach"
+          ? "OUTREACH_CHAT_VPS_URL / endMarker manquant"
+          : "CARTO_CHAT_VPS_URL / endMarker manquant",
+    };
   }
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -321,8 +328,10 @@ export async function cartoChatVpsCancel(opts: {
 }
 
 /**
- * Coupe les jobs Contabo outreach actifs (queued/running) — orphelins d’un
+ * Coupe les jobs Contabo **outreach** actifs (queued/running) — orphelins d’un
  * reset / run précédent. `keepEndMarkers` = jobs à préserver (ex. le courant).
+ *
+ * Ne touche JAMAIS le VPS carto (lab) : URL outreach obligatoire + filtre kind.
  */
 export async function cancelOrphanOutreachContaboJobs(opts?: {
   keepEndMarkers?: string[] | null;
@@ -333,7 +342,33 @@ export async function cancelOrphanOutreachContaboJobs(opts?: {
       .filter(Boolean)
   );
   const out = { cancelled: 0, kept: 0, errors: [] as string[] };
-  if (!isOutreachChatVpsConfigured()) return out;
+
+  const outreachBase = (process.env.OUTREACH_CHAT_VPS_URL || "")
+    .trim()
+    .replace(/\/$/, "");
+  const cartoBase = (process.env.CARTO_CHAT_VPS_URL || "")
+    .trim()
+    .replace(/\/$/, "");
+  if (!outreachBase) {
+    out.errors.push("OUTREACH_CHAT_VPS_URL manquant — refuse sweep (évite carto)");
+    return out;
+  }
+  // Garde-fou : ne jamais sweeper si outreach pointe vers le même host que carto.
+  try {
+    const oHost = new URL(outreachBase).host;
+    const cHost = cartoBase ? new URL(cartoBase).host : "";
+    if (
+      /carto-chat/i.test(outreachBase) ||
+      (cHost && oHost && oHost === cHost)
+    ) {
+      out.errors.push(
+        `Refuse sweep : outreach URL suspecte (${oHost}) — ne pas tuer la carto`
+      );
+      return out;
+    }
+  } catch {
+    /* URL parse soft */
+  }
 
   let health: CartoChatVpsHealth;
   try {
@@ -349,7 +384,13 @@ export async function cancelOrphanOutreachContaboJobs(opts?: {
 
   const active = (health.jobs || []).filter((j) => {
     const st = String(j.state || "");
-    return st === "running" || st === "queued" || st === "starting";
+    if (!(st === "running" || st === "queued" || st === "starting")) {
+      return false;
+    }
+    // Si kind est connu et n’est pas outreach → ignorer (ne jamais tuer une carto).
+    const kind = String(j.kind || "").trim();
+    if (kind && kind !== "outreach") return false;
+    return true;
   });
 
   for (const job of active) {
