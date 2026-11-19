@@ -275,22 +275,49 @@ export async function processRosterFitJobTick(
       };
     }
 
+    // Pipeline strict 1 marque : Analyse → Fit → Contabo done, puis suivante.
+    // Gate A : une marque déjà `running` dans ce job (2 ticks concurrents).
+    const alreadyRunning = await prisma.castingRosterFitBrand.findFirst({
+      where: { jobId, status: "running" },
+      orderBy: { startedAt: "asc" },
+      select: { brandName: true, startedAt: true },
+    });
+    if (alreadyRunning) {
+      const waitLabel =
+        `En cours · ${alreadyRunning.brandName} (1 à la fois)`.slice(0, 80);
+      await prisma.castingRosterFitJob.updateMany({
+        where: {
+          id: jobId,
+          cancelRequested: false,
+          status: { not: "cancelled" },
+        },
+        data: { currentBrandName: waitLabel, status: "running" },
+      });
+      return {
+        processed,
+        done: false,
+        status: "running",
+        currentBrandName: waitLabel,
+      };
+    }
+
     const next = await prisma.castingRosterFitBrand.findFirst({
       where: { jobId, status: "pending" },
       orderBy: { sortOrder: "asc" },
     });
     if (!next) break;
 
-    // Pipeline 1-à-1 : analyse → Fit → Contabo VPS terminé, puis marque suivante.
-    // Sans ce gate, le Fit enchaîne les marques pendant que Contabo en empile 2–3.
-    // (Uniquement s’il reste une marque à fitter — sinon on laisse terminer le job Fit.)
+    // Gate B : Contabo encore busy sur une marque déjà fittée de ce job.
     const contaboInFlight = await countFitChainedContaboInFlight({
       fitJobId: jobId,
       userId: fresh.userId,
       market: String(fresh.market || ""),
     });
     if (contaboInFlight > 0) {
-      const waitLabel = "Attente serveur (1 marque à la fois)".slice(0, 80);
+      const waitLabel = "Attente rédaction Contabo (1 marque à la fois)".slice(
+        0,
+        80
+      );
       await prisma.castingRosterFitJob.updateMany({
         where: {
           id: jobId,

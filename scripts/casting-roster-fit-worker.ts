@@ -259,17 +259,16 @@ async function loopOnce(): Promise<number> {
     return 0;
   }
 
-  // Fit jobs : peuvent tourner en parallèle (xAI). Contabo (outreach) :
-  // 1 seul job tické à la fois — parallel=1 intra-job ne suffit pas si N jobs.
-  const fitResults = await Promise.all(
-    rosterJobs.map(async (j) => {
-      const tick = await processRosterFitJobTick(j.id, 1);
-      console.log(
-        `[casting-fit-worker] roster job=${j.id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
-      );
-      return tick.processed;
-    })
-  );
+  // Fit : 1 seul job / boucle (sinon 2 ticks → 2 marques « running » en parallèle).
+  // Intra-job : déjà 1 marque (gate running + Contabo dans processRosterFitJobTick).
+  const fitResults: number[] = [];
+  for (const j of rosterJobs.slice(0, 1)) {
+    const tick = await processRosterFitJobTick(j.id, 1);
+    console.log(
+      `[casting-fit-worker] roster job=${j.id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
+    );
+    fitResults.push(tick.processed);
+  }
 
   let contaboProcessed = 0;
   // Outreach Contabo : 1 tick utile / boucle. Si le 1er job ne process rien
