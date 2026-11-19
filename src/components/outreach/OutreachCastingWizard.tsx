@@ -48,6 +48,8 @@ import {
   type IndivCachedTalentResearchItem,
 } from "@/lib/indiv-talent-batch-cache";
 import { ensureContactFirstnameToken } from "@/lib/outreach-mail-vps/ensure-contact-firstname-token";
+import { normalizeEditorHtmlForEmail } from "@/lib/email-body-html";
+import RichEmailEditor from "@/components/email/RichEmailEditor";
 
 /** Enrichit talent-research avec l’angle casting (roster-fit) pour la rédaction. */
 function mergeCastingAnglesIntoTalentResearch(
@@ -5103,18 +5105,22 @@ export default function OutreachCastingWizard({
                             style={{ borderColor: "#E5E0DA", color: LICORICE }}
                           />
                         </label>
-                        <label className="block space-y-1">
+                        <div className="space-y-1">
                           <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                             Corps
                           </span>
-                          <textarea
-                            value={editBodyHtml}
-                            onChange={(e) => setEditBodyHtml(e.target.value)}
-                            rows={12}
-                            className="w-full rounded-lg border px-2.5 py-2 text-[12px] leading-relaxed font-mono"
-                            style={{ borderColor: "#E5E0DA", color: LICORICE }}
+                          <p className="m-0 text-[11px] text-slate-500">
+                            Texte normal — les liens talents restent cliquables
+                            (pas besoin de HTML).
+                          </p>
+                          <RichEmailEditor
+                            key={`edit-mail-${current.groupKey}-${editingDraftKey}`}
+                            initialHtml={editBodyHtml}
+                            onChangeHtml={setEditBodyHtml}
+                            minHeight={220}
+                            placeholder="Modifie le mail ici…"
                           />
-                        </label>
+                        </div>
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
@@ -5129,7 +5135,9 @@ export default function OutreachCastingWizard({
                                 setSavingEdit(true);
                                 try {
                                   const subject = editSubject.trim();
-                                  const bodyHtml = editBodyHtml.trim();
+                                  const bodyHtml =
+                                    normalizeEditorHtmlForEmail(editBodyHtml) ||
+                                    editBodyHtml.trim();
                                   await onSaveDraft(current, subject, bodyHtml);
                                   setLocalDrafts((prev) => ({
                                     ...prev,
