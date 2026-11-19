@@ -1922,11 +1922,8 @@ export default function CastingComposer({
         data.leynaExchange?.hasExchange && data.leynaExchange?.bannerLabel
           ? ` · ${data.leynaExchange.bannerLabel}`
           : "";
-      onSuccess(
-        genLanguage === "en"
-          ? `Brouillon prêt (anglais — langue client).${exchangeNote}`
-          : `Brouillon prêt.${exchangeNote}`
-      );
+      // genLanguage est toujours "fr" (traduction EN à l’envoi).
+      onSuccess(`Brouillon prêt.${exchangeNote}`);
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Erreur réseau.");
     } finally {
