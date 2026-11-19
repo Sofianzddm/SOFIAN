@@ -677,6 +677,15 @@ async function pollOutreachVpsUntilReady(opts: {
 
   if (!subject || !bodyHtml) {
     if (Date.now() >= globalDeadline) {
+      // Libère Contabo : sinon un Tour 2 mort bloque toute la file (EasyJet, etc.).
+      try {
+        await cartoChatVpsCancel({ endMarker, kind: "outreach" });
+      } catch (cancelErr) {
+        console.warn(
+          `[outreach-draft-job] cancel Contabo after timeout ${brandName}:`,
+          cancelErr instanceof Error ? cancelErr.message : cancelErr
+        );
+      }
       return {
         ok: false,
         brandName,
@@ -938,6 +947,26 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Coupe le job Contabo lié à un item (fail / timeout / reset) — évite zombies file. */
+async function cancelContaboForOutreachItem(item: {
+  brandName?: string | null;
+  brandResearch?: unknown;
+}): Promise<void> {
+  const br = (item.brandResearch || {}) as {
+    _vps?: { endMarker?: string | null };
+  };
+  const endMarker = String(br._vps?.endMarker || "").trim();
+  if (!endMarker) return;
+  try {
+    await cartoChatVpsCancel({ endMarker, kind: "outreach" });
+  } catch (e) {
+    console.warn(
+      `[outreach-draft-job] cancel Contabo ${item.brandName || "?"}:`,
+      e instanceof Error ? e.message : e
+    );
+  }
+}
+
 async function isDraftJobCancelled(jobId: string): Promise<boolean> {
   const job = await prisma.castingOutreachDraftJob.findUnique({
     where: { id: jobId },
@@ -984,12 +1013,67 @@ async function internalPost<T = Record<string, unknown>>(
   return { ok: res.ok, status: res.status, data };
 }
 
+/** Contact encore à rédiger pour le wizard Contabo. */
+function targetNeedsOutreachDraft(t: {
+  status?: string | null;
+  lastSentAt?: Date | string | null;
+  draftSubject?: string | null;
+  draftBodyHtml?: string | null;
+}): boolean {
+  const st = String(t.status || "TO_CONTACT").toUpperCase();
+  if (st === "WAITING" || st === "STOPPED") return false;
+  // Cycle J+45 : nouveau mail autorisé (même si vieux brouillon encore en base).
+  if (st === "TO_RECONTACT") return true;
+  if (t.lastSentAt) return false;
+  const hasDraft =
+    Boolean(String(t.draftSubject || "").trim()) &&
+    Boolean(String(t.draftBodyHtml || "").trim());
+  // Mail prêt → hors wizard, on ne réécrit pas.
+  return !hasDraft;
+}
+
+async function filterTargetIdsNeedingDraft(
+  pipeline: string,
+  targetIds: string[]
+): Promise<string[]> {
+  const ids = targetIds.map((id) => String(id || "").trim()).filter(Boolean);
+  if (ids.length === 0) return [];
+  const rows =
+    pipeline === "BENELUX"
+      ? await prisma.beneluxOutreachTarget.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            status: true,
+            lastSentAt: true,
+            draftSubject: true,
+            draftBodyHtml: true,
+          },
+        })
+      : await prisma.outreachTarget.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            status: true,
+            lastSentAt: true,
+            draftSubject: true,
+            draftBodyHtml: true,
+          },
+        });
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return ids.filter((id) => {
+    const row = byId.get(id);
+    if (!row) return false;
+    return targetNeedsOutreachDraft(row);
+  });
+}
+
 export async function createOutreachDraftJob(args: {
   userId: string;
   market: string;
   items: CreateOutreachDraftItemInput[];
 }): Promise<{ jobId: string }> {
-  const items = args.items
+  const rawItems = args.items
     .map((it, i) => ({
       groupKey: String(it.groupKey || "").trim(),
       brandName: String(it.brandName || "").trim() || "Marque",
@@ -1003,8 +1087,23 @@ export async function createOutreachDraftJob(args: {
     }))
     .filter((it) => it.groupKey && it.targetIds.length > 0 && it.talentIds.length > 0);
 
+  // Filet serveur : WAITING / mail prêt → jamais remis en rédaction Contabo.
+  const items: typeof rawItems = [];
+  for (const it of rawItems) {
+    const eligible = await filterTargetIdsNeedingDraft(it.pipeline, it.targetIds);
+    if (eligible.length === 0) {
+      console.info(
+        `[outreach-draft-job] skip create ${it.brandName}: déjà prêt/envoyé`
+      );
+      continue;
+    }
+    items.push({ ...it, targetIds: eligible });
+  }
+
   if (items.length === 0) {
-    throw new Error("Aucune marque à rédiger (targets / talents manquants).");
+    throw new Error(
+      "Aucune marque à rédiger (déjà prêt, envoyé, ou targets / talents manquants)."
+    );
   }
 
   const market = args.market || "FR";
@@ -1311,6 +1410,7 @@ async function processOneOutreachItem(itemId: string): Promise<{
   bodyHtml?: string;
   error?: string;
   pending?: boolean;
+  skipped?: boolean;
 }> {
   const item = await prisma.castingOutreachDraftItem.findUnique({
     where: { id: itemId },
@@ -1332,22 +1432,8 @@ async function processOneOutreachItem(itemId: string): Promise<{
     };
   }
 
-  // Reprise : pipeline Chat déjà lancé → on poll seulement.
-  const existingMarker = String(brandResearch._vps?.endMarker || "").trim();
-  if (existingMarker) {
-    return pollOutreachVpsUntilReady({
-      itemId: item.id,
-      jobId: item.jobId,
-      brandName,
-      pipeline: item.pipeline,
-      targetIds: item.targetIds || [],
-      brandResearch,
-      endMarker: existingMarker,
-      vpsStartedAt: brandResearch._vps?.startedAt || null,
-    });
-  }
   const talentIds = item.talentIds || [];
-  const targetIds = item.targetIds || [];
+  let targetIds = item.targetIds || [];
   if (talentIds.length === 0) {
     return { ok: false, brandName, error: "Aucun talent" };
   }
@@ -1359,46 +1445,124 @@ async function processOneOutreachItem(itemId: string): Promise<{
     return { ok: false, brandName, error: "Annulé" };
   }
 
-  // Mail déjà sur les cibles (save OK, mark done KO) → finalise sans Contabo.
+  // Hor wizard : WAITING / envoyé / mail déjà prêt → jamais Contabo ni clear drafts.
   try {
     const existingOnTargets =
       item.pipeline === "BENELUX"
         ? await prisma.beneluxOutreachTarget.findMany({
             where: { id: { in: targetIds } },
-            select: { draftSubject: true, draftBodyHtml: true },
+            select: {
+              id: true,
+              status: true,
+              lastSentAt: true,
+              draftSubject: true,
+              draftBodyHtml: true,
+            },
           })
         : await prisma.outreachTarget.findMany({
             where: { id: { in: targetIds } },
-            select: { draftSubject: true, draftBodyHtml: true },
+            select: {
+              id: true,
+              status: true,
+              lastSentAt: true,
+              draftSubject: true,
+              draftBodyHtml: true,
+            },
           });
-    const readyTarget = existingOnTargets.find(
-      (t) =>
-        String(t.draftSubject || "").trim() &&
-        String(t.draftBodyHtml || "").trim()
-    );
-    if (readyTarget) {
+
+    const eligibleIds = existingOnTargets
+      .filter((t) => targetNeedsOutreachDraft(t))
+      .map((t) => t.id);
+
+    if (eligibleIds.length === 0) {
+      const readyTarget = existingOnTargets.find(
+        (t) =>
+          String(t.draftSubject || "").trim() &&
+          String(t.draftBodyHtml || "").trim()
+      );
+      // Mail prêt encore sur fiche (contrôle) → finalise done SANS réécriture.
+      if (readyTarget) {
+        return {
+          ok: true,
+          brandName,
+          subject: String(readyTarget.draftSubject || "").trim(),
+          bodyHtml: String(readyTarget.draftBodyHtml || "").trim(),
+        };
+      }
+      // Tout envoyé / WAITING → sort du wizard, ne revient pas.
       return {
-        ok: true,
+        ok: false,
         brandName,
-        subject: String(readyTarget.draftSubject || "").trim(),
-        bodyHtml: String(readyTarget.draftBodyHtml || "").trim(),
+        skipped: true,
+        error: "Déjà envoyé — hors wizard",
       };
+    }
+
+    // Ne rédige que les contacts encore éligibles.
+    if (eligibleIds.length !== targetIds.length) {
+      targetIds = eligibleIds;
+      try {
+        await prisma.castingOutreachDraftItem.update({
+          where: { id: item.id },
+          data: { targetIds: eligibleIds },
+        });
+      } catch {
+        /* soft */
+      }
+    }
+
+    // Reprise Contabo seulement si encore besoin d’écrire.
+    const existingMarker = String(brandResearch._vps?.endMarker || "").trim();
+    if (existingMarker) {
+      return pollOutreachVpsUntilReady({
+        itemId: item.id,
+        jobId: item.jobId,
+        brandName,
+        pipeline: item.pipeline,
+        targetIds,
+        brandResearch,
+        endMarker: existingMarker,
+        vpsStartedAt: brandResearch._vps?.startedAt || null,
+      });
+    }
+
+    // Clear UNIQUEMENT les TO_RECONTACT (nouveau cycle) — jamais un mail prêt/WAITING.
+    const recontactIds = existingOnTargets
+      .filter(
+        (t) =>
+          eligibleIds.includes(t.id) &&
+          String(t.status || "").toUpperCase() === "TO_RECONTACT"
+      )
+      .map((t) => t.id);
+    if (recontactIds.length > 0) {
+      try {
+        await clearDraftsOnTargets(item.pipeline, recontactIds);
+      } catch (e) {
+        console.warn(
+          "[outreach-draft-job] clear drafts recontact failed:",
+          e instanceof Error ? e.message : e
+        );
+      }
     }
   } catch (e) {
     console.warn(
       "[outreach-draft-job] read existing drafts soft:",
       e instanceof Error ? e.message : e
     );
-  }
-
-  // Relance : enlève tout de suite l’ancien brouillon (évite « Mail prêt » fantôme).
-  try {
-    await clearDraftsOnTargets(item.pipeline, targetIds);
-  } catch (e) {
-    console.warn(
-      "[outreach-draft-job] clear drafts failed:",
-      e instanceof Error ? e.message : e
-    );
+    // Reprise marker si le check DB a soft-fail
+    const existingMarker = String(brandResearch._vps?.endMarker || "").trim();
+    if (existingMarker) {
+      return pollOutreachVpsUntilReady({
+        itemId: item.id,
+        jobId: item.jobId,
+        brandName,
+        pipeline: item.pipeline,
+        targetIds,
+        brandResearch,
+        endMarker: existingMarker,
+        vpsStartedAt: brandResearch._vps?.startedAt || null,
+      });
+    }
   }
 
   // 1) Contacts + talents d’abord → scan Leyna → UI immédiatement, puis rédaction.
@@ -2217,6 +2381,7 @@ async function processOutreachDraftJobTickUnlocked(
         }
         continue;
       }
+      await cancelContaboForOutreachItem(next);
       try {
         await prisma.castingOutreachDraftItem.update({
           where: { id: next.id },
@@ -2249,17 +2414,27 @@ async function processOutreachDraftJobTickUnlocked(
       processed += 1;
       continue;
     }
-    if (!result.ok && /annul/i.test(String(result.error || ""))) {
+    if (
+      result.skipped ||
+      (!result.ok &&
+        /annul|déjà envoyé|hors wizard/i.test(String(result.error || "")))
+    ) {
+      await cancelContaboForOutreachItem(next);
+      const skipMsg = result.skipped
+        ? String(result.error || "Déjà envoyé — hors wizard")
+        : /annul/i.test(String(result.error || ""))
+          ? "Annulé"
+          : String(result.error || "Hors wizard");
       await prisma.castingOutreachDraftItem.update({
         where: { id: next.id },
         data: {
           status: "skipped",
           finishedAt: new Date(),
           brandName: result.brandName,
-          error: "Annulé",
+          error: skipMsg,
         },
       });
-      cancelled = true;
+      if (/annul/i.test(skipMsg)) cancelled = true;
       processed += 1;
       continue;
     }
@@ -2308,6 +2483,7 @@ async function processOutreachDraftJobTickUnlocked(
         throw writeErr;
       }
     } else {
+      await cancelContaboForOutreachItem(next);
       try {
         await prisma.castingOutreachDraftItem.update({
           where: { id: next.id },

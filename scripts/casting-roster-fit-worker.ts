@@ -121,6 +121,44 @@ async function recoverStuck() {
       "[casting-fit-worker] castingProjectDraftItem absent du Prisma Client — resync schema + `pnpm exec prisma generate` + restart pm2."
     );
   }
+
+  // Contabo orphelins : job Chat encore running/queued alors que l’item plateforme
+  // n’est plus running/pending (fail timeout, erreur DB, etc.) → coupe le zombie.
+  try {
+    const { cancelOrphanOutreachContaboJobs } = await import(
+      "../src/lib/carto-chat-vps/vps-client"
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const outreachItem = (prisma as any).castingOutreachDraftItem;
+    const keepMarkers: string[] = [];
+    if (outreachItem?.findMany) {
+      const live = await outreachItem.findMany({
+        where: { status: { in: ["running", "pending"] } },
+        select: { brandResearch: true },
+        take: 200,
+      });
+      for (const it of live) {
+        const m = String(
+          (it.brandResearch as { _vps?: { endMarker?: string } } | null)?._vps
+            ?.endMarker || ""
+        ).trim();
+        if (m) keepMarkers.push(m);
+      }
+    }
+    const swept = await cancelOrphanOutreachContaboJobs({
+      keepEndMarkers: keepMarkers,
+    });
+    if (swept.cancelled > 0 || swept.errors.length > 0) {
+      console.warn(
+        `[casting-fit-worker] Contabo orphan sweep cancelled=${swept.cancelled} kept=${swept.kept} errors=${swept.errors.join("; ") || "—"}`
+      );
+    }
+  } catch (e) {
+    console.warn(
+      "[casting-fit-worker] Contabo orphan sweep fail:",
+      e instanceof Error ? e.message : e
+    );
+  }
 }
 
 /** Cap soft : jobs actifs, traités en parallèle (1 item / job / tick). */

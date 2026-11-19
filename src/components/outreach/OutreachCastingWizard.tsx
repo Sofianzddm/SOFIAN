@@ -2749,6 +2749,23 @@ export default function OutreachCastingWizard({
       if (readyKeysRef.current.includes(groupKey)) return;
       if (localDraftsRef.current[groupKey]) return;
       if (skipped.has(groupKey)) return;
+      const brand = brandsWithCache.find((b) => b.groupKey === groupKey);
+      if (brand) {
+        const needsWrite = brand.targets.some((t) => {
+          const st = String(t.status || "TO_CONTACT").toUpperCase();
+          if (st === "WAITING" || st === "STOPPED") return false;
+          if (st === "TO_RECONTACT") return true;
+          const hasDraft =
+            Boolean((t.draftSubject || "").trim()) &&
+            Boolean((t.draftBodyHtml || "").trim());
+          return !hasDraft;
+        });
+        if (!needsWrite) {
+          // Déjà prêt / envoyé → sort de la file auto-write.
+          autoWriteDoneKeysRef.current.add(groupKey);
+          return;
+        }
+      }
       if (
         autoWriteQueueRef.current.some((q) => q.groupKey === groupKey) ||
         writingOneKey === groupKey
@@ -2759,7 +2776,7 @@ export default function OutreachCastingWizard({
       setAutoWriteQueueLen(autoWriteQueueRef.current.length);
       void drainAutoWriteRef.current();
     },
-    [skipped, writingOneKey]
+    [skipped, writingOneKey, brandsWithCache]
   );
 
   useEffect(() => {
@@ -3910,7 +3927,19 @@ export default function OutreachCastingWizard({
                     ? fromOui
                     : fromSelection
             ).slice(0, fromOverride.length > 0 ? 30 : 8);
-            const targetIds = brand.targets.map((t) => t.id).filter(Boolean);
+            // Mail prêt / WAITING / STOPPED → hors wizard, jamais réécrit.
+            const targetIds = brand.targets
+              .filter((t) => {
+                const st = String(t.status || "TO_CONTACT").toUpperCase();
+                if (st === "WAITING" || st === "STOPPED") return false;
+                if (st === "TO_RECONTACT") return true;
+                const hasDraft =
+                  Boolean((t.draftSubject || "").trim()) &&
+                  Boolean((t.draftBodyHtml || "").trim());
+                return !hasDraft;
+              })
+              .map((t) => t.id)
+              .filter(Boolean);
             const brandResearch =
               lookupOutreachBrandCache(
                 liveBrandCache,

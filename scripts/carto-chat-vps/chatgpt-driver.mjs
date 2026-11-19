@@ -1168,10 +1168,24 @@ export class ChatGptDriver {
     let best = "";
     const prev = prevText || "";
     let sawGrowth = false;
+    let sawGenerating = false;
     let peakLen = prev.length;
     const fast = process.env.CARTO_CHAT_TEST_FAST === "1";
-    /** Prod : attendre le jeton à l’infini. Tests FAST : respecter timeoutMs. */
+    /**
+     * Prod : on attend le jeton longtemps (High), MAIS :
+     * - dead-start : Chat n’a jamais streamé → fail (évite zombie file)
+     * - plafond absolu : coupe un run mort même avec jeton requis
+     * Tests FAST : respecter timeoutMs uniquement.
+     */
     const waitForever = requireMarker && !fast;
+    const deadStartMs = Math.max(
+      60_000,
+      Number(process.env.CARTO_CHAT_DEAD_START_MS || 180_000)
+    );
+    const markerMaxMs = Math.max(
+      deadStartMs,
+      Number(process.env.CARTO_CHAT_MARKER_MAX_MS || 45 * 60_000)
+    );
     const pollMs = fast ? 1 : 700;
     const deepEveryMs = fast ? 15 : 10_000;
     let lastDeepAt = -deepEveryMs;
@@ -1179,7 +1193,7 @@ export class ChatGptDriver {
 
     if (waitForever) {
       console.log(
-        `[carto-chat-vps] attente jeton SANS timeout marker=${marker}`
+        `[carto-chat-vps] attente jeton (dead-start=${Math.round(deadStartMs / 1000)}s max=${Math.round(markerMaxMs / 1000)}s) marker=${marker}`
       );
     }
 
@@ -1198,6 +1212,35 @@ export class ChatGptDriver {
       const generating = await this.isGenerating().catch(() => false);
       const searching = await this.isWebSearching().catch(() => false);
       const elapsed = Date.now() - started;
+      if (generating) sawGenerating = true;
+
+      // Zombie : prompt collé mais Chat n’a jamais généré ni fait croître le texte.
+      if (
+        !fast &&
+        requireMarker &&
+        elapsed >= deadStartMs &&
+        !sawGenerating &&
+        !sawGrowth &&
+        !generating &&
+        !searching
+      ) {
+        console.error(
+          `[carto-chat-vps] DEAD-START zombie @${Math.round(elapsed / 1000)}s chars=${peakLen} marker=${marker}`
+        );
+        throw new Error(
+          "Zombie Contabo: Chat n'a pas démarré (pas de génération)"
+        );
+      }
+      // Plafond absolu même avec jeton (High long OK jusqu’à markerMaxMs).
+      if (!fast && requireMarker && elapsed >= markerMaxMs) {
+        console.error(
+          `[carto-chat-vps] MARKER_MAX @${Math.round(elapsed / 1000)}s marker=${marker} gen=${generating} growth=${sawGrowth}`
+        );
+        throw new Error(
+          `Timeout jeton Contabo (${Math.round(markerMaxMs / 60000)} min)`
+        );
+      }
+
       const dueDeep =
         requireMarker && elapsed - lastDeepAt >= deepEveryMs;
 
