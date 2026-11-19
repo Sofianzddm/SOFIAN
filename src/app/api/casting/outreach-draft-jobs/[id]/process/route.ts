@@ -55,10 +55,7 @@ export async function POST(
       }
     }
 
-    if (
-      !process.env.OUTREACH_CHAT_VPS_URL?.trim() &&
-      !process.env.CARTO_CHAT_VPS_URL?.trim()
-    ) {
+    if (!process.env.OUTREACH_CHAT_VPS_URL?.trim()) {
       return NextResponse.json(
         { error: "OUTREACH_CHAT_VPS_URL manquant." },
         { status: 500 }

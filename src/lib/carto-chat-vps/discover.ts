@@ -244,6 +244,7 @@ export async function runChatVps(opts: {
       prompt,
       timeoutMs: 540_000,
       endMarker,
+      kind: "carto",
     });
     answer = stripEndMarker(asked.answer, endMarker);
   } catch (e) {
@@ -256,7 +257,7 @@ export async function runChatVps(opts: {
       ) && !/prompt ChatGPT introuvable|non connecté/i.test(msg);
     if (!canReadLast) throw e;
     console.warn("[carto-chat-vps] ask failed, fallback read-last:", msg);
-    const read = await cartoChatVpsReadLast();
+    const read = await cartoChatVpsReadLast({ kind: "carto" });
     answer = stripEndMarker(read.answer, endMarker);
   }
 
@@ -277,7 +278,7 @@ export async function runChatVps(opts: {
     );
     await new Promise((r) => setTimeout(r, 2500));
     try {
-      const read = await cartoChatVpsReadLast();
+      const read = await cartoChatVpsReadLast({ kind: "carto" });
       if (read.answer.length > answer.length + 100) {
         answer = read.answer;
       } else if (read.answer.length > 400) {
@@ -358,7 +359,9 @@ export async function runChatReadScreen(opts: {
   // ★ Toujours cibler CE run — sans marker, /read-last prend le « primary »
   // (souvent une autre marque en parallèle → faux contacts).
   const read = await cartoChatVpsReadLast(
-    expected ? { endMarker: expected } : undefined
+    expected
+      ? { endMarker: expected, kind: "carto" }
+      : { kind: "carto" }
   );
   const raw = read.answer || "";
   if (expected && !answerHasEndMarker(raw, expected)) {

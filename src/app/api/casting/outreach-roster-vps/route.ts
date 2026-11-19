@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import {
   cartoChatVpsHealth,
-  isCartoChatVpsConfigured,
+  isOutreachChatVpsConfigured,
 } from "@/lib/carto-chat-vps/vps-client";
 import {
   readOutreachRosterVps,
@@ -57,13 +57,13 @@ export async function POST(request: NextRequest) {
             : "start";
 
     if (mode === "health") {
-      if (!isCartoChatVpsConfigured()) {
+      if (!isOutreachChatVpsConfigured()) {
         return NextResponse.json({
           ok: false,
-          error: "CARTO_CHAT_VPS_URL manquant",
+          error: "OUTREACH_CHAT_VPS_URL manquant",
         });
       }
-      const health = await cartoChatVpsHealth();
+      const health = await cartoChatVpsHealth({ kind: "outreach" });
       return NextResponse.json(health);
     }
 

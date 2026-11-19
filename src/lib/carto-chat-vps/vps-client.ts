@@ -5,8 +5,12 @@
 import http from "node:http";
 import https from "node:https";
 
+export type CartoChatVpsKind = "carto" | "outreach";
+
 export type CartoChatVpsJob = {
   state?: "idle" | "queued" | "running" | "done" | "error" | string;
+  /** carto | outreach — renvoyé par le worker (jamais ambigu côté client). */
+  kind?: CartoChatVpsKind | string;
   startedAt?: number;
   finishedAt?: number;
   answerChars?: number;
@@ -58,22 +62,25 @@ export type CartoChatVpsAskResult = {
 /** High + web search : souvent > 5 min — undici coupe à ~300s (HeadersTimeout). */
 const ASK_DEFAULT_MS = 540_000;
 
-export type CartoChatVpsKind = "carto" | "outreach";
-
 /**
  * Deux Contabo distincts — JAMAIS de fallback croisé.
  * - carto / lab → CARTO_CHAT_VPS_*
  * - outreach / casting → OUTREACH_CHAT_VPS_* uniquement
+ * `kind` est obligatoire sur tous les appels publics.
  */
-function baseUrl(kind?: CartoChatVpsKind): string {
+function assertKind(kind: CartoChatVpsKind | undefined): CartoChatVpsKind {
+  if (kind === "carto" || kind === "outreach") return kind;
+  throw new Error("kind carto|outreach requis (pas de VPS ambigu)");
+}
+
+function baseUrl(kind: CartoChatVpsKind): string {
   if (kind === "outreach") {
     return (process.env.OUTREACH_CHAT_VPS_URL || "").trim().replace(/\/$/, "");
   }
-  // kind === "carto" ou omis (lab) → carto seulement
   return (process.env.CARTO_CHAT_VPS_URL || "").trim().replace(/\/$/, "");
 }
 
-function secret(kind?: CartoChatVpsKind): string {
+function secret(kind: CartoChatVpsKind): string {
   if (kind === "outreach") {
     return (process.env.OUTREACH_CHAT_VPS_SECRET || "").trim();
   }
@@ -140,19 +147,20 @@ function longPostJson(
   });
 }
 
-export function isCartoChatVpsConfigured(kind?: CartoChatVpsKind): boolean {
-  return Boolean(baseUrl(kind));
+/** Lab carto configuré ? */
+export function isCartoChatVpsConfigured(): boolean {
+  return Boolean(baseUrl("carto"));
 }
 
 /** Outreach dédié (VPS Contabo séparé — pas de fallback carto). */
 export function isOutreachChatVpsConfigured(): boolean {
-  return isCartoChatVpsConfigured("outreach");
+  return Boolean(baseUrl("outreach"));
 }
 
-export async function cartoChatVpsHealth(opts?: {
-  kind?: CartoChatVpsKind;
+export async function cartoChatVpsHealth(opts: {
+  kind: CartoChatVpsKind;
 }): Promise<CartoChatVpsHealth> {
-  const kind = opts?.kind;
+  const kind = assertKind(opts.kind);
   const base = baseUrl(kind);
   if (!base) {
     return {
@@ -183,11 +191,11 @@ export async function cartoChatVpsHealth(opts?: {
 }
 
 /** Lit la réponse déjà visible / job certifié (sans renvoyer de prompt). */
-export async function cartoChatVpsReadLast(opts?: {
+export async function cartoChatVpsReadLast(opts: {
   endMarker?: string;
-  kind?: CartoChatVpsKind;
+  kind: CartoChatVpsKind;
 }): Promise<CartoChatVpsAskResult> {
-  const kind = opts?.kind;
+  const kind = assertKind(opts.kind);
   const base = baseUrl(kind);
   if (!base) {
     throw new Error(
@@ -229,9 +237,9 @@ export async function cartoChatVpsAsk(opts: {
   prompt: string;
   timeoutMs?: number;
   endMarker?: string;
-  kind?: CartoChatVpsKind;
+  kind: CartoChatVpsKind;
 }): Promise<CartoChatVpsAskResult> {
-  const kind = opts.kind;
+  const kind = assertKind(opts.kind);
   const base = baseUrl(kind);
   if (!base) {
     throw new Error(
@@ -280,8 +288,10 @@ export async function cartoChatVpsCancel(opts: {
   endMarker: string;
   kind: CartoChatVpsKind;
 }): Promise<{ ok: boolean; cancelled?: boolean; error?: string }> {
-  const kind = opts.kind;
-  if (kind !== "carto" && kind !== "outreach") {
+  let kind: CartoChatVpsKind;
+  try {
+    kind = assertKind(opts.kind);
+  } catch {
     return { ok: false, error: "kind carto|outreach requis" };
   }
   const base = baseUrl(kind);
@@ -424,10 +434,10 @@ export async function cartoChatVpsAskAsync(opts: {
    */
   effortLevel?: number;
   /**
-   * carto = max 5 slots (prioritaire).
-   * outreach = file wizard illimitée (slots libres restants).
+   * carto = Contabo lab (CARTO_CHAT_VPS_*).
+   * outreach = Contabo casting (OUTREACH_CHAT_VPS_*) — obligatoire, pas de fallback.
    */
-  kind?: CartoChatVpsKind;
+  kind: CartoChatVpsKind;
   /** Pipeline multi-tours (même fil Chat). */
   steps?: Array<{ prompt: string; endMarker: string }>;
 }): Promise<{
@@ -437,7 +447,7 @@ export async function cartoChatVpsAskAsync(opts: {
   promptPreview: string;
   endMarker: string;
 }> {
-  const kind = opts.kind;
+  const kind = assertKind(opts.kind);
   const base = baseUrl(kind);
   if (!base) {
     throw new Error(
@@ -491,9 +501,7 @@ export async function cartoChatVpsAskAsync(opts: {
           timeoutMs: opts.timeoutMs ?? ASK_DEFAULT_MS,
           endMarker: opts.endMarker || undefined,
           ...(effortLevel != null ? { effortLevel } : {}),
-          ...(opts.kind === "carto" || opts.kind === "outreach"
-            ? { kind: opts.kind }
-            : {}),
+          kind,
           ...(Array.isArray(opts.steps) && opts.steps.length > 0
             ? { steps: opts.steps }
             : {}),

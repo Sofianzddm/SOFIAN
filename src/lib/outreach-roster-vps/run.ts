@@ -6,7 +6,7 @@ import {
   cartoChatVpsAskAsync,
   cartoChatVpsHealth,
   cartoChatVpsReadLast,
-  isCartoChatVpsConfigured,
+  isOutreachChatVpsConfigured,
 } from "@/lib/carto-chat-vps/vps-client";
 import {
   answerHasEndMarker,
@@ -29,9 +29,9 @@ import {
 export async function startOutreachRosterVps(
   input: OutreachRosterVpsPromptInput
 ) {
-  if (!isCartoChatVpsConfigured()) {
+  if (!isOutreachChatVpsConfigured()) {
     throw new Error(
-      "CARTO_CHAT_VPS_URL manquant — lance le tunnel scripts/carto-chat-vps/tunnel.sh"
+      "OUTREACH_CHAT_VPS_URL manquant — tunnel VPS outreach requis"
     );
   }
   if (!input.talents?.length) {
@@ -69,7 +69,7 @@ export async function recoverLatestOutreachRosterVps(opts: {
   const brand = opts.brandName.trim();
   if (!brand) return { ready: false as const, recovered: false as const };
 
-  const health = await cartoChatVpsHealth();
+  const health = await cartoChatVpsHealth({ kind: "outreach" });
   const candidates = (health.jobs || [])
     .filter((j) => {
       const prev = String(j.promptPreview || "");
@@ -125,13 +125,16 @@ export async function readOutreachRosterVps(opts: {
   const expected = opts.endMarker.trim();
   if (!expected) throw new Error("endMarker requis");
 
-  const health = await cartoChatVpsHealth();
+  const health = await cartoChatVpsHealth({ kind: "outreach" });
   const job = (health.jobs || []).find(
     (j) => String(j.endMarker || "") === expected
   );
 
   const tryParseReady = async () => {
-    const read = await cartoChatVpsReadLast({ endMarker: expected });
+    const read = await cartoChatVpsReadLast({
+      endMarker: expected,
+      kind: "outreach",
+    });
     const raw = read.answer || "";
     if (!answerHasEndMarker(raw, expected)) return null;
     try {

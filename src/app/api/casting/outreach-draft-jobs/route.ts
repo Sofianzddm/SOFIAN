@@ -71,10 +71,7 @@ export async function POST(request: NextRequest) {
     if (!isAllowed(session.user.role)) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
-    if (
-      !process.env.OUTREACH_CHAT_VPS_URL?.trim() &&
-      !process.env.CARTO_CHAT_VPS_URL?.trim()
-    ) {
+    if (!process.env.OUTREACH_CHAT_VPS_URL?.trim()) {
       return NextResponse.json(
         {
           error:

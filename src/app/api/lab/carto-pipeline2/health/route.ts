@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const health = await cartoChatVpsHealth();
+    const health = await cartoChatVpsHealth({ kind: "carto" });
     return NextResponse.json({ configured: true, ...health });
   } catch (e) {
     return NextResponse.json(
