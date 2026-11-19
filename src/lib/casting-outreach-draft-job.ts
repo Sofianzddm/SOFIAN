@@ -4,7 +4,6 @@ import {
   internalJobHeaders,
 } from "@/lib/internal-job-auth";
 import { sanitizePresentationExcerpt } from "@/lib/campaign-presentation-text";
-import { getLeynaExchangeContext } from "@/lib/leyna-exchange-context";
 import { ensureContactFirstnameToken } from "@/lib/outreach-mail-vps/ensure-contact-firstname-token";
 import {
   readOutreachMailVps,
@@ -21,9 +20,7 @@ import {
   trimEmailHtmlEdges,
   upgradeTalentLinksInHtml,
 } from "@/lib/talent-email-links";
-import {
-  collectRecentLeynaRefusedTalents,
-} from "@/lib/leyna-exchange-context";
+import { collectRecentLeynaRefusedTalents } from "@/lib/leyna-exchange-context";
 import {
   assertOutreachVpsMailQuality,
   ensureJoeyGoldIntroHtml,
@@ -1516,16 +1513,9 @@ async function processOneOutreachItem(itemId: string): Promise<{
     Boolean(fromEmail?.startsWith("joey@")) ||
     Boolean(fromEmail && fromEmail.includes("joey"));
 
-  const recipientEmails = Array.from(
-    new Set(
-      targets
-        .map((t) => String(t.email || "").trim().toLowerCase())
-        .filter((e) => e.includes("@"))
-    )
-  );
-
-  // Compte Joey → pas de scan boîte Leyna (mauvaise boîte) ; intro BD à la rédaction.
-  let leyna: Awaited<ReturnType<typeof getLeynaExchangeContext>>;
+  // Historique Leyna = ChatGPT tour 1 (Gmail dans le browser). Plus de scan
+  // API Gmail serveur ici : il bloquait toute rédaction sur un simple fetch failed.
+  let leyna: Parameters<typeof slimLeynaExchange>[0];
   if (isJoeySender) {
     await prisma.castingOutreachDraftJob.update({
       where: { id: item.jobId },
@@ -1564,42 +1554,34 @@ async function processOneOutreachItem(itemId: string): Promise<{
     await prisma.castingOutreachDraftJob.update({
       where: { id: item.jobId },
       data: {
-        currentBrandName: `Serveur · scan Leyna · ${brandName}`.slice(0, 80),
+        currentBrandName: `Serveur · Tour 1/2 Leyna · ${brandName}`.slice(
+          0,
+          80
+        ),
       },
     });
-    leyna = await getLeynaExchangeContext({
-      recipientEmails,
-      brandName,
-      agencyName:
-        item.company && item.company !== brandName ? item.company : null,
-      talentNames: talents.map(
-        (t) => `${t.prenom || ""} ${t.nom || ""}`.trim() || "Talent"
-      ),
-      // Brief ops = ChatGPT (pas Grok) — on ne note que le scan factuel ici.
-      skipOpsSynthesis: true,
-    });
-    if (leyna.scanStatus === "failed") {
-      const detail = String(leyna.scanError || "").trim();
-      return {
-        ok: false,
-        brandName,
-        error: detail
-          ? `Scan Leyna échoué — pas de rédaction cold (${detail})`
-          : "Scan Leyna échoué — pas de rédaction cold.",
-      };
-    }
+    leyna = {
+      hasExchange: false,
+      hasSentNoReplyOnly: false,
+      tone: "vous",
+      contacts: [],
+      alerts: [],
+      bannerLabel: "ChatGPT · historique Leyna (tour 1)…",
+      promptBlockFr: "",
+      promptBlockEn: "",
+      scanStatus: "empty",
+      fetchedAt: new Date().toISOString(),
+      ops: null,
+    };
   }
 
-  // Faits Gmail locaux OK ; alertes rouges = Chat tour 1 seulement (vider heuristiques).
-  // Joey : garder le brief cold A (pas d’écrasement ops / banner).
+  // Joey : brief cold A. Sinon placeholder — le vrai brief vient du tour 1 Chat.
   const leynaSlim = isJoeySender
     ? slimLeynaExchange(leyna)
     : slimLeynaExchange({
         ...leyna,
         alerts: [],
-        bannerLabel: leyna.bannerLabel
-          ? `Scan Gmail · ${leyna.bannerLabel} · alertes serveur en cours…`
-          : "Scan Gmail Leyna (faits) · alertes serveur en cours…",
+        bannerLabel: "ChatGPT · historique Leyna (tour 1)…",
         ops: null,
       });
   try {
@@ -1616,8 +1598,8 @@ async function processOneOutreachItem(itemId: string): Promise<{
     );
   }
 
-  // Refus durs uniquement : clair + fil < 1 an (ex. Foreo × Flavy OK ; AV × Mélissa 2024 non).
-  // Source = contacts (datés) — pas ops.excludeTalents seul (peut être stale / halluciné).
+  // Exclusions talents : uniquement si on a déjà un dossier contacts (post-tour 1
+  // ou Joey). Plus de refus basés sur un scan Gmail API pré-Chat.
   const excludeFromLeyna = collectRecentLeynaRefusedTalents(
     leynaSlim.contacts || []
   );
@@ -1648,19 +1630,6 @@ async function processOneOutreachItem(itemId: string): Promise<{
     }
     talentsForDraft = kept;
   }
-
-  await prisma.castingOutreachDraftJob.update({
-    where: { id: item.jobId },
-    data: {
-      currentBrandName: (
-        leynaSlim.ops?.recommendedAction
-          ? `Serveur · Leyna OK · ${brandName}`
-          : leynaSlim.hasExchange
-            ? `Serveur · Leyna OK · ${brandName}`
-            : `Serveur · Leyna vide · ${brandName}`
-      ).slice(0, 80),
-    },
-  });
 
   if (await isDraftJobCancelled(item.jobId)) {
     return { ok: false, brandName, error: "Annulé" };

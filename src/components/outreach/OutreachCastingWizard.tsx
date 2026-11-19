@@ -610,11 +610,19 @@ export default function OutreachCastingWizard({
   );
 
   /**
-   * Marques encore dans le wizard. Dès qu’un mail est prêt, il sort
-   * (contrôle dans la file Outreach « Prêt à contrôler »).
+   * Marques du lot wizard (y compris mails déjà prêts — aperçu / envoi in-wizard).
+   * On n’éjecte plus les « Prêt » : le wizard complet doit les garder visibles.
    */
   const activeWizardBrands = useMemo(
-    () => brandsWithCache.filter((b) => !brandHasReadyMail(b)),
+    () => brandsWithCache,
+    [brandsWithCache]
+  );
+
+  /** Lot ouvert via « Ouvrir » : tout est déjà rédigé → pas de reprise fit/draft marché. */
+  const lotAlreadyReady = useMemo(
+    () =>
+      brandsWithCache.length > 0 &&
+      brandsWithCache.every((b) => brandHasReadyMail(b)),
     [brandsWithCache, brandHasReadyMail]
   );
 
@@ -1809,6 +1817,8 @@ export default function OutreachCastingWizard({
   // Reprend le job fit actif (FR / BENELUX / BOTH / INDIV:talentId).
   useEffect(() => {
     if (!open) return;
+    // « Ouvrir » sur mail déjà prêt : ne pas coller le fit marché (ex. 14/83).
+    if (lotAlreadyReady) return;
     let cancelled = false;
     const marketKey = fitMarketKey;
     void (async () => {
@@ -1870,7 +1880,7 @@ export default function OutreachCastingWizard({
     return () => {
       cancelled = true;
     };
-  }, [open, fitMarketKey, lockedTalentId]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open / market
+  }, [open, fitMarketKey, lockedTalentId, lotAlreadyReady]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open / market
 
   useEffect(() => {
     return () => {
@@ -3693,7 +3703,7 @@ export default function OutreachCastingWizard({
           setProjectCacheTick((n) => n + 1);
         }
 
-        // Prêt = status done + sujet + corps (sinon pas de sortie wizard).
+        // Prêt = status done + sujet + corps (reste visible dans le lot).
         const doneItems = (data.items || []).filter((it) => {
           if (it.status !== "done") return false;
           const subject = String(it.draftSubject || "").trim();
@@ -3724,7 +3734,7 @@ export default function OutreachCastingWizard({
             }
             return next;
           });
-          // Sortie immédiate → file Outreach « Prêt à contrôler ».
+          // Sync file Outreach (badge Prêt) — la marque reste dans le wizard.
           if (freshReady.length > 0) onDraftsWritten?.();
         }
         // Échec : retire « Mail prêt » / aperçu local (sinon l’ancien brouillon reste).
@@ -4134,6 +4144,8 @@ export default function OutreachCastingWizard({
   // Reprend un job rédaction outreach actif (même après fermeture).
   useEffect(() => {
     if (!open || lockedTalentId || isProjectMode) return;
+    // « Ouvrir » sur mail déjà prêt : rester sur l’aperçu, sans reprise file marché.
+    if (lotAlreadyReady) return;
     let cancelled = false;
     const marketKey = fitMarketKey;
     void (async () => {
@@ -4194,7 +4206,7 @@ export default function OutreachCastingWizard({
     return () => {
       cancelled = true;
     };
-  }, [open, lockedTalentId, fitMarketKey]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open
+  }, [open, lockedTalentId, fitMarketKey, lotAlreadyReady]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open
 
   useEffect(() => {
     return () => {
@@ -4513,7 +4525,7 @@ export default function OutreachCastingWizard({
                 ? isIndivMode || isProjectMode
                   ? "Aucune marque dans ce lot."
                   : "Aucune marque à caster dans cette file. Recharge la page ou change d’onglet."
-                : "Mails prêts sortis du wizard — contrôle-les dans la file « Prêt à contrôler »."}
+                : "Aucune marque restante dans ce lot."}
             </div>
           ) : phase === "casting" && current ? (
             <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -5484,9 +5496,9 @@ export default function OutreachCastingWizard({
                       ) : null}
                     </div>
                     <p className="m-0 text-sm" style={{ color: LICORICE }}>
-                      {activeWizardBrands.length} encore dans le wizard
+                      {activeWizardBrands.length} dans le wizard
                       {readyKeys.length > 0
-                        ? ` · ${readyKeys.length} sorti${readyKeys.length > 1 ? "s" : ""} → Prêt à contrôler`
+                        ? ` · ${readyKeys.length} prêt${readyKeys.length > 1 ? "s" : ""}`
                         : ""}
                       {negoReviewKeys.length > 0
                         ? ` · ${negoReviewKeys.length} avec revue négo (suite prudente)`

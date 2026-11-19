@@ -408,16 +408,26 @@ function enqueueAsk({
     return { error: "Ce marker a déjà un job actif", status: 409 };
   }
 
-  const effortN = Number(effortLevel);
-  const effortOk =
-    Number.isFinite(effortN) && effortN >= 1 && effortN <= 5
-      ? effortN
-      : undefined;
   const mainPrompt =
     stepList.length > 0
       ? stepList.map((s) => s.prompt).join("\n\n---\n\n")
       : prompt;
   const kind = detectJobKind(mainPrompt, kindExplicit);
+
+  // Outreach = toujours Instant (OUTREACH_CHAT_EFFORT_LEVEL, défaut 1).
+  // Ne plus accepter Medium (2) passé par d’anciens clients / roster.
+  let effortOk;
+  if (kind === "outreach") {
+    const fromEnv = Number(process.env.OUTREACH_CHAT_EFFORT_LEVEL || 1);
+    effortOk =
+      Number.isFinite(fromEnv) && fromEnv >= 1 && fromEnv <= 5 ? fromEnv : 1;
+  } else {
+    const effortN = Number(effortLevel);
+    effortOk =
+      Number.isFinite(effortN) && effortN >= 1 && effortN <= 5
+        ? effortN
+        : undefined;
+  }
 
   const startedAt = Date.now();
   const job = {
@@ -449,7 +459,7 @@ function enqueueAsk({
   jobs.set(marker, job);
   queue.push(marker);
   console.log(
-    `[carto-chat-vps] enqueue kind=${kind} marker=${marker} steps=${stepList.length || 1} hint=${job.companyHint || "—"} free=${driver.slotsInfo().free} cartoRunning=${countRunningByKind("carto")}/${CARTO_MAX_SLOTS} queue=${queue.length}`
+    `[carto-chat-vps] enqueue kind=${kind} effort=${effortOk ?? "env"} marker=${marker} steps=${stepList.length || 1} hint=${job.companyHint || "—"} free=${driver.slotsInfo().free} cartoRunning=${countRunningByKind("carto")}/${CARTO_MAX_SLOTS} queue=${queue.length}`
   );
   pumpQueue();
   return { job: publicJob(jobs.get(marker)), status: 202 };

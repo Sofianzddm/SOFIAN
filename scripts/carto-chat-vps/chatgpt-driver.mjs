@@ -1451,7 +1451,7 @@ export class ChatGptDriver {
    */
   effortAliases(level) {
     const map = {
-      1: ["Instant", "Instantané"],
+      1: ["Instantané", "Instantane", "Instant"],
       2: ["Medium", "Moyen"],
       3: ["High", "Élevé", "Eleve"],
       4: ["Extra High", "Très élevé", "Tres eleve"],
@@ -1467,12 +1467,49 @@ export class ChatGptDriver {
     );
   }
 
+  /** Label clairement Moyen / Medium (à refuser hors cible Medium). */
+  isMediumLabel(label) {
+    return /medium|moyen/i.test(String(label || ""));
+  }
+
+  /**
+   * Vrai si le couple label+attr correspond à la cible.
+   * Ne jamais accepter attr seul si le libellé contredit (ex. Moyen + attr none).
+   */
+  isEffortMatch(label, attr, level) {
+    if (level === 1 && this.isMediumLabel(label)) return false;
+    if (level === 3 && this.isMediumLabel(label)) return false;
+    if (level === 1 && /high|élev|elev|pro|tr[eè]s/i.test(label || "")) {
+      return false;
+    }
+
+    // Instant : exiger le libellé Instantané (ne jamais valider sur attr=none seul —
+    // sinon on envoie alors que l’UI affiche encore Moyen).
+    if (level === 1) {
+      return this.isEffortAtTarget(label, 1);
+    }
+
+    if (this.isEffortAtTarget(label, level)) return true;
+
+    const targetAttr = this.effortAttrForLevel(level);
+    if (attr !== targetAttr) return false;
+
+    // Attr plausible mais label ambigu : refuser si le label matche un autre cran
+    for (const other of [1, 2, 3, 4, 5]) {
+      if (other !== level && this.isEffortAtTarget(label, other)) return false;
+    }
+    // Attr exact (ex. medium/high) sans label contradictoire
+    return attr === targetAttr;
+  }
+
   isEffortAtTarget(label, level = 2) {
     if (!label) return false;
     const aliases = this.effortAliases(level);
     // « Très élevé » ne doit pas matcher le cran 3 (Élevé / High)
     if (level === 3 && /tr[eè]s\s+[eé]lev[eé]/i.test(label)) return false;
     if (level === 3 && /extra\s*high/i.test(label)) return false;
+    // Instant : ne pas confondre avec un libellé qui contient « Instant » ailleurs
+    if (level === 1 && this.isMediumLabel(label)) return false;
     return aliases.some((a) => {
       const re = new RegExp(
         a.length <= 4 ? `\\b${a}\\b` : a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
@@ -1483,26 +1520,48 @@ export class ChatGptDriver {
   }
 
   /**
-   * Clique l'option High/Élevé (etc.) dans le menu ouvert — plus fiable que le slider.
+   * Clique l'option High/Élevé/Instantané (etc.) dans le menu ouvert — plus fiable que le slider.
    */
   async clickEffortMenuOption(level) {
     const aliases = this.effortAliases(level);
-    // Évite « Très élevé » quand on vise « Élevé »
+    const targetAttr = this.effortAttrForLevel(level);
+    // Évite « Très élevé » quand on vise « Élevé » ; Instant ≠ Moyen/High
     const exclude =
       level === 3
-        ? /tr[eè]s\s+[eé]lev|extra\s*high/i
+        ? /tr[eè]s\s+[eé]lev|extra\s*high|medium|moyen|instant/i
         : level === 2
           ? /tr[eè]s|extra|high|élev|elev|pro|instant/i
-          : null;
+          : level === 1
+            ? /medium|moyen|high|élev|elev|pro|tr[eè]s|extra/i
+            : null;
+
+    // Clic direct via data-attr (UI ChatGPT récente)
+    const byAttr = this.page.locator(
+      `[role="menuitemradio"][data-value="${targetAttr}"], [role="option"][data-value="${targetAttr}"], [data-testid*="reasoning"][data-value="${targetAttr}"]`
+    );
+    if (await byAttr.first().isVisible({ timeout: 500 }).catch(() => false)) {
+      const txt = ((await byAttr.first().innerText().catch(() => "")) || "").trim();
+      if (!(exclude && exclude.test(txt))) {
+        await byAttr.first().click({ timeout: 3000 }).catch(() => {});
+        console.log(
+          `[carto-chat-vps] effort option data-value=${targetAttr} « ${txt || targetAttr} »`
+        );
+        return true;
+      }
+    }
 
     for (const name of aliases) {
       const locators = [
         this.page.getByRole("menuitemradio", { name: new RegExp(name, "i") }),
         this.page.getByRole("option", { name: new RegExp(name, "i") }),
         this.page.getByRole("menuitem", { name: new RegExp(name, "i") }),
-        this.page.locator(`[data-testid*="reasoning"] , [role="menuitemradio"], [role="option"]`).filter({
-          hasText: new RegExp(name, "i"),
-        }),
+        this.page
+          .locator(
+            `[data-testid*="reasoning"] , [role="menuitemradio"], [role="option"]`
+          )
+          .filter({
+            hasText: new RegExp(name, "i"),
+          }),
       ];
       for (const loc of locators) {
         const el = loc.first();
@@ -1510,8 +1569,10 @@ export class ChatGptDriver {
         const txt = ((await el.innerText().catch(() => "")) || "").trim();
         if (exclude && exclude.test(txt)) continue;
         if (level === 3 && /tr[eè]s\s+[eé]lev|extra\s*high/i.test(txt)) continue;
-        // Pour High : le texte doit matcher High/Élevé, pas Moyen
-        if (!this.isEffortAtTarget(txt, level) && !new RegExp(name, "i").test(txt)) {
+        if (
+          !this.isEffortAtTarget(txt, level) &&
+          !new RegExp(name, "i").test(txt)
+        ) {
           continue;
         }
         await el.click({ timeout: 3000 }).catch(() => {});
@@ -1525,8 +1586,8 @@ export class ChatGptDriver {
   /**
    * Force Effort (défaut Medium / Moyen = cran 2/5).
    * CARTO_CHAT_EFFORT_LEVEL: 1 Instant … 2 Medium … 3 High … 4 Extra … 5 Pro
-   * opts.effortLevel (1–5) override l’env pour CE run (ex. outreach = 2 Medium).
-   * 1) clic libellé menu  2) fallback slider
+   * opts.effortLevel (1–5) override l’env pour CE run (ex. outreach = 1 Instant).
+   * 1) clic libellé menu  2) fallback slider (Instant = extrême gauche uniquement)
    */
   async ensureHighEffort(effortLevel) {
     const fromArg = Number(effortLevel);
@@ -1541,8 +1602,13 @@ export class ChatGptDriver {
     );
 
     // Ratios slider 5 crans : Instant=0 … Medium≈0.25 … High≈0.55 … XHigh≈0.78 … Pro≈0.98
-    // (l'ancien (TARGET-1)/4 mettait High à 0.5 = souvent Medium)
+    // Instant : NE PAS dériver vers 0.10/0.17 (atterrit sur Moyen).
     const SLIDER_RATIO = { 1: 0.02, 2: 0.25, 3: 0.55, 4: 0.78, 5: 0.98 };
+    const sliderRatiosForTarget = (t) => {
+      if (t === 1) return [0.0, 0.02, 0.05];
+      const base = SLIDER_RATIO[t] ?? 0.55;
+      return [base, Math.min(0.7, base + 0.08), Math.min(0.85, base + 0.15)];
+    };
 
     for (let attempt = 1; attempt <= 4; attempt++) {
       try {
@@ -1559,11 +1625,7 @@ export class ChatGptDriver {
 
         const current = await this.readEffortLabel();
         const attr = await this.readEffortAttr();
-        // Refuse Medium/Moyen si on vise High
-        if (
-          (this.isEffortAtTarget(current, TARGET) || attr === targetAttr) &&
-          !(TARGET === 3 && /medium|moyen/i.test(current))
-        ) {
+        if (this.isEffortMatch(current, attr, TARGET)) {
           console.log(
             `[carto-chat-vps] effort OK ${aliases.join("/")} (« ${current} » attr=${attr})`
           );
@@ -1576,7 +1638,7 @@ export class ChatGptDriver {
         await selector.click({ timeout: 4000 });
         await sleep(700);
 
-        // ★ 1) Clic direct sur High / Élevé dans le menu
+        // ★ 1) Clic direct sur Instantané / High / … dans le menu
         const clicked = await this.clickEffortMenuOption(TARGET);
         if (clicked) {
           await sleep(450);
@@ -1587,10 +1649,7 @@ export class ChatGptDriver {
           console.log(
             `[carto-chat-vps] effort après option: « ${afterClick} » attr=${afterAttr}`
           );
-          if (
-            this.isEffortAtTarget(afterClick, TARGET) ||
-            afterAttr === targetAttr
-          ) {
+          if (this.isEffortMatch(afterClick, afterAttr, TARGET)) {
             return true;
           }
         }
@@ -1604,7 +1663,6 @@ export class ChatGptDriver {
           .last();
 
         if (!(await slider.isVisible({ timeout: 2000 }).catch(() => false))) {
-          // Menu peut s'être fermé après le clic option — rouvre
           await selector.click({ timeout: 3000 }).catch(() => {});
           await sleep(500);
         }
@@ -1612,17 +1670,12 @@ export class ChatGptDriver {
         if (await slider.isVisible({ timeout: 2000 }).catch(() => false)) {
           const box = await slider.boundingBox();
           if (box && box.width >= 8) {
-            const ratios = [
-              SLIDER_RATIO[TARGET] ?? 0.55,
-              Math.min(0.7, (SLIDER_RATIO[TARGET] ?? 0.55) + 0.08),
-              Math.min(0.85, (SLIDER_RATIO[TARGET] ?? 0.55) + 0.15),
-            ];
-            for (const ratio of ratios) {
+            for (const ratio of sliderRatiosForTarget(TARGET)) {
               await this.page.mouse.click(
                 box.x + box.width * ratio,
                 box.y + box.height / 2
               );
-              await sleep(350);
+              await sleep(400);
               const desc = await this.page.evaluate(() => {
                 const nodes = Array.from(
                   document.querySelectorAll(
@@ -1641,14 +1694,25 @@ export class ChatGptDriver {
                   .map((id) => document.getElementById(id)?.innerText || "")
                   .filter(Boolean)[0];
               });
+              const liveLabel = await this.readEffortLabel();
+              const liveAttr = await this.readEffortAttr();
               console.log(
-                `[carto-chat-vps] slider ratio=${ratio.toFixed(2)} → ${desc || "?"}`
+                `[carto-chat-vps] slider ratio=${ratio.toFixed(2)} → desc=${desc || "?"} label=« ${liveLabel} » attr=${liveAttr}`
               );
               if (
-                desc &&
-                (new RegExp(`${TARGET}\\s*sur\\s*5`, "i").test(desc) ||
-                  this.isEffortAtTarget(desc, TARGET))
+                this.isEffortMatch(liveLabel, liveAttr, TARGET) ||
+                (desc &&
+                  (new RegExp(`${TARGET}\\s*sur\\s*5`, "i").test(desc) ||
+                    this.isEffortAtTarget(desc, TARGET)))
               ) {
+                // Instant : si desc dit 1/5 mais label encore Moyen → continue
+                if (
+                  TARGET === 1 &&
+                  this.isMediumLabel(liveLabel) &&
+                  !this.isEffortAtTarget(desc || "", 1)
+                ) {
+                  continue;
+                }
                 break;
               }
             }
@@ -1663,10 +1727,7 @@ export class ChatGptDriver {
         console.log(
           `[carto-chat-vps] effort après try ${attempt}: « ${after} » attr=${afterAttr}`
         );
-        if (
-          (this.isEffortAtTarget(after, TARGET) || afterAttr === targetAttr) &&
-          !(TARGET === 3 && /medium|moyen/i.test(after))
-        ) {
+        if (this.isEffortMatch(after, afterAttr, TARGET)) {
           return true;
         }
       } catch (e) {
@@ -1979,11 +2040,33 @@ export class ChatGptDriver {
           const targetEffort =
             effortLevel ??
             Number(process.env.CARTO_CHAT_EFFORT_LEVEL || 2);
-          await this.ensureHighEffort(effortLevel);
-          const effortNow = await this.readEffortLabel();
-          if (!this.isEffortAtTarget(effortNow, targetEffort)) {
+          let effortOk = await this.ensureHighEffort(effortLevel);
+          let effortNow = await this.readEffortLabel();
+          let effortAttrNow = await this.readEffortAttr();
+          if (!this.isEffortMatch(effortNow, effortAttrNow, targetEffort)) {
             console.warn(
-              `[carto-chat-vps] slot ${slot.id} envoi malgré effort « ${effortNow} » (cible ${targetEffort})`
+              `[carto-chat-vps] slot ${slot.id} effort encore « ${effortNow} » attr=${effortAttrNow} (cible ${targetEffort}) — 2e passe`
+            );
+            effortOk = await this.ensureHighEffort(effortLevel);
+            effortNow = await this.readEffortLabel();
+            effortAttrNow = await this.readEffortAttr();
+          }
+          if (!this.isEffortMatch(effortNow, effortAttrNow, targetEffort)) {
+            // Instant / High : ne jamais envoyer en Moyen par défaut UI
+            if (
+              (targetEffort === 1 || targetEffort === 3) &&
+              this.isMediumLabel(effortNow)
+            ) {
+              throw new Error(
+                `Effort non appliqué : « ${effortNow} » (attr=${effortAttrNow}) au lieu de cible ${targetEffort} — abandon pour retry`
+              );
+            }
+            console.warn(
+              `[carto-chat-vps] slot ${slot.id} envoi malgré effort « ${effortNow} » attr=${effortAttrNow} ok=${effortOk} (cible ${targetEffort})`
+            );
+          } else {
+            console.log(
+              `[carto-chat-vps] slot ${slot.id} effort confirmé « ${effortNow} » attr=${effortAttrNow} cible=${targetEffort}`
             );
           }
 

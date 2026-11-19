@@ -1319,15 +1319,11 @@ export default function OutreachPage() {
     if (activeTab !== "TO_CONTACT" && activeTab !== "TO_RECONTACT") return [];
     return visibleGroups
       .filter((g) => g.targets.length > 0)
-      // Mail déjà prêt → hors wizard, visible dans la file « Prêt à contrôler ».
+      // Envoi déjà programmé → hors lot ; les mails « Prêt » restent visibles
+      // dans le wizard complet (aperçu / envoi), pas éjectés.
       .filter(
         (g) =>
-          !g.targets.some(
-            (t) =>
-              Boolean((t.draftSubject || "").trim()) &&
-              Boolean((t.draftBodyHtml || "").trim()) &&
-              !t.scheduledSendAt
-          )
+          !g.targets.every((t) => Boolean(t.scheduledSendAt))
       )
       .map((g) => groupToCastingBrand(g));
   }, [visibleGroups, activeTab, groupToCastingBrand]);

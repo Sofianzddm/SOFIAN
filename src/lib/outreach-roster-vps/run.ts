@@ -39,12 +39,17 @@ export async function startOutreachRosterVps(
   }
   const basePrompt = buildOutreachRosterVpsPrompt(input);
   const { prompt, endMarker } = appendEndMarkerInstruction(basePrompt);
+  /** Aligné sur l’outreach mail : Instant par défaut (OUTREACH_CHAT_EFFORT_LEVEL). */
+  const outreachEffort = (() => {
+    const n = Number(process.env.OUTREACH_CHAT_EFFORT_LEVEL || 1);
+    return Number.isFinite(n) && n >= 1 && n <= 5 ? n : 1;
+  })();
+
   const started = await cartoChatVpsAskAsync({
     prompt,
     timeoutMs: 540_000,
     endMarker,
-    // Medium — carto reste High (pas d’effortLevel)
-    effortLevel: 2,
+    effortLevel: outreachEffort,
     kind: "outreach",
   });
   return {
