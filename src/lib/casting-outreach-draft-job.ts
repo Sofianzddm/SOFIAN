@@ -457,7 +457,9 @@ async function pollOutreachVpsUntilReady(opts: {
       notes: String(ready.notes || "").trim() || null,
       engine:
         String((ready as { engine?: string }).engine || "").trim() || null,
-      answerChars: Number(ready.answerChars || 0),
+      answerChars: Number(
+        (ready as { answerChars?: number }).answerChars || 0
+      ),
       promptPreview: String(
         (ready as { promptPreview?: string }).promptPreview || ""
       ),
