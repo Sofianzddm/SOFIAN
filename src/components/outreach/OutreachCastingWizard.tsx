@@ -610,15 +610,19 @@ export default function OutreachCastingWizard({
   );
 
   /**
-   * Marques du lot wizard (y compris mails déjà prêts — aperçu / envoi in-wizard).
-   * On n’éjecte plus les « Prêt » : le wizard complet doit les garder visibles.
+   * Marques encore dans le wizard complet. Dès qu’un mail est prêt, il sort
+   * vers la file « Prêt » / bouton Ouvrir.
+   * Exception : lot 100 % prêt (focus « Ouvrir ») → on garde pour l’aperçu.
    */
-  const activeWizardBrands = useMemo(
-    () => brandsWithCache,
-    [brandsWithCache]
-  );
+  const activeWizardBrands = useMemo(() => {
+    const pending = brandsWithCache.filter((b) => !brandHasReadyMail(b));
+    if (pending.length === 0 && brandsWithCache.length > 0) {
+      return brandsWithCache;
+    }
+    return pending;
+  }, [brandsWithCache, brandHasReadyMail]);
 
-  /** Lot ouvert via « Ouvrir » : tout est déjà rédigé → pas de reprise fit/draft marché. */
+  /** Lot ouvert via « Ouvrir » : tout est déjà rédigé → aperçu, pas de reprise fit marché. */
   const lotAlreadyReady = useMemo(
     () =>
       brandsWithCache.length > 0 &&
@@ -5536,9 +5540,9 @@ export default function OutreachCastingWizard({
                       ) : null}
                     </div>
                     <p className="m-0 text-sm" style={{ color: LICORICE }}>
-                      {activeWizardBrands.length} dans le wizard
+                      {activeWizardBrands.length} encore dans le wizard
                       {readyKeys.length > 0
-                        ? ` · ${readyKeys.length} prêt${readyKeys.length > 1 ? "s" : ""}`
+                        ? ` · ${readyKeys.length} sorti${readyKeys.length > 1 ? "s" : ""} → Prêt à contrôler`
                         : ""}
                       {negoReviewKeys.length > 0
                         ? ` · ${negoReviewKeys.length} avec revue négo (suite prudente)`
