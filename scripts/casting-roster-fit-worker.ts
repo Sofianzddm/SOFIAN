@@ -185,25 +185,33 @@ async function loopOnce(): Promise<number> {
     return 0;
   }
 
-  const results = await Promise.all([
-    ...rosterJobs.map(async (j) => {
+  // Fit jobs : peuvent tourner en parallèle (xAI). Contabo (outreach) :
+  // 1 seul job tické à la fois — parallel=1 intra-job ne suffit pas si N jobs.
+  const fitResults = await Promise.all(
+    rosterJobs.map(async (j) => {
       const tick = await processRosterFitJobTick(j.id, 1);
       console.log(
         `[casting-fit-worker] roster job=${j.id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
       );
       return tick.processed;
-    }),
+    })
+  );
+
+  let contaboProcessed = 0;
+  // Outreach Contabo : strictement séquentiel (1 job / tour de boucle).
+  for (const j of outreachJobs.slice(0, 1)) {
+    const tick = await processOutreachDraftJobTick(j.id, 1);
+    console.log(
+      `[casting-fit-worker] outreach-draft job=${j.id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
+    );
+    contaboProcessed += tick.processed;
+  }
+
+  const otherResults = await Promise.all([
     ...indivJobs.map(async (j) => {
       const tick = await processIndivDraftJobTick(j.id, 1);
       console.log(
         `[casting-fit-worker] indiv job=${j.id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
-      );
-      return tick.processed;
-    }),
-    ...outreachJobs.map(async (j) => {
-      const tick = await processOutreachDraftJobTick(j.id, 1);
-      console.log(
-        `[casting-fit-worker] outreach-draft job=${j.id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
       );
       return tick.processed;
     }),
@@ -215,7 +223,12 @@ async function loopOnce(): Promise<number> {
       return tick.processed;
     }),
   ]);
-  return results.reduce((a, b) => a + b, 0);
+
+  return (
+    fitResults.reduce((a, b) => a + b, 0) +
+    contaboProcessed +
+    otherResults.reduce((a, b) => a + b, 0)
+  );
 }
 
 async function main() {

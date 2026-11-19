@@ -407,6 +407,8 @@ export function TalentIndivBatchAnalyzeBar({
   const batchLeynaAbortRef = useRef<AbortController | null>(null);
   const batchDraftAbortRef = useRef<AbortController | null>(null);
   const batchPipelineActiveRef = useRef(false);
+  /** Anti double-clic sur « job serveur » (avant que serverJob soit set). */
+  const serverLaunchLockRef = useRef(false);
 
   /** Missions ouvertes tous talents (indépendant du filtre UI). */
   const [allOpenMissions, setAllOpenMissions] = useState<MissionLite[] | null>(
@@ -1748,13 +1750,17 @@ export function TalentIndivBatchAnalyzeBar({
   /** Même pipeline que le lot navigateur, mais job DB + worker VPS (quitter la page OK). */
   async function runServerPipeline(opts?: BatchRunOpts) {
     const pool = poolFrom(opts);
-    if (serverJob || batchPipelineActiveRef.current) return;
+    // Lock immédiat (avant le await) → bloque le double-clic / 2 boutons.
+    if (serverJob || batchPipelineActiveRef.current || serverLaunchLockRef.current) {
+      return;
+    }
     if (pool.length === 0) {
       setSuccess(
         `Rien à faire : tout est déjà OK depuis ${BATCH_SINCE_LABEL}, ou aucune carte ouverte.`
       );
       return;
     }
+    serverLaunchLockRef.current = true;
     setError(null);
     try {
       const talentIds = [
@@ -1805,6 +1811,8 @@ export function TalentIndivBatchAnalyzeBar({
     } catch (e) {
       setServerJob(null);
       setError(e instanceof Error ? e.message : "Lancement job impossible.");
+    } finally {
+      serverLaunchLockRef.current = false;
     }
   }
 

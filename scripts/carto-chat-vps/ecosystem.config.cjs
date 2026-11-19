@@ -31,7 +31,7 @@ module.exports = {
         CARTO_CHAT_VPS_BIND: fileEnv.CARTO_CHAT_VPS_BIND || "127.0.0.1",
         // Legacy / tests — en prod waitGenerationDone ignore le timeout tant que jeton requis
         CARTO_CHAT_TIMEOUT_MS: fileEnv.CARTO_CHAT_TIMEOUT_MS || "3600000",
-        // High / Élevé
+        // Défaut High / Élevé pour cartographie. Outreach passe effortLevel:2 (Medium) par requête.
         CARTO_CHAT_EFFORT_LEVEL: "3",
         // Jusqu'à 5 cartos Chat en parallèle (1 onglet = 1 marque)
         CARTO_CHAT_MAX_PARALLEL: fileEnv.CARTO_CHAT_MAX_PARALLEL || "5",

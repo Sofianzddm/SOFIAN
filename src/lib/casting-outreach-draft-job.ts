@@ -1,9 +1,303 @@
 import prisma from "@/lib/prisma";
-import { getLeynaExchangeContext } from "@/lib/leyna-exchange-context";
 import {
   appBaseUrl,
   internalJobHeaders,
 } from "@/lib/internal-job-auth";
+import { sanitizePresentationExcerpt } from "@/lib/campaign-presentation-text";
+import { getLeynaExchangeContext } from "@/lib/leyna-exchange-context";
+import { ensureContactFirstnameToken } from "@/lib/outreach-mail-vps/ensure-contact-firstname-token";
+import {
+  readOutreachMailVps,
+  startOutreachMailVps,
+} from "@/lib/outreach-mail-vps/run";
+import {
+  cartoChatVpsCancel,
+  cartoChatVpsHealth,
+  isOutreachChatVpsConfigured,
+} from "@/lib/carto-chat-vps/vps-client";
+import { createEndMarker } from "@/lib/carto-chat-vps/end-marker";
+import { buildChatVpsProgress } from "@/lib/outreach-mail-vps/step-progress";
+import {
+  trimEmailHtmlEdges,
+  upgradeTalentLinksInHtml,
+} from "@/lib/talent-email-links";
+import {
+  collectRecentLeynaRefusedTalents,
+} from "@/lib/leyna-exchange-context";
+import {
+  assertOutreachVpsMailQuality,
+  ensureJoeyGoldIntroHtml,
+  ensureOutreachCtaBoldHtml,
+  ensureOutreachMailClosingHtml,
+  ensureRequiredTalentsInHtml,
+  ensureTalentbookInHtml,
+  isFactoryOutreachSubject,
+  isLegacyCastingOutreachTemplate,
+  looksLikeMailPromptEcho,
+  rewriteFactoryOutreachSubject,
+  stripForbiddenTalentBioFromHtml,
+  stripNotesLeakFromMailBody,
+  stripPromptLeakFromMailBody,
+  unescapeChatMailHtml,
+} from "@/lib/outreach-mail-vps/parse";
+import {
+  CONTABO_OUTREACH_ADVISORY_LOCK,
+  OUTREACH_DRAFT_CREATE_ADVISORY_LOCK,
+  countGlobalContaboOutreachRunning,
+} from "@/lib/casting-contabo-global-lock";
+
+/** Prisma JSON : neutralise `\` / contrôles (sinon « unexpected end of hex escape »). */
+function sanitizeJsonForDb<T>(value: T): T {
+  return JSON.parse(
+    JSON.stringify(value, (_k, v) => {
+      if (typeof v === "string") {
+        return sanitizePresentationExcerpt(v).slice(0, 24_000);
+      }
+      return v;
+    })
+  ) as T;
+}
+
+type LeynaSlim = {
+  hasExchange: boolean;
+  hasSentNoReplyOnly: boolean;
+  tone: "tu" | "vous" | null;
+  scanStatus: string;
+  bannerLabel: string | null;
+  alerts: string[];
+  contacts: Array<{
+    email: string;
+    subject: string | null;
+    status?: string;
+    tone: "tu" | "vous" | null;
+    notes: string;
+    alerts: string[];
+    lastExchangeAt: string | null;
+    messageCount?: number;
+    talentsPitched?: string[];
+    talentsRefused?: string[];
+  }>;
+  promptBlockFr: string;
+  promptBlockEn: string;
+  fetchedAt: string;
+  ops?: {
+    relationStatus: string;
+    recommendedAction: string;
+    excludeTalents: string[];
+    alreadyPitchedTalents: string[];
+    doNot: string[];
+    angle: string;
+    writeInstructions: string;
+  } | null;
+};
+
+function slimLeynaExchange(leyna: {
+  hasExchange: boolean;
+  hasSentNoReplyOnly?: boolean;
+  tone?: "tu" | "vous" | null;
+  scanStatus?: string;
+  bannerLabel?: string | null;
+  alerts?: string[];
+  contacts?: Array<{
+    email: string;
+    subject?: string | null;
+    status?: string;
+    tone?: "tu" | "vous" | null;
+    notes?: string;
+    alerts?: string[];
+    lastExchangeAt?: string | null;
+    messageCount?: number;
+    talentsPitched?: string[];
+    talentsRefused?: string[];
+  }>;
+  promptBlockFr?: string;
+  promptBlockEn?: string;
+  fetchedAt?: string;
+  ops?: LeynaSlim["ops"];
+}): LeynaSlim {
+  return {
+    hasExchange: Boolean(leyna.hasExchange),
+    hasSentNoReplyOnly: Boolean(leyna.hasSentNoReplyOnly),
+    tone: leyna.tone ?? null,
+    scanStatus: String(leyna.scanStatus || (leyna.hasExchange ? "ok" : "empty")),
+    bannerLabel: leyna.bannerLabel ?? null,
+    alerts: Array.isArray(leyna.alerts) ? leyna.alerts : [],
+    contacts: (leyna.contacts || []).slice(0, 15).map((c) => ({
+      email: c.email,
+      subject: c.subject ?? null,
+      status: c.status,
+      tone: c.tone ?? null,
+      notes: String(c.notes || "").slice(0, 1500),
+      alerts: Array.isArray(c.alerts) ? c.alerts : [],
+      lastExchangeAt: c.lastExchangeAt ?? null,
+      messageCount: c.messageCount,
+      talentsPitched: Array.isArray(c.talentsPitched)
+        ? c.talentsPitched.slice(0, 20)
+        : undefined,
+      talentsRefused: Array.isArray(c.talentsRefused)
+        ? c.talentsRefused.slice(0, 20)
+        : undefined,
+    })),
+    promptBlockFr: String(leyna.promptBlockFr || "").slice(0, 9000),
+    promptBlockEn: String(leyna.promptBlockEn || "").slice(0, 9000),
+    fetchedAt: leyna.fetchedAt || new Date().toISOString(),
+    ops: leyna.ops
+      ? {
+          relationStatus: String(leyna.ops.relationStatus || "").slice(0, 400),
+          recommendedAction: String(leyna.ops.recommendedAction || "").slice(
+            0,
+            500
+          ),
+          excludeTalents: (leyna.ops.excludeTalents || []).slice(0, 30),
+          alreadyPitchedTalents: (
+            leyna.ops.alreadyPitchedTalents || []
+          ).slice(0, 40),
+          doNot: (leyna.ops.doNot || []).slice(0, 12),
+          angle: String(leyna.ops.angle || "").slice(0, 600),
+          writeInstructions: String(leyna.ops.writeInstructions || "").slice(
+            0,
+            2500
+          ),
+        }
+      : null,
+  };
+}
+
+function talentNameMatchesExclude(
+  name: string,
+  excludeList: string[]
+): boolean {
+  const n = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+  if (!n) return false;
+  const parts = n.split(/\s+/).filter(Boolean);
+  return excludeList.some((ex) => {
+    const e = ex
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+    if (!e) return false;
+    if (n === e || n.includes(e) || e.includes(n)) return true;
+    const ep = e.split(/\s+/).filter(Boolean);
+    if (parts[0] && ep[0] && parts[0] === ep[0] && parts[0].length >= 3) {
+      // Même prénom + début de nom
+      if (parts[1] && ep[1] && parts[1].startsWith(ep[1].slice(0, 3))) {
+        return true;
+      }
+    }
+    return false;
+  });
+}
+
+/** Efface l’ancien mail cible (sinon une relance ratée laisse le brouillon ChatGPT). */
+async function clearDraftsOnTargets(pipeline: string, targetIds: string[]) {
+  if (targetIds.length === 0) return;
+  const data = {
+    draftSubject: null as string | null,
+    draftBodyHtml: null as string | null,
+  };
+  if (pipeline === "BENELUX") {
+    await prisma.beneluxOutreachTarget.updateMany({
+      where: { id: { in: targetIds } },
+      data,
+    });
+  } else {
+    await prisma.outreachTarget.updateMany({
+      where: { id: { in: targetIds } },
+      data,
+    });
+  }
+}
+
+/** Persiste le scan Leyna tout de suite (UI) avant la rédaction. */
+async function persistLeynaPreviewOnTargets(
+  pipeline: string,
+  targetIds: string[],
+  brandName: string,
+  leyna: LeynaSlim
+) {
+  const slim = sanitizeJsonForDb({
+    brandName,
+    leynaExchange: leyna,
+    leynaReadyAt: new Date().toISOString(),
+    engine: "chatgpt-vps",
+  });
+  // Snapshot Leyna + mail vidé → l’UI ne réaffiche plus l’ancien brouillon.
+  const data = {
+    castingResearchSnapshot: slim,
+    draftSubject: null as string | null,
+    draftBodyHtml: null as string | null,
+  };
+  if (pipeline === "BENELUX") {
+    await prisma.beneluxOutreachTarget.updateMany({
+      where: { id: { in: targetIds } },
+      data,
+    });
+  } else {
+    await prisma.outreachTarget.updateMany({
+      where: { id: { in: targetIds } },
+      data,
+    });
+  }
+}
+
+/** Merge live Chat progress (tours 1–2) dans le snapshot cible. */
+async function persistChatVpsProgressOnTargets(
+  pipeline: string,
+  targetIds: string[],
+  brandName: string,
+  chatVps: Record<string, unknown>,
+  leyna?: LeynaSlim | null
+) {
+  if (targetIds.length === 0) return;
+
+  const rows =
+    pipeline === "BENELUX"
+      ? await prisma.beneluxOutreachTarget.findMany({
+          where: { id: { in: targetIds } },
+          select: { id: true, castingResearchSnapshot: true },
+        })
+      : await prisma.outreachTarget.findMany({
+          where: { id: { in: targetIds } },
+          select: { id: true, castingResearchSnapshot: true },
+        });
+
+  for (const row of rows) {
+    const prev =
+      row.castingResearchSnapshot &&
+      typeof row.castingResearchSnapshot === "object"
+        ? (row.castingResearchSnapshot as Record<string, unknown>)
+        : {};
+    const slim = sanitizeJsonForDb({
+      ...prev,
+      brandName,
+      ...(leyna ? { leynaExchange: leyna } : {}),
+      chatVps: {
+        ...((prev.chatVps && typeof prev.chatVps === "object"
+          ? prev.chatVps
+          : {}) as object),
+        ...chatVps,
+        updatedAt: new Date().toISOString(),
+      },
+      engine: "chatgpt-vps-high-3turn",
+    });
+    if (pipeline === "BENELUX") {
+      await prisma.beneluxOutreachTarget.update({
+        where: { id: row.id },
+        data: { castingResearchSnapshot: slim },
+      });
+    } else {
+      await prisma.outreachTarget.update({
+        where: { id: row.id },
+        data: { castingResearchSnapshot: slim },
+      });
+    }
+  }
+}
 
 export type CreateOutreachDraftItemInput = {
   groupKey: string;
@@ -40,9 +334,505 @@ type TalentResearchItem = {
 
 type RosterFitItem = {
   talentId?: string;
+  recommended?: boolean;
+  fitScore?: number;
   suggestedAngle?: string;
   whyFit?: string;
+  proofPoints?: string;
 };
+
+/** Toutes les 10 s : le CODE DE FIN est-il apparu ? → récupère le mail. */
+const VPS_POLL_MS = 10_000;
+/** 3 tours High — marge large (global). */
+const VPS_TIMEOUT_MS = 22 * 60_000;
+/** Par tick process : évite de tuer le serverless à 800s. */
+const VPS_TICK_BUDGET_MS = 90_000;
+
+type BrandResearchStore = BrandResearch & {
+  _vps?: {
+    endMarker?: string;
+    /** Claim anti-doublon avant ask-async. */
+    launchingAt?: string;
+    startedAt?: string;
+    leynaExchange?: LeynaSlim;
+    talentResearch?: TalentResearchItem[];
+    /** Compte Joey → cold A, pas de tour Gmail Leyna. */
+    joeyCold?: boolean;
+  };
+};
+
+async function pollOutreachVpsUntilReady(opts: {
+  itemId: string;
+  jobId: string;
+  brandName: string;
+  pipeline: string;
+  targetIds: string[];
+  brandResearch: BrandResearchStore;
+  endMarker: string;
+  vpsStartedAt?: string | null;
+}): Promise<{
+  ok: boolean;
+  brandName: string;
+  subject?: string;
+  bodyHtml?: string;
+  error?: string;
+  pending?: boolean;
+}> {
+  const {
+    itemId,
+    jobId,
+    brandName,
+    pipeline,
+    targetIds,
+    brandResearch,
+    endMarker,
+  } = opts;
+  const startedAtMs = opts.vpsStartedAt
+    ? Date.parse(opts.vpsStartedAt)
+    : Date.now();
+  const globalDeadline = startedAtMs + VPS_TIMEOUT_MS;
+  const tickDeadline = Date.now() + VPS_TICK_BUDGET_MS;
+
+  let subject = "";
+  let bodyHtml = "";
+  let vpsNotes: string | null = null;
+  let mailEngine: string | null = null;
+  let lastPersistedStep = 0;
+
+  const knownTalents = (brandResearch._vps?.talentResearch || [])
+    .map((t) => ({
+      talentId: String(t.talentId || "").trim() || undefined,
+      name: String(t.name || "").trim(),
+    }))
+    .filter((t) => t.name);
+  const knownTalentNames = knownTalents.map((t) => t.name);
+
+  while (Date.now() < tickDeadline && Date.now() < globalDeadline) {
+    if (await isDraftJobCancelled(jobId)) {
+      return { ok: false, brandName, error: "Annulé" };
+    }
+    try {
+      // Sync live des tours terminés → snapshot UI
+      try {
+        const health = await cartoChatVpsHealth({ kind: "outreach" });
+        const job = (health.jobs || []).find(
+          (j) => String(j.endMarker || "") === endMarker
+        );
+        const stepAnswers = Array.isArray(job?.stepAnswers)
+          ? job!.stepAnswers!
+          : [];
+        const doneSteps = stepAnswers.filter((a) => String(a || "").trim())
+          .length;
+        if (doneSteps > lastPersistedStep) {
+          const progress = buildChatVpsProgress({
+            brandName,
+            stepAnswers,
+            knownTalentNames,
+            knownTalents,
+            endMarker,
+          });
+          let leynaForUi = brandResearch._vps?.leynaExchange || null;
+          // Joey cold A : pas de brief Leyna Chat (1 seul tour mail).
+          const joeyCold = Boolean(brandResearch._vps?.joeyCold);
+          // Tour 1 ChatGPT = Gmail Leyna → alertes rouges + tu/vous dans l’app.
+          if (!joeyCold && doneSteps >= 1 && stepAnswers[0]) {
+            const { parseLeynaBriefFromChat } = await import(
+              "@/lib/outreach-mail-vps/parse-leyna-brief"
+            );
+            const brief = parseLeynaBriefFromChat(stepAnswers[0]);
+            if (brief) {
+              const base = leynaForUi || {
+                hasExchange: Boolean(brief.hasExchange),
+                hasSentNoReplyOnly: brief.hasExchange === false,
+                tone: null as "tu" | "vous" | null,
+                scanStatus: "ok",
+                bannerLabel: null,
+                alerts: [] as string[],
+                contacts: [] as LeynaSlim["contacts"],
+                promptBlockFr: "",
+                promptBlockEn: "",
+                fetchedAt: new Date().toISOString(),
+                ops: null,
+              };
+              leynaForUi = {
+                ...base,
+                hasExchange:
+                  brief.hasExchange ?? Boolean(base.hasExchange),
+                hasSentNoReplyOnly:
+                  brief.hasExchange === false
+                    ? true
+                    : Boolean(base.hasSentNoReplyOnly),
+                // Alertes rouges = UNIQUEMENT ChatGPT Gmail (écrase heuristiques).
+                alerts: brief.alerts.slice(0, 8),
+                tone: brief.tone ?? base.tone,
+                bannerLabel: brief.bannerLabel,
+                promptBlockFr: brief.promptBlockFr,
+                ops: {
+                  relationStatus: brief.relationStatus,
+                  recommendedAction: brief.recommendedAction,
+                  excludeTalents: brief.excludeTalents,
+                  alreadyPitchedTalents: brief.alreadyPitchedTalents,
+                  doNot: brief.doNot,
+                  angle: brief.angle,
+                  writeInstructions: brief.writeInstructions,
+                },
+              };
+              if (brandResearch._vps) {
+                brandResearch._vps.leynaExchange = leynaForUi;
+              }
+              try {
+                await persistLeynaPreviewOnTargets(
+                  pipeline,
+                  targetIds,
+                  brandName,
+                  leynaForUi
+                );
+              } catch {
+                /* soft */
+              }
+              await prisma.castingOutreachDraftJob.update({
+                where: { id: jobId },
+                data: {
+                  currentBrandName:
+                    `Serveur · Leyna noté · ${brandName} → mail…`.slice(0, 80),
+                },
+              });
+            }
+          }
+          await persistChatVpsProgressOnTargets(
+            pipeline,
+            targetIds,
+            brandName,
+            progress,
+            leynaForUi
+          );
+          lastPersistedStep = doneSteps;
+        }
+      } catch {
+        /* health soft-fail */
+      }
+
+      // Contabo → API structure (comme carto) ; parse local = filet.
+      const ready = await readOutreachMailVps({
+        brandName,
+        endMarker,
+        structure: {
+          joey: Boolean(brandResearch._vps?.joeyCold),
+          talentNames: knownTalentNames,
+        },
+      });
+      if (ready.ready) {
+        subject = String(ready.subject || "").trim();
+        bodyHtml = String(ready.bodyHtml || "").trim();
+        vpsNotes = String(ready.notes || "").trim() || null;
+        mailEngine =
+          String(
+            (ready as { engine?: string }).engine || ""
+          ).trim() || null;
+        // Alertes / tone = déjà posés au tour 1 (stepAnswers[0]) — ne pas écraser.
+        break;
+      }
+      const chars = Number(ready.answerChars || 0);
+      const preview = String(
+        (ready as { promptPreview?: string }).promptPreview || ""
+      );
+      await prisma.castingOutreachDraftJob.update({
+        where: { id: jobId },
+        data: {
+          currentBrandName: (
+            preview
+              ? `Serveur · ${preview}`
+              : chars
+                ? `Serveur · High · ${brandName} · ${Math.round(chars / 1000)}k · poll 10s`
+                : `Serveur · High · ${brandName} · attente CODE FIN`
+          ).slice(0, 80),
+        },
+      });
+    } catch (e) {
+      return {
+        ok: false,
+        brandName,
+        error:
+          e instanceof Error ? e.message : "Lecture serveur impossible",
+      };
+    }
+    await sleep(VPS_POLL_MS);
+  }
+
+  if (!subject || !bodyHtml) {
+    if (Date.now() >= globalDeadline) {
+      return {
+        ok: false,
+        brandName,
+        error: "Timeout serveur — pas de mail prêt",
+      };
+    }
+    // Encore en cours — prochain tick process reprendra.
+    return {
+      ok: false,
+      brandName,
+      error: "VPS_PENDING",
+      pending: true,
+    };
+  }
+
+  const targets =
+    pipeline === "BENELUX"
+      ? await prisma.beneluxOutreachTarget.findMany({
+          where: { id: { in: targetIds } },
+          select: { firstname: true, language: true },
+        })
+      : await prisma.outreachTarget.findMany({
+          where: { id: { in: targetIds } },
+          select: { firstname: true, language: true },
+        });
+  const knownFirstnames = targets
+    .map((t) => String(t.firstname || "").trim())
+    .filter(Boolean);
+  // Brouillon Contabo = TOUJOURS FR. Traduction EN à l’envoi (casting-auto-send).
+  const bodyLang: "fr" | "en" = "fr";
+  bodyHtml = ensureContactFirstnameToken(bodyHtml, knownFirstnames);
+
+  // Liens Instagram sur les noms talents (comme CastingComposer / avant).
+  const research = brandResearch._vps?.talentResearch || [];
+  let talentRows: Array<{
+    id: string;
+    prenom: string | null;
+    nom: string | null;
+    instagram: string | null;
+  }> = [];
+  try {
+    bodyHtml = trimEmailHtmlEdges(unescapeChatMailHtml(bodyHtml));
+    // Évite les <a> imbriqués si Chat a déjà mis un href cassé.
+    bodyHtml = bodyHtml.replace(/<a\b[^>]*>/gi, "").replace(/<\/a>/gi, "");
+    const talentIds = research
+      .map((t) => String(t.talentId || "").trim())
+      .filter(Boolean);
+    if (talentIds.length > 0) {
+      talentRows = await prisma.talent.findMany({
+        where: { id: { in: talentIds } },
+        select: { id: true, prenom: true, nom: true, instagram: true },
+      });
+      if (talentRows.length > 0) {
+        bodyHtml = upgradeTalentLinksInHtml(bodyHtml, talentRows);
+      }
+    }
+  } catch (e) {
+    console.warn(
+      "[outreach-draft-job] talent links soft-fail:",
+      e instanceof Error ? e.message : e
+    );
+  }
+
+  // Refuse définitivement le vieux template — ne pas « réparer » ni sauver.
+  if (isLegacyCastingOutreachTemplate(bodyHtml)) {
+    return {
+      ok: false,
+      brandName,
+      error:
+        "LEGACY_CASTING_TEMPLATE — Chat a ressorti media kits/moodboard. Relancer.",
+    };
+  }
+
+  // Ancrage perso inventé alors qu’il n’y a pas de fil DIRECT avec les destinataires CRM.
+  const leynaSnap = brandResearch._vps?.leynaExchange as
+    | {
+        contacts?: Array<{ email?: string; status?: string }>;
+        hasExchange?: boolean;
+      }
+    | null
+    | undefined;
+  const targetEmailRows =
+    pipeline === "BENELUX"
+      ? await prisma.beneluxOutreachTarget.findMany({
+          where: { id: { in: targetIds } },
+          select: { email: true },
+        })
+      : await prisma.outreachTarget.findMany({
+          where: { id: { in: targetIds } },
+          select: { email: true },
+        });
+  const emailSet = new Set(
+    targetEmailRows
+      .map((t) => String(t.email || "").trim().toLowerCase())
+      .filter((e) => e.includes("@"))
+  );
+  const hasDirectRecipientExchange = Boolean(
+    leynaSnap?.contacts?.some((c) => {
+      const em = String(c.email || "")
+        .trim()
+        .toLowerCase();
+      return c.status !== "sent_no_reply" && em && emailSet.has(em);
+    })
+  );
+  if (
+    !brandResearch._vps?.joeyCold &&
+    !hasDirectRecipientExchange &&
+    /on avait [ée]chang|suite [àa] nos [ée]changes|suite [àa] notre [ée]change|je reviens vers (toi|vous)|certains profils t['’]avaient plu|comme on en avait parl/i.test(
+      bodyHtml
+    )
+  ) {
+    return {
+      ok: false,
+      brandName,
+      error:
+        "FALSE_PERSONAL_HISTORY — ancrage « on avait échangé » sans fil direct CRM. Relancer.",
+    };
+  }
+
+  bodyHtml = stripPromptLeakFromMailBody(
+    stripForbiddenTalentBioFromHtml(bodyHtml)
+  );
+  if (looksLikeMailPromptEcho(bodyHtml)) {
+    return {
+      ok: false,
+      brandName,
+      error:
+        "PROMPT_ECHO — consignes serveur collées dans le BODY. Relancer.",
+    };
+  }
+  // Joey : filet intro BD AVANT assert (évite faux JOEY_INTRO_MISSING sur HTML échappé).
+  if (brandResearch._vps?.joeyCold) {
+    bodyHtml = ensureJoeyGoldIntroHtml(bodyHtml);
+  }
+  bodyHtml = ensureOutreachMailClosingHtml(bodyHtml, { language: bodyLang });
+  bodyHtml = ensureOutreachCtaBoldHtml(bodyHtml);
+  bodyHtml = ensureTalentbookInHtml(bodyHtml, {
+    market: pipeline === "BENELUX" ? "BENELUX" : "FR",
+    language: bodyLang,
+  });
+  // Talentbook peut s'insérer avant CTA : re-garantit la fin complète.
+  bodyHtml = ensureOutreachMailClosingHtml(bodyHtml, { language: bodyLang });
+  bodyHtml = ensureOutreachCtaBoldHtml(bodyHtml);
+  if (brandResearch._vps?.joeyCold) {
+    bodyHtml = ensureJoeyGoldIntroHtml(bodyHtml);
+  }
+
+  // Filet officiel TALENTS_MISSING : injecte les puces absentes (CRM) avant assert.
+  const igByTalentId = new Map(
+    talentRows.map((r) => [r.id, r.instagram] as const)
+  );
+  bodyHtml = ensureRequiredTalentsInHtml(
+    bodyHtml,
+    research.map((t) => ({
+      name: String(t.name || "").trim(),
+      instagram: igByTalentId.get(String(t.talentId || "").trim()) || null,
+      pitch:
+        String(t.castingWhyFit || "").trim() ||
+        String(t.suggestedAngle || "").trim() ||
+        String(t.whyRelevant || "").trim() ||
+        String(t.whoTheyAre || "").trim() ||
+        "",
+    })),
+    { language: bodyLang }
+  );
+
+  try {
+    assertOutreachVpsMailQuality(bodyHtml, {
+      joey: Boolean(brandResearch._vps?.joeyCold),
+      requiredTalentNames: knownTalentNames,
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      brandName,
+      error: e instanceof Error ? e.message : "Mail VPS invalide",
+    };
+  }
+
+  const { _vps, ...cleanBrand } = brandResearch;
+  const finalProgress = buildChatVpsProgress({
+    brandName,
+    stepAnswers: [
+      // Tour 1–2 already in snapshot; tour 3 notes via vpsNotes
+    ],
+    knownTalentNames,
+    endMarker,
+  });
+  // Recharge stepAnswers depuis health une dernière fois
+  let stepAnswersFinal: string[] = [];
+  try {
+    const health = await cartoChatVpsHealth({ kind: "outreach" });
+    const job = (health.jobs || []).find(
+      (j) => String(j.endMarker || "") === endMarker
+    );
+    stepAnswersFinal = Array.isArray(job?.stepAnswers) ? job!.stepAnswers! : [];
+  } catch {
+    /* ignore */
+  }
+  const chatVpsFinal = {
+    ...buildChatVpsProgress({
+      brandName,
+      stepAnswers: stepAnswersFinal,
+      knownTalentNames,
+      knownTalents,
+      endMarker,
+    }),
+    notes: vpsNotes || finalProgress.notes,
+    historySummary: vpsNotes || "",
+  };
+
+  const castingResearchSnapshot = {
+    brandName,
+    brandResearch: cleanBrand,
+    talentResearch: _vps?.talentResearch || [],
+    leynaExchange: _vps?.leynaExchange || null,
+    chatVps: chatVpsFinal,
+    engine:
+      mailEngine === "openai-structure"
+        ? "chatgpt-vps-high-leyna-mail+openai-structure"
+        : "chatgpt-vps-high-leyna-mail",
+    vpsNotes,
+    savedAt: new Date().toISOString(),
+  };
+
+  await saveDraftOnTargets(
+    pipeline,
+    targetIds,
+    subject,
+    bodyHtml,
+    castingResearchSnapshot,
+    brandName
+  );
+
+  // Nettoie le marker pour ne pas re-poll.
+  await prisma.castingOutreachDraftItem.update({
+    where: { id: itemId },
+    data: {
+      brandResearch: cleanBrand as object,
+    },
+  });
+
+  const cleanSubject = sanitizeOutreachMailSubject(subject, brandName);
+  // Libère le slot Contabo tout de suite : sinon le driver peut rester
+  // « running » sur le jeton alors que le mail est déjà en base → marque suivante bloquée.
+  try {
+    await cartoChatVpsCancel({ endMarker, kind: "outreach" });
+  } catch (e) {
+    console.warn(
+      "[outreach-draft-job] cancel Contabo after success soft-fail:",
+      e instanceof Error ? e.message : e
+    );
+  }
+
+  return { ok: true, brandName, subject: cleanSubject, bodyHtml };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function isDraftJobCancelled(jobId: string): Promise<boolean> {
+  const job = await prisma.castingOutreachDraftJob.findUnique({
+    where: { id: jobId },
+    select: { cancelRequested: true, status: true },
+  });
+  return (
+    !job ||
+    job.cancelRequested ||
+    job.status === "cancelled"
+  );
+}
 
 function mergeAngles(
   research: TalentResearchItem[],
@@ -103,11 +893,37 @@ export async function createOutreachDraftJob(args: {
 
   const market = args.market || "FR";
 
+  // Lock TRANSACTIONNEL (pas session) : avec Prisma/pool, pg_advisory_lock
+  // peut rester accroché sur une connexion → Fit bloqué après 1re marque,
+  // Contabo jamais lancé. xact_lock se libère à la fin du $transaction.
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${OUTREACH_DRAFT_CREATE_ADVISORY_LOCK})`;
+    return createOutreachDraftJobLocked(args.userId, market, items, tx);
+  });
+}
+
+async function createOutreachDraftJobLocked(
+  userId: string,
+  market: string,
+  items: Array<{
+    groupKey: string;
+    brandName: string;
+    company: string | null;
+    pipeline: string;
+    targetIds: string[];
+    talentIds: string[];
+    brandResearch: Record<string, unknown> | object;
+    rosterFits: unknown;
+    sortOrder: number;
+  }>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tx: any = prisma
+): Promise<{ jobId: string }> {
   // Réutilise le job actif du même user/marché : évite N jobs 1-item en
   // parallèle qui saturent Gmail (Leyna) et font tout échouer.
-  const active = await prisma.castingOutreachDraftJob.findFirst({
+  const active = await tx.castingOutreachDraftJob.findFirst({
     where: {
-      userId: args.userId,
+      userId,
       market,
       status: { in: ["pending", "running"] },
       cancelRequested: false,
@@ -121,51 +937,79 @@ export async function createOutreachDraftJob(args: {
   });
 
   if (active) {
+    const existingByKey = new Map(
+      active.items.map((it: { groupKey: string; status: string; sortOrder: number }) => [it.groupKey, it] as const)
+    );
     const existingKeys = new Set(
       active.items
-        .filter((it) => ["pending", "running", "done"].includes(it.status))
-        .map((it) => it.groupKey)
+        .filter((it: { status: string }) =>
+          ["pending", "running", "done"].includes(it.status)
+        )
+        .map((it: { groupKey: string }) => it.groupKey)
     );
+    // Si l’item est encore pending : aligne talentIds sur la sélection courante.
+    const toRefresh = items.filter((it) => {
+      const ex = existingByKey.get(it.groupKey) as
+        | { groupKey: string; status: string; sortOrder: number }
+        | undefined;
+      return ex && ex.status === "pending";
+    });
+    for (const it of toRefresh) {
+      await tx.castingOutreachDraftItem.updateMany({
+        where: {
+          jobId: active.id,
+          groupKey: it.groupKey,
+          status: "pending",
+        },
+        data: {
+          talentIds: it.talentIds,
+          targetIds: it.targetIds,
+          brandResearch: it.brandResearch as object,
+          rosterFits: (it.rosterFits as object | undefined) ?? undefined,
+          brandName: it.brandName,
+          company: it.company,
+        },
+      });
+    }
     const maxSort = active.items.reduce(
-      (m, it) => Math.max(m, Number(it.sortOrder || 0)),
+      (m: number, it: { sortOrder: number }) =>
+        Math.max(m, Number(it.sortOrder || 0)),
       -1
     );
     const toAdd = items.filter((it) => !existingKeys.has(it.groupKey));
     if (toAdd.length === 0) {
       return { jobId: active.id };
     }
-    await prisma.$transaction([
-      prisma.castingOutreachDraftItem.createMany({
-        data: toAdd.map((it, i) => ({
-          jobId: active.id,
-          groupKey: it.groupKey,
-          brandName: it.brandName,
-          company: it.company,
-          pipeline: it.pipeline,
-          sortOrder: maxSort + 1 + i,
-          targetIds: it.targetIds,
-          talentIds: it.talentIds,
-          brandResearch: it.brandResearch as object,
-          rosterFits: it.rosterFits as object | undefined,
-          status: "pending",
-        })),
-      }),
-      prisma.castingOutreachDraftJob.update({
-        where: { id: active.id },
-        data: {
-          totalBrands: { increment: toAdd.length },
-          status: "running",
-          finishedAt: null,
-          error: null,
-        },
-      }),
-    ]);
+    await tx.castingOutreachDraftItem.createMany({
+      data: toAdd.map((it, i) => ({
+        jobId: active.id,
+        groupKey: it.groupKey,
+        brandName: it.brandName,
+        company: it.company,
+        pipeline: it.pipeline,
+        sortOrder: maxSort + 1 + i,
+        targetIds: it.targetIds,
+        talentIds: it.talentIds,
+        brandResearch: it.brandResearch as object,
+        rosterFits: it.rosterFits as object | undefined,
+        status: "pending",
+      })),
+    });
+    await tx.castingOutreachDraftJob.update({
+      where: { id: active.id },
+      data: {
+        totalBrands: { increment: toAdd.length },
+        status: "running",
+        finishedAt: null,
+        error: null,
+      },
+    });
     return { jobId: active.id };
   }
 
-  const job = await prisma.castingOutreachDraftJob.create({
+  const job = await tx.castingOutreachDraftJob.create({
     data: {
-      userId: args.userId,
+      userId,
       market,
       status: "pending",
       totalBrands: items.length,
@@ -195,12 +1039,22 @@ export async function requestCancelOutreachDraftJob(jobId: string, userId: strin
     where: { id: jobId, userId },
   });
   if (!job) return null;
+  // Coupe Contabo (avec auth) — évite les orphelins après Stop / reset.
+  try {
+    const { cancelOrphanOutreachContaboJobs } = await import(
+      "@/lib/carto-chat-vps/vps-client"
+    );
+    await cancelOrphanOutreachContaboJobs();
+  } catch {
+    /* soft */
+  }
   return prisma.castingOutreachDraftJob.update({
     where: { id: jobId },
     data: {
       cancelRequested: true,
-      status: job.status === "pending" ? "cancelled" : job.status,
-      finishedAt: job.status === "pending" ? new Date() : job.finishedAt,
+      status: "cancelled",
+      finishedAt: new Date(),
+      currentBrandName: null,
     },
   });
 }
@@ -212,30 +1066,125 @@ export async function getOutreachDraftJobForUser(jobId: string, userId: string) 
   });
 }
 
+/** Sanitize léger pour mail HTML — ne PAS passer par sanitizePresentationExcerpt
+ *  (celui-ci remplace `\` → `/` et casse `</p>`, `\<br>`, etc.). */
+function sanitizeOutreachMailHtml(raw: string): string {
+  // stripNotesLeak puis re-filet clôture : l’ancien pattern « Influence … »
+  // coupait le pont « campagnes d'influence » et re-tronquait le mail à la sauvegarde.
+  const cleaned = trimEmailHtmlEdges(
+    stripForbiddenTalentBioFromHtml(
+      stripNotesLeakFromMailBody(
+        unescapeChatMailHtml(
+          String(raw || "")
+            .replace(/\u00a0/g, " ")
+            .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "")
+            .trim()
+        )
+      )
+    )
+  );
+  return ensureOutreachCtaBoldHtml(
+    ensureOutreachMailClosingHtml(cleaned, { language: "fr" })
+  );
+}
+
+/** Objet = texte seul — JAMAIS le filet clôture/CTA (sinon pont+CTA collés dans l’objet). */
+function sanitizeOutreachMailSubject(
+  raw: string,
+  brandName?: string | null
+): string {
+  let s = String(raw || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/\u00a0/g, " ")
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    // Si une fuite HTML a déjà pollué l’objet, coupe avant le 1er bloc body.
+    .replace(
+      /\s*(?:<p>|Au-delà de cette première sélection|Est-ce que vous auriez 15|Au plaisir d['’]échanger).*$/i,
+      ""
+    )
+    .trim();
+  // Toujours normaliser au format « Marque x Glow Up — … »
+  if (isFactoryOutreachSubject(s) || brandName) {
+    s = rewriteFactoryOutreachSubject(s, brandName);
+  }
+  return s.slice(0, 90);
+}
+
 async function saveDraftOnTargets(
   pipeline: string,
   targetIds: string[],
   subject: string,
   bodyHtml: string,
-  castingResearchSnapshot?: object | null
+  castingResearchSnapshot?: object | null,
+  brandName?: string | null
 ) {
+  // Filet final : JAMAIS persister un vieux template (même si un caller a oublié assert).
+  if (isLegacyCastingOutreachTemplate(bodyHtml)) {
+    throw new Error(
+      "LEGACY_CASTING_TEMPLATE — refus save (media kits / moodboard / vieux CTA)."
+    );
+  }
+  const safeSubject = sanitizeOutreachMailSubject(subject, brandName);
+  const safeBody = sanitizeOutreachMailHtml(bodyHtml).slice(0, 200_000);
+  if (isLegacyCastingOutreachTemplate(safeBody)) {
+    throw new Error(
+      "LEGACY_CASTING_TEMPLATE — refus save après sanitize."
+    );
+  }
+  let safeSnap: object | null = null;
+  if (castingResearchSnapshot) {
+    try {
+      safeSnap = sanitizeJsonForDb(castingResearchSnapshot) as object;
+    } catch {
+      safeSnap = {
+        engine: "chatgpt-vps",
+        savedAt: new Date().toISOString(),
+        snapshotSanitized: true,
+      };
+    }
+  }
   const data = {
-    draftSubject: subject,
-    draftBodyHtml: bodyHtml,
-    ...(castingResearchSnapshot
-      ? { castingResearchSnapshot }
-      : {}),
+    draftSubject: safeSubject,
+    draftBodyHtml: safeBody,
+    ...(safeSnap ? { castingResearchSnapshot: safeSnap } : {}),
   };
-  if (pipeline === "BENELUX") {
-    await prisma.beneluxOutreachTarget.updateMany({
-      where: { id: { in: targetIds } },
-      data,
-    });
-  } else {
-    await prisma.outreachTarget.updateMany({
-      where: { id: { in: targetIds } },
-      data,
-    });
+  try {
+    if (pipeline === "BENELUX") {
+      await prisma.beneluxOutreachTarget.updateMany({
+        where: { id: { in: targetIds } },
+        data,
+      });
+    } else {
+      await prisma.outreachTarget.updateMany({
+        where: { id: { in: targetIds } },
+        data,
+      });
+    }
+  } catch (e) {
+    // Dernier filet : sauve le mail sans snapshot (souvent Leyna trop sale).
+    console.warn(
+      "[outreach-draft-job] save with snapshot failed, retry sans snapshot:",
+      e instanceof Error ? e.message : e
+    );
+    const bare = { draftSubject: safeSubject, draftBodyHtml: safeBody };
+    if (pipeline === "BENELUX") {
+      await prisma.beneluxOutreachTarget.updateMany({
+        where: { id: { in: targetIds } },
+        data: bare,
+      });
+    } else {
+      await prisma.outreachTarget.updateMany({
+        where: { id: { in: targetIds } },
+        data: bare,
+      });
+    }
   }
 }
 
@@ -245,6 +1194,7 @@ async function processOneOutreachItem(itemId: string): Promise<{
   subject?: string;
   bodyHtml?: string;
   error?: string;
+  pending?: boolean;
 }> {
   const item = await prisma.castingOutreachDraftItem.findUnique({
     where: { id: itemId },
@@ -252,7 +1202,22 @@ async function processOneOutreachItem(itemId: string): Promise<{
   if (!item) return { ok: false, brandName: "?", error: "Item manquant" };
 
   const brandName = item.brandName || item.company || "Marque";
-  let brandResearch = (item.brandResearch || {}) as BrandResearch;
+  let brandResearch = (item.brandResearch || {}) as BrandResearchStore;
+
+  // Reprise : pipeline Chat déjà lancé → on poll seulement.
+  const existingMarker = String(brandResearch._vps?.endMarker || "").trim();
+  if (existingMarker) {
+    return pollOutreachVpsUntilReady({
+      itemId: item.id,
+      jobId: item.jobId,
+      brandName,
+      pipeline: item.pipeline,
+      targetIds: item.targetIds || [],
+      brandResearch,
+      endMarker: existingMarker,
+      vpsStartedAt: brandResearch._vps?.startedAt || null,
+    });
+  }
   const talentIds = item.talentIds || [];
   const targetIds = item.targetIds || [];
   if (talentIds.length === 0) {
@@ -262,57 +1227,21 @@ async function processOneOutreachItem(itemId: string): Promise<{
     return { ok: false, brandName, error: "Aucun contact cible" };
   }
 
-  // Fail-fast OAuth Leyna : sans refresh token valide, inutile d’analyser marque/talents.
+  if (await isDraftJobCancelled(item.jobId)) {
+    return { ok: false, brandName, error: "Annulé" };
+  }
+
+  // Relance : enlève tout de suite l’ancien brouillon (évite « Mail prêt » fantôme).
   try {
-    const { getValidAccessToken } = await import("@/lib/gmail");
-    const { LEYNA_FROM_EMAIL } = await import("@/lib/casting-auto-send");
-    await getValidAccessToken(LEYNA_FROM_EMAIL);
+    await clearDraftsOnTargets(item.pipeline, targetIds);
   } catch (e) {
-    const detail = e instanceof Error ? e.message : "token Leyna invalide";
-    return {
-      ok: false,
-      brandName,
-      error: `Scan Leyna échoué — pas de rédaction cold (${detail})`,
-    };
-  }
-
-  const hasBrief = Boolean(
-    String(brandResearch.newProducts || "").trim() ||
-      String(brandResearch.brandPositioning || "").trim() ||
-      String(brandResearch.influenceStrategy || "").trim() ||
-      String(brandResearch.recentCampaigns || "").trim() ||
-      String(brandResearch.availabilityFrEu || "").trim()
-  );
-  if (!hasBrief) {
-    const brandRes = await internalPost<BrandResearch & { error?: string }>(
-      "/api/casting/brand-research",
-      {
-        brandName,
-        availabilityFocus: item.pipeline === "BENELUX" ? "BE" : "FR",
-      }
+    console.warn(
+      "[outreach-draft-job] clear drafts failed:",
+      e instanceof Error ? e.message : e
     );
-    if (!brandRes.ok || brandRes.data.error) {
-      return {
-        ok: false,
-        brandName,
-        error:
-          brandRes.data.error ||
-          `Analyse marque impossible (HTTP ${brandRes.status})`,
-      };
-    }
-    brandResearch = {
-      recentCampaigns: String(brandRes.data.recentCampaigns || ""),
-      newProducts: String(brandRes.data.newProducts || ""),
-      availabilityFrEu: String(brandRes.data.availabilityFrEu || ""),
-      brandPositioning: String(brandRes.data.brandPositioning || ""),
-      influenceStrategy: String(brandRes.data.influenceStrategy || ""),
-    };
-    await prisma.castingOutreachDraftItem.update({
-      where: { id: item.id },
-      data: { brandResearch: brandResearch as object },
-    });
   }
 
+  // 1) Contacts + talents d’abord → scan Leyna → UI immédiatement, puis rédaction.
   const talents = await prisma.talent.findMany({
     where: { id: { in: talentIds } },
     select: {
@@ -321,40 +1250,21 @@ async function processOneOutreachItem(itemId: string): Promise<{
       nom: true,
       instagram: true,
       niches: true,
-      stats: { select: { igFollowers: true, ttFollowers: true, igEngagement: true, ttEngagement: true } },
+      pays: true,
+      presentation: true,
+      stats: {
+        select: {
+          igFollowers: true,
+          ttFollowers: true,
+          igEngagement: true,
+          ttEngagement: true,
+        },
+      },
     },
   });
   if (talents.length === 0) {
     return { ok: false, brandName, error: "Talents introuvables" };
   }
-
-  const talentRes = await internalPost<{
-    talents?: TalentResearchItem[];
-    error?: string;
-  }>("/api/casting/talent-research", {
-    brandName,
-    talentIds,
-  });
-  if (!talentRes.ok || talentRes.data.error) {
-    return {
-      ok: false,
-      brandName,
-      error:
-        talentRes.data.error ||
-        `Analyse talent impossible (HTTP ${talentRes.status})`,
-    };
-  }
-  let talentResearch = Array.isArray(talentRes.data.talents)
-    ? talentRes.data.talents
-    : [];
-  if (talentResearch.length === 0) {
-    return { ok: false, brandName, error: "Analyse talent vide" };
-  }
-
-  const rosterFits = Array.isArray(item.rosterFits)
-    ? (item.rosterFits as RosterFitItem[])
-    : null;
-  talentResearch = mergeAngles(talentResearch, rosterFits);
 
   const targets =
     item.pipeline === "BENELUX"
@@ -367,6 +1277,8 @@ async function processOneOutreachItem(itemId: string): Promise<{
             lastname: true,
             language: true,
             company: true,
+            fromEmail: true,
+            status: true,
           },
         })
       : await prisma.outreachTarget.findMany({
@@ -378,8 +1290,68 @@ async function processOneOutreachItem(itemId: string): Promise<{
             lastname: true,
             language: true,
             company: true,
+            fromEmail: true,
+            status: true,
+            marqueId: true,
           },
         });
+
+  if (targets.length === 0) {
+    return { ok: false, brandName, error: "Contacts cibles introuvables" };
+  }
+
+  if (await isDraftJobCancelled(item.jobId)) {
+    return { ok: false, brandName, error: "Annulé" };
+  }
+
+  // Expéditeur = propriétaire marque (assignedTo). Joey gagne TOUJOURS sur
+  // fromEmail target (souvent encore leyna@ sur d’anciens contacts).
+  const targetFromEmail =
+    targets
+      .map((t) => String(t.fromEmail || "").trim().toLowerCase())
+      .find((e) => e.includes("@")) || null;
+
+  let assigneeEmails: string[] = [];
+  if (item.pipeline !== "BENELUX") {
+    const marqueIds = Array.from(
+      new Set(
+        (
+          targets as Array<{ marqueId?: string | null }>
+        )
+          .map((t) => String(t.marqueId || "").trim())
+          .filter(Boolean)
+      )
+    );
+    if (marqueIds.length > 0) {
+      const assignees = await prisma.marque.findMany({
+        where: { id: { in: marqueIds } },
+        select: {
+          assignedTo: { select: { email: true } },
+        },
+      });
+      assigneeEmails = assignees
+        .map((m) => String(m.assignedTo?.email || "").trim().toLowerCase())
+        .filter((e) => e.includes("@"));
+    }
+  }
+
+  const assigneeIsJoey = assigneeEmails.some(
+    (e) => e.startsWith("joey@") || e.includes("joey@")
+  );
+  let fromEmail: string | null = null;
+  if (assigneeIsJoey) {
+    fromEmail = "joey@glowupagence.fr";
+  } else if (targetFromEmail) {
+    fromEmail = targetFromEmail;
+  } else if (assigneeEmails[0]) {
+    fromEmail = assigneeEmails[0];
+  }
+
+  const outreachStatus =
+    targets.map((t) => String(t.status || "").trim()).find(Boolean) || null;
+  const isJoeySender =
+    Boolean(fromEmail?.startsWith("joey@")) ||
+    Boolean(fromEmail && fromEmail.includes("joey"));
 
   const recipientEmails = Array.from(
     new Set(
@@ -389,69 +1361,413 @@ async function processOneOutreachItem(itemId: string): Promise<{
     )
   );
 
-  const leyna = await getLeynaExchangeContext({
-    recipientEmails,
-    brandName,
-    agencyName: item.company && item.company !== brandName ? item.company : null,
-    talentNames: talents.map(
-      (t) => `${t.prenom || ""} ${t.nom || ""}`.trim() || "Talent"
-    ),
-  });
-  if (leyna.scanStatus === "failed") {
-    const detail = String(leyna.scanError || "").trim();
-    return {
-      ok: false,
+  // Compte Joey → pas de scan boîte Leyna (mauvaise boîte) ; intro BD à la rédaction.
+  let leyna: Awaited<ReturnType<typeof getLeynaExchangeContext>>;
+  if (isJoeySender) {
+    await prisma.castingOutreachDraftJob.update({
+      where: { id: item.jobId },
+      data: {
+        currentBrandName: `Serveur · Joey cold A · ${brandName}`.slice(0, 80),
+      },
+    });
+    leyna = {
+      hasExchange: false,
+      hasSentNoReplyOnly: false,
+      tone: "vous",
+      contacts: [],
+      alerts: [],
+      bannerLabel: "Joey · branche A cold · pas de scan Leyna",
+      promptBlockFr:
+        "═══ JOEY COLD A ═══\nExpéditeur Joey (nouvelle BD) — aucun échange avec ces contacts.\nBranche mail : A (cold)\nTon : vouvoiement\nAction : premier contact + intro Joey + CTA appel 15 min.",
+      promptBlockEn: "",
+      scanStatus: "empty",
+      fetchedAt: new Date().toISOString(),
+      ops: {
+        relationStatus: "Joey — premier contact cold (aucune histo perso)",
+        recommendedAction: "Branche A cold + intro Joey + appel 15 min",
+        angle: "Cold Joey — comprendre priorités influence / castings",
+        excludeTalents: [],
+        alreadyPitchedTalents: [],
+        doNot: [
+          "Ne pas ouvrir / recycler Gmail Leyna comme échange Joey",
+          "Pas de « suite à notre échange »",
+          "Pas de tutoiement inventé",
+        ],
+        writeInstructions:
+          "Branche A uniquement. Intro Joey « je viens de rejoindre le pôle BD ». CTA 15 min en gras.",
+      },
+    };
+  } else {
+    await prisma.castingOutreachDraftJob.update({
+      where: { id: item.jobId },
+      data: {
+        currentBrandName: `Serveur · scan Leyna · ${brandName}`.slice(0, 80),
+      },
+    });
+    leyna = await getLeynaExchangeContext({
+      recipientEmails,
       brandName,
-      error: detail
-        ? `Scan Leyna échoué — pas de rédaction cold (${detail})`
-        : "Scan Leyna échoué — pas de rédaction cold.",
+      agencyName:
+        item.company && item.company !== brandName ? item.company : null,
+      talentNames: talents.map(
+        (t) => `${t.prenom || ""} ${t.nom || ""}`.trim() || "Talent"
+      ),
+      // Brief ops = ChatGPT (pas Grok) — on ne note que le scan factuel ici.
+      skipOpsSynthesis: true,
+    });
+    if (leyna.scanStatus === "failed") {
+      const detail = String(leyna.scanError || "").trim();
+      return {
+        ok: false,
+        brandName,
+        error: detail
+          ? `Scan Leyna échoué — pas de rédaction cold (${detail})`
+          : "Scan Leyna échoué — pas de rédaction cold.",
+      };
+    }
+  }
+
+  // Faits Gmail locaux OK ; alertes rouges = Chat tour 1 seulement (vider heuristiques).
+  // Joey : garder le brief cold A (pas d’écrasement ops / banner).
+  const leynaSlim = isJoeySender
+    ? slimLeynaExchange(leyna)
+    : slimLeynaExchange({
+        ...leyna,
+        alerts: [],
+        bannerLabel: leyna.bannerLabel
+          ? `Scan Gmail · ${leyna.bannerLabel} · alertes serveur en cours…`
+          : "Scan Gmail Leyna (faits) · alertes serveur en cours…",
+        ops: null,
+      });
+  try {
+    await persistLeynaPreviewOnTargets(
+      item.pipeline,
+      targetIds,
+      brandName,
+      leynaSlim
+    );
+  } catch (e) {
+    console.warn(
+      "[outreach-draft-job] persist Leyna preview failed:",
+      e instanceof Error ? e.message : e
+    );
+  }
+
+  // Refus durs uniquement : clair + fil < 1 an (ex. Foreo × Flavy OK ; AV × Mélissa 2024 non).
+  // Source = contacts (datés) — pas ops.excludeTalents seul (peut être stale / halluciné).
+  const excludeFromLeyna = collectRecentLeynaRefusedTalents(
+    leynaSlim.contacts || []
+  );
+  let talentsForDraft = talents;
+  if (excludeFromLeyna.length > 0) {
+    const kept = talents.filter(
+      (t) =>
+        !talentNameMatchesExclude(
+          `${t.prenom || ""} ${t.nom || ""}`.trim(),
+          excludeFromLeyna
+        )
+    );
+    if (kept.length === 0) {
+      return {
+        ok: false,
+        brandName,
+        error: `Tous les talents sélectionnés sont exclus par l’historique Leyna (${excludeFromLeyna.join(", ")}). Change la sélection.`,
+      };
+    }
+    if (kept.length < talents.length) {
+      const dropped = talents
+        .filter((t) => !kept.some((k) => k.id === t.id))
+        .map((t) => `${t.prenom || ""} ${t.nom || ""}`.trim())
+        .filter(Boolean);
+      console.info(
+        `[outreach-draft-job] ${brandName}: exclus via Leyna → ${dropped.join(", ")}`
+      );
+    }
+    talentsForDraft = kept;
+  }
+
+  await prisma.castingOutreachDraftJob.update({
+    where: { id: item.jobId },
+    data: {
+      currentBrandName: (
+        leynaSlim.ops?.recommendedAction
+          ? `Serveur · Leyna OK · ${brandName}`
+          : leynaSlim.hasExchange
+            ? `Serveur · Leyna OK · ${brandName}`
+            : `Serveur · Leyna vide · ${brandName}`
+      ).slice(0, 80),
+    },
+  });
+
+  if (await isDraftJobCancelled(item.jobId)) {
+    return { ok: false, brandName, error: "Annulé" };
+  }
+
+  const talentIdsForDraft = talentsForDraft.map((t) => t.id);
+
+  // Marque + fit = AI en amont ; angles fit → méga-prompt Chat (pas d’appel
+  // talent-research HTTP ici : deadlock / lenteur sur le tick process).
+  const hasBrief = Boolean(
+    String(brandResearch.newProducts || "").trim() ||
+      String(brandResearch.brandPositioning || "").trim() ||
+      String(brandResearch.influenceStrategy || "").trim() ||
+      String(brandResearch.recentCampaigns || "").trim() ||
+      String(brandResearch.availabilityFrEu || "").trim()
+  );
+  if (!hasBrief) {
+    brandResearch = {
+      recentCampaigns: "",
+      newProducts: "",
+      availabilityFrEu: "",
+      brandPositioning: "",
+      influenceStrategy: "",
     };
   }
 
-  const lang =
-    targets.length > 0 &&
-    targets.filter((t) => String(t.language || "").toLowerCase() === "en")
-      .length >=
-      targets.length / 2
-      ? "en"
-      : "fr";
+  if (await isDraftJobCancelled(item.jobId)) {
+    return { ok: false, brandName, error: "Annulé" };
+  }
 
-  const composerMarket =
-    item.pipeline === "BENELUX" ? "BENELUX" : "FR";
-  const availabilityFocus = item.pipeline === "BENELUX" ? "BE" : "FR";
+  const rosterFits = Array.isArray(item.rosterFits)
+    ? (item.rosterFits as RosterFitItem[])
+    : null;
 
-  const talentsPayload = talents.map((t) => {
-    const ig = Number(t.stats?.igFollowers || 0) || 0;
-    const tt = Number(t.stats?.ttFollowers || 0) || 0;
+  let talentResearch: TalentResearchItem[] = mergeAngles(
+    talentsForDraft.map((t) => ({
+      talentId: t.id,
+      name: `${t.prenom || ""} ${t.nom || ""}`.trim() || "Talent",
+      whoTheyAre: "",
+      whatTheyDo: "",
+      profileAnalysis: "",
+      contentThemes: "",
+      whyRelevant: "",
+      proofPoints: "",
+      suggestedAngle: "",
+      castingWhyFit: "",
+    })),
+    rosterFits
+  ).filter(
+    (tr) =>
+      !talentNameMatchesExclude(String(tr.name || "").trim(), excludeFromLeyna)
+  );
+  if (talentResearch.length === 0) {
+    return { ok: false, brandName, error: "Aucun talent après exclusions Leyna" };
+  }
+
+  if (await isDraftJobCancelled(item.jobId)) {
+    return { ok: false, brandName, error: "Annulé" };
+  }
+
+  // Contabo rédige toujours en FR ; EN = traduction à l’envoi (langue contact).
+  const lang: "fr" | "en" = "fr";
+
+  const composerMarket = item.pipeline === "BENELUX" ? "BENELUX" : "FR";
+
+  if (!isOutreachChatVpsConfigured()) {
+    return {
+      ok: false,
+      brandName,
+      error:
+        "OUTREACH_CHAT_VPS_URL manquant — tunnel VPS outreach (ex. port 3848)",
+    };
+  }
+
+  const talentsVps = talentsForDraft.map((t) => {
+    const tr = talentResearch.find(
+      (r) =>
+        r.talentId === t.id ||
+        String(r.name || "")
+          .toLowerCase()
+          .trim() ===
+          `${t.prenom || ""} ${t.nom || ""}`.trim().toLowerCase()
+    );
     const niches = Array.isArray(t.niches)
       ? t.niches.map((n) => String(n || "").trim()).filter(Boolean)
       : [];
+    const presentation = sanitizePresentationExcerpt(
+      String(t.presentation || "")
+    ).slice(0, 700);
+    const whoFromResearch = String(tr?.whoTheyAre || "").trim();
     return {
-      talentId: t.id,
       name: `${t.prenom || ""} ${t.nom || ""}`.trim() || "Talent",
-      niche: niches.join(", ") || "—",
-      followers: Math.max(ig, tt),
-      igFollowers: ig,
-      ttFollowers: tt,
       instagram: t.instagram || null,
+      niches,
+      pays: t.pays || null,
+      presentation,
+      igFollowers: Number(t.stats?.igFollowers || 0) || 0,
+      ttFollowers: Number(t.stats?.ttFollowers || 0) || 0,
+      igEngagement: Number(t.stats?.igEngagement || 0) || 0,
+      ttEngagement: Number(t.stats?.ttEngagement || 0) || 0,
+      // Présentation CRM prioritaire si le research casting est vide.
+      whoTheyAre: whoFromResearch || presentation || "",
+      whatTheyDo: tr?.whatTheyDo || "",
+      profileAnalysis: tr?.profileAnalysis || "",
+      contentThemes: tr?.contentThemes || "",
+      whyRelevant: tr?.whyRelevant || "",
+      proofPoints: tr?.proofPoints || "",
+      suggestedAngle: tr?.suggestedAngle || "",
+      castingWhyFit: tr?.castingWhyFit || "",
     };
   });
 
-  const genOnce = async (ackNego: boolean) =>
-    internalPost<{
-      subject?: string;
-      body?: string;
-      error?: string;
-      code?: string;
-    }>("/api/casting/generate-email", {
-      language: lang,
-      market: composerMarket,
-      availabilityFocus,
+  const rosterAnalysis = {
+    brandAnalysis: [
+      String(brandResearch.brandPositioning || ""),
+      String(brandResearch.influenceStrategy || ""),
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    selectionLogic: "",
+    talentFits: talentsVps.map((t) => ({
+      name: t.name,
+      priority: "",
+      why:
+        String(t.castingWhyFit || "").trim() ||
+        String(t.whyRelevant || "").trim() ||
+        String(t.suggestedAngle || "").trim() ||
+        "",
+    })),
+  };
+
+  const recipientEmailsForCtx = targets
+    .map((t) => String(t.email || "").trim().toLowerCase())
+    .filter((e) => e.includes("@"));
+  const recipientSetCtx = new Set(recipientEmailsForCtx);
+  const hasDirectForCtx =
+    !isJoeySender &&
+    Boolean(
+      (leynaSlim.contacts || []).some((c) => {
+        const em = String(c.email || "")
+          .trim()
+          .toLowerCase();
+        return c.status !== "sent_no_reply" && em && recipientSetCtx.has(em);
+      })
+    );
+
+  const draftContextParts = [
+    isJoeySender
+      ? null
+      : hasDirectForCtx
+        ? `ÉCHANGE DIRECT avec destinataires CRM: OUI → branche B autorisée (ancrage perso OK, faits du dossier seulement).`
+        : `ÉCHANGE DIRECT avec destinataires CRM: NON → branche A ou C uniquement. INTERDIT ABSOLU: « On avait échangé », « suite à notre/nos échanges », « Je reviens vers toi/vous », tutoiement inventé. Contexte marque/agence OK sans prétendre un fil perso.`,
+    leynaSlim.ops?.relationStatus
+      ? `Statut relation: ${leynaSlim.ops.relationStatus}`
+      : null,
+    leynaSlim.ops?.recommendedAction
+      ? `Action: ${leynaSlim.ops.recommendedAction}`
+      : null,
+    leynaSlim.ops?.angle ? `Angle: ${leynaSlim.ops.angle}` : null,
+    leynaSlim.ops?.writeInstructions
+      ? `Consignes: ${leynaSlim.ops.writeInstructions}`
+      : null,
+    (leynaSlim.ops?.excludeTalents || []).length
+      ? `Exclusions: ${(leynaSlim.ops?.excludeTalents || []).join(", ")}`
+      : null,
+    (leynaSlim.ops?.doNot || []).length
+      ? `Ne pas: ${(leynaSlim.ops?.doNot || []).join(" · ")}`
+      : null,
+    leynaSlim.promptBlockFr
+      ? `Historique Leyna (app):\n${leynaSlim.promptBlockFr.slice(0, 14000)}`
+      : null,
+  ].filter(Boolean);
+
+  await prisma.castingOutreachDraftJob.update({
+    where: { id: item.jobId },
+    data: {
+      currentBrandName: (
+        isJoeySender
+          ? `Serveur · Joey cold A · ${brandName}`
+          : `Serveur · Tour 1/2 Leyna · ${brandName}`
+      ).slice(0, 80),
+    },
+  });
+
+  // Anti-doublon FORT : réserver endMarker en base AVANT ask-async.
+  // (2 ticks en parallèle — local + HTTP — ne doivent envoyer qu’1 prompt Chat.)
+  const existingMarkerEarly = String(brandResearch._vps?.endMarker || "").trim();
+  if (existingMarkerEarly) {
+    return pollOutreachVpsUntilReady({
+      itemId: item.id,
+      jobId: item.jobId,
       brandName,
-      agencyName:
-        item.company && item.company.toLowerCase() !== brandName.toLowerCase()
-          ? item.company
-          : undefined,
+      pipeline: item.pipeline,
+      targetIds,
+      brandResearch,
+      endMarker: existingMarkerEarly,
+      vpsStartedAt: brandResearch._vps?.startedAt || null,
+    });
+  }
+
+  const launchingAt = new Date().toISOString();
+  const endMarker = createEndMarker();
+  const claimBr: BrandResearchStore = sanitizeJsonForDb({
+    ...brandResearch,
+    _vps: {
+      ...(brandResearch._vps || {}),
+      endMarker,
+      launchingAt,
+      startedAt: launchingAt,
+      leynaExchange: leynaSlim,
+      talentResearch,
+      joeyCold: isJoeySender,
+    },
+  });
+
+  // CAS SQL : gagne seulement si aucun endMarker n’est déjà posé.
+  const claimJson = JSON.stringify(claimBr);
+  const cas = await prisma.$executeRaw`
+    UPDATE casting_outreach_draft_items
+    SET "brandResearch" = ${claimJson}::jsonb,
+        "updatedAt" = NOW()
+    WHERE id = ${item.id}
+      AND (
+        "brandResearch"->'_vps'->>'endMarker' IS NULL
+        OR TRIM(COALESCE("brandResearch"->'_vps'->>'endMarker', '')) = ''
+      )
+  `;
+  if (Number(cas) === 0) {
+    await sleep(2_000);
+    const again = await prisma.castingOutreachDraftItem.findUnique({
+      where: { id: item.id },
+      select: { brandResearch: true },
+    });
+    const againBr = (again?.brandResearch || {}) as BrandResearchStore;
+    const em = String(againBr._vps?.endMarker || "").trim();
+    if (em) {
+      return pollOutreachVpsUntilReady({
+        itemId: item.id,
+        jobId: item.jobId,
+        brandName,
+        pipeline: item.pipeline,
+        targetIds,
+        brandResearch: againBr,
+        endMarker: em,
+        vpsStartedAt: againBr._vps?.startedAt || null,
+      });
+    }
+    return {
+      ok: false,
+      brandName,
+      error: "VPS_PENDING",
+      pending: true,
+    };
+  }
+
+  let started;
+  try {
+    started = await startOutreachMailVps({
+      brandName,
+      company: item.company || null,
+      market: composerMarket,
+      contacts: targets.map((t) => ({
+        firstname: String(t.firstname || "").trim(),
+        lastname: String(t.lastname || "").trim() || null,
+        email: String(t.email || "").trim(),
+        language: String(t.language || "").trim() || null,
+      })),
+      talents: talentsVps,
+      fromEmail,
+      outreachStatus,
       brandResearch: {
         recentCampaigns: String(brandResearch.recentCampaigns || ""),
         newProducts: String(brandResearch.newProducts || ""),
@@ -459,64 +1775,102 @@ async function processOneOutreachItem(itemId: string): Promise<{
         brandPositioning: String(brandResearch.brandPositioning || ""),
         influenceStrategy: String(brandResearch.influenceStrategy || ""),
       },
-      talents: talentsPayload,
-      recipientEmails,
-      requireLeynaScan: true,
-      talentResearch,
-      negotiationReviewAcknowledged: ackNego || undefined,
-      leynaExchangeCache: leyna,
+      rosterAnalysis,
+      draftContext: draftContextParts.join("\n") || null,
+      language: lang,
+      endMarker,
     });
-
-  let gen = await genOnce(false);
-  if (!gen.ok && gen.data.code === "NEEDS_NEGOTIATION_REVIEW") {
-    gen = await genOnce(true);
-  }
-  if (!gen.ok) {
+  } catch (e) {
     return {
       ok: false,
       brandName,
       error:
-        gen.data.error ||
-        `Rédaction impossible (HTTP ${gen.status}${
-          gen.data.code ? ` · ${gen.data.code}` : ""
-        })`,
+        e instanceof Error
+          ? e.message
+          : "Impossible de lancer le serveur",
     };
   }
 
-  const subject = String(gen.data.subject || "").trim();
-  const bodyHtml = String(gen.data.body || "").trim();
-  if (!subject || !bodyHtml) {
-    return { ok: false, brandName, error: "Brouillon vide" };
-  }
+  const finalMarker = String(started.endMarker || endMarker).trim() || endMarker;
+  const vpsStartedAt = new Date().toISOString();
+  const brandResearchWithVps: BrandResearchStore = sanitizeJsonForDb({
+    ...brandResearch,
+    _vps: {
+      endMarker: finalMarker,
+      launchingAt,
+      startedAt: vpsStartedAt,
+      leynaExchange: leynaSlim,
+      talentResearch,
+      joeyCold:
+        Boolean((started as { joeyCold?: boolean }).joeyCold) || isJoeySender,
+    },
+  });
+  await prisma.castingOutreachDraftItem.update({
+    where: { id: item.id },
+    data: { brandResearch: brandResearchWithVps as object },
+  });
 
-  const castingResearchSnapshot = {
+  return pollOutreachVpsUntilReady({
+    itemId: item.id,
+    jobId: item.jobId,
     brandName,
-    brandResearch,
-    talentResearch,
-    leynaExchange: leyna,
-    savedAt: new Date().toISOString(),
-  };
-
-  await saveDraftOnTargets(
-    item.pipeline,
+    pipeline: item.pipeline,
     targetIds,
-    subject,
-    bodyHtml,
-    castingResearchSnapshot
-  );
-
-  return { ok: true, brandName, subject, bodyHtml };
+    brandResearch: brandResearchWithVps,
+    endMarker: finalMarker,
+    vpsStartedAt,
+  });
 }
+
+/** Contabo = 1 marque à la fois (qualité + anti-contamination session Chat). */
+export const OUTREACH_VPS_PARALLEL_DEFAULT = 1;
+
+function outreachVpsParallelLimit(_requested?: number): number {
+  // Forcé à 1 : la suivante ne démarre que quand la précédente est done/failed.
+  return 1;
+}
+
+/** Un seul tick à la fois par job (évite script + HTTP + chain qui se croisent). */
+const outreachTickInflight = new Map<string, Promise<{
+  processed: number;
+  done: boolean;
+  status: string;
+  currentBrandName: string | null;
+}>>();
 
 export async function processOutreachDraftJobTick(
   jobId: string,
-  limit = 1
+  limit = OUTREACH_VPS_PARALLEL_DEFAULT
 ): Promise<{
   processed: number;
   done: boolean;
   status: string;
   currentBrandName: string | null;
 }> {
+  const existing = outreachTickInflight.get(jobId);
+  if (existing) {
+    // Autre tick déjà en cours sur CE process → on attend sa fin, pas de 2e claim.
+    return existing;
+  }
+  const run = processOutreachDraftJobTickUnlocked(jobId, limit).finally(() => {
+    if (outreachTickInflight.get(jobId) === run) {
+      outreachTickInflight.delete(jobId);
+    }
+  });
+  outreachTickInflight.set(jobId, run);
+  return run;
+}
+
+async function processOutreachDraftJobTickUnlocked(
+  jobId: string,
+  limit = OUTREACH_VPS_PARALLEL_DEFAULT
+): Promise<{
+  processed: number;
+  done: boolean;
+  status: string;
+  currentBrandName: string | null;
+}> {
+  const parallel = outreachVpsParallelLimit(limit);
   const job = await prisma.castingOutreachDraftJob.findUnique({
     where: { id: jobId },
   });
@@ -557,92 +1911,165 @@ export async function processOutreachDraftJobTick(
     });
   }
 
-  let processed = 0;
-  let lastBrand: string | null = null;
-
-  for (let i = 0; i < limit; i++) {
-    const fresh = await prisma.castingOutreachDraftJob.findUnique({
+  const fresh = await prisma.castingOutreachDraftJob.findUnique({
+    where: { id: jobId },
+  });
+  if (!fresh || fresh.cancelRequested) {
+    await prisma.castingOutreachDraftJob.update({
       where: { id: jobId },
+      data: {
+        status: "cancelled",
+        finishedAt: new Date(),
+        currentBrandName: null,
+      },
     });
-    if (!fresh || fresh.cancelRequested) {
+    return {
+      processed: 0,
+      done: true,
+      status: "cancelled",
+      currentBrandName: null,
+    };
+  }
+
+  // 1-à-1 Contabo GLOBAL : tant qu’une marque tourne (n’importe quel job),
+  // on ne claim RIEN d’autre — sinon le worker ticke N jobs → Contabo ×2/×3.
+  const alreadyRunning = await prisma.castingOutreachDraftItem.findMany({
+    where: { jobId, status: "running", finishedAt: null },
+    orderBy: { sortOrder: "asc" },
+    take: Math.max(parallel, 1),
+  });
+  const globalRunningElsewhere =
+    alreadyRunning.length > 0
+      ? 0
+      : await countGlobalContaboOutreachRunning(jobId);
+  const slots =
+    alreadyRunning.length > 0 || globalRunningElsewhere > 0
+      ? 0
+      : Math.max(0, Math.min(1, parallel) - alreadyRunning.length);
+  const pendings =
+    slots > 0
+      ? await prisma.castingOutreachDraftItem.findMany({
+          where: { jobId, status: "pending" },
+          orderBy: { sortOrder: "asc" },
+          take: slots,
+        })
+      : [];
+
+  // Claim sous lock TRANSACTIONNEL global Contabo (évite session lock + pool Prisma).
+  const claimed: typeof alreadyRunning = [];
+  if (pendings.length > 0) {
+    const next = pendings[0]!;
+    const startedAt = new Date();
+    const rows = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${CONTABO_OUTREACH_ADVISORY_LOCK})`;
+      const runningNow = await tx.castingOutreachDraftItem.count({
+        where: { status: "running", finishedAt: null },
+      });
+      if (runningNow > 0) return [] as Array<{ id: string }>;
+      return tx.$queryRaw<Array<{ id: string }>>`
+        UPDATE casting_outreach_draft_items AS i
+        SET
+          status = 'running',
+          "startedAt" = ${startedAt},
+          error = NULL,
+          "updatedAt" = ${startedAt}
+        WHERE i.id = ${next.id}
+          AND i.status = 'pending'
+        RETURNING i.id
+      `;
+    });
+    if (rows.length) {
+      claimed.push({ ...next, status: "running", startedAt });
+    }
+  }
+
+  const batch = [...alreadyRunning, ...claimed].slice(0, parallel);
+  if (batch.length === 0) {
+    const remainingEmpty = await prisma.castingOutreachDraftItem.count({
+      where: { jobId, status: { in: ["pending", "running"] } },
+    });
+    if (remainingEmpty === 0) {
+      const latest = await prisma.castingOutreachDraftJob.findUnique({
+        where: { id: jobId },
+      });
+      const failed = latest?.failed || 0;
+      const completed = latest?.completed || 0;
+      const status = completed === 0 && failed > 0 ? "failed" : "completed";
       await prisma.castingOutreachDraftJob.update({
         where: { id: jobId },
         data: {
-          status: "cancelled",
+          status,
           finishedAt: new Date(),
           currentBrandName: null,
         },
       });
       return {
-        processed,
+        processed: 0,
         done: true,
-        status: "cancelled",
+        status,
         currentBrandName: null,
       };
     }
+    return {
+      processed: 0,
+      done: false,
+      status: "running",
+      currentBrandName: null,
+    };
+  }
 
-    const next = await prisma.castingOutreachDraftItem.findFirst({
-      where: { jobId, status: "pending" },
-      orderBy: { sortOrder: "asc" },
-    });
-    if (!next) break;
+  const label = batch.map((b) => b.brandName).join(" · ");
+  const keepAlive = await prisma.castingOutreachDraftJob.updateMany({
+    where: {
+      id: jobId,
+      cancelRequested: false,
+      status: { not: "cancelled" },
+    },
+    data: {
+      currentBrandName: `×${batch.length} ${label}`.slice(0, 80),
+      status: "running",
+    },
+  });
+  if (keepAlive.count === 0) {
+    for (const it of claimed) {
+      await prisma.castingOutreachDraftItem.updateMany({
+        where: { id: it.id, status: "running" },
+        data: { status: "pending", startedAt: null, error: null },
+      });
+    }
+    return {
+      processed: 0,
+      done: true,
+      status: "cancelled",
+      currentBrandName: null,
+    };
+  }
 
-    lastBrand = next.brandName;
-    const claimed = await prisma.castingOutreachDraftItem.updateMany({
-      where: { id: next.id, status: "pending" },
-      data: { status: "running", startedAt: new Date(), error: null },
-    });
-    if (claimed.count === 0) continue;
+  let processed = 0;
+  let lastBrand: string | null = batch[0]?.brandName || null;
+  let cancelled = false;
 
-    await prisma.castingOutreachDraftJob.update({
-      where: { id: jobId },
-      data: { currentBrandName: next.brandName, status: "running" },
-    });
-
-    try {
-      const result = await processOneOutreachItem(next.id);
-      lastBrand = result.brandName;
-      if (result.ok) {
-        await prisma.castingOutreachDraftItem.update({
-          where: { id: next.id },
-          data: {
-            status: "done",
-            finishedAt: new Date(),
-            brandName: result.brandName,
-            draftSubject: result.subject || null,
-            draftBodyHtml: result.bodyHtml || null,
-            error: null,
-          },
-        });
-        await prisma.castingOutreachDraftJob.update({
-          where: { id: jobId },
-          data: { completed: { increment: 1 } },
-        });
-      } else {
-        await prisma.castingOutreachDraftItem.update({
-          where: { id: next.id },
-          data: {
-            status: "failed",
-            finishedAt: new Date(),
-            brandName: result.brandName,
-            error: result.error || "Échec",
-          },
-        });
-        await prisma.castingOutreachDraftJob.update({
-          where: { id: jobId },
-          data: { failed: { increment: 1 } },
-        });
+  const settled = await Promise.all(
+    batch.map(async (next) => {
+      try {
+        const result = await processOneOutreachItem(next.id);
+        return { next, result, error: null as string | null };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Erreur process";
+        console.error(`[outreach-draft-job] ${jobId} / ${next.brandName}:`, e);
+        return { next, result: null, error: msg };
       }
-      processed += 1;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Erreur process";
-      console.error(`[outreach-draft-job] ${jobId} / ${next.brandName}:`, e);
+    })
+  );
+
+  for (const { next, result, error } of settled) {
+    if (error) {
       await prisma.castingOutreachDraftItem.update({
         where: { id: next.id },
         data: {
           status: "failed",
           finishedAt: new Date(),
-          error: msg,
+          error,
         },
       });
       await prisma.castingOutreachDraftJob.update({
@@ -650,7 +2077,81 @@ export async function processOutreachDraftJobTick(
         data: { failed: { increment: 1 } },
       });
       processed += 1;
+      continue;
     }
+    if (!result) continue;
+    lastBrand = result.brandName;
+    if (result.pending || result.error === "VPS_PENDING") {
+      processed += 1;
+      continue;
+    }
+    if (!result.ok && /annul/i.test(String(result.error || ""))) {
+      await prisma.castingOutreachDraftItem.update({
+        where: { id: next.id },
+        data: {
+          status: "skipped",
+          finishedAt: new Date(),
+          brandName: result.brandName,
+          error: "Annulé",
+        },
+      });
+      cancelled = true;
+      processed += 1;
+      continue;
+    }
+    if (result.ok) {
+      const cleanSubject = sanitizeOutreachMailSubject(
+        result.subject || "",
+        result.brandName
+      );
+      await prisma.castingOutreachDraftItem.update({
+        where: { id: next.id },
+        data: {
+          status: "done",
+          finishedAt: new Date(),
+          brandName: result.brandName,
+          draftSubject: cleanSubject || null,
+          draftBodyHtml: result.bodyHtml || null,
+          error: null,
+        },
+      });
+      await prisma.castingOutreachDraftJob.update({
+        where: { id: jobId },
+        data: { completed: { increment: 1 } },
+      });
+    } else {
+      await prisma.castingOutreachDraftItem.update({
+        where: { id: next.id },
+        data: {
+          status: "failed",
+          finishedAt: new Date(),
+          brandName: result.brandName,
+          error: result.error || "Échec",
+        },
+      });
+      await prisma.castingOutreachDraftJob.update({
+        where: { id: jobId },
+        data: { failed: { increment: 1 } },
+      });
+    }
+    processed += 1;
+  }
+
+  if (cancelled) {
+    await prisma.castingOutreachDraftJob.update({
+      where: { id: jobId },
+      data: {
+        status: "cancelled",
+        finishedAt: new Date(),
+        currentBrandName: null,
+      },
+    });
+    return {
+      processed,
+      done: true,
+      status: "cancelled",
+      currentBrandName: null,
+    };
   }
 
   const remaining = await prisma.castingOutreachDraftItem.count({
@@ -699,15 +2200,24 @@ function kickOutreachDraftJobHttp(jobId: string): void {
   });
 }
 
+/** Chains in-process déjà actives — un kick ne doit pas en empiler une 2e. */
+const outreachChainStarted = new Set<string>();
+
 async function runInProcessChain(jobId: string): Promise<void> {
   try {
-    const tick = await processOutreachDraftJobTick(jobId, 1);
+    const tick = await processOutreachDraftJobTick(
+      jobId,
+      OUTREACH_VPS_PARALLEL_DEFAULT
+    );
     if (!tick.done) {
       setTimeout(() => {
         void runInProcessChain(jobId);
       }, 200);
+    } else {
+      outreachChainStarted.delete(jobId);
     }
   } catch (e) {
+    outreachChainStarted.delete(jobId);
     console.warn(`[outreach-draft-job] in-process chain ${jobId}:`, e);
     kickOutreachDraftJobHttp(jobId);
   }
@@ -715,6 +2225,10 @@ async function runInProcessChain(jobId: string): Promise<void> {
 
 export function kickOutreachDraftJobProcess(jobId: string): void {
   if (process.env.CASTING_FIT_EXTERNAL_WORKER === "1") {
+    return;
+  }
+  // Déjà une chaîne locale → ne pas re-kick (sinon 2e claim / Contabo parallèle).
+  if (outreachTickInflight.has(jobId) || outreachChainStarted.has(jobId)) {
     return;
   }
   if (process.env.VERCEL) {
@@ -731,6 +2245,7 @@ export function kickOutreachDraftJobProcess(jobId: string): void {
     }
     return;
   }
+  outreachChainStarted.add(jobId);
   setTimeout(() => {
     void runInProcessChain(jobId);
   }, 50);

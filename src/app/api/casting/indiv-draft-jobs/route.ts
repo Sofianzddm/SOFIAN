@@ -106,9 +106,25 @@ export async function POST(request: NextRequest) {
         marque: { select: { nom: true } },
         stage: true,
         sentAt: true,
+        draftEmailSubject: true,
+        draftEmailBody: true,
       },
     });
     const byId = new Map(missions.map((m) => [m.id, m]));
+
+    // Déjà en file / en cours sur un autre job → évite le double Grok (ex. double-clic).
+    const busyRows = await prisma.castingIndivDraftItem.findMany({
+      where: {
+        missionId: { in: missionIds },
+        status: { in: ["pending", "running"] },
+        job: {
+          userId: session.user.id,
+          status: { in: ["pending", "running"] },
+        },
+      },
+      select: { missionId: true },
+    });
+    const busyMissionIds = new Set(busyRows.map((r) => r.missionId));
 
     type DraftItem = {
       missionId: string;
@@ -123,9 +139,30 @@ export async function POST(request: NextRequest) {
       contextByMission.set(id, String(raw.draftContext || "").trim() || null);
     }
 
+    let skippedSent = 0;
+    let skippedDrafted = 0;
+    let skippedBusy = 0;
+
     const items: DraftItem[] = missionIds.flatMap((id: string) => {
       const m = byId.get(id);
-      if (!m || !m.talentId || m.sentAt || m.stage === "SENT") return [];
+      if (!m || !m.talentId) return [];
+      if (m.sentAt || m.stage === "SENT") {
+        skippedSent += 1;
+        return [];
+      }
+      // Déjà un brouillon prêt → ne pas rerun le trio Grok.
+      if (
+        m.stage === "DRAFTED_FOR_VALIDATION" &&
+        String(m.draftEmailSubject || "").trim() &&
+        String(m.draftEmailBody || "").trim()
+      ) {
+        skippedDrafted += 1;
+        return [];
+      }
+      if (busyMissionIds.has(m.id)) {
+        skippedBusy += 1;
+        return [];
+      }
       return [
         {
           missionId: m.id,
@@ -139,8 +176,20 @@ export async function POST(request: NextRequest) {
     });
 
     if (items.length === 0) {
+      const parts = [
+        skippedSent ? `${skippedSent} déjà envoyée(s)` : null,
+        skippedDrafted ? `${skippedDrafted} déjà draftée(s)` : null,
+        skippedBusy ? `${skippedBusy} déjà en file` : null,
+      ].filter(Boolean);
       return NextResponse.json(
-        { error: "Aucune mission éligible (déjà envoyées ou introuvables)." },
+        {
+          error: parts.length
+            ? `Aucune mission éligible (${parts.join(", ")}).`
+            : "Aucune mission éligible (déjà envoyées ou introuvables).",
+          skippedSent,
+          skippedDrafted,
+          skippedBusy,
+        },
         { status: 400 }
       );
     }
@@ -177,12 +226,22 @@ export async function POST(request: NextRequest) {
     });
 
     const external = process.env.CASTING_FIT_EXTERNAL_WORKER === "1";
+    const skippedBits = [
+      skippedSent ? `${skippedSent} envoyée(s)` : null,
+      skippedDrafted ? `${skippedDrafted} draftée(s)` : null,
+      skippedBusy ? `${skippedBusy} en file` : null,
+    ].filter(Boolean);
     return NextResponse.json({
       jobId,
       totalMissions: items.length,
+      skippedSent,
+      skippedDrafted,
+      skippedBusy,
       parallelActive,
       worker: external ? "vps" : process.env.VERCEL ? "vercel" : "in-process",
-      message: `Job indiv lancé (${parallelActive} actif${
+      message: `Job indiv lancé (${items.length} mission${
+        items.length > 1 ? "s" : ""
+      }${skippedBits.length ? ` · skip ${skippedBits.join(", ")}` : ""} · ${parallelActive} actif${
         parallelActive > 1 ? "s" : ""
       }) — tu peux quitter la page.`,
     });

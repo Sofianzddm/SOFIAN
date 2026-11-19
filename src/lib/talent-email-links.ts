@@ -105,11 +105,19 @@ function normalizeWhitespaceAroundLinks(html: string): string {
 export function trimEmailHtmlEdges(html: string): string {
   if (!html) return html;
   let out = html.trim();
-  const emptyLeading = /^\s*(?:<p>\s*(?:&nbsp;|\u00a0|<br\s*\/?>)?\s*<\/p>|<br\s*\/?>|&nbsp;|\u00a0)+/i;
+  // ChatGPT / paste : enveloppe <html>…</html> inutile en mail
+  out = out
+    .replace(/^\s*<html[^>]*>\s*/i, "")
+    .replace(/\s*<\/html>\s*$/i, "")
+    .trim();
+  // Ligne blanche avant « Bonjour » : <br>, <p></p>, &nbsp; en tête
+  const emptyLeading =
+    /^\s*(?:<p>\s*(?:&nbsp;|\u00a0|<br\s*\/?>)?\s*<\/p>|<br\s*\/?>|&nbsp;|\u00a0)+/i;
   while (emptyLeading.test(out)) {
     out = out.replace(emptyLeading, "").trim();
   }
-  const emptyTrailing = /(?:<p>\s*(?:&nbsp;|\u00a0|<br\s*\/?>)?\s*<\/p>|<br\s*\/?>|&nbsp;|\u00a0)+\s*$/i;
+  const emptyTrailing =
+    /(?:<p>\s*(?:&nbsp;|\u00a0|<br\s*\/?>)?\s*<\/p>|<br\s*\/?>|&nbsp;|\u00a0)+\s*$/i;
   while (emptyTrailing.test(out)) {
     out = out.replace(emptyTrailing, "").trim();
   }

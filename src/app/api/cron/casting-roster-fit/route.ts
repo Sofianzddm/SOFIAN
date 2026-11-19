@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
     const staleBefore = new Date(Date.now() - 4 * 60 * 1000);
     const jobs = await prisma.castingRosterFitJob.findMany({
       where: {
+        cancelRequested: false,
         status: { in: ["pending", "running"] },
         OR: [
           { status: "pending" },

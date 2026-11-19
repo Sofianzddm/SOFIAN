@@ -143,8 +143,9 @@ export async function requestCancelProjectDraftJob(
     where: { id: jobId },
     data: {
       cancelRequested: true,
-      status: job.status === "pending" ? "cancelled" : job.status,
-      finishedAt: job.status === "pending" ? new Date() : job.finishedAt,
+      status: "cancelled",
+      finishedAt: new Date(),
+      currentBrandName: null,
     },
   });
 }

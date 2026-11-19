@@ -5742,6 +5742,32 @@ model RhTaskEvent {
   @@map("rh_task_events")
 }
 
+/// Cache analyse marque (brand-research xAI) — TTL applicatif 7 jours.
+/// Évite de re-payer Grok (web_search + x_search + reasoning) pour la même marque.
+model BrandResearchCache {
+  id String @id @default(cuid())
+
+  /// Nom normalisé (normalizeBrandKey) — ex. "samsung"
+  brandKey  String
+  brandName String
+  /// FR | BE (dispo régionale du prompt)
+  focus String @default("FR")
+  /// "" = fiche générique ; sinon hash court du brief projet / indiv
+  contextHash String @default("")
+
+  payload   Json
+  source    String   @default("xai")
+  fetchedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([brandKey, focus, contextHash])
+  @@index([fetchedAt])
+  @@index([brandKey])
+  @@map("brand_research_cache")
+}
+
 /// Job serveur d'analyse casting roster (survit à la fermeture de page).
 model CastingRosterFitJob {
   id     String @id @default(cuid())

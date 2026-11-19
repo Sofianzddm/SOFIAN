@@ -18,6 +18,9 @@ export type CartoChatVpsJob = {
   markerSource?: string;
   slotId?: number | null;
   companyHint?: string;
+  pipelineStep?: number;
+  pipelineTotal?: number;
+  stepAnswers?: string[];
 };
 
 export type CartoChatVpsHealth = {
@@ -39,6 +42,9 @@ export type CartoChatVpsHealth = {
   /** Tous les jobs récents (parallèle) */
   jobs?: CartoChatVpsJob[];
   queueLength?: number;
+  /** Outreach : nb de slots Contabo actifs (running). */
+  outreachRunning?: number;
+  running?: number;
   error?: string;
 };
 
@@ -52,11 +58,27 @@ export type CartoChatVpsAskResult = {
 /** High + web search : souvent > 5 min — undici coupe à ~300s (HeadersTimeout). */
 const ASK_DEFAULT_MS = 540_000;
 
-function baseUrl(): string {
+export type CartoChatVpsKind = "carto" | "outreach";
+
+/**
+ * Carto → CARTO_CHAT_VPS_* (Contabo historique).
+ * Outreach / roster → OUTREACH_CHAT_VPS_* si défini, sinon fallback CARTO.
+ */
+function baseUrl(kind?: CartoChatVpsKind): string {
+  if (kind === "outreach") {
+    const outreach = (process.env.OUTREACH_CHAT_VPS_URL || "")
+      .trim()
+      .replace(/\/$/, "");
+    if (outreach) return outreach;
+  }
   return (process.env.CARTO_CHAT_VPS_URL || "").trim().replace(/\/$/, "");
 }
 
-function secret(): string {
+function secret(kind?: CartoChatVpsKind): string {
+  if (kind === "outreach") {
+    const outreach = (process.env.OUTREACH_CHAT_VPS_SECRET || "").trim();
+    if (outreach) return outreach;
+  }
   return (process.env.CARTO_CHAT_VPS_SECRET || "").trim();
 }
 
@@ -120,17 +142,31 @@ function longPostJson(
   });
 }
 
-export function isCartoChatVpsConfigured(): boolean {
-  return Boolean(baseUrl());
+export function isCartoChatVpsConfigured(kind?: CartoChatVpsKind): boolean {
+  return Boolean(baseUrl(kind));
 }
 
-export async function cartoChatVpsHealth(): Promise<CartoChatVpsHealth> {
-  const base = baseUrl();
+/** Outreach dédié (nouveau VPS) ou fallback carto. */
+export function isOutreachChatVpsConfigured(): boolean {
+  return isCartoChatVpsConfigured("outreach");
+}
+
+export async function cartoChatVpsHealth(opts?: {
+  kind?: CartoChatVpsKind;
+}): Promise<CartoChatVpsHealth> {
+  const kind = opts?.kind;
+  const base = baseUrl(kind);
   if (!base) {
-    return { ok: false, error: "CARTO_CHAT_VPS_URL manquant" };
+    return {
+      ok: false,
+      error:
+        kind === "outreach"
+          ? "OUTREACH_CHAT_VPS_URL (ou CARTO_CHAT_VPS_URL) manquant"
+          : "CARTO_CHAT_VPS_URL manquant",
+    };
   }
   const headers: Record<string, string> = {};
-  const s = secret();
+  const s = secret(kind);
   if (s) headers.Authorization = `Bearer ${s}`;
   const res = await fetch(`${base}/health`, {
     method: "GET",
@@ -151,15 +187,21 @@ export async function cartoChatVpsHealth(): Promise<CartoChatVpsHealth> {
 /** Lit la réponse déjà visible / job certifié (sans renvoyer de prompt). */
 export async function cartoChatVpsReadLast(opts?: {
   endMarker?: string;
+  kind?: CartoChatVpsKind;
 }): Promise<CartoChatVpsAskResult> {
-  const base = baseUrl();
+  const kind = opts?.kind;
+  const base = baseUrl(kind);
   if (!base) {
-    throw new Error("CARTO_CHAT_VPS_URL manquant");
+    throw new Error(
+      kind === "outreach"
+        ? "OUTREACH_CHAT_VPS_URL (ou CARTO_CHAT_VPS_URL) manquant"
+        : "CARTO_CHAT_VPS_URL manquant"
+    );
   }
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  const s = secret();
+  const s = secret(kind);
   if (s) headers.Authorization = `Bearer ${s}`;
 
   // Scan multi-onglets = plus long sous charge parallèle
@@ -189,15 +231,19 @@ export async function cartoChatVpsAsk(opts: {
   prompt: string;
   timeoutMs?: number;
   endMarker?: string;
+  kind?: CartoChatVpsKind;
 }): Promise<CartoChatVpsAskResult> {
-  const base = baseUrl();
+  const kind = opts.kind;
+  const base = baseUrl(kind);
   if (!base) {
     throw new Error(
-      "CARTO_CHAT_VPS_URL manquant — tunnel SSH vers le worker VPS (port 3847)"
+      kind === "outreach"
+        ? "OUTREACH_CHAT_VPS_URL manquant — tunnel vers le VPS outreach (ex. :3848)"
+        : "CARTO_CHAT_VPS_URL manquant — tunnel SSH vers le worker VPS (port 3847)"
     );
   }
   const headers: Record<string, string> = {};
-  const s = secret();
+  const s = secret(kind);
   if (s) headers.Authorization = `Bearer ${s}`;
 
   const timeoutMs = opts.timeoutMs ?? ASK_DEFAULT_MS;
@@ -231,11 +277,118 @@ export async function cartoChatVpsAsk(opts: {
   };
 }
 
+/** Annule un job Contabo / carto par endMarker (queued ou running). */
+export async function cartoChatVpsCancel(opts: {
+  endMarker: string;
+  kind?: CartoChatVpsKind;
+}): Promise<{ ok: boolean; cancelled?: boolean; error?: string }> {
+  const kind = opts.kind;
+  const base = baseUrl(kind);
+  const marker = String(opts.endMarker || "").trim();
+  if (!base || !marker) {
+    return { ok: false, error: "base URL / endMarker manquant" };
+  }
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const s = secret(kind);
+  if (s) headers.Authorization = `Bearer ${s}`;
+  try {
+    const res = await fetch(`${base}/cancel`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ endMarker: marker }),
+      signal: AbortSignal.timeout(12_000),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      cancelled?: boolean;
+      error?: string;
+    };
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: data.error || `HTTP ${res.status}`,
+      };
+    }
+    return { ok: true, cancelled: Boolean(data.cancelled ?? true) };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "cancel impossible",
+    };
+  }
+}
+
+/**
+ * Coupe les jobs Contabo outreach actifs (queued/running) — orphelins d’un
+ * reset / run précédent. `keepEndMarkers` = jobs à préserver (ex. le courant).
+ */
+export async function cancelOrphanOutreachContaboJobs(opts?: {
+  keepEndMarkers?: string[] | null;
+}): Promise<{ cancelled: number; kept: number; errors: string[] }> {
+  const keep = new Set(
+    (opts?.keepEndMarkers || [])
+      .map((m) => String(m || "").trim())
+      .filter(Boolean)
+  );
+  const out = { cancelled: 0, kept: 0, errors: [] as string[] };
+  if (!isOutreachChatVpsConfigured()) return out;
+
+  let health: CartoChatVpsHealth;
+  try {
+    health = await cartoChatVpsHealth({ kind: "outreach" });
+  } catch (e) {
+    out.errors.push(e instanceof Error ? e.message : "health impossible");
+    return out;
+  }
+  if (!health.ok) {
+    out.errors.push(health.error || "health ko");
+    return out;
+  }
+
+  const active = (health.jobs || []).filter((j) => {
+    const st = String(j.state || "");
+    return st === "running" || st === "queued" || st === "starting";
+  });
+
+  for (const job of active) {
+    const marker = String(job.endMarker || "").trim();
+    if (!marker) continue;
+    if (keep.has(marker)) {
+      out.kept += 1;
+      continue;
+    }
+    const res = await cartoChatVpsCancel({
+      endMarker: marker,
+      kind: "outreach",
+    });
+    if (res.ok && res.cancelled !== false) {
+      out.cancelled += 1;
+    } else if (res.error) {
+      out.errors.push(`${marker.slice(-8)}: ${res.error}`);
+    }
+  }
+  return out;
+}
+
 /** Démarre Chat en async (202) — le lab poll /health puis read-last. */
 export async function cartoChatVpsAskAsync(opts: {
   prompt: string;
   timeoutMs?: number;
   endMarker?: string;
+  /**
+   * 1–5. Si omis → effort VPS (CARTO_CHAT_EFFORT_LEVEL, High carto).
+   * Outreach pipeline = 3 (High).
+   */
+  effortLevel?: number;
+  /**
+   * carto = max 5 slots (prioritaire).
+   * outreach = file wizard illimitée (slots libres restants).
+   */
+  kind?: CartoChatVpsKind;
+  /** Pipeline multi-tours (même fil Chat). */
+  steps?: Array<{ prompt: string; endMarker: string }>;
 }): Promise<{
   ok: true;
   started: true;
@@ -243,17 +396,48 @@ export async function cartoChatVpsAskAsync(opts: {
   promptPreview: string;
   endMarker: string;
 }> {
-  const base = baseUrl();
+  const kind = opts.kind;
+  const base = baseUrl(kind);
   if (!base) {
     throw new Error(
-      "CARTO_CHAT_VPS_URL manquant — tunnel SSH vers le worker VPS (port 3847)"
+      kind === "outreach"
+        ? "OUTREACH_CHAT_VPS_URL manquant — tunnel vers le VPS outreach (ex. :3848)"
+        : "CARTO_CHAT_VPS_URL manquant — tunnel SSH vers le worker VPS (port 3847)"
     );
   }
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  const s = secret();
+  const s = secret(kind);
   if (s) headers.Authorization = `Bearer ${s}`;
+
+  const effortN = Number(opts.effortLevel);
+  const effortLevel =
+    Number.isFinite(effortN) && effortN >= 1 && effortN <= 5
+      ? effortN
+      : undefined;
+
+  // Preflight court : si le tunnel/worker ne répond pas, fail fast (évite 20–60s d’attente).
+  try {
+    const healthRes = await fetch(`${base}/health`, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!healthRes.ok && healthRes.status !== 401) {
+      throw new Error(`VPS Chat health HTTP ${healthRes.status}`);
+    }
+    // 401 = secret manquant côté client ; le POST échouera aussi — on continue.
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/abort|timeout|fetch failed|ECONNRESET|socket|UND_ERR|network/i.test(msg) ||
+        (e instanceof Error && e.name === "TimeoutError")) {
+      throw new Error(
+        "VPS Chat injoignable (tunnel / worker) — relance scripts/carto-chat-vps/tunnel.sh puis réessaie"
+      );
+    }
+    // health 401 sans bearer ok plus bas ; autres erreurs → on tente ask-async
+  }
 
   let lastErr: unknown;
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -265,8 +449,16 @@ export async function cartoChatVpsAskAsync(opts: {
           prompt: opts.prompt,
           timeoutMs: opts.timeoutMs ?? ASK_DEFAULT_MS,
           endMarker: opts.endMarker || undefined,
+          ...(effortLevel != null ? { effortLevel } : {}),
+          ...(opts.kind === "carto" || opts.kind === "outreach"
+            ? { kind: opts.kind }
+            : {}),
+          ...(Array.isArray(opts.steps) && opts.steps.length > 0
+            ? { steps: opts.steps }
+            : {}),
         }),
-        signal: AbortSignal.timeout(60_000),
+        // Enqueue doit être immédiat ; si le worker est bloqué CDP, on laisse 90s.
+        signal: AbortSignal.timeout(90_000),
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -296,9 +488,10 @@ export async function cartoChatVpsAskAsync(opts: {
   }
   const msg =
     lastErr instanceof Error ? lastErr.message : "ask-async impossible";
-  if (/abort|timeout|fetch failed/i.test(msg)) {
+  if (/abort|timeout|fetch failed/i.test(msg) ||
+      (lastErr instanceof Error && lastErr.name === "TimeoutError")) {
     throw new Error(
-      "Connexion VPS Chat coupée (Failed to fetch) — réessaie, évite de sync pendant un run"
+      "Timeout VPS Chat au lancement — worker saturé ou tunnel HS. Réessaie dans 30s (ou relance le tunnel)."
     );
   }
   throw lastErr instanceof Error ? lastErr : new Error(msg);

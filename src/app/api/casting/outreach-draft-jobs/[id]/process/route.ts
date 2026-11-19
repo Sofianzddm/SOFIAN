@@ -3,11 +3,13 @@ import { getAppSession } from "@/lib/getAppSession";
 import { isInternalJobAuth } from "@/lib/internal-job-auth";
 import {
   kickOutreachDraftJobProcess,
+  OUTREACH_VPS_PARALLEL_DEFAULT,
   processOutreachDraftJobTick,
 } from "@/lib/casting-outreach-draft-job";
 import prisma from "@/lib/prisma";
 
-export const maxDuration = 300;
+/** 1 marque à la fois par défaut — poll CODE FIN ~20 min. */
+export const maxDuration = 800;
 
 const ALLOWED_ROLES = [
   "CASTING_MANAGER",
@@ -53,14 +55,20 @@ export async function POST(
       }
     }
 
-    if (!process.env.XAI_API_KEY?.trim()) {
+    if (
+      !process.env.OUTREACH_CHAT_VPS_URL?.trim() &&
+      !process.env.CARTO_CHAT_VPS_URL?.trim()
+    ) {
       return NextResponse.json(
-        { error: "XAI_API_KEY manquante." },
+        { error: "OUTREACH_CHAT_VPS_URL manquant." },
         { status: 500 }
       );
     }
 
-    const tick = await processOutreachDraftJobTick(id, 1);
+    const tick = await processOutreachDraftJobTick(
+      id,
+      OUTREACH_VPS_PARALLEL_DEFAULT
+    );
 
     if (!tick.done) {
       kickOutreachDraftJobProcess(id);

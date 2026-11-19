@@ -69,6 +69,21 @@ export type LeynaExchangeContactHit = {
   status?: "exchange" | "sent_no_reply";
   /** Nombre de messages dans le fil. */
   messageCount?: number;
+  /** Talents explicitement pitchés dans ce fil. */
+  talentsPitched?: string[];
+  /** Talents refusés / « pas pour nous » / écartés par la marque. */
+  talentsRefused?: string[];
+};
+
+/** Brief ops marque : quoi faire / ne pas faire avant rédaction. */
+export type LeynaOpsBrief = {
+  relationStatus: string;
+  recommendedAction: string;
+  excludeTalents: string[];
+  alreadyPitchedTalents: string[];
+  doNot: string[];
+  angle: string;
+  writeInstructions: string;
 };
 
 export type LeynaScanStatus = "ok" | "empty" | "failed";
@@ -91,6 +106,8 @@ export type LeynaExchangeContext = {
   fetchedAt: string;
   /** true s’il n’y a que des envois sans réponse (pas d’échange). */
   hasSentNoReplyOnly: boolean;
+  /** Décision ops agrégée (statut, action, exclusions). */
+  ops?: LeynaOpsBrief | null;
 };
 
 type GmailPayloadPart = {
@@ -427,6 +444,57 @@ function detectUrgentAlertsHeuristic(
   return alerts.slice(0, 5);
 }
 
+type ThreadNotesResult = {
+  notes: string;
+  alerts: string[];
+  talentsPitched: string[];
+  talentsRefused: string[];
+};
+
+function normalizeTalentList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((t) => String(t || "").trim())
+    .filter((t) => t.length >= 2 && t.length <= 80)
+    .slice(0, 20);
+}
+
+/** Refus profil : on n’exclut que si le fil a < N jours (défaut 1 an). */
+export const LEYNA_REFUSE_MAX_AGE_DAYS = 365;
+
+export function isLeynaRefuseStillFresh(
+  lastExchangeAt?: string | null,
+  maxAgeDays: number = LEYNA_REFUSE_MAX_AGE_DAYS
+): boolean {
+  if (!lastExchangeAt) return false;
+  const t = new Date(lastExchangeAt).getTime();
+  if (!Number.isFinite(t) || t <= 0) return false;
+  return Date.now() - t <= maxAgeDays * 86_400_000;
+}
+
+/**
+ * Talents refusés « durs » : refus clair sur CE profil, fil daté < 1 an.
+ * Les refus vieux (ex. AV × Mélissa 2024) ne bloquent plus le casting.
+ */
+export function collectRecentLeynaRefusedTalents(
+  hits: Array<{
+    lastExchangeAt?: string | null;
+    talentsRefused?: string[] | null;
+  }>,
+  maxAgeDays: number = LEYNA_REFUSE_MAX_AGE_DAYS
+): string[] {
+  return Array.from(
+    new Set(
+      hits.flatMap((h) => {
+        if (!isLeynaRefuseStillFresh(h.lastExchangeAt, maxAgeDays)) return [];
+        return Array.isArray(h.talentsRefused) ? h.talentsRefused : [];
+      })
+    )
+  )
+    .map((t) => String(t || "").trim())
+    .filter((t) => t.length >= 2);
+}
+
 async function extractNotesAndAlerts(args: {
   brandName: string;
   talentNames: string[];
@@ -436,7 +504,7 @@ async function extractNotesAndAlerts(args: {
   clientFroms: string[];
   brandDomains: string[];
   turns: ThreadTurn[];
-}): Promise<{ notes: string; alerts: string[] }> {
+}): Promise<ThreadNotesResult> {
   const heuristic = detectUrgentAlertsHeuristic(args.subject, args.clientTexts);
   const brandReplyFroms = args.clientFroms.filter((e) =>
     args.brandDomains.some((d) => e.endsWith(`@${d}`) || e.endsWith(`.${d}`))
@@ -462,10 +530,10 @@ async function extractNotesAndAlerts(args: {
         : `#${i + 1}`;
       const who =
         t.role === "leyna" ? "LEYNA" : t.role === "agency" ? "AGENCE" : "CLIENT";
-      return `[${when}] ${who} (${t.from}):\n${t.text.slice(0, 2200)}`;
+      return `[${when}] ${who} (${t.from}):\n${t.text.slice(0, 4000)}`;
     })
     .join("\n\n")
-    .slice(0, 14000);
+    .slice(0, 30000);
 
   const excerpt = [
     args.subject ? `Objet: ${args.subject}` : "",
@@ -509,35 +577,40 @@ async function extractNotesAndAlerts(args: {
     .join("\n");
 
   if (!process.env.XAI_API_KEY?.trim()) {
-    return { notes: fallbackNotes, alerts: heuristic };
+    return {
+      notes: fallbackNotes,
+      alerts: heuristic,
+      talentsPitched: [],
+      talentsRefused: [],
+    };
   }
 
   try {
     const text = await xaiResponse(
       `Tu analyses UN fil Gmail COMPLET entre Leyna (Glow Up Agence) et des contacts autour de la marque ${args.brandName}.
-Talents du mail en cours : ${args.talentNames.join(", ") || "—"}
+Talents du casting EN COURS (à croiser avec l’historique) : ${args.talentNames.join(", ") || "—"}
 Domaines marque prioritaires : ${args.brandDomains.join(", ") || "—"}
 
 Réponds UNIQUEMENT en JSON valide (pas de markdown) :
 {
-  "notes": "8-14 puces factuelles (- ) EXHAUSTIVES chronologiques : chaque étape du fil (dates, qui a dit quoi), talents pitchés, produits/équipements, call fixé, négociations, statut actuel, prochaines actions, ton (tu/vous), comment pitcher une suite SANS répéter le même deal",
-  "alerts": ["alertes URGENTES uniquement, sinon []"]
+  "notes": "10-16 puces factuelles (- ) EXHAUSTIVES chronologiques datées : chaque étape (qui / quoi / décision), talents pitchés, produits, call, négo, statut, ton (tu/vous)",
+  "alerts": ["alertes URGENTES uniquement, sinon []"],
+  "talentsPitched": ["Prénom Nom exactement comme dans le fil"],
+  "talentsRefused": ["Prénom Nom UNIQUEMENT si refus CLAIR et SPÉCIFIQUE sur CE profil"]
 }
 
-ALERTES (tableau "alerts") — UNIQUEMENT si c’est vraiment urgent / bloquant :
-- Redirection : « merci de rediriger vers X », « passez par Y », nouveau contact obligatoire
-- Stop / ne plus écrire / désinscription
-- Contact parti / plus en poste
-- Refus définitif / blacklist
-- Menace juridique / mise en demeure
-Chaque alerte = 1 phrase courte, concrète (cite le prénom/email de redirection si dit).
-Si rien d’urgent : "alerts": []
+ALERTES (tableau "alerts") — UNIQUEMENT si urgent / bloquant :
+- Redirection contact, stop, contact parti, refus définitif marque, blacklist
+Chaque alerte = 1 phrase courte. Sinon [].
 
-Règles notes (OBLIGATOIRE — ne pas sous-résumer) :
-- NOTE TOUT le fil, message par message utile. INTERDIT de sortir juste « échange existant ».
-- Inclure : call / RDV, produits (ex. vélo, modèle), talents (Mia, Lola…), validations, relances en attente.
-- Priorise réponses domaine MARQUE. Distingue agence vs marque.
-- N'invente rien. Français.
+TALENTS (OBLIGATOIRE) :
+- talentsPitched = TOUS les talents / créateurs nommés dans les pitches Leyna de CE fil.
+- talentsRefused = UNIQUEMENT un refus **explicite et ciblé** sur CE profil (ex. « Flavy non, sa communauté ne correspond pas », « pas le bon fit pour X », « on passe sur X »).
+- INTERDIT talentsRefused pour : silence, « pas de budget », « pas maintenant » générique, soft ghost, gifting passé, simple non-réponse, ou refus **daté de plus d’un an**.
+- Si le refus a > 12 mois (regarde les dates du fil) → **laisse talentsRefused = []** pour ce talent (il pourra être re-pitché).
+- Si refus global sans nommer de talent → [] (note-le dans notes seulement).
+
+Règles notes : NOTE TOUT le fil utile. INTERDIT « échange existant » seul. N'invente rien. Français.
 
 FIL :
 ${excerpt}`,
@@ -553,13 +626,17 @@ ${excerpt}`,
         : raw;
     let notes = fallbackNotes;
     let alerts: string[] = [];
+    let talentsPitched: string[] = [];
+    let talentsRefused: string[] = [];
     try {
       const parsed = JSON.parse(jsonSlice) as {
         notes?: unknown;
         alerts?: unknown;
+        talentsPitched?: unknown;
+        talentsRefused?: unknown;
       };
       if (typeof parsed.notes === "string" && parsed.notes.trim()) {
-        notes = parsed.notes.trim().slice(0, 4500);
+        notes = parsed.notes.trim().slice(0, 8000);
       }
       if (Array.isArray(parsed.alerts)) {
         alerts = parsed.alerts
@@ -567,32 +644,315 @@ ${excerpt}`,
           .filter(Boolean)
           .slice(0, 5);
       }
+      talentsPitched = normalizeTalentList(parsed.talentsPitched);
+      talentsRefused = normalizeTalentList(parsed.talentsRefused);
     } catch {
       notes =
-        raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").slice(0, 4500) ||
+        raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").slice(0, 8000) ||
         fallbackNotes;
     }
-    // Si l’IA a trop condensé (« échange existant »), garder le fallback riche.
     if (
       notes.length < 120 ||
       /^échange existant/i.test(notes.trim())
     ) {
       notes = fallbackNotes.length > notes.length ? fallbackNotes : notes;
     }
-    // Fusion heuristique + IA (dédup)
     const merged = [...alerts];
     for (const h of heuristic) {
       if (!merged.some((a) => a.toLowerCase().includes(h.slice(0, 24).toLowerCase()))) {
         merged.push(h);
       }
     }
-    return { notes, alerts: merged.slice(0, 6) };
+    return {
+      notes,
+      alerts: merged.slice(0, 6),
+      talentsPitched,
+      talentsRefused,
+    };
   } catch (e) {
     console.warn(
       "[leyna-exchange-context] résumé IA soft-fail:",
       e instanceof Error ? e.message : e
     );
-    return { notes: fallbackNotes, alerts: heuristic };
+    return {
+      notes: fallbackNotes,
+      alerts: heuristic,
+      talentsPitched: [],
+      talentsRefused: [],
+    };
+  }
+}
+
+async function synthesizeBrandOpsBrief(args: {
+  brandName: string;
+  talentNames: string[];
+  /** Emails CRM auxquels on rédige MAINTENANT. */
+  recipientEmails?: string[];
+  hasExchange: boolean;
+  tone: LeynaExchangeTone | null;
+  alerts: string[];
+  hits: LeynaExchangeContactHit[];
+}): Promise<LeynaOpsBrief | null> {
+  if (!process.env.XAI_API_KEY?.trim()) return null;
+  if (args.hits.length === 0) return null;
+
+  const recipients = (args.recipientEmails || [])
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.includes("@"));
+  const recipientSet = new Set(recipients);
+  const directExchangeEmails = args.hits
+    .filter(
+      (h) =>
+        h.status !== "sent_no_reply" &&
+        recipientSet.has(String(h.email || "").toLowerCase())
+    )
+    .map((h) => h.email);
+  const exchangeOnlyWithOthers =
+    args.hasExchange &&
+    recipients.length > 0 &&
+    directExchangeEmails.length === 0;
+
+  const dossier = args.hits
+    .slice(0, 25)
+    .map((h, i) => {
+      const kind =
+        h.status === "sent_no_reply" ? "ENVOI SANS RÉPONSE" : "ÉCHANGE";
+      return `${i + 1}. [${kind}] ${h.email}${h.subject ? ` « ${h.subject} »` : ""}${
+        h.lastExchangeAt
+          ? ` (${new Date(h.lastExchangeAt).toLocaleDateString("fr-FR")})`
+          : ""
+      }
+Talents pitchés: ${(h.talentsPitched || []).join(", ") || "—"}
+Talents refusés: ${(h.talentsRefused || []).join(", ") || "—"}
+Alertes: ${(h.alerts || []).join(" | ") || "—"}
+Notes:
+${String(h.notes || "").slice(0, 1800)}`;
+    })
+    .join("\n\n———\n\n")
+    .slice(0, 22000);
+
+  // Exclusions dures = refus profil clairs sur fils < 1 an uniquement.
+  const fallbackExclude = collectRecentLeynaRefusedTalents(args.hits);
+  const fallbackPitched = Array.from(
+    new Set(args.hits.flatMap((h) => h.talentsPitched || []))
+  );
+
+  try {
+    const text = await xaiResponse(
+      `Tu es ops casting Glow Up. À partir du dossier Gmail LEYNA × marque ${args.brandName}, tu produis un BRIEF DE DÉCISION avant rédaction.
+
+Talents du casting qu’on s’apprête à pitcher MAINTENANT : ${args.talentNames.join(", ") || "—"}
+Destinataires CRM du mail EN COURS : ${recipients.join(", ") || "—"}
+Échange DIRECT avec ces destinataires : ${
+        directExchangeEmails.length
+          ? directExchangeEmails.join(", ")
+          : "AUCUN"
+      }
+Échange seulement avec d’AUTRES interlocuteurs (pas les destinataires) : ${
+        exchangeOnlyWithOthers ? "OUI — ne pas prétendre un fil perso avec les destinataires" : "non"
+      }
+Ton relation détecté : ${args.tone || "inconnu"}
+Alertes déjà listées : ${args.alerts.join(" | ") || "aucune"}
+Y a-t-il eu de vrais échanges (marque/agence) : ${args.hasExchange ? "oui" : "non (envois sans réponse)"}
+Refus profil RÉCENTS (< 12 mois) déjà extraits : ${
+        fallbackExclude.length ? fallbackExclude.join(", ") : "aucun"
+      }
+
+Réponds UNIQUEMENT en JSON valide :
+{
+  "relationStatus": "1 phrase : porte ouverte / en étude / refus soft / ghost / collab en cours / mauvais contact / cold partiel…",
+  "recommendedAction": "1 phrase OBLIGATOIRE : ce qu’il FAUT faire maintenant pour CES destinataires CRM",
+  "excludeTalents": ["Prénom Nom — UNIQUEMENT refus clair + daté < 12 mois sur CE profil"],
+  "alreadyPitchedTalents": ["Prénom Nom déjà pitchés même sans refus formel"],
+  "doNot": ["interdits concrets"],
+  "angle": "1-2 phrases : l’angle à prendre dans le mail à CES destinataires",
+  "writeInstructions": "4-7 puces (- ) ultra concrètes pour le rédacteur"
+}
+
+RÈGLES DURES — EXCLUSIONS :
+- excludeTalents = refus **explicite et spécifique** d’un profil (ex. Foreo : « Flavy non, sa communauté n’est pas bonne ») ET daté **il y a moins de 12 mois**.
+- INTERDIT d’exclure un talent pour un refus de plus d’un an (ex. American Vintage × Mélissa en 2024 → ne PAS exclure).
+- INTERDIT d’exclure pour silence, budget, timing générique, soft ghost, ou simple pitch passé.
+- Si un talent du casting ACTUEL a un refus clair < 12 mois → il DOIT être dans excludeTalents.
+- Ne JAMAIS inventer un refus : seulement ce qui est dans le dossier.
+- INTERDIT ABSOLU de recommander d’écrire à un email @glowupagence.fr (Ambre, Leyna, Joey…) — ce sont des comptes INTERNES, pas des clients.
+- Si l’échange historique est avec Constance / une agence / un autre contact, et que les destinataires CRM sont différents (ex. Lenka, Natacha) :
+  · recommendedAction = cold ou accroche marque SANS « suite à notre échange » personnel
+  · doNot DOIT inclure : ne pas écrire « suite à nos échanges » / Rock en Seine comme si IELS avaient participé
+  · writeInstructions : ancrage perso INTERDIT pour ces destinataires
+- Si redirection de contact → recommendedAction + doNot doivent l’intégrer (vers un vrai contact MARQUE/AGENCE externe, jamais Glow Up).
+- Français, précis, ops — pas de blabla marketing.
+
+DOSSIER :
+${dossier}`,
+      {
+        model: "grok-4.20-0309-non-reasoning",
+        timeoutMs: 75_000,
+      }
+    );
+    const raw = String(text || "").trim();
+    const jsonSlice =
+      raw.includes("{") && raw.includes("}")
+        ? raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)
+        : raw;
+    const parsed = JSON.parse(jsonSlice) as Record<string, unknown>;
+    // Garde-fou : n’exclure que des refus frais (< 1 an), même si le LLM en invente d’anciens.
+    const llmExclude = normalizeTalentList(parsed.excludeTalents);
+    const excludeTalents = Array.from(
+      new Set([
+        ...fallbackExclude,
+        ...llmExclude.filter((name) =>
+          fallbackExclude.some((r) => {
+            const a = name
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .toLowerCase();
+            const b = r
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .toLowerCase();
+            return a === b || a.includes(b) || b.includes(a);
+          })
+        ),
+      ])
+    );
+    const alreadyPitchedTalents = Array.from(
+      new Set([
+        ...normalizeTalentList(parsed.alreadyPitchedTalents),
+        ...fallbackPitched,
+      ])
+    );
+    return {
+      relationStatus: String(parsed.relationStatus || "")
+        .trim()
+        .slice(0, 400),
+      recommendedAction: String(parsed.recommendedAction || "")
+        .trim()
+        .slice(0, 500),
+      excludeTalents: excludeTalents.slice(0, 30),
+      alreadyPitchedTalents: alreadyPitchedTalents.slice(0, 40),
+      doNot: Array.isArray(parsed.doNot)
+        ? parsed.doNot
+            .map((d) => String(d || "").trim())
+            .filter(Boolean)
+            .slice(0, 12)
+        : [],
+      angle: String(parsed.angle || "").trim().slice(0, 600),
+      writeInstructions: String(parsed.writeInstructions || "")
+        .trim()
+        .slice(0, 2500),
+    };
+  } catch (e) {
+    console.warn(
+      "[leyna-exchange-context] ops brief soft-fail:",
+      e instanceof Error ? e.message : e
+    );
+    return {
+      relationStatus: args.hasExchange
+        ? "Historique trouvé — synthèse auto partielle"
+        : "Envois sans réponse — pas encore de vraie relation",
+      recommendedAction: args.hasExchange
+        ? "Relancer en suite d’échange, sans re-pitcher les talents refusés"
+        : "Cold prudent — ne pas inventer de relation",
+      excludeTalents: fallbackExclude.slice(0, 30),
+      alreadyPitchedTalents: fallbackPitched.slice(0, 40),
+      doNot: fallbackExclude.map((t) => `Ne pas reproposer ${t}`),
+      angle: "",
+      writeInstructions: fallbackExclude.length
+        ? `- Exclure : ${fallbackExclude.join(", ")}`
+        : "",
+    };
+  }
+}
+
+/**
+ * Synthèse « Contabo-like » : une chronologie marque unique pour le rédacteur Grok.
+ * Injectée en tête de promptBlockFr / En.
+ */
+async function synthesizeBrandChronology(args: {
+  brandName: string;
+  talentNames: string[];
+  recipientEmails?: string[];
+  hasExchange: boolean;
+  tone: LeynaExchangeTone | null;
+  alerts: string[];
+  hits: LeynaExchangeContactHit[];
+  ops?: LeynaOpsBrief | null;
+}): Promise<string> {
+  if (!process.env.XAI_API_KEY?.trim()) return "";
+  if (args.hits.length === 0) return "";
+
+  const recipients = (args.recipientEmails || [])
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.includes("@"));
+
+  const dossier = args.hits
+    .slice(0, 30)
+    .map((h, i) => {
+      const kind =
+        h.status === "sent_no_reply" ? "ENVOI SANS RÉPONSE" : "ÉCHANGE";
+      return `${i + 1}. [${kind}] ${h.email}${
+        h.subject ? ` « ${h.subject} »` : ""
+      }${
+        h.lastExchangeAt
+          ? ` (${new Date(h.lastExchangeAt).toLocaleDateString("fr-FR")})`
+          : ""
+      }${h.messageCount ? ` · ${h.messageCount} msg` : ""}${
+        h.tone ? ` [${h.tone}]` : ""
+      }
+Pitchés: ${(h.talentsPitched || []).join(", ") || "—"}
+Refusés: ${(h.talentsRefused || []).join(", ") || "—"}
+Alertes: ${(h.alerts || []).join(" | ") || "—"}
+Notes:
+${String(h.notes || "").slice(0, 3500)}`;
+    })
+    .join("\n\n———\n\n")
+    .slice(0, 36000);
+
+  try {
+    const text = await xaiResponse(
+      `Tu es analyste Gmail Leyna (Glow Up). À partir du dossier EXHAUSTIF ci-dessous pour la marque ${args.brandName}, rédige une CHRONOLOGIE MARQUE unique pour le rédacteur du prochain mail.
+
+Destinataires CRM du mail en cours : ${recipients.join(", ") || "—"}
+Talents du casting actuel : ${args.talentNames.join(", ") || "—"}
+Vrais échanges (réponses) : ${args.hasExchange ? "oui" : "non (envois sans réponse seulement)"}
+Ton détecté : ${args.tone || "inconnu"}
+Alertes déjà listées : ${args.alerts.join(" | ") || "aucune"}
+Brief ops (si dispo) : statut=${args.ops?.relationStatus || "—"} · action=${args.ops?.recommendedAction || "—"} · angle=${args.ops?.angle || "—"}
+
+Réponds en FRANÇAIS, texte brut (pas de JSON), structure EXACTE :
+
+CHRONOLOGIE MARQUE — ${args.brandName}
+- Timeline (8–16 puces datées, ordre chrono) : dates, interlocuteurs (emails OK ici), sujets, décisions, talents pitchés/refusés, RDV, budget, silence.
+- Statut relation aujourd’hui : 1–2 phrases.
+- Ce qui est déjà connu côté marque / agences (sans inventer).
+- Ancrage mail pour CES destinataires CRM : comment ouvrir (suite perso SI fil direct ; sinon semi-warm marque / cold — JAMAIS inventer « suite à notre échange » perso).
+- Talents à NE PAS reproposer : liste ou « aucun ».
+- Alertes bloquantes : liste ou « aucune ».
+- Faits concrets réutilisables dans le mail (produits, activations, citations courtes) — 3–8 puces.
+
+Règles : N’invente RIEN. Distingue clairement échange DIRECT avec les destinataires vs historique marque/agence seulement. Max ~2500 mots utiles.
+
+DOSSIER :
+${dossier}`,
+      {
+        model: "grok-4.20-0309-non-reasoning",
+        timeoutMs: 90_000,
+      }
+    );
+    const out = String(text || "")
+      .trim()
+      .replace(/^```(?:text|markdown)?\s*/i, "")
+      .replace(/\s*```$/, "")
+      .slice(0, 12000);
+    if (out.length < 200) return "";
+    return out;
+  } catch (e) {
+    console.warn(
+      "[leyna-exchange-context] chronologie marque soft-fail:",
+      e instanceof Error ? e.message : e
+    );
+    return "";
   }
 }
 
@@ -617,6 +977,7 @@ function emptyContext(
       : {}),
     fetchedAt: new Date().toISOString(),
     hasSentNoReplyOnly: false,
+    ops: null,
   };
 }
 
@@ -858,6 +1219,11 @@ export async function getLeynaExchangeContext(args: {
   talentNames?: string[];
   /** Nom d’agence (ex. Nice Work) : les fils @agence doivent citer la marque pitchée. */
   agencyName?: string | null;
+  /**
+   * Outreach ChatGPT : scan Gmail factuel seulement — le brief ops
+   * (statut / à faire / angle) est analysé et noté par ChatGPT ensuite.
+   */
+  skipOpsSynthesis?: boolean;
 }): Promise<LeynaExchangeContext> {
   const emails = Array.from(
     new Set(
@@ -1173,7 +1539,7 @@ export async function getLeynaExchangeContext(args: {
     const draftsToNote = drafts.slice(0, MAX_HITS);
 
     const scored = await mapPool(draftsToNote, NOTES_CONCURRENCY, async (d) => {
-      const { notes, alerts } =
+      const extracted: ThreadNotesResult =
         d.status === "exchange"
           ? await extractNotesAndAlerts({
               brandName,
@@ -1185,24 +1551,44 @@ export async function getLeynaExchangeContext(args: {
               brandDomains,
               turns: d.sides.turns,
             })
-          : {
-              notes: [
-                `ENVOI SANS RÉPONSE (objet : ${d.sides.subject || "—"}) — ${d.sides.turns.length} message(s) Leyna.`,
-                ...d.sides.leynaTexts.slice(0, 3).map((t) => {
-                  const snip = t
-                    .replace(/<br\s*\/?>/gi, "\n")
-                    .replace(/<[^>]+>/g, " ")
-                    .replace(/&nbsp;/g, " ")
-                    .replace(/\s+/g, " ")
-                    .trim()
-                    .slice(0, 280);
-                  return `- Pitch Leyna : « ${snip}${snip.length >= 280 ? "…" : ""} »`;
-                }),
-              ].join("\n"),
-              alerts: [] as string[],
-            };
+          : (() => {
+              const blob = d.sides.leynaTexts.join("\n").toLowerCase();
+              const pitched = talentNames.filter((n) => {
+                const key = n.trim().toLowerCase();
+                if (key.length < 3) return false;
+                const prenom = key.split(/\s+/)[0] || key;
+                return blob.includes(key) || blob.includes(prenom);
+              });
+              return {
+                notes: [
+                  `ENVOI SANS RÉPONSE (objet : ${d.sides.subject || "—"}) — ${d.sides.turns.length} message(s) Leyna.`,
+                  pitched.length
+                    ? `- Talents déjà pitchés (sans réponse) : ${pitched.join(", ")}`
+                    : "",
+                  ...d.sides.leynaTexts.slice(0, 3).map((t) => {
+                    const snip = t
+                      .replace(/<br\s*\/?>/gi, "\n")
+                      .replace(/<[^>]+>/g, " ")
+                      .replace(/&nbsp;/g, " ")
+                      .replace(/\s+/g, " ")
+                      .trim()
+                      .slice(0, 280);
+                    return `- Pitch Leyna : « ${snip}${snip.length >= 280 ? "…" : ""} »`;
+                  }),
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+                alerts: [] as string[],
+                talentsPitched: pitched,
+                talentsRefused: [] as string[],
+              };
+            })();
+      const { notes, alerts, talentsPitched, talentsRefused } = extracted;
       return {
-        score: d.score + (alerts.length > 0 ? 30 : 0),
+        score:
+          d.score +
+          (alerts.length > 0 ? 30 : 0) +
+          (talentsRefused.length > 0 ? 15 : 0),
         hit: {
           email: d.replyEmail,
           subject: d.sides.subject,
@@ -1210,6 +1596,8 @@ export async function getLeynaExchangeContext(args: {
           tone: d.tone,
           notes,
           alerts,
+          talentsPitched,
+          talentsRefused,
           clientSnippet:
             d.sides.clientTexts[d.sides.clientTexts.length - 1]?.slice(0, 320) ||
             null,
@@ -1285,10 +1673,77 @@ export async function getLeynaExchangeContext(args: {
             : ""
         }${h.messageCount ? ` · ${h.messageCount} msg` : ""}${
           h.tone ? ` [${h.tone}]` : ""
-        }${h.alerts?.length ? `\n  ALERTES : ${h.alerts.join(" | ")}` : ""}
+        }${h.alerts?.length ? `\n  ALERTES : ${h.alerts.join(" | ")}` : ""}${
+          (h.talentsPitched || []).length
+            ? `\n  Talents pitchés : ${(h.talentsPitched || []).join(", ")}`
+            : ""
+        }${
+          (h.talentsRefused || []).length
+            ? `\n  Talents REFUSÉS : ${(h.talentsRefused || []).join(", ")}`
+            : ""
+        }
   Notes : ${h.notes}`;
       })
       .join("\n\n");
+
+    const ops = args.skipOpsSynthesis
+      ? null
+      : await synthesizeBrandOpsBrief({
+          brandName,
+          talentNames,
+          recipientEmails: emails,
+          hasExchange,
+          tone,
+          alerts: allAlerts,
+          hits,
+        });
+
+    // Chrono marque dense (même si skipOps) — c’est ce qui rend le scan « magique » pour Grok.
+    const brandChronology = await synthesizeBrandChronology({
+      brandName,
+      talentNames,
+      recipientEmails: emails,
+      hasExchange,
+      tone,
+      alerts: allAlerts,
+      hits,
+      ops,
+    });
+    const chronologyBlockFr = brandChronology
+      ? `
+═══ CHRONOLOGIE MARQUE (SYNTHÈSE EXHAUSTIVE — PRIORITAIRE) ═══
+${brandChronology}
+`
+      : "";
+
+    const opsBlockFr = ops
+      ? `
+═══ BRIEF OPS MARQUE (PRIORITAIRE — LIRE AVANT DE RÉDIGER) ═══
+Statut relation : ${ops.relationStatus || "—"}
+Action recommandée : ${ops.recommendedAction || "—"}
+Angle de suite : ${ops.angle || "—"}
+Talents à EXCLURE (ne jamais reproposer) : ${
+          ops.excludeTalents.length ? ops.excludeTalents.join(", ") : "—"
+        }
+Déjà pitchés : ${
+          ops.alreadyPitchedTalents.length
+            ? ops.alreadyPitchedTalents.join(", ")
+            : "—"
+        }
+INTERDITS :
+${
+  ops.doNot.length
+    ? ops.doNot.map((d) => `- ${d}`).join("\n")
+    : "- (aucun)"
+}
+Mode d’emploi rédaction :
+${ops.writeInstructions || "- Suivre le statut + exclusions ci-dessus."}
+`
+      : args.skipOpsSynthesis
+        ? `
+═══ HISTORIQUE GMAIL LEYNA (FACTS) ═══
+`
+        : "";
 
     const alertsBlockFr =
       allAlerts.length > 0
@@ -1303,17 +1758,19 @@ ${allAlerts.map((a) => `- ${a}`).join("\n")}
     const promptBlockFr = hasExchange
       ? `
 ═══ CONTEXTE BOÎTE LEYNA (PRIORITAIRE — ${nEx} échanges + ${nSent} envois analysés & notés ; historique ~5 ans) ═══
+${chronologyBlockFr}
+${opsBlockFr}
 ${detailsFr}
 ${alertsBlockFr}
 ANCRAGE SANS NOMMER PERSONNE (obligatoire) :
-- Formule en 2e personne : « suite à notre échange », « comme tu me l'indiquais » / « comme vous me l'indiquiez ».
+- Suit la consigne « Ancrage mail » de la CHRONOLOGIE MARQUE (suite perso SEULEMENT si fil direct avec CES destinataires).
+- Si historique marque/agence seulement → semi-warm / cold propre, SANS « suite à notre échange » inventé.
 - INTERDIT ABSOLU de citer un prénom, nom ou email de contact dans le mail — même si les notes les mentionnent.
 - Les notes ci-dessous sont POUR TOI (contexte) ; le destinataire ne doit voir aucun nom de personne.
 - Tiens compte de TOUT l'historique (pas seulement le dernier fil) : collabs déjà en cours, pitches sans réponse, RDV, produits.
 
 Règles d'utilisation OBLIGATOIRES :
-- Ce n'est PAS un premier contact. Dès le 1er paragraphe après le salut, ancre l'échange passé SANS nommer personne.
-- INTERDIT : démarrer comme une découverte froide SANS ancrer l'historique.
+- INTERDIT ABSOLU de reproposer un talent listé dans « Talents à EXCLURE » ou « Talents REFUSÉS ».
 - ${
           tone === "tu"
             ? "TUTOIEMENT obligatoire (tu / te / ton)."
@@ -1323,44 +1780,56 @@ Règles d'utilisation OBLIGATOIRES :
         }
 - Si refus / planning bouclé : le dire, puis pitcher la NOUVELLE offre comme une suite.
 - Si collab talent×marque déjà en place : s'appuyer dessus ; nouveau format = suite naturelle.
-- N'invente aucun fait hors des notes ci-dessus.
+- N'invente aucun fait hors des notes / chronologie ci-dessus.
 `.trim()
       : `
 ═══ HISTORIQUE BOÎTE LEYNA (${nSent} envois sans réponse analysés) ═══
+${chronologyBlockFr}
+${opsBlockFr}
 ${detailsFr}
 - Pas encore de vraie réponse client : reste factuel, n’invente pas de relation.
 - Tu peux mentionner qu’on a déjà proposé des talents / formats (sans spammer le même pitch).
+- INTERDIT de reproposer un talent déjà listé en exclusion / déjà pitché sans intérêt.
 `.trim();
 
     const promptBlockEn = hasExchange
       ? `
 ═══ LEYNA MAILBOX CONTEXT (PRIORITY — ${nEx} exchanges + ${nSent} sends analyzed; ~5y) ═══
+${chronologyBlockFr}
+${opsBlockFr}
 ${detailsFr}
 ${
   allAlerts.length > 0
     ? `\n⚠ URGENT ALERTS:\n${allAlerts.map((a) => `- ${a}`).join("\n")}\n`
     : ""
 }
-ANCHOR WITHOUT NAMING ANYONE. Use the FULL history (not only the latest thread).
+Follow CHRONOLOGIE MARQUE anchor rules. NEVER invent a personal prior exchange. NEVER re-pitch excluded/refused talents. Use FULL history.
 - ${tone === "tu" ? "Use tu." : tone === "vous" ? "Use vous." : "Default to vous unless notes say tu."}
 `.trim()
       : `
 ═══ LEYNA HISTORY (${nSent} unreplied sends) ═══
+${chronologyBlockFr}
+${opsBlockFr}
 ${detailsFr}
-- No real client reply yet — do not invent a relationship.
+- No real client reply yet — do not invent a relationship. Do not re-pitch excluded talents.
 `.trim();
+
+    const bannerWithOps = ops?.recommendedAction
+      ? `${bannerLabel} · ${ops.recommendedAction.slice(0, 90)}`
+      : bannerLabel;
 
     return {
       hasExchange,
       tone,
       contacts: hits,
       alerts: allAlerts,
-      bannerLabel,
+      bannerLabel: bannerWithOps,
       promptBlockFr,
       promptBlockEn,
       scanStatus: "ok",
       fetchedAt: new Date().toISOString(),
       hasSentNoReplyOnly,
+      ops,
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -14,6 +14,7 @@ import {
   buildCartoChatResearchPrompt,
   type CartoChatMarket,
 } from "@/lib/carto-chat-vps/chat-prompt";
+import { isCartoChatVpsJob } from "@/lib/carto-chat-vps/job-kind";
 import type { CartoChatVpsPreviewResult } from "@/lib/carto-chat-vps/types";
 import { BrandEnrichPanel } from "@/components/enrichissement/BrandEnrichPanel";
 import { portfolioDisplayName } from "@/lib/marque-portfolio";
@@ -385,26 +386,32 @@ export default function CartoAiPipelineChatLabPage() {
             endMarker?: string;
             hasCertifiedAnswer?: boolean;
             companyHint?: string;
+            kind?: string;
           }[];
           error?: string;
         };
 
-        // Bandeau : tous les jobs actifs / récents
+        // Bandeau : jobs carto seulement (pas Fil outreach mail / roster)
         if (Array.isArray(h.jobs)) {
           setVpsRuns(
             h.jobs
-              .filter((j) =>
-                ["queued", "running", "done", "error"].includes(
-                  String(j.state || "")
-                )
+              .filter(
+                (j) =>
+                  ["queued", "running", "done", "error"].includes(
+                    String(j.state || "")
+                  ) &&
+                  isCartoChatVpsJob({
+                    promptPreview: j.promptPreview,
+                    companyHint: j.companyHint,
+                    kind: j.kind,
+                  })
               )
               .slice(0, 8)
               .map((j) => ({
                 endMarker: String(j.endMarker || ""),
-                companyHint: String(j.companyHint || j.promptPreview || "").slice(
-                  0,
-                  40
-                ),
+                companyHint: String(
+                  j.companyHint || j.promptPreview || ""
+                ).slice(0, 40),
                 state: String(j.state || ""),
                 answerChars: Number(j.answerChars || 0),
                 error: j.error,
@@ -537,6 +544,8 @@ export default function CartoAiPipelineChatLabPage() {
           jobs?: {
             endMarker?: string;
             companyHint?: string;
+            promptPreview?: string;
+            kind?: string;
             state?: string;
             hasCertifiedAnswer?: boolean;
             finishedAt?: number;
@@ -548,6 +557,11 @@ export default function CartoAiPipelineChatLabPage() {
             (j) =>
               j.state === "done" &&
               j.endMarker &&
+              isCartoChatVpsJob({
+                promptPreview: j.promptPreview,
+                companyHint: j.companyHint,
+                kind: j.kind,
+              }) &&
               hintMatch(String(j.companyHint || ""))
           )
           .sort(
@@ -1219,7 +1233,7 @@ export default function CartoAiPipelineChatLabPage() {
           ["queued", "running"].includes(r.state)
         ) && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-            <div className="font-medium">Runs Chat en cours (max 5)</div>
+            <div className="font-medium">Runs carto en cours (max 5)</div>
             <ul className="mt-1 space-y-0.5">
               {vpsRuns
                 .filter((r) =>

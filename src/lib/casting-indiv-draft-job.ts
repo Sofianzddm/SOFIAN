@@ -62,8 +62,9 @@ export async function requestCancelIndivDraftJob(jobId: string, userId: string) 
     where: { id: jobId },
     data: {
       cancelRequested: true,
-      status: job.status === "pending" ? "cancelled" : job.status,
-      finishedAt: job.status === "pending" ? new Date() : job.finishedAt,
+      status: "cancelled",
+      finishedAt: new Date(),
+      currentBrandName: null,
     },
   });
 }
@@ -178,7 +179,29 @@ async function processOneMissionItem(itemId: string): Promise<{
   if (!mission) {
     return { ok: false, brandName: item.brandName, error: "Mission introuvable" };
   }
+  // Déjà envoyée → skip sans appeler Grok.
   if (mission.sentAt || mission.stage === "SENT") {
+    return { ok: true, brandName: item.brandName };
+  }
+  // Déjà un brouillon prêt (ex. autre job parallèle) → skip sans Grok.
+  if (
+    mission.stage === "DRAFTED_FOR_VALIDATION" &&
+    String(mission.draftEmailSubject || "").trim() &&
+    String(mission.draftEmailBody || "").trim()
+  ) {
+    return { ok: true, brandName: item.brandName };
+  }
+  // Autre item indiv déjà en cours / terminé sur la même mission → skip.
+  const sibling = await prisma.castingIndivDraftItem.findFirst({
+    where: {
+      missionId: item.missionId,
+      id: { not: item.id },
+      status: { in: ["running", "done"] },
+      job: { status: { in: ["pending", "running", "completed"] } },
+    },
+    select: { id: true },
+  });
+  if (sibling) {
     return { ok: true, brandName: item.brandName };
   }
   if (
@@ -544,10 +567,26 @@ export async function processIndivDraftJobTick(
     });
     if (claimed.count === 0) continue;
 
-    await prisma.castingIndivDraftJob.update({
-      where: { id: jobId },
+    const keepAlive = await prisma.castingIndivDraftJob.updateMany({
+      where: {
+        id: jobId,
+        cancelRequested: false,
+        status: { not: "cancelled" },
+      },
       data: { currentBrandName: next.brandName, status: "running" },
     });
+    if (keepAlive.count === 0) {
+      await prisma.castingIndivDraftItem.updateMany({
+        where: { id: next.id, status: "running" },
+        data: { status: "pending", startedAt: null, error: null },
+      });
+      return {
+        processed,
+        done: true,
+        status: "cancelled",
+        currentBrandName: null,
+      };
+    }
 
     try {
       const result = await processOneMissionItem(next.id);

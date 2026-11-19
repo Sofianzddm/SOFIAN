@@ -19,10 +19,51 @@ const driver = new ChatGptDriver();
 
 /** @type {Map<string, object>} jobs par endMarker */
 const jobs = new Map();
-/** File FIFO des endMarkers en attente d'un slot */
+/** File des endMarkers en attente d'un slot (priorité carto à la pompe) */
 const queue = [];
 /** Marqueurs en cours d'exécution sur un slot */
 const running = new Set();
+
+/**
+ * Carto : max N jobs simultanés (défaut 5).
+ * Wizard outreach : max 1 à la fois (qualité + anti-contamination session Chat).
+ * À la pompe, la carto passe avant le wizard.
+ */
+const CARTO_MAX_SLOTS = Math.max(
+  1,
+  Math.min(8, Number(process.env.CARTO_CHAT_CARTO_MAX_SLOTS || 5) || 5)
+);
+const OUTREACH_MAX_SLOTS = Math.max(
+  1,
+  Math.min(2, Number(process.env.CARTO_CHAT_OUTREACH_MAX_SLOTS || 1) || 1)
+);
+
+function detectJobKind(prompt, explicit) {
+  const e = String(explicit || "").trim().toLowerCase();
+  if (e === "carto" || e === "outreach") return e;
+  const t = String(prompt || "");
+  if (
+    /business developer/i.test(t) ||
+    /head of casting/i.test(t) ||
+    /rédiges UN mail/i.test(t) ||
+    /analyses le roster/i.test(t)
+  ) {
+    return "outreach";
+  }
+  if (/Head of Research Influence|MARQUE À ANALYSER/i.test(t)) {
+    return "carto";
+  }
+  return "carto";
+}
+
+function countRunningByKind(kind) {
+  let n = 0;
+  for (const m of running) {
+    const j = jobs.get(m);
+    if (j && j.kind === kind) n += 1;
+  }
+  return n;
+}
 
 function textHasMarker(text, marker) {
   const m = String(marker || "").trim();
@@ -34,8 +75,27 @@ function textHasMarker(text, marker) {
   ).test(a);
 }
 
+/** Mail outreach Fil (SUBJECT/BODY/NOTES) — pas les ancrages carto. */
+function hasOutreachMailAnchors(text) {
+  const t = String(text || "");
+  return (
+    /\bSUBJECT\s*:/i.test(t) &&
+    /\bBODY\s*:/i.test(t) &&
+    /\bNOTES\s*:/i.test(t)
+  );
+}
+
+/** Analyse roster Fil (PRIORITY + talentId=). */
+function hasOutreachRosterAnchors(text) {
+  const t = String(text || "");
+  return /\bPRIORITY\s*:/i.test(t) && /talentId\s*=/i.test(t);
+}
+
 function hasDeliverableAnchors(text) {
   const t = String(text || "");
+  // Outreach clients (wizard / composer) — accepter même si > 8k
+  if (hasOutreachMailAnchors(t)) return true;
+  if (hasOutreachRosterAnchors(t)) return true;
   if (
     /Marque\s*[—–\-]\s*interne/i.test(t) ||
     /Priorit[ée]s\s+Glow\s*Up/i.test(t) ||
@@ -125,6 +185,17 @@ function publicJob(job) {
     markerSource: job.markerSource || "",
     slotId: job.slotId ?? null,
     companyHint: job.companyHint || "",
+    kind: job.kind === "outreach" ? "outreach" : "carto",
+    pipelineStep: job.pipelineStep || 0,
+    pipelineTotal: job.pipelineTotal || (Array.isArray(job.steps) ? job.steps.length : 1),
+    /** Réponses intermédiaires (tour 1, 2, …) pour sync UI live. */
+    stepAnswers: Array.isArray(job.stepAnswers)
+      ? job.stepAnswers.map((a) =>
+          String(a || "").length > 12000
+            ? `${String(a).slice(0, 12000)}…`
+            : String(a || "")
+        )
+      : [],
   };
 }
 
@@ -151,11 +222,36 @@ function extractCompanyHint(prompt) {
   return m ? m[1].trim().slice(0, 80) : "";
 }
 
+/**
+ * Pompe : 1) carto tant que < CARTO_MAX_SLOTS, 2) outreach tant que < OUTREACH_MAX_SLOTS (défaut 1).
+ * Un job carto en file passe devant les wizard dès qu’un slot se libère.
+ */
+function pickNextQueuedMarker() {
+  const cartoRunning = countRunningByKind("carto");
+  if (cartoRunning < CARTO_MAX_SLOTS) {
+    const cartoIdx = queue.findIndex((m) => {
+      const j = jobs.get(m);
+      return j && j.state === "queued" && j.kind === "carto";
+    });
+    if (cartoIdx >= 0) return queue.splice(cartoIdx, 1)[0];
+  }
+  const outreachRunning = countRunningByKind("outreach");
+  if (outreachRunning < OUTREACH_MAX_SLOTS) {
+    const outreachIdx = queue.findIndex((m) => {
+      const j = jobs.get(m);
+      return j && j.state === "queued" && j.kind === "outreach";
+    });
+    if (outreachIdx >= 0) return queue.splice(outreachIdx, 1)[0];
+  }
+  // Carto/outreach en file mais plafond atteint → attendre qu’un slot se libère
+  return null;
+}
+
 function pumpQueue() {
   while (true) {
     const free = driver.slotsInfo().free;
     if (free <= 0) break;
-    const nextMarker = queue.shift();
+    const nextMarker = pickNextQueuedMarker();
     if (!nextMarker) break;
     const job = jobs.get(nextMarker);
     if (!job || job.state !== "queued") continue;
@@ -169,21 +265,69 @@ function startJobOnSlot(job) {
   job.state = "running";
   job.startedAt = job.startedAt || Date.now();
   console.log(
-    `[carto-chat-vps] start job marker=${endMarker} hint=${job.companyHint || "—"} queueLeft=${queue.length}`
+    `[carto-chat-vps] start kind=${job.kind || "carto"} marker=${endMarker} hint=${job.companyHint || "—"} queueLeft=${queue.length} cartoRunning=${countRunningByKind("carto")}/${CARTO_MAX_SLOTS}`
   );
 
   setImmediate(() => {
-    driver
-      .ask(job.prompt, {
-        timeoutMs: job.timeoutMs,
-        endMarker,
-        onProgress: (chars) => {
-          const j = jobs.get(endMarker);
-          if (j && j.state === "running") {
-            j.answerChars = Number(chars) || 0;
-          }
-        },
-      })
+    const onProgress = (chars, meta) => {
+      const j = jobs.get(endMarker);
+      if (j && j.state === "running") {
+        j.answerChars = Number(chars) || 0;
+        if (meta?.step && meta?.total) {
+          j.promptPreview = `Tour ${meta.step}/${meta.total} · ${j.companyHint || ""}`.slice(
+            0,
+            80
+          );
+          j.pipelineStep = meta.step;
+          j.pipelineTotal = meta.total;
+        }
+      }
+    };
+
+    const run =
+      Array.isArray(job.steps) && job.steps.length > 0
+        ? driver.askPipeline(job.steps, {
+            timeoutMs: job.timeoutMs,
+            effortLevel: job.effortLevel,
+            onProgress,
+            onStep: ({ step, total }) => {
+              const j = jobs.get(endMarker);
+              if (j && j.state === "running") {
+                j.pipelineStep = step;
+                j.pipelineTotal = total;
+                j.promptPreview = `Tour ${step}/${total} · ${j.companyHint || ""}`.slice(
+                  0,
+                  80
+                );
+              }
+            },
+            onStepDone: ({ step, total, answer }) => {
+              const j = jobs.get(endMarker);
+              if (!j || j.state !== "running") return;
+              const arr = Array.isArray(j.stepAnswers) ? [...j.stepAnswers] : [];
+              arr[step - 1] = String(answer || "");
+              j.stepAnswers = arr;
+              j.pipelineStep = step;
+              j.pipelineTotal = total;
+              j.answerChars = String(answer || "").length;
+              j.promptPreview = `Tour ${step}/${total} OK · ${j.companyHint || ""}`.slice(
+                0,
+                80
+              );
+              console.log(
+                `[carto-chat-vps] stepDone ${step}/${total} chars=${String(answer || "").length} marker=${endMarker}`
+              );
+            },
+          })
+        : driver.ask(job.prompt, {
+            timeoutMs: job.timeoutMs,
+            endMarker,
+            // Si absent → CARTO_CHAT_EFFORT_LEVEL (High carto).
+            effortLevel: job.effortLevel,
+            onProgress,
+          });
+
+    run
       .then((result) => {
         const finalized = finalizeAskResult(
           result,
@@ -192,10 +336,18 @@ function startJobOnSlot(job) {
           job.promptPreview
         );
         finalized.companyHint = job.companyHint;
+        finalized.kind = job.kind;
         finalized.prompt = undefined;
-        jobs.set(endMarker, { ...finalized, prompt: job.prompt });
+        jobs.set(endMarker, {
+          ...finalized,
+          prompt: job.prompt,
+          kind: job.kind,
+          answers: result.answers || undefined,
+          pipelineStep: Array.isArray(job.steps) ? job.steps.length : undefined,
+          pipelineTotal: Array.isArray(job.steps) ? job.steps.length : undefined,
+        });
         console.log(
-          `[carto-chat-vps] async ${finalized.state} chars=${result.answer.length} marker=${endMarker} certified=${finalized.state === "done" ? 1 : 0} slot=${result.slotId}`
+          `[carto-chat-vps] async ${finalized.state} kind=${job.kind} chars=${result.answer.length} marker=${endMarker} certified=${finalized.state === "done" ? 1 : 0} slot=${result.slotId} steps=${result.steps || 1}`
         );
       })
       .catch((e) => {
@@ -207,6 +359,7 @@ function startJobOnSlot(job) {
           answer: "",
           markerInjected: false,
           markerSource: "",
+          kind: job.kind,
         });
         console.error("[carto-chat-vps] /ask-async error:", e);
       })
@@ -217,13 +370,54 @@ function startJobOnSlot(job) {
   });
 }
 
-function enqueueAsk({ prompt, endMarker, timeoutMs, promptPreview, companyHint }) {
+function enqueueAsk({
+  prompt,
+  endMarker,
+  timeoutMs,
+  promptPreview,
+  companyHint,
+  effortLevel,
+  kind: kindExplicit,
+  steps,
+}) {
+  const stepList = Array.isArray(steps)
+    ? steps
+        .map((s) => ({
+          prompt: String(s?.prompt || "").trim(),
+          endMarker: String(s?.endMarker || "").trim(),
+        }))
+        .filter((s) => s.prompt.length >= 8)
+    : [];
+
+  // Marker public = dernier tour (mail) pour read-last / poll UI.
   const marker =
+    (stepList.length
+      ? stepList[stepList.length - 1].endMarker
+      : endMarker) ||
     endMarker ||
     `GLOWUP_CART_DONE_${Date.now().toString(36)}`;
+
+  if (stepList.length) {
+    for (const s of stepList) {
+      if (!s.endMarker) s.endMarker = `GLOWUP_CART_DONE_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    }
+    stepList[stepList.length - 1].endMarker = marker;
+  }
+
   if (jobs.has(marker) && ["queued", "running"].includes(jobs.get(marker).state)) {
     return { error: "Ce marker a déjà un job actif", status: 409 };
   }
+
+  const effortN = Number(effortLevel);
+  const effortOk =
+    Number.isFinite(effortN) && effortN >= 1 && effortN <= 5
+      ? effortN
+      : undefined;
+  const mainPrompt =
+    stepList.length > 0
+      ? stepList.map((s) => s.prompt).join("\n\n---\n\n")
+      : prompt;
+  const kind = detectJobKind(mainPrompt, kindExplicit);
 
   const startedAt = Date.now();
   const job = {
@@ -232,20 +426,30 @@ function enqueueAsk({ prompt, endMarker, timeoutMs, promptPreview, companyHint }
     finishedAt: 0,
     answerChars: 0,
     error: null,
-    promptPreview,
+    promptPreview:
+      promptPreview ||
+      (stepList.length
+        ? `Pipeline ${stepList.length} tours · ${(companyHint || extractCompanyHint(mainPrompt) || "").slice(0, 40)}`
+        : undefined),
     endMarker: marker,
     answer: "",
     markerInjected: false,
     markerSource: "",
     slotId: null,
-    companyHint: companyHint || extractCompanyHint(prompt),
-    prompt,
+    companyHint: companyHint || extractCompanyHint(mainPrompt),
+    prompt: mainPrompt,
+    steps: stepList.length ? stepList : undefined,
     timeoutMs,
+    effortLevel: effortOk,
+    kind,
+    pipelineStep: 0,
+    pipelineTotal: stepList.length || 1,
+    stepAnswers: [],
   };
   jobs.set(marker, job);
   queue.push(marker);
   console.log(
-    `[carto-chat-vps] enqueue marker=${marker} hint=${job.companyHint || "—"} free=${driver.slotsInfo().free}`
+    `[carto-chat-vps] enqueue kind=${kind} marker=${marker} steps=${stepList.length || 1} hint=${job.companyHint || "—"} free=${driver.slotsInfo().free} cartoRunning=${countRunningByKind("carto")}/${CARTO_MAX_SLOTS} queue=${queue.length}`
   );
   pumpQueue();
   return { job: publicJob(jobs.get(marker)), status: 202 };
@@ -334,6 +538,12 @@ const server = http.createServer(async (req, res) => {
       jobs: jobsList,
       queueLength: queue.length,
       anyCertified,
+      cartoMaxSlots: CARTO_MAX_SLOTS,
+      cartoRunning: countRunningByKind("carto"),
+      outreachRunning: countRunningByKind("outreach"),
+      outreachQueued: queue.filter((m) => jobs.get(m)?.kind === "outreach")
+        .length,
+      cartoQueued: queue.filter((m) => jobs.get(m)?.kind === "carto").length,
     });
   }
 
@@ -347,9 +557,14 @@ const server = http.createServer(async (req, res) => {
       }
       const promptPreview = prompt.slice(0, 80).replace(/\n/g, " ");
       const started = Date.now();
+      const effortN = Number(body.effortLevel);
       const result = await driver.ask(prompt, {
         timeoutMs: body.timeoutMs ? Number(body.timeoutMs) : undefined,
         endMarker: endMarker || undefined,
+        effortLevel:
+          Number.isFinite(effortN) && effortN >= 1 && effortN <= 5
+            ? effortN
+            : undefined,
       });
       const finalized = finalizeAskResult(
         result,
@@ -388,16 +603,32 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       const prompt = String(body.prompt || "").trim();
       const endMarker = String(body.endMarker || "").trim();
-      if (prompt.length < 8) {
-        return send(res, 400, { error: "prompt requis" });
+      const steps = Array.isArray(body.steps) ? body.steps : null;
+      if ((!steps || steps.length === 0) && prompt.length < 8) {
+        return send(res, 400, { error: "prompt ou steps requis" });
       }
-      const promptPreview = prompt.slice(0, 80).replace(/\n/g, " ");
+      const promptPreview = (
+        steps?.length
+          ? `Pipeline ${steps.length} tours`
+          : prompt.slice(0, 80)
+      ).replace(/\n/g, " ");
+      const effortN = Number(body.effortLevel);
       const out = enqueueAsk({
         prompt,
         endMarker,
+        steps,
         timeoutMs: body.timeoutMs ? Number(body.timeoutMs) : undefined,
         promptPreview,
-        companyHint: extractCompanyHint(prompt),
+        companyHint: extractCompanyHint(
+          steps?.length
+            ? steps.map((s) => String(s?.prompt || "")).join("\n")
+            : prompt
+        ),
+        effortLevel:
+          Number.isFinite(effortN) && effortN >= 1 && effortN <= 5
+            ? effortN
+            : undefined,
+        kind: body.kind,
       });
       if (out.error) {
         return send(res, out.status || 409, { error: out.error });
@@ -411,6 +642,52 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       return send(res, 500, {
         error: e instanceof Error ? e.message : "Erreur ask-async",
+      });
+    }
+  }
+
+  if (req.method === "POST" && url.pathname === "/cancel") {
+    try {
+      const body = await readJson(req).catch(() => ({}));
+      const marker = String(body.endMarker || "").trim();
+      if (!marker) {
+        return send(res, 400, { error: "endMarker requis" });
+      }
+      const job = jobs.get(marker);
+      if (!job) {
+        await driver.cancelMarker(marker);
+        return send(res, 404, { error: "job introuvable", endMarker: marker });
+      }
+      if (job.state === "queued") {
+        const qi = queue.indexOf(marker);
+        if (qi >= 0) queue.splice(qi, 1);
+        jobs.set(marker, {
+          ...job,
+          state: "error",
+          finishedAt: Date.now(),
+          error: "Annulé",
+        });
+        return send(res, 200, { ok: true, cancelled: true, state: "queued" });
+      }
+      if (job.state === "running") {
+        await driver.cancelMarker(marker);
+        // Le .catch/.finally de startJobOnSlot finalisera + libérera le slot.
+        return send(res, 200, {
+          ok: true,
+          cancelled: true,
+          state: "running",
+          endMarker: marker,
+        });
+      }
+      return send(res, 200, {
+        ok: true,
+        cancelled: false,
+        state: job.state,
+        message: "déjà terminé",
+      });
+    } catch (e) {
+      return send(res, 500, {
+        error: e instanceof Error ? e.message : "Erreur cancel",
       });
     }
   }
@@ -519,10 +796,10 @@ async function main() {
   server.listen(PORT, BIND, () => {
     console.log(`[carto-chat-vps] listening http://${BIND}:${PORT}`);
     console.log(
-      `[carto-chat-vps] parallel slots=${driver.slotsInfo().total}`
+      `[carto-chat-vps] parallel slots=${driver.slotsInfo().total} · cartoMax=${CARTO_MAX_SLOTS} · outreachMax=${OUTREACH_MAX_SLOTS} (priorité carto)`
     );
     console.log(`[carto-chat-vps] health → GET /health`);
-    console.log(`[carto-chat-vps] ask    → POST /ask-async { prompt, endMarker }`);
+    console.log(`[carto-chat-vps] ask    → POST /ask-async { prompt, endMarker, kind? }`);
   });
 }
 

@@ -330,6 +330,7 @@ export async function startChatVps(opts: {
     prompt,
     timeoutMs: 540_000,
     endMarker,
+    kind: "carto",
   });
   return {
     ok: true,

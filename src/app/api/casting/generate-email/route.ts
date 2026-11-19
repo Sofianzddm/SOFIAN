@@ -21,6 +21,17 @@ import {
 } from "@/lib/draft-prep-brief";
 import { isTalentIndividualProspectingBrief } from "@/lib/project-research-brief";
 import { sanitizePresentationExcerpt } from "@/lib/campaign-presentation-text";
+import {
+  buildGrokCastingOutreachGoldPrompt,
+  isJoeySender,
+} from "@/lib/outreach-mail-vps/prompt";
+import {
+  assertOutreachVpsMailQuality,
+  ensureJoeyGoldIntroHtml,
+  ensureOutreachCtaBoldHtml,
+  ensureOutreachMailClosingHtml,
+  rewriteFactoryOutreachSubject,
+} from "@/lib/outreach-mail-vps/parse";
 
 export const maxDuration = 180;
 
@@ -191,6 +202,12 @@ export interface GenerateEmailBody {
    * Emails destinataires cochés — pour chercher un vrai échange Leyna (réponse client).
    */
   recipientEmails?: string[];
+  /** Expéditeur Gmail (joey@… → cold gold ; leyna@… → histo + gold). */
+  fromEmail?: string | null;
+  /** Statut cycle outreach (TO_CONTACT, etc.). */
+  outreachStatus?: string | null;
+  /** Joey : ne pas scanner la boîte Leyna. */
+  skipLeynaScan?: boolean;
   /** Agence destinataire si distincte de la marque pitchée (ex. Nice Work vs Kiko). */
   agencyName?: string | null;
   /** Brief pré-rédaction partagé (composer + batch). */
@@ -1382,8 +1399,29 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
       }>;
     };
 
+    const fromEmailRaw = String(
+      (body as GenerateEmailBody).fromEmail || ""
+    )
+      .trim()
+      .toLowerCase();
+    const joeyCold =
+      isJoeySender(fromEmailRaw) || body.skipLeynaScan === true;
+
     let leynaExchange: LeynaRuntime | null = null;
-    if (cacheUsable && cacheIn) {
+    if (joeyCold) {
+      leynaExchange = {
+        hasExchange: false,
+        hasSentNoReplyOnly: false,
+        tone: null,
+        bannerLabel: "Joey · branche A cold · pas de scan Leyna",
+        alerts: [],
+        promptBlockFr: "",
+        promptBlockEn: "",
+        scanStatus: "empty",
+        fetchedAt: new Date().toISOString(),
+        contacts: [],
+      };
+    } else if (cacheUsable && cacheIn) {
       leynaExchange = {
         hasExchange: Boolean(cacheIn.hasExchange),
         hasSentNoReplyOnly: Boolean(cacheIn.hasSentNoReplyOnly),
@@ -1958,9 +1996,73 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
 }
 `;
 
+    // Casting outreach clients → prompt gold Joey/Leyna (plus le vieux media-kits).
+    // Projets / condensation gardent le prompt existant.
+    const useGoldCasting = !isProjectMail;
+    const brandContextForGold = [
+      `Marque : ${brandName}`,
+      `Nouveautés / collections : ${newProducts || "—"}`,
+      `Disponibilité : ${availabilityFrEu || "—"}`,
+      `Positionnement : ${brandPositioning || "—"}`,
+      `Stratégie influence : ${influenceStrategy || "—"}`,
+      body.outreachStatus
+        ? `Statut cycle : ${String(body.outreachStatus)}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const leynaHistoryForGold =
+      language === "en"
+        ? String(leynaExchange?.promptBlockEn || "").trim() ||
+          String(leynaExchange?.promptBlockFr || "").trim()
+        : String(leynaExchange?.promptBlockFr || "").trim();
+
+    const recipientEmailSet = new Set(
+      recipientEmails.map((e) => e.trim().toLowerCase()).filter((e) => e.includes("@"))
+    );
+    const hasDirectRecipientExchange =
+      !joeyCold &&
+      Boolean(
+        leynaExchange?.contacts?.some((c) => {
+          const em = String(c.email || "")
+            .trim()
+            .toLowerCase();
+          return (
+            c.status !== "sent_no_reply" &&
+            em.includes("@") &&
+            (recipientEmailSet.size === 0
+              ? false
+              : recipientEmailSet.has(em))
+          );
+        })
+      );
+
+    const goldPrompt = useGoldCasting
+      ? buildGrokCastingOutreachGoldPrompt({
+          brandName,
+          language,
+          fromEmail: fromEmailRaw || (joeyCold ? "joey@glowupagence.fr" : "leyna@glowupagence.fr"),
+          talentbookUrl,
+          firstNameToken,
+          brandNameToken,
+          talentsBlock: talentsString,
+          brandContext: brandContextForGold,
+          leynaHistoryBlock: joeyCold ? "" : leynaHistoryForGold,
+          useTutoiement: Boolean(useTutoiement) && !joeyCold && hasDirectRecipientExchange,
+          hasDirectRecipientExchange: joeyCold
+            ? false
+            : hasDirectRecipientExchange,
+        })
+      : null;
+
     let text: string;
     try {
-      text = await xaiResponse(GROK_SYSTEM_PROMPT);
+      text = await xaiResponse(goldPrompt || GROK_SYSTEM_PROMPT, {
+        model: "grok-4.20-reasoning",
+        tools: useGoldCasting ? [{ type: "web_search" }] : undefined,
+        timeoutMs: 150_000,
+      });
     } catch (e: unknown) {
       console.error("x.ai generate-email:", e);
       const msg = e instanceof Error ? e.message : "Erreur API x.ai.";
@@ -2011,10 +2113,10 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
       }
 
       // Garantit lien Instagram sur chaque nom de talent (solo inclus).
-      const asHtml = parsed.body.trim().startsWith("<")
+      let asHtml = parsed.body.trim().startsWith("<")
         ? parsed.body
         : plainTextToEmailHtml(parsed.body) || parsed.body;
-      parsed.body = upgradeTalentLinksInHtml(
+      asHtml = upgradeTalentLinksInHtml(
         asHtml,
         body.talents.map((t) => {
           const parts = String(t.name || "").trim().split(/\s+/);
@@ -2024,13 +2126,60 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
         })
       );
 
-      if (isProjectMail) {
-        parsed.body = stripTalentbookFromHtml(parsed.body);
+      if (useGoldCasting) {
+        if (joeyCold) {
+          asHtml = ensureJoeyGoldIntroHtml(asHtml);
+        }
+        asHtml = ensureOutreachCtaBoldHtml(asHtml);
+        asHtml = ensureOutreachMailClosingHtml(asHtml, {
+          language,
+        });
+        // Filet : inventer un fil perso alors qu’il n’y a pas d’échange direct CRM.
+        if (
+          !joeyCold &&
+          !hasDirectRecipientExchange &&
+          /on avait [ée]chang|suite [àa] nos [ée]changes|suite [àa] notre [ée]change|je reviens vers (toi|vous)|certains profils t['’]avaient plu|comme on en avait parl/i.test(
+            asHtml
+          )
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "FALSE_PERSONAL_HISTORY — refus (ancrage « on avait échangé » sans fil direct avec ces destinataires).",
+              code: "GOLD_QUALITY_REJECT",
+            },
+            { status: 422 }
+          );
+        }
+        try {
+          assertOutreachVpsMailQuality(asHtml, {
+            joey: joeyCold,
+            requiredTalentNames: body.talents.map((t) => t.name),
+          });
+        } catch (qe) {
+          const msg = qe instanceof Error ? qe.message : "Qualité mail refusée";
+          return NextResponse.json(
+            { error: msg, code: "GOLD_QUALITY_REJECT" },
+            { status: 422 }
+          );
+        }
+        parsed.subject = rewriteFactoryOutreachSubject(
+          parsed.subject,
+          brandName
+        );
+      } else if (isProjectMail) {
+        asHtml = stripTalentbookFromHtml(asHtml);
+        parsed.subject = ensureBrandInSubject(parsed.subject, brandNameToken);
+      } else {
+        parsed.subject = ensureBrandInSubject(parsed.subject, brandNameToken);
       }
-      parsed.body = stripDuplicateGreeting(parsed.body);
+
+      parsed.body = stripDuplicateGreeting(asHtml);
       parsed.body = stripOwnerFirstnameToken(parsed.body);
 
-      parsed.subject = ensureBrandInSubject(parsed.subject, brandNameToken);
+      if (!useGoldCasting) {
+        parsed.subject = ensureBrandInSubject(parsed.subject, brandNameToken);
+      }
 
       return NextResponse.json({
         ...parsed,

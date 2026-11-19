@@ -14,6 +14,7 @@ import {
   type BrandResearchInput,
   type RosterFitItem,
 } from "@/lib/casting-roster-fit-core";
+import { countFitChainedContaboInFlight } from "@/lib/casting-contabo-global-lock";
 
 export type CreateRosterFitJobBrandInput = {
   groupKey: string;
@@ -54,6 +55,25 @@ export async function createRosterFitJob(args: {
     throw new Error("talentIds et brands requis.");
   }
 
+  // Avant un nouvel Analyser : coupe les Contabo orphelins (reset / run
+  // précédent) pour ne pas bloquer la file 1-à-1.
+  try {
+    const { cancelOrphanOutreachContaboJobs } = await import(
+      "@/lib/carto-chat-vps/vps-client"
+    );
+    const swept = await cancelOrphanOutreachContaboJobs();
+    if (swept.cancelled > 0) {
+      console.info(
+        `[roster-fit] Contabo orphelins annulés: ${swept.cancelled}`
+      );
+    }
+  } catch (e) {
+    console.warn(
+      "[roster-fit] sweep Contabo soft-fail:",
+      e instanceof Error ? e.message : e
+    );
+  }
+
   const job = await prisma.castingRosterFitJob.create({
     data: {
       userId: args.userId,
@@ -88,12 +108,23 @@ export async function requestCancelRosterFitJob(jobId: string, userId: string) {
   if (["completed", "failed", "cancelled"].includes(job.status)) {
     return job;
   }
+  // Stop Contabo aussi (sinon orphelins après Stop / reset).
+  try {
+    const { cancelOrphanOutreachContaboJobs } = await import(
+      "@/lib/carto-chat-vps/vps-client"
+    );
+    await cancelOrphanOutreachContaboJobs();
+  } catch {
+    /* soft */
+  }
+  // Toujours passer en cancelled (sinon le poll UI reste sur status=running).
   return prisma.castingRosterFitJob.update({
     where: { id: jobId },
     data: {
       cancelRequested: true,
-      status: job.status === "pending" ? "cancelled" : job.status,
-      finishedAt: job.status === "pending" ? new Date() : job.finishedAt,
+      status: "cancelled",
+      finishedAt: new Date(),
+      currentBrandName: null,
     },
   });
 }
@@ -164,15 +195,64 @@ export async function processRosterFitJobTick(
     };
   }
 
+  // updateMany + garde cancel : un DELETE concurrent ne doit pas être
+  // écrasé (sinon cancelRequested=true + status=running → Stop « relance »).
   if (job.status === "pending") {
-    await prisma.castingRosterFitJob.update({
-      where: { id: jobId },
+    const promoted = await prisma.castingRosterFitJob.updateMany({
+      where: {
+        id: jobId,
+        status: "pending",
+        cancelRequested: false,
+      },
       data: { status: "running", startedAt: job.startedAt || new Date() },
     });
+    if (promoted.count === 0) {
+      const again = await prisma.castingRosterFitJob.findUnique({
+        where: { id: jobId },
+        select: { cancelRequested: true, status: true, finishedAt: true },
+      });
+      if (
+        again?.cancelRequested ||
+        again?.status === "cancelled"
+      ) {
+        await prisma.castingRosterFitJob.update({
+          where: { id: jobId },
+          data: {
+            status: "cancelled",
+            finishedAt: again.finishedAt || new Date(),
+            currentBrandName: null,
+          },
+        });
+        return {
+          processed: 0,
+          done: true,
+          status: "cancelled",
+          currentBrandName: null,
+        };
+      }
+    }
   }
 
   let processed = 0;
   let lastBrand: string | null = null;
+
+  // Worker mort mid-fit → marque restée « running » → job bloqué à jamais.
+  const STUCK_RUNNING_MS = 2 * 60_000;
+  await prisma.castingRosterFitBrand.updateMany({
+    where: {
+      jobId,
+      status: "running",
+      OR: [
+        { startedAt: { lt: new Date(Date.now() - STUCK_RUNNING_MS) } },
+        { startedAt: null },
+      ],
+    },
+    data: {
+      status: "pending",
+      startedAt: null,
+      error: "Recovered stuck running brand (worker)",
+    },
+  });
 
   for (let i = 0; i < limit; i++) {
     const fresh = await prisma.castingRosterFitJob.findUnique({
@@ -201,6 +281,32 @@ export async function processRosterFitJobTick(
     });
     if (!next) break;
 
+    // Pipeline 1-à-1 : analyse → Fit → Contabo VPS terminé, puis marque suivante.
+    // Sans ce gate, le Fit enchaîne les marques pendant que Contabo en empile 2–3.
+    // (Uniquement s’il reste une marque à fitter — sinon on laisse terminer le job Fit.)
+    const contaboInFlight = await countFitChainedContaboInFlight({
+      fitJobId: jobId,
+      userId: fresh.userId,
+      market: String(fresh.market || ""),
+    });
+    if (contaboInFlight > 0) {
+      const waitLabel = "Attente serveur (1 marque à la fois)".slice(0, 80);
+      await prisma.castingRosterFitJob.updateMany({
+        where: {
+          id: jobId,
+          cancelRequested: false,
+          status: { not: "cancelled" },
+        },
+        data: { currentBrandName: waitLabel, status: "running" },
+      });
+      return {
+        processed,
+        done: false,
+        status: "running",
+        currentBrandName: waitLabel,
+      };
+    }
+
     lastBrand = next.brandName;
     // Claim atomique (évite double process si 2 workers).
     const claimed = await prisma.castingRosterFitBrand.updateMany({
@@ -209,42 +315,166 @@ export async function processRosterFitJobTick(
     });
     if (claimed.count === 0) continue;
 
-    await prisma.castingRosterFitJob.update({
-      where: { id: jobId },
+    // Ne jamais écraser un cancel (sinon Arrêter casting « revient »).
+    const keepAlive = await prisma.castingRosterFitJob.updateMany({
+      where: {
+        id: jobId,
+        cancelRequested: false,
+        status: { not: "cancelled" },
+      },
       data: { currentBrandName: next.brandName, status: "running" },
     });
+    if (keepAlive.count === 0) {
+      await prisma.castingRosterFitBrand.updateMany({
+        where: { id: next.id, status: "running" },
+        data: {
+          status: "pending",
+          startedAt: null,
+          error: null,
+        },
+      });
+      return {
+        processed,
+        done: true,
+        status: "cancelled",
+        currentBrandName: null,
+      };
+    }
 
     try {
       let research = normalizeBrandResearch(next.brandResearch);
       // Brief manquant → analyse marque serveur (survit à la fermeture / VPS).
       if (!hasBrandResearchBrief(research)) {
-        const url = `${appBaseUrl()}/api/casting/brand-research`;
-        const brRes = await fetch(url, {
-          method: "POST",
-          headers: internalJobHeaders(),
-          body: JSON.stringify({
-            brandName: next.brandName,
-            availabilityFocus:
-              String(job.market || "").includes("BENELUX") &&
-              job.market !== "BOTH"
-                ? "BE"
-                : "FR",
-          }),
+        await prisma.castingRosterFitJob.updateMany({
+          where: {
+            id: jobId,
+            cancelRequested: false,
+            status: { not: "cancelled" },
+          },
+          data: {
+            currentBrandName: `AI · Analyse marque · ${next.brandName}`.slice(
+              0,
+              80
+            ),
+          },
         });
-        const brData = (await brRes.json().catch(() => ({}))) as BrandResearchInput & {
-          error?: string;
-        };
-        if (!brRes.ok || brData.error) {
-          throw new Error(
-            brData.error ||
-              `Analyse marque impossible (HTTP ${brRes.status})`
-          );
+        const focus: "FR" | "BE" =
+          String(job.market || "").includes("BENELUX") &&
+          job.market !== "BOTH"
+            ? "BE"
+            : "FR";
+
+        // In-process si XAI dispo (worker VPS / local) — évite 401 self-HTTP
+        // et les `error: {…}` → "[object Object]".
+        let brData: BrandResearchInput | null = null;
+        if (process.env.XAI_API_KEY?.trim()) {
+          try {
+            const { researchOneBrand } = await import(
+              "@/app/api/casting/brand-research/route"
+            );
+            brData = normalizeBrandResearch(
+              await researchOneBrand(next.brandName, focus)
+            );
+          } catch (e) {
+            const msg =
+              e instanceof Error
+                ? e.message
+                : typeof e === "string"
+                  ? e
+                  : JSON.stringify(e).slice(0, 400);
+            throw new Error(
+              msg || `Analyse marque impossible (${next.brandName})`
+            );
+          }
+        } else {
+          const url = `${appBaseUrl()}/api/casting/brand-research`;
+          const brRes = await fetch(url, {
+            method: "POST",
+            headers: internalJobHeaders(),
+            body: JSON.stringify({
+              brandName: next.brandName,
+              availabilityFocus: focus,
+            }),
+          });
+          const raw = (await brRes.json().catch(() => ({}))) as BrandResearchInput & {
+            error?: unknown;
+          };
+          if (!brRes.ok || raw.error) {
+            const errMsg =
+              typeof raw.error === "string"
+                ? raw.error
+                : raw.error
+                  ? JSON.stringify(raw.error).slice(0, 400)
+                  : `Analyse marque impossible (HTTP ${brRes.status})`;
+            throw new Error(errMsg);
+          }
+          brData = normalizeBrandResearch(raw);
         }
-        research = normalizeBrandResearch(brData);
+
+        const afterBr = await prisma.castingRosterFitJob.findUnique({
+          where: { id: jobId },
+          select: { cancelRequested: true, status: true },
+        });
+        if (
+          !afterBr ||
+          afterBr.cancelRequested ||
+          afterBr.status === "cancelled"
+        ) {
+          await prisma.castingRosterFitBrand.updateMany({
+            where: { id: next.id, status: "running" },
+            data: {
+              status: "pending",
+              startedAt: null,
+              error: null,
+            },
+          });
+          await prisma.castingRosterFitJob.update({
+            where: { id: jobId },
+            data: {
+              status: "cancelled",
+              finishedAt: new Date(),
+              currentBrandName: null,
+            },
+          });
+          return {
+            processed,
+            done: true,
+            status: "cancelled",
+            currentBrandName: null,
+          };
+        }
+        research = brData;
         await prisma.castingRosterFitBrand.update({
           where: { id: next.id },
           data: { brandResearch: research as object },
         });
+      }
+
+      const keepFitLabel = await prisma.castingRosterFitJob.updateMany({
+        where: {
+          id: jobId,
+          cancelRequested: false,
+          status: { not: "cancelled" },
+        },
+        data: {
+          currentBrandName: `AI · Fit casting · ${next.brandName}`.slice(0, 80),
+        },
+      });
+      if (keepFitLabel.count === 0) {
+        await prisma.castingRosterFitBrand.updateMany({
+          where: { id: next.id, status: "running" },
+          data: {
+            status: "pending",
+            startedAt: null,
+            error: null,
+          },
+        });
+        return {
+          processed,
+          done: true,
+          status: "cancelled",
+          currentBrandName: null,
+        };
       }
 
       const talents = await runRosterFitForBrand({
@@ -269,21 +499,31 @@ export async function processRosterFitJobTick(
       processed += 1;
       // Await obligatoire : un `void` est tué dès la fin du tick serverless Vercel,
       // donc aucun Casting*DraftJob n’était créé après le fit.
-      try {
-        await maybeChainDraftAfterBrandDone(job, {
-          groupKey: next.groupKey,
-          brandName: next.brandName,
-          company: next.company,
-          pipeline: next.pipeline,
-          targetIds: next.targetIds || [],
-          brandResearch: research,
-          result: talents,
-        });
-      } catch (e) {
-        console.warn(
-          `[roster-fit-job] chain draft after brand ${next.brandName}:`,
-          e
-        );
+      const stillLive = await prisma.castingRosterFitJob.findUnique({
+        where: { id: jobId },
+        select: { cancelRequested: true, status: true },
+      });
+      if (
+        stillLive &&
+        !stillLive.cancelRequested &&
+        stillLive.status !== "cancelled"
+      ) {
+        try {
+          await maybeChainDraftAfterBrandDone(job, {
+            groupKey: next.groupKey,
+            brandName: next.brandName,
+            company: next.company,
+            pipeline: next.pipeline,
+            targetIds: next.targetIds || [],
+            brandResearch: research,
+            result: talents,
+          });
+        } catch (e) {
+          console.warn(
+            `[roster-fit-job] chain draft after brand ${next.brandName}:`,
+            e
+          );
+        }
       }
     } catch (e) {
       const msg =
@@ -313,6 +553,25 @@ export async function processRosterFitJobTick(
     const finalJob = await prisma.castingRosterFitJob.findUnique({
       where: { id: jobId },
     });
+    if (
+      finalJob?.cancelRequested ||
+      finalJob?.status === "cancelled"
+    ) {
+      await prisma.castingRosterFitJob.update({
+        where: { id: jobId },
+        data: {
+          status: "cancelled",
+          finishedAt: finalJob.finishedAt || new Date(),
+          currentBrandName: null,
+        },
+      });
+      return {
+        processed,
+        done: true,
+        status: "cancelled",
+        currentBrandName: null,
+      };
+    }
     const status =
       finalJob && finalJob.failed > 0 && finalJob.completed === 0
         ? "failed"
@@ -455,14 +714,16 @@ async function maybeChainDraftAfterBrandDone(
   const talentIds = autoPickTalentIdsFromFitResult(brand.result, 8);
   if (targetIds.length === 0 || talentIds.length === 0) return;
 
+  // Ne bloque que si une rédac est vraiment en cours — un vieux « done »
+  // (même job completed) ne doit pas empêcher une relance après nouveau fit.
   const already = await prisma.castingOutreachDraftItem.findFirst({
     where: {
       groupKey: brand.groupKey,
-      status: { in: ["pending", "running", "done"] },
+      status: { in: ["pending", "running"] },
       job: {
         userId: fitJob.userId,
         market,
-        status: { in: ["pending", "running", "completed"] },
+        status: { in: ["pending", "running"] },
       },
     },
     select: { id: true },

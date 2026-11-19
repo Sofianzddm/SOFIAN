@@ -17,6 +17,7 @@ import {
   Eye,
   Pencil,
   Linkedin,
+  Check,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import EmailComposer from "./EmailComposer";
@@ -30,6 +31,7 @@ import {
   normalizeEditorHtmlForEmail,
   plainTextToEmailHtml,
 } from "@/lib/email-body-html";
+import { ensureContactFirstnameToken } from "@/lib/outreach-mail-vps/ensure-contact-firstname-token";
 import { isBelgianPays } from "@/lib/pays";
 import {
   buildDraftPrepBrief,
@@ -362,6 +364,8 @@ export interface CastingComposerProps {
     whyRelevant: string;
     proofPoints: string;
     sourcesUsed?: string;
+    suggestedAngle?: string;
+    castingWhyFit?: string;
   }> | null;
   onTalentResearchCached?: (
     brandName: string,
@@ -375,6 +379,8 @@ export interface CastingComposerProps {
       whyRelevant: string;
       proofPoints: string;
       sourcesUsed?: string;
+      suggestedAngle?: string;
+      castingWhyFit?: string;
     }>
   ) => void;
   /**
@@ -424,6 +430,16 @@ export interface CastingComposerProps {
    * `inline` : panneau intégré dans la page (projets outreach / Rédaction).
    */
   variant?: "modal" | "inline";
+  /**
+   * Boîte d’envoi portefeuille (outreach clients). Sert à l’intro Joey
+   * en premier contact uniquement.
+   */
+  fromEmail?: string | null;
+  /**
+   * Statut cycle Outreach Clients (`TO_CONTACT` = premier contact).
+   * Intro Joey uniquement si TO_CONTACT — jamais TO_RECONTACT.
+   */
+  outreachStatus?: "TO_CONTACT" | "WAITING" | "TO_RECONTACT" | "STOPPED" | string | null;
   onClose: () => void;
   onSaved: (
     status: "en_cours" | "pret" | "reset",
@@ -474,6 +490,8 @@ export default function CastingComposer({
   initialLeynaExchange = null,
   onLeynaExchangeCached,
   variant = "modal",
+  fromEmail = null,
+  outreachStatus = null,
   onClose,
   onSaved,
   onError,
@@ -717,12 +735,27 @@ export default function CastingComposer({
       whyRelevant: string;
       proofPoints: string;
       sourcesUsed?: string;
+      suggestedAngle?: string;
+      castingWhyFit?: string;
     }> | null
   >(null);
   const prevSelectedTalentKeyRef = useRef<string | null>(null);
   const [isResearching, setIsResearching] = useState(false);
   const [isResearchingTalent, setIsResearchingTalent] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [chatVpsFilBusy, setChatVpsFilBusy] = useState(false);
+  const [chatVpsFilStatus, setChatVpsFilStatus] = useState("");
+  const chatVpsFilAbortRef = useRef(false);
+  const [chatVpsRecap, setChatVpsRecap] = useState<{
+    notes: string;
+    hasExchange: boolean | null;
+    historySummary: string;
+    brandAnalysis?: string;
+    influenceSummary: string;
+    talentWhySummary?: string;
+    otherInfo: string;
+    alerts: string[];
+  } | null>(null);
   const [leynaExchange, setLeynaExchange] = useState<{
     hasExchange: boolean;
     hasSentNoReplyOnly?: boolean;
@@ -1076,6 +1109,9 @@ export default function CastingComposer({
       setLeynaExchange(null);
       setLeynaExchangeChecked(false);
     }
+    setChatVpsRecap(null);
+    setChatVpsFilBusy(false);
+    setChatVpsFilStatus("");
     setPrepBriefConfirmed(false);
     // Client EN (fiche CRM / mission) → anglais d'emblée.
     setEmailLanguage(resolveClientEmailLanguage(contact) || defaultLanguage);
@@ -1591,9 +1627,16 @@ export default function CastingComposer({
     setPrepBriefConfirmed(false);
   }, [selectedTalentKey, effectiveTalentResearch, talentResearch]);
 
+  /** Brouillon déjà prêt (ex. Chat VPS / wizard) → mode contrôle, pas re-pipeline. */
+  const hasIncomingDraft = Boolean(
+    (contact?.initialSubject || "").trim() &&
+      (contact?.initialBodyHtml || "").trim()
+  );
+
   /** Synthèse pré-rédaction (pipeline talent×marque + projets). */
   const showPrepBrief =
-    Boolean(contact?.missionBrief) || Boolean(effectiveTalentResearch);
+    !hasIncomingDraft &&
+    (Boolean(contact?.missionBrief) || Boolean(effectiveTalentResearch));
 
   const draftPrepBrief: DraftPrepBrief | null = useMemo(() => {
     if (!showPrepBrief || !contact) return null;
@@ -1722,11 +1765,8 @@ export default function CastingComposer({
           ...(typeof eng === "number" ? { engagementRate: eng } : {}),
         };
       });
-      // Client anglais → génération systématiquement en EN.
-      const genLanguage =
-        resolveClientEmailLanguage(contact, selectedRecipientIds) === "en"
-          ? "en"
-          : emailLanguage;
+      // Brouillon = toujours FR ; traduction EN à l’envoi (langue contact).
+      const genLanguage: "fr" | "en" = "fr";
       if (genLanguage !== emailLanguage) setEmailLanguage(genLanguage);
 
       const res = await fetch("/api/casting/generate-email", {
@@ -1743,6 +1783,8 @@ export default function CastingComposer({
           talents: talentsPayload,
           recipientEmails: selectedRecipientEmails,
           requireLeynaScan: true,
+          fromEmail: fromEmail || undefined,
+          outreachStatus: outreachStatus || undefined,
           missionStage: contact.missionBrief?.stage || null,
           draftPrepBrief: draftPrepBrief || undefined,
           // Revue négo lue + bouton « Revue faite » → autorise la rédaction manuelle.
@@ -1847,9 +1889,15 @@ export default function CastingComposer({
       }
       const subjectNext = typeof data.subject === "string" ? data.subject : "";
       let bodyNext = typeof data.body === "string" ? data.body : "";
-      const asHtml = bodyNext.trim().startsWith("<")
-        ? bodyNext
-        : plainTextToEmailHtml(bodyNext) || "<p></p>";
+      const knownFirstnames = (contact?.contacts || [])
+        .map((c) => String(c.firstname || "").trim())
+        .filter(Boolean);
+      const asHtml = ensureContactFirstnameToken(
+        bodyNext.trim().startsWith("<")
+          ? bodyNext
+          : plainTextToEmailHtml(bodyNext) || "<p></p>",
+        knownFirstnames
+      );
       // Nom du talent toujours en extralink Instagram cliquable.
       const linkedHtml = ensureTalentExtralinksInHtml(
         upgradeTalentLinksInHtml(
@@ -1907,6 +1955,439 @@ export default function CastingComposer({
     isCondensation,
     orderedCondensationBriefs,
     selectedRecipientEmails,
+    fromEmail,
+    outreachStatus,
+  ]);
+
+  /** Fil serveur depuis le composer outreach (1 marque). */
+  const runChatVpsFil = useCallback(async () => {
+    if (!contact || chatVpsFilBusy) return;
+    if (selectedTalents.length === 0) {
+      onError("Sélectionne au moins un talent dans la colonne de gauche.");
+      return;
+    }
+    const pitch = (researchBrandName || contact.company || "").trim();
+    if (!pitch) {
+      onError("Choisis d’abord la marque pitchée.");
+      return;
+    }
+
+    const talentsPayload = selectedTalents.map((t) => {
+      const tr = (talentResearch || []).find(
+        (r) =>
+          r.talentId === t.id ||
+          r.name.toLowerCase() === `${t.prenom} ${t.nom}`.trim().toLowerCase()
+      ) as
+        | {
+            whoTheyAre?: string;
+            whatTheyDo?: string;
+            profileAnalysis?: string;
+            contentThemes?: string;
+            whyRelevant?: string;
+            proofPoints?: string;
+            suggestedAngle?: string;
+            castingWhyFit?: string;
+          }
+        | undefined;
+      return {
+        name: `${t.prenom} ${t.nom}`.trim(),
+        instagram: t.instagram || null,
+        niches: t.niches || [],
+        pays: t.pays || null,
+        igFollowers: t.igFollowers || 0,
+        ttFollowers: t.ttFollowers || 0,
+        igEngagement: t.igEngagement || 0,
+        ttEngagement: t.ttEngagement || 0,
+        whoTheyAre: tr?.whoTheyAre || "",
+        whatTheyDo: tr?.whatTheyDo || "",
+        profileAnalysis: tr?.profileAnalysis || "",
+        contentThemes: tr?.contentThemes || "",
+        whyRelevant: tr?.whyRelevant || "",
+        proofPoints: tr?.proofPoints || "",
+        suggestedAngle: tr?.suggestedAngle || "",
+        castingWhyFit: tr?.castingWhyFit || "",
+      };
+    });
+    const rosterAnalysis = {
+      brandAnalysis: [
+        brandResearch?.brandPositioning || "",
+        brandResearch?.influenceStrategy || "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      selectionLogic: "",
+      talentFits: selectedTalents.map((t) => {
+        const tr = (talentResearch || []).find(
+          (r) =>
+            r.talentId === t.id ||
+            r.name.toLowerCase() ===
+              `${t.prenom} ${t.nom}`.trim().toLowerCase()
+        );
+        return {
+          name: `${t.prenom} ${t.nom}`.trim(),
+          priority: "",
+          why:
+            (tr?.castingWhyFit || "").trim() ||
+            (tr?.whyRelevant || "").trim() ||
+            (tr?.suggestedAngle || "").trim() ||
+            "",
+        };
+      }),
+    };
+    const contacts = (contact.contacts || [])
+      .filter(
+        (c) =>
+          selectedRecipientIds.size === 0 || selectedRecipientIds.has(c.id)
+      )
+      .map((c) => ({
+        firstname: c.firstname || "",
+        lastname: c.lastname || "",
+        email: c.email,
+        language: null as string | null,
+      }));
+    const language =
+      resolveClientEmailLanguage(contact, selectedRecipientIds) === "en"
+        ? "en"
+        : emailLanguage;
+
+    chatVpsFilAbortRef.current = false;
+    setChatVpsFilBusy(true);
+    setChatVpsFilStatus("Lancement fil serveur…");
+    setChatVpsRecap(null);
+
+    const applyChatVpsResult = (opts: {
+      subject: string;
+      bodyHtml: string;
+      notes: string;
+      recap: {
+        notes: string;
+        hasExchange: boolean | null;
+        historySummary: string;
+        brandAnalysis?: string;
+        influenceSummary: string;
+        talentWhySummary?: string;
+        otherInfo: string;
+        alerts: string[];
+      } | null;
+      successMsg: string;
+    }) => {
+      const knownFirstnames = (contact?.contacts || [])
+        .map((c) => String(c.firstname || "").trim())
+        .filter(Boolean);
+      const asHtml = ensureContactFirstnameToken(
+        opts.bodyHtml.trim().startsWith("<")
+          ? opts.bodyHtml
+          : plainTextToEmailHtml(opts.bodyHtml) || "<p></p>",
+        knownFirstnames
+      );
+      const linkedHtml = ensureTalentExtralinksInHtml(
+        upgradeTalentLinksInHtml(
+          asHtml,
+          selectedTalents.map((t) => ({
+            prenom: t.prenom,
+            nom: t.nom,
+            instagram: t.instagram,
+          }))
+        ),
+        selectedTalents.map((t) => ({
+          prenom: t.prenom,
+          nom: t.nom,
+          instagram: t.instagram,
+        }))
+      );
+      setSubject(opts.subject);
+      editor?.commands.setContent(
+        normalizeEditorHtmlForEmail(linkedHtml) || linkedHtml
+      );
+      setEditorEmpty(!editor?.getText().trim());
+      setBodyTick((n) => n + 1);
+      if (opts.recap) setChatVpsRecap(opts.recap);
+      onSuccess(opts.successMsg);
+    };
+
+    try {
+      // Rattrapage : réponse déjà capturée mais rejetée par la certif carto
+      try {
+        const healthRes = await fetch("/api/casting/outreach-mail-vps", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "health", brandName: pitch }),
+        });
+        const health = (await healthRes.json().catch(() => ({}))) as {
+          jobs?: Array<{
+            state?: string;
+            error?: string | null;
+            promptPreview?: string;
+            answerChars?: number;
+            endMarker?: string;
+          }>;
+        };
+        const orphan = (health.jobs || []).find(
+          (j) =>
+            j.state === "error" &&
+            /Capture non certifiée|ancrages/i.test(String(j.error || "")) &&
+            /business developer/i.test(String(j.promptPreview || "")) &&
+            (j.answerChars || 0) >= 800 &&
+            j.endMarker
+        );
+        const salvageKey = orphan?.endMarker
+          ? `outreachVpsSalvaged:${orphan.endMarker}`
+          : "";
+        if (
+          orphan?.endMarker &&
+          salvageKey &&
+          typeof sessionStorage !== "undefined" &&
+          !sessionStorage.getItem(salvageKey)
+        ) {
+          setChatVpsFilStatus("Récupération réponse Serveur…");
+          const salvageRes = await fetch("/api/casting/outreach-mail-vps", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              mode: "read",
+              brandName: pitch,
+              endMarker: orphan.endMarker,
+            }),
+          });
+          const salvageData = (await salvageRes.json().catch(() => ({}))) as {
+            ready?: boolean;
+            subject?: string;
+            bodyHtml?: string;
+            notes?: string;
+            recap?: {
+              notes: string;
+              hasExchange: boolean | null;
+              historySummary: string;
+              brandAnalysis?: string;
+              influenceSummary: string;
+              talentWhySummary?: string;
+              otherInfo: string;
+              alerts: string[];
+            };
+          };
+          if (
+            salvageRes.ok &&
+            salvageData.ready &&
+            salvageData.subject &&
+            salvageData.bodyHtml
+          ) {
+            sessionStorage.setItem(salvageKey, "1");
+            const alertN = salvageData.recap?.alerts?.length || 0;
+            applyChatVpsResult({
+              subject: String(salvageData.subject).trim(),
+              bodyHtml: String(salvageData.bodyHtml).trim(),
+              notes: String(salvageData.notes || "").trim(),
+              recap: salvageData.recap || null,
+              successMsg:
+                alertN > 0
+                  ? `Réponse serveur récupérée — ${alertN} alerte${alertN > 1 ? "s" : ""}`
+                  : "Réponse serveur récupérée — contrôle le mail.",
+            });
+            return;
+          }
+        }
+      } catch {
+        /* ignore — on lance un nouveau fil */
+      }
+
+      const startRes = await fetch("/api/casting/outreach-mail-vps", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "start",
+          brandName: pitch,
+          company: contact.company,
+          coveredBrands: coveredBrandsAll,
+          market:
+            market === "BOTH" ? "BOTH" : market === "BENELUX" ? "BENELUX" : "FR",
+          contacts:
+            contacts.length > 0
+              ? contacts
+              : selectedRecipientEmails.map((email) => ({
+                  firstname: "",
+                  lastname: "",
+                  email,
+                  language: null,
+                })),
+          talents: talentsPayload,
+          fromEmail: fromEmail || null,
+          outreachStatus: outreachStatus || null,
+          brandResearch: brandResearch
+            ? {
+                recentCampaigns: brandResearch.recentCampaigns || "",
+                newProducts: brandResearch.newProducts || "",
+                availabilityFrEu: brandResearch.availabilityFrEu || "",
+                brandPositioning: brandResearch.brandPositioning || "",
+                influenceStrategy: brandResearch.influenceStrategy || "",
+              }
+            : null,
+          rosterAnalysis,
+          draftContext: draftPrepBrief?.proposedAngle || null,
+          language,
+        }),
+      });
+      const startData = (await startRes.json().catch(() => ({}))) as {
+        error?: string;
+        endMarker?: string;
+      };
+      if (!startRes.ok) {
+        throw new Error(
+          typeof startData.error === "string"
+            ? startData.error
+            : "Impossible de lancer le fil serveur"
+        );
+      }
+      const endMarker = String(startData.endMarker || "").trim();
+      if (!endMarker) throw new Error("endMarker manquant");
+
+      setChatVpsFilStatus("Serveur recherche mail + rédige…");
+      const deadline = Date.now() + 10 * 60_000;
+      let subjectNext = "";
+      let bodyNext = "";
+      let notes = "";
+      let recap: {
+        notes: string;
+        hasExchange: boolean | null;
+        historySummary: string;
+        brandAnalysis?: string;
+        influenceSummary: string;
+        talentWhySummary?: string;
+        otherInfo: string;
+        alerts: string[];
+      } | null = null;
+      while (Date.now() < deadline) {
+        if (chatVpsFilAbortRef.current) throw new Error("Annulé");
+        await new Promise((r) => setTimeout(r, 2500));
+        const readRes = await fetch("/api/casting/outreach-mail-vps", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "read",
+            brandName: pitch,
+            endMarker,
+          }),
+        });
+        const readData = (await readRes.json().catch(() => ({}))) as {
+          error?: string;
+          ready?: boolean;
+          state?: string;
+          answerChars?: number;
+          subject?: string;
+          bodyHtml?: string;
+          notes?: string;
+          recap?: {
+            notes: string;
+            hasExchange: boolean | null;
+            historySummary: string;
+            brandAnalysis?: string;
+            influenceSummary: string;
+            talentWhySummary?: string;
+            otherInfo: string;
+            alerts: string[];
+          };
+        };
+        if (!readRes.ok) {
+          throw new Error(
+            typeof readData.error === "string"
+              ? readData.error
+              : "Lecture fil impossible"
+          );
+        }
+        if (readData.ready) {
+          subjectNext = String(readData.subject || "").trim();
+          bodyNext = String(readData.bodyHtml || "").trim();
+          notes = String(readData.notes || "").trim();
+          recap = readData.recap || {
+            notes,
+            hasExchange: null,
+            historySummary: "",
+            brandAnalysis: "",
+            influenceSummary: "",
+            talentWhySummary: "",
+            otherInfo: "",
+            alerts: [],
+          };
+          break;
+        }
+        setChatVpsFilStatus(
+          `Serveur… ${readData.state || "running"}${
+            readData.answerChars ? ` · ${readData.answerChars} car.` : ""
+          }`
+        );
+      }
+      if (!subjectNext || !bodyNext) {
+        // Dernière chance : dernier mail BD déjà capturé pour cette marque
+        setChatVpsFilStatus("Récupération dernière réponse Chat…");
+        const recoverRes = await fetch("/api/casting/outreach-mail-vps", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "recover", brandName: pitch }),
+        });
+        const recoverData = (await recoverRes.json().catch(() => ({}))) as {
+          ready?: boolean;
+          subject?: string;
+          bodyHtml?: string;
+          notes?: string;
+          recap?: typeof recap;
+          error?: string;
+        };
+        if (
+          recoverRes.ok &&
+          recoverData.ready &&
+          recoverData.subject &&
+          recoverData.bodyHtml
+        ) {
+          subjectNext = String(recoverData.subject).trim();
+          bodyNext = String(recoverData.bodyHtml).trim();
+          notes = String(recoverData.notes || "").trim();
+          recap = recoverData.recap || null;
+        } else {
+          throw new Error("Timeout — le fil serveur n’a pas fini à temps");
+        }
+      }
+
+      const alertN = recap?.alerts?.length || 0;
+      applyChatVpsResult({
+        subject: subjectNext,
+        bodyHtml: bodyNext,
+        notes,
+        recap,
+        successMsg:
+          alertN > 0
+            ? `Fil serveur prêt — ${alertN} alerte${alertN > 1 ? "s" : ""} (voir récap)`
+            : notes
+              ? `Fil serveur prêt — récap affiché`
+              : "Fil serveur prêt — contrôle le mail puis envoie.",
+      });
+    } catch (e: unknown) {
+      onError(e instanceof Error ? e.message : "Fil serveur impossible.");
+    } finally {
+      setChatVpsFilBusy(false);
+      setChatVpsFilStatus("");
+    }
+  }, [
+    contact,
+    chatVpsFilBusy,
+    selectedTalents,
+    researchBrandName,
+    talentResearch,
+    selectedRecipientIds,
+    selectedRecipientEmails,
+    emailLanguage,
+    coveredBrandsAll,
+    market,
+    fromEmail,
+    outreachStatus,
+    brandResearch,
+    draftPrepBrief,
+    editor,
+    onError,
+    onSuccess,
   ]);
 
   const previewSubjectResolved = useMemo(() => {
@@ -1952,15 +2433,15 @@ export default function CastingComposer({
       persistSelectedTalents(next);
       return next;
     });
-    // Retire aussi du corps du mail — sinon le talent reste injecté à l’envoi
-    // même après croix, et un refresh ne doit jamais le réinjecter.
     if (removed && editor) {
       const nextHtml = removeTalentFromEmailHtml(editor.getHTML(), {
         prenom: removed.prenom,
         nom: removed.nom,
         instagram: removed.instagram,
       });
-      editor.commands.setContent(normalizeEditorHtmlForEmail(nextHtml) || "<p></p>");
+      editor.commands.setContent(
+        normalizeEditorHtmlForEmail(nextHtml) || "<p></p>"
+      );
       setEditorEmpty(!editor.getText().trim());
       setBodyTick((n) => n + 1);
     }
@@ -1978,14 +2459,13 @@ export default function CastingComposer({
     setTalentDetailLoading(true);
     setTalentDetailError(null);
     setTalentDetail(null);
-
     try {
-      const res = await fetch(`/api/talents/${id}`, {
-        credentials: "include",
-      });
+      const res = await fetch(`/api/talents/${id}`, { credentials: "include" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(typeof data.error === "string" ? data.error : "Erreur de chargement.");
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Erreur de chargement."
+        );
       }
       setTalentDetail(data as TalentDetailPreview);
     } catch (e: unknown) {
@@ -2002,7 +2482,11 @@ export default function CastingComposer({
         .chain()
         .focus()
         .insertContent([
-          talentToTiptapNode({ prenom: t.prenom, nom: t.nom, instagram: t.instagram }),
+          talentToTiptapNode({
+            prenom: t.prenom,
+            nom: t.nom,
+            instagram: t.instagram,
+          }),
           { type: "text", text: " " },
         ])
         .run();
@@ -2350,7 +2834,8 @@ export default function CastingComposer({
             className={`font-semibold ${isInline ? "text-base" : "text-lg"}`}
             style={{ fontFamily: "Spectral, serif", color: LICORICE }}
           >
-            Rédiger l’email — {brandTitle}
+            {hasIncomingDraft ? "Contrôler l’email" : "Rédiger l’email"} —{" "}
+            {brandTitle}
           </h2>
           <button
             type="button"
@@ -2958,6 +3443,15 @@ export default function CastingComposer({
                       talentsSelected={selectedTalents}
                       isGenerating={isGenerating}
                       onGenerate={runGenerateEmail}
+                      onGenerateChatVps={
+                        // Outreach clients / pipeline talent research — pas projets.
+                        effectiveTalentResearch && !isProjectMode
+                          ? () => void runChatVpsFil()
+                          : undefined
+                      }
+                      isGeneratingChatVps={chatVpsFilBusy}
+                      chatVpsStatus={chatVpsFilStatus}
+                      chatVpsRecap={chatVpsRecap}
                       editor={editor}
                       fillHeight={isInline}
                       showPipelineVariables={Boolean(contact?.missionBrief)}

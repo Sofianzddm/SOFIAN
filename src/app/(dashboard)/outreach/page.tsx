@@ -55,6 +55,7 @@ import {
   cacheOutreachLeynaExchangeMarkets,
   cacheOutreachSelectedTalentsMarkets,
   cacheOutreachTalentResearchMarkets,
+  clearOutreachCastingLocalCaches,
   loadOutreachBrandResearchCacheMarkets,
   loadOutreachLeynaExchangeCacheMarkets,
   loadOutreachSelectedTalentsCacheMarkets,
@@ -215,6 +216,19 @@ type Target = {
     brandResearch?: OutreachCachedBrandResearch | null;
     talentResearch?: OutreachCachedTalentResearchItem[] | null;
     leynaExchange?: OutreachCachedLeynaExchange | null;
+    chatVps?: {
+      engine?: string;
+      notes?: string;
+      brandAnalysis?: string;
+      historySummary?: string;
+      influenceSummary?: string;
+      talentWhySummary?: string;
+      otherInfo?: string;
+      hasExchange?: boolean | null;
+      alerts?: string[];
+      branch?: string | null;
+      endMarker?: string;
+    } | null;
     savedAt?: string;
   } | null;
   cycleCount: number;
@@ -592,6 +606,10 @@ export default function OutreachPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCartoModal, setShowCartoModal] = useState(false);
   const [showCastingWizard, setShowCastingWizard] = useState(false);
+  /** Si set : wizard ouvert sur cette seule marque (bouton Rédiger). */
+  const [wizardFocusGroupKey, setWizardFocusGroupKey] = useState<string | null>(
+    null
+  );
   /** Job fit / rédaction serveur encore actif après fermeture du wizard. */
   const [castingServerProgress, setCastingServerProgress] =
     useState<CastingServerProgress | null>(null);
@@ -774,9 +792,20 @@ export default function OutreachPage() {
   // Restaure le dernier marché choisi (persisté entre sessions).
   // Un deep-link /outreach?market=BENELUX&q=Entreprise (depuis l'annuaire
   // BENELUX) est prioritaire sur le marché mémorisé.
+  // ?resetCasting=1 → vide caches analyse/sélection + URL propre (pas de wizard).
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
+    if (params.get("resetCasting") === "1") {
+      clearOutreachCastingLocalCaches();
+      params.delete("resetCasting");
+      const qs = params.toString();
+      window.history.replaceState(
+        {},
+        "",
+        qs ? `${window.location.pathname}?${qs}` : window.location.pathname
+      );
+    }
     const urlMarket = params.get("market");
     const urlQuery = params.get("q");
     if (urlQuery) setSearchTerm(urlQuery);
@@ -885,9 +914,11 @@ export default function OutreachPage() {
 
         const draft = draftData.active;
         const fit = fitData.active;
+        // ignore jobs déjà stoppés (cancelRequested) même si status zombie
         if (
           draft &&
-          ["pending", "running"].includes(String(draft.status || ""))
+          ["pending", "running"].includes(String(draft.status || "")) &&
+          !(draft as { cancelRequested?: boolean }).cancelRequested
         ) {
           castingProgressHadJobRef.current = true;
           setCastingServerProgress({
@@ -901,7 +932,11 @@ export default function OutreachPage() {
           });
           return;
         }
-        if (fit && ["pending", "running"].includes(String(fit.status || ""))) {
+        if (
+          fit &&
+          ["pending", "running"].includes(String(fit.status || "")) &&
+          !(fit as { cancelRequested?: boolean }).cancelRequested
+        ) {
           castingProgressHadJobRef.current = true;
           setCastingServerProgress({
             kind: "fit",
@@ -1222,50 +1257,97 @@ export default function OutreachPage() {
       });
   }, [visibleGroups, activeTab]);
 
+  /** Une carte file → payload wizard casting. */
+  const groupToCastingBrand = useCallback(
+    (g: {
+      groupKey: string;
+      company: string;
+      targets: Target[];
+    }): OutreachCastingBrand => {
+      const covered = Array.from(
+        new Set(
+          g.targets
+            .flatMap((t) => t.coveredBrands || [])
+            .map((b) => b.trim())
+            .filter(Boolean)
+        )
+      );
+      const emails = Array.from(
+        new Set(
+          g.targets
+            .map((t) => (t.email || "").trim().toLowerCase())
+            .filter((e) => e.includes("@"))
+        )
+      );
+      const t0 = g.targets[0];
+      return {
+        groupKey: g.groupKey,
+        company: g.company,
+        coveredBrands: covered,
+        emails,
+        pipeline: (t0?.pipeline === "BENELUX" ? "BENELUX" : "FR") as Market,
+        alsoInSiblingMarket: Boolean(t0?.alsoInSiblingMarket),
+        targets: g.targets.map((t) => ({
+          id: t.id,
+          firstname: t.firstname,
+          lastname: t.lastname || "",
+          email: t.email,
+          language: t.language,
+          pipeline: t.pipeline,
+          siblingTargetId: t.siblingTargetId,
+          siblingPipeline: t.siblingPipeline,
+          draftSubject: t.draftSubject,
+          draftBodyHtml: t.draftBodyHtml,
+          fromEmail: t.fromEmail,
+          status: t.status,
+          castingResearchSnapshot: t.castingResearchSnapshot
+            ? {
+                chatVps: t.castingResearchSnapshot.chatVps || null,
+                leynaExchange:
+                  t.castingResearchSnapshot.leynaExchange || null,
+                savedAt: t.castingResearchSnapshot.savedAt,
+              }
+            : null,
+        })),
+      };
+    },
+    []
+  );
+
   /** Marques enrichies pour le wizard casting (talents → rédaction → contrôle). */
   const castingBrands = useMemo((): OutreachCastingBrand[] => {
     if (activeTab !== "TO_CONTACT" && activeTab !== "TO_RECONTACT") return [];
     return visibleGroups
       .filter((g) => g.targets.length > 0)
-      .map((g) => {
-        const covered = Array.from(
-          new Set(
-            g.targets
-              .flatMap((t) => t.coveredBrands || [])
-              .map((b) => b.trim())
-              .filter(Boolean)
-          )
-        );
-        const emails = Array.from(
-          new Set(
-            g.targets
-              .map((t) => (t.email || "").trim().toLowerCase())
-              .filter((e) => e.includes("@"))
-          )
-        );
-        const t0 = g.targets[0];
-        return {
-          groupKey: g.groupKey,
-          company: g.company,
-          coveredBrands: covered,
-          emails,
-          pipeline: (t0?.pipeline === "BENELUX" ? "BENELUX" : "FR") as Market,
-          alsoInSiblingMarket: Boolean(t0?.alsoInSiblingMarket),
-          targets: g.targets.map((t) => ({
-            id: t.id,
-            firstname: t.firstname,
-            lastname: t.lastname || "",
-            email: t.email,
-            language: t.language,
-            pipeline: t.pipeline,
-            siblingTargetId: t.siblingTargetId,
-            siblingPipeline: t.siblingPipeline,
-            draftSubject: t.draftSubject,
-            draftBodyHtml: t.draftBodyHtml,
-          })),
-        };
-      });
-  }, [visibleGroups, activeTab]);
+      .map((g) => groupToCastingBrand(g));
+  }, [visibleGroups, activeTab, groupToCastingBrand]);
+
+  /** Lot complet, ou 1 marque si ouvert via « Rédiger le mail ». */
+  const wizardBrands = useMemo((): OutreachCastingBrand[] => {
+    if (!wizardFocusGroupKey) return castingBrands;
+    const fromList = castingBrands.filter(
+      (b) => b.groupKey === wizardFocusGroupKey
+    );
+    if (fromList.length > 0) return fromList;
+    const group = visibleGroups.find((g) => g.groupKey === wizardFocusGroupKey);
+    if (group && group.targets.length > 0) {
+      return [groupToCastingBrand(group)];
+    }
+    return [];
+  }, [
+    castingBrands,
+    wizardFocusGroupKey,
+    visibleGroups,
+    groupToCastingBrand,
+  ]);
+
+  const wizardFocusTitle = useMemo(() => {
+    if (!wizardFocusGroupKey) return undefined;
+    const company =
+      wizardBrands[0]?.company ||
+      visibleGroups.find((g) => g.groupKey === wizardFocusGroupKey)?.company;
+    return company ? `Wizard casting · ${company}` : "Wizard casting · 1 marque";
+  }, [wizardFocusGroupKey, wizardBrands, visibleGroups]);
 
   /**
    * Marché stable pour la barre batch (ne suit PAS le composer — sinon ouvrir
@@ -1711,6 +1793,295 @@ export default function OutreachPage() {
     );
   }, []);
 
+  /** Envoi / prog. d’un brouillon pour un groupe (wizard ou CastingComposer). */
+  const sendGroupDraft = useCallback(
+    async (
+      group: { company: string; targets: Target[] },
+      draft: {
+        subject: string;
+        bodyHtml: string;
+        language?: "fr" | "en";
+        scheduledAt?: string | null;
+      }
+    ) => {
+      const ids = group.targets.map((t) => t.id);
+      const sourceLanguage: "fr" | "en" =
+        draft.language === "en" ? "en" : "fr";
+      const scheduledAt = draft.scheduledAt || null;
+      const sendMode: "now" | "at" = scheduledAt ? "at" : "now";
+      const toTranslateCount = group.targets.filter(
+        (t) => (t.language === "en" ? "en" : "fr") !== sourceLanguage
+      ).length;
+
+      const recipients = group.targets.map((t) => t.email).join(", ");
+      const otherLangLabel = sourceLanguage === "fr" ? "anglais" : "français";
+      const translateNote =
+        toTranslateCount > 0
+          ? `\n\n🌐 ${toTranslateCount} contact${
+              toTranslateCount > 1 ? "s" : ""
+            } recevr${toTranslateCount > 1 ? "ont" : "a"} la version traduite automatiquement en ${otherLangLabel}.`
+          : "";
+      const scheduleLabelFr =
+        sendMode === "at" && scheduledAt
+          ? (() => {
+              const [d, hm] = scheduledAt.split("T");
+              const [, mo, day] = (d || "").split("-");
+              const months = [
+                "janvier",
+                "février",
+                "mars",
+                "avril",
+                "mai",
+                "juin",
+                "juillet",
+                "août",
+                "septembre",
+                "octobre",
+                "novembre",
+                "décembre",
+              ];
+              const moLabel = months[Number(mo) - 1] || mo;
+              return `${Number(day)} ${moLabel} à ${hm}`;
+            })()
+          : null;
+      const staggerNote =
+        group.targets.length > 1 && sendMode !== "at"
+          ? `\n\n⏱ Étalement anti-spam : ~1 mail / 3 min, max 19h (reprise 7h30 le lendemain si besoin).`
+          : "";
+      const scheduleNote = scheduleLabelFr
+        ? `\n\n🕒 Programmé pour le ${scheduleLabelFr} (heure française).`
+        : staggerNote;
+      const verb = sendMode === "at" ? "Programmer" : "Envoyer";
+      const confirmed = window.confirm(
+        group.targets.length > 1
+          ? `${verb} ce mail aux ${group.targets.length} contacts de ${group.company} ?\n\n${recipients}\n\nChacun reçoit son propre mail personnalisé (thread et relances séparés).${translateNote}${scheduleNote}\n\nAnnuler = garder en brouillon.`
+          : `${verb} ce mail à ${recipients} depuis la boîte de Leyna ?${translateNote}${scheduleNote}\n\nAnnuler = garder en brouillon.`
+      );
+      await saveDraft(group.targets, draft.subject || "", draft.bodyHtml || "");
+      if (!confirmed) {
+        flash("success", "Brouillon enregistré (mail non envoyé).");
+        await loadTargets();
+        return;
+      }
+
+      const subjectToSend = draft.subject || "";
+      const bodyToSend = draft.bodyHtml || "";
+      const showProgress = group.targets.length > 1 || toTranslateCount > 0;
+      if (showProgress) {
+        setSendProgress({
+          done: 0,
+          total: ids.length,
+          label: "Préparation de l'envoi…",
+        });
+      }
+
+      const sendPipeline = group.targets[0]?.pipeline;
+      let data: BulkSendResult;
+      try {
+        data = await sendBulkStreaming(
+          {
+            targetIds: ids,
+            subject: subjectToSend,
+            bodyHtml: bodyToSend,
+            sourceLanguage,
+            mode: sendMode,
+            pipeline: sendPipeline,
+            ...(sendMode === "at" && scheduledAt ? { scheduledAt } : {}),
+          },
+          (p) => {
+            if (showProgress) setSendProgress(p);
+          }
+        );
+      } finally {
+        setSendProgress(null);
+      }
+
+      const failed: { email: string; error: string }[] = data.failed || [];
+      const needsConfirmation: {
+        targetId: string;
+        email: string;
+        message: string;
+        suggestedNextRecontactAt?: string;
+      }[] = data.needsConfirmation || [];
+
+      if ((data.scheduled ?? 0) > 0 || data.sent > 0) {
+        const okEmails = new Set(
+          group.targets
+            .filter(
+              (t) =>
+                !failed.some(
+                  (f) => f.email.toLowerCase() === t.email.toLowerCase()
+                ) && !needsConfirmation.some((c) => c.targetId === t.id)
+            )
+            .map((t) => t.email.toLowerCase())
+        );
+        await advanceFrBeSiblings(
+          group.targets.filter((t) => okEmails.has(t.email.toLowerCase()))
+        );
+      }
+
+      if ((data.scheduled ?? 0) > 0) {
+        const n = data.scheduled ?? 0;
+        const translatedNote =
+          data.translated > 0
+            ? ` · ${data.translated} traduit${data.translated > 1 ? "s" : ""} auto`
+            : "";
+        const whenLabel = scheduleLabelFr
+          ? `pour le ${scheduleLabelFr} (heure FR)`
+          : data.firstScheduledAt
+            ? `à partir de ${new Date(data.firstScheduledAt).toLocaleString(
+                "fr-FR",
+                {
+                  timeZone: "Europe/Paris",
+                  dateStyle: "short",
+                  timeStyle: "short",
+                }
+              )}`
+            : "(étalement anti-spam)";
+        flash(
+          "success",
+          `${n} mail${n > 1 ? "s" : ""} programmé${n > 1 ? "s" : ""} ${whenLabel}${translatedNote}${
+            failed.length > 0
+              ? ` · ${failed.length} échec${failed.length > 1 ? "s" : ""}`
+              : ""
+          }.`
+        );
+      } else if (data.sent > 0) {
+        const translatedNote =
+          data.translated > 0
+            ? ` · ${data.translated} traduit${data.translated > 1 ? "s" : ""} auto`
+            : "";
+        flash(
+          "success",
+          `${data.sent} mail${data.sent > 1 ? "s" : ""} envoyé${
+            data.sent > 1 ? "s" : ""
+          } (${group.company}) — compteur 45 jours relancé${translatedNote}${
+            failed.length > 0
+              ? ` · ${failed.length} échec${failed.length > 1 ? "s" : ""}`
+              : ""
+          }.`
+        );
+      }
+      if (data.translationFailed) {
+        flash(
+          "error",
+          `⚠️ Traduction automatique en ${
+            data.translationFailed === "en" ? "anglais" : "français"
+          } indisponible : ces contacts ont reçu la version d'origine. Vérifie et renvoie si besoin.`
+        );
+      }
+      if (failed.length > 0 && data.sent === 0) {
+        flash(
+          "error",
+          failed.map((f) => `${f.email} : ${f.error}`).join(" | ")
+        );
+      }
+
+      if (needsConfirmation.length > 0) {
+        const fmtDate = (iso?: string) =>
+          iso
+            ? new Date(iso).toLocaleDateString("fr-FR", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })
+            : null;
+        const lines = needsConfirmation
+          .map((c) => {
+            const next = fmtDate(c.suggestedNextRecontactAt);
+            return next
+              ? `• ${c.email} — ${c.message}\n  Mise en attente → recontact le ${next}.`
+              : `• ${c.email} — ${c.message}`;
+          })
+          .join("\n");
+        const sendAnyway = window.confirm(
+          `${needsConfirmation.length} client${
+            needsConfirmation.length > 1 ? "s ont" : " a"
+          } déjà été contacté${needsConfirmation.length > 1 ? "s" : ""} récemment :\n\n${lines}\n\n` +
+            `OK = Envoyer quand même maintenant\n` +
+            `Annuler = Mettre en attente (recontact reprogrammé)`
+        );
+
+        const confirmIds = needsConfirmation.map((c) => c.targetId);
+        if (sendAnyway) {
+          const showForceProgress = confirmIds.length > 1;
+          if (showForceProgress) {
+            setSendProgress({
+              done: 0,
+              total: confirmIds.length,
+              label: "Préparation de l'envoi…",
+            });
+          }
+          let forceData: BulkSendResult;
+          try {
+            forceData = await sendBulkStreaming(
+              {
+                targetIds: confirmIds,
+                subject: subjectToSend,
+                bodyHtml: bodyToSend,
+                sourceLanguage,
+                force: true,
+                pipeline: sendPipeline,
+              },
+              (p) => {
+                if (showForceProgress) setSendProgress(p);
+              }
+            );
+          } finally {
+            setSendProgress(null);
+          }
+          const forceFailed: { email: string; error: string }[] =
+            forceData.failed || [];
+          if (forceData.sent > 0) {
+            const forceOk = group.targets.filter(
+              (t) =>
+                confirmIds.includes(t.id) &&
+                !forceFailed.some(
+                  (f) => f.email.toLowerCase() === t.email.toLowerCase()
+                )
+            );
+            await advanceFrBeSiblings(forceOk);
+            flash(
+              "success",
+              `${forceData.sent} mail${forceData.sent > 1 ? "s" : ""} envoyé${
+                forceData.sent > 1 ? "s" : ""
+              } malgré un contact récent — compteur 45 jours relancé.`
+            );
+          }
+          if (forceFailed.length > 0) {
+            flash(
+              "error",
+              forceFailed.map((f) => `${f.email} : ${f.error}`).join(" | ")
+            );
+          }
+        } else {
+          const resWait = await fetch(
+            outreachApiForPipeline(sendPipeline, "/reschedule-bulk"),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ targetIds: confirmIds }),
+            }
+          );
+          const waitData = await resWait.json();
+          if (!resWait.ok) throw new Error(waitData.error || "Erreur");
+          await advanceFrBeSiblings(
+            group.targets.filter((t) => confirmIds.includes(t.id))
+          );
+          flash(
+            "success",
+            waitData.rescheduled === 1 && waitData.message
+              ? waitData.message
+              : `${waitData.rescheduled || 0} client(s) mis en attente (recontact reprogrammé).`
+          );
+        }
+      }
+
+      await loadTargets();
+    },
+    [saveDraft, flash, loadTargets, advanceFrBeSiblings]
+  );
+
   const handleComposerSaved = useCallback(
     (
       status: "pret" | "en_cours" | "reset",
@@ -1723,13 +2094,6 @@ export default function OutreachPage() {
     ) => {
       const group = composerGroup;
       if (!group) return;
-      const ids = group.targets.map((t) => t.id);
-      const sourceLanguage: "fr" | "en" = draft?.language === "en" ? "en" : "fr";
-      const scheduledAt = draft?.scheduledAt || null;
-      const sendMode: "now" | "at" = scheduledAt ? "at" : "now";
-      const toTranslateCount = group.targets.filter(
-        (t) => (t.language === "en" ? "en" : "fr") !== sourceLanguage
-      ).length;
 
       void (async () => {
         try {
@@ -1741,274 +2105,27 @@ export default function OutreachPage() {
           }
 
           if (status === "en_cours") {
-            await saveDraft(group.targets, draft?.subject || "", draft?.bodyHtml || "");
+            await saveDraft(
+              group.targets,
+              draft?.subject || "",
+              draft?.bodyHtml || ""
+            );
             await loadTargets();
             return;
           }
 
-          // status === "pret" → confirmation puis envoi individuel à chacun
-          const recipients = group.targets.map((t) => t.email).join(", ");
-          const otherLangLabel = sourceLanguage === "fr" ? "anglais" : "français";
-          const translateNote =
-            toTranslateCount > 0
-              ? `\n\n🌐 ${toTranslateCount} contact${
-                  toTranslateCount > 1 ? "s" : ""
-                } recevr${toTranslateCount > 1 ? "ont" : "a"} la version traduite automatiquement en ${otherLangLabel}.`
-              : "";
-          // Libellé « heure de Paris » de l'échéance choisie (mode « at »). La
-          // valeur est déjà l'heure murale de Paris → on la met en forme telle
-          // quelle (pas de conversion de fuseau qui fausserait l'affichage).
-          const scheduleLabelFr =
-            sendMode === "at" && scheduledAt
-              ? (() => {
-                  const [d, hm] = scheduledAt.split("T");
-                  const [y, mo, day] = (d || "").split("-");
-                  const months = [
-                    "janvier", "février", "mars", "avril", "mai", "juin",
-                    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
-                  ];
-                  const moLabel = months[Number(mo) - 1] || mo;
-                  return `${Number(day)} ${moLabel} à ${hm}`;
-                })()
-              : null;
-          const staggerNote =
-            group.targets.length > 1 && sendMode !== "at"
-              ? `\n\n⏱ Étalement anti-spam : ~1 mail / 3 min, max 19h (reprise 7h30 le lendemain si besoin).`
-              : "";
-          const scheduleNote = scheduleLabelFr
-            ? `\n\n🕒 Programmé pour le ${scheduleLabelFr} (heure française).`
-            : staggerNote;
-          const verb = sendMode === "at" ? "Programmer" : "Envoyer";
-          const confirmed = window.confirm(
-            group.targets.length > 1
-              ? `${verb} ce mail aux ${group.targets.length} contacts de ${group.company} ?\n\n${recipients}\n\nChacun reçoit son propre mail personnalisé (thread et relances séparés).${translateNote}${scheduleNote}\n\nAnnuler = garder en brouillon.`
-              : `${verb} ce mail à ${recipients} depuis la boîte de Leyna ?${translateNote}${scheduleNote}\n\nAnnuler = garder en brouillon.`
-          );
-          await saveDraft(group.targets, draft?.subject || "", draft?.bodyHtml || "");
-          if (!confirmed) {
-            flash("success", "Brouillon enregistré (mail non envoyé).");
-            await loadTargets();
-            return;
-          }
-
-          const subjectToSend = draft?.subject || "";
-          const bodyToSend = draft?.bodyHtml || "";
-
-          // Barre de progression (traduction + envoi). On l'initialise dès le
-          // départ pour donner un retour immédiat à l'utilisateur.
-          const showProgress = group.targets.length > 1 || toTranslateCount > 0;
-          if (showProgress) {
-            setSendProgress({
-              done: 0,
-              total: ids.length,
-              label: "Préparation de l'envoi…",
-            });
-          }
-
-          const sendPipeline = group.targets[0]?.pipeline;
-          let data: BulkSendResult;
-          try {
-            data = await sendBulkStreaming(
-              {
-                targetIds: ids,
-                subject: subjectToSend,
-                bodyHtml: bodyToSend,
-                sourceLanguage,
-                mode: sendMode,
-                pipeline: sendPipeline,
-                ...(sendMode === "at" && scheduledAt ? { scheduledAt } : {}),
-              },
-              (p) => {
-                if (showProgress) setSendProgress(p);
-              }
-            );
-          } finally {
-            setSendProgress(null);
-          }
-
-          const failed: { email: string; error: string }[] = data.failed || [];
-          const needsConfirmation: {
-            targetId: string;
-            email: string;
-            message: string;
-            suggestedNextRecontactAt?: string;
-          }[] = data.needsConfirmation || [];
-
-          if ((data.scheduled ?? 0) > 0 || data.sent > 0) {
-            // FR+BE : un seul mail réel → on sort aussi le côté frère de « À contacter ».
-            const okEmails = new Set(
-              group.targets
-                .filter(
-                  (t) =>
-                    !failed.some(
-                      (f) => f.email.toLowerCase() === t.email.toLowerCase()
-                    ) &&
-                    !needsConfirmation.some((c) => c.targetId === t.id)
-                )
-                .map((t) => t.email.toLowerCase())
-            );
-            await advanceFrBeSiblings(
-              group.targets.filter((t) =>
-                okEmails.has(t.email.toLowerCase())
-              )
-            );
-          }
-
-          if ((data.scheduled ?? 0) > 0) {
-            const n = data.scheduled ?? 0;
-            const translatedNote =
-              data.translated > 0
-                ? ` · ${data.translated} traduit${data.translated > 1 ? "s" : ""} auto`
-                : "";
-            const whenLabel = scheduleLabelFr
-              ? `pour le ${scheduleLabelFr} (heure FR)`
-              : data.firstScheduledAt
-              ? `à partir de ${new Date(data.firstScheduledAt).toLocaleString("fr-FR", {
-                  timeZone: "Europe/Paris",
-                  dateStyle: "short",
-                  timeStyle: "short",
-                })}`
-              : "(étalement anti-spam)";
-            flash(
-              "success",
-              `${n} mail${n > 1 ? "s" : ""} programmé${n > 1 ? "s" : ""} ${whenLabel}${translatedNote}${
-                failed.length > 0 ? ` · ${failed.length} échec${failed.length > 1 ? "s" : ""}` : ""
-              }.`
-            );
-          } else if (data.sent > 0) {
-            const translatedNote =
-              data.translated > 0
-                ? ` · ${data.translated} traduit${data.translated > 1 ? "s" : ""} auto`
-                : "";
-            flash(
-              "success",
-              `${data.sent} mail${data.sent > 1 ? "s" : ""} envoyé${data.sent > 1 ? "s" : ""} (${group.company}) — compteur 45 jours relancé${translatedNote}${
-                failed.length > 0 ? ` · ${failed.length} échec${failed.length > 1 ? "s" : ""}` : ""
-              }.`
-            );
-          }
-          if (data.translationFailed) {
-            flash(
-              "error",
-              `⚠️ Traduction automatique en ${
-                data.translationFailed === "en" ? "anglais" : "français"
-              } indisponible : ces contacts ont reçu la version d'origine. Vérifie et renvoie si besoin.`
-            );
-          }
-          if (failed.length > 0 && data.sent === 0) {
-            flash("error", failed.map((f) => `${f.email} : ${f.error}`).join(" | "));
-          }
-
-          // Clients déjà contactés hors app (HubSpot / manuel) ou plafond
-          // ligne outreach : choix — envoyer quand même, ou mettre en attente.
-          // Pipeline / projet n'entrent pas ici (lignes séparées).
-          if (needsConfirmation.length > 0) {
-            const fmtDate = (iso?: string) =>
-              iso
-                ? new Date(iso).toLocaleDateString("fr-FR", {
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  })
-                : null;
-            const lines = needsConfirmation
-              .map((c) => {
-                const next = fmtDate(c.suggestedNextRecontactAt);
-                return next
-                  ? `• ${c.email} — ${c.message}\n  Mise en attente → recontact le ${next}.`
-                  : `• ${c.email} — ${c.message}`;
-              })
-              .join("\n");
-            const sendAnyway = window.confirm(
-              `${needsConfirmation.length} client${needsConfirmation.length > 1 ? "s ont" : " a"} déjà été contacté${
-                needsConfirmation.length > 1 ? "s" : ""
-              } récemment :\n\n${lines}\n\n` +
-                `OK = Envoyer quand même maintenant\n` +
-                `Annuler = Mettre en attente (recontact reprogrammé)`
-            );
-
-            const confirmIds = needsConfirmation.map((c) => c.targetId);
-            if (sendAnyway) {
-              const showForceProgress = confirmIds.length > 1;
-              if (showForceProgress) {
-                setSendProgress({
-                  done: 0,
-                  total: confirmIds.length,
-                  label: "Préparation de l'envoi…",
-                });
-              }
-              let forceData: BulkSendResult;
-              try {
-                forceData = await sendBulkStreaming(
-                  {
-                    targetIds: confirmIds,
-                    subject: subjectToSend,
-                    bodyHtml: bodyToSend,
-                    sourceLanguage,
-                    force: true,
-                    pipeline: sendPipeline,
-                  },
-                  (p) => {
-                    if (showForceProgress) setSendProgress(p);
-                  }
-                );
-              } finally {
-                setSendProgress(null);
-              }
-              const forceFailed: { email: string; error: string }[] =
-                forceData.failed || [];
-              if (forceData.sent > 0) {
-                const forceOk = group.targets.filter(
-                  (t) =>
-                    confirmIds.includes(t.id) &&
-                    !forceFailed.some(
-                      (f) => f.email.toLowerCase() === t.email.toLowerCase()
-                    )
-                );
-                await advanceFrBeSiblings(forceOk);
-                flash(
-                  "success",
-                  `${forceData.sent} mail${forceData.sent > 1 ? "s" : ""} envoyé${
-                    forceData.sent > 1 ? "s" : ""
-                  } malgré un contact récent — compteur 45 jours relancé.`
-                );
-              }
-              if (forceFailed.length > 0) {
-                flash(
-                  "error",
-                  forceFailed.map((f) => `${f.email} : ${f.error}`).join(" | ")
-                );
-              }
-            } else {
-              const resWait = await fetch(
-                outreachApiForPipeline(sendPipeline, "/reschedule-bulk"),
-                {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ targetIds: confirmIds }),
-                }
-              );
-              const waitData = await resWait.json();
-              if (!resWait.ok) throw new Error(waitData.error || "Erreur");
-              await advanceFrBeSiblings(
-                group.targets.filter((t) => confirmIds.includes(t.id))
-              );
-              flash(
-                "success",
-                waitData.rescheduled === 1 && waitData.message
-                  ? waitData.message
-                  : `${waitData.rescheduled || 0} client(s) mis en attente (recontact reprogrammé).`
-              );
-            }
-          }
-
-          await loadTargets();
+          await sendGroupDraft(group, {
+            subject: draft?.subject || "",
+            bodyHtml: draft?.bodyHtml || "",
+            language: draft?.language,
+            scheduledAt: draft?.scheduledAt,
+          });
         } catch (e) {
           flash("error", e instanceof Error ? e.message : "Erreur");
         }
       })();
     },
-    [composerGroup, saveDraft, flash, loadTargets, advanceFrBeSiblings]
+    [composerGroup, saveDraft, flash, loadTargets, sendGroupDraft]
   );
 
   /**
@@ -2151,7 +2268,8 @@ export default function OutreachPage() {
             targetIds: [target.id],
             subject,
             bodyHtml,
-            sourceLanguage: target.language === "en" ? "en" : "fr",
+            // Brouillon = FR ; send-bulk traduit si target.language === en.
+            sourceLanguage: "fr",
             force: true,
             pipeline: target.pipeline,
           },
@@ -2492,14 +2610,87 @@ export default function OutreachPage() {
                   </div>
                 ) : null}
               </div>
-              <button
-                type="button"
-                onClick={() => setShowCastingWizard(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
-                style={{ background: OLD_ROSE }}
-              >
-                Rouvrir le wizard
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void (async () => {
+                      const prog = castingServerProgress;
+                      if (!prog) return;
+                      try {
+                        if (prog.kind === "fit") {
+                          const res = await fetch(
+                            `/api/casting/roster-fit-jobs?market=${encodeURIComponent(castingJobMarket)}`,
+                            { credentials: "include" }
+                          );
+                          const data = (await res.json().catch(() => ({}))) as {
+                            jobs?: { id?: string }[];
+                            active?: { id?: string } | null;
+                          };
+                          const ids = new Set<string>();
+                          if (prog.id) ids.add(prog.id);
+                          for (const j of data.jobs || []) {
+                            if (j?.id) ids.add(j.id);
+                          }
+                          if (data.active?.id) ids.add(data.active.id);
+                          await Promise.all(
+                            [...ids].map((id) =>
+                              fetch(`/api/casting/roster-fit-jobs/${id}`, {
+                                method: "DELETE",
+                                credentials: "include",
+                              })
+                            )
+                          );
+                        } else {
+                          const res = await fetch(
+                            `/api/casting/outreach-draft-jobs?market=${encodeURIComponent(castingJobMarket)}`,
+                            { credentials: "include" }
+                          );
+                          const data = (await res.json().catch(() => ({}))) as {
+                            jobs?: { id?: string }[];
+                            active?: { id?: string } | null;
+                          };
+                          const ids = new Set<string>();
+                          if (prog.id) ids.add(prog.id);
+                          for (const j of data.jobs || []) {
+                            if (j?.id) ids.add(j.id);
+                          }
+                          if (data.active?.id) ids.add(data.active.id);
+                          await Promise.all(
+                            [...ids].map((id) =>
+                              fetch(`/api/casting/outreach-draft-jobs/${id}`, {
+                                method: "DELETE",
+                                credentials: "include",
+                              })
+                            )
+                          );
+                        }
+                      } catch {
+                        /* ignore */
+                      }
+                      castingProgressHadJobRef.current = false;
+                      setCastingServerProgress(null);
+                      flash("error", "Casting arrêté.");
+                    })();
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold"
+                  style={{ borderColor: "#E5E0DA", color: LICORICE, background: "#fff" }}
+                >
+                  Arrêter
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setComposerGroup(null);
+                    setWizardFocusGroupKey(null);
+                    setShowCastingWizard(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+                  style={{ background: OLD_ROSE }}
+                >
+                  Rouvrir le wizard
+                </button>
+              </div>
             </div>
           ) : null}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
@@ -2510,7 +2701,11 @@ export default function OutreachPage() {
             <button
               type="button"
               disabled={castingBrands.length === 0}
-              onClick={() => setShowCastingWizard(true)}
+              onClick={() => {
+                setComposerGroup(null);
+                setWizardFocusGroupKey(null);
+                setShowCastingWizard(true);
+              }}
               className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
               style={{ background: OLD_ROSE }}
               title={
@@ -2670,10 +2865,10 @@ export default function OutreachPage() {
                       <span
                         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide"
                         style={{ backgroundColor: TEA_GREEN, color: LICORICE }}
-                        title="Brouillon casting prêt — ouvre le composer pour contrôler et envoyer"
+                        title="Brouillon prêt — ouvre le wizard pour relire et envoyer"
                       >
                         <CheckCircle2 className="w-3 h-3" />
-                        Prêt à contrôler
+                        Prêt
                       </span>
                     )}
                     {(() => {
@@ -2758,7 +2953,13 @@ export default function OutreachPage() {
                   </div>
                   {canCompose && group.targets.length > 0 && (
                     <button
-                      onClick={() => setComposerGroup(group)}
+                      type="button"
+                      onClick={() => {
+                        // Toujours le wizard — jamais CastingComposer (même si déjà rédigé).
+                        setComposerGroup(null);
+                        setWizardFocusGroupKey(group.groupKey);
+                        setShowCastingWizard(true);
+                      }}
                       disabled={groupBusy}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
                       style={{
@@ -2766,10 +2967,10 @@ export default function OutreachPage() {
                       }}
                       title={
                         readyToReview
-                          ? "Contrôler le brouillon casting puis envoyer"
+                          ? "Ouvre le wizard — mail prêt à relire / envoyer"
                           : group.targets.length > 1
-                            ? "Un seul mail rédigé, envoyé individuellement à chaque contact"
-                            : undefined
+                            ? "Wizard casting sur cette marque (mail commun, envoi par contact)"
+                            : "Wizard casting sur cette marque"
                       }
                     >
                       {readyToReview ? (
@@ -2778,7 +2979,7 @@ export default function OutreachPage() {
                         <Send className="w-3.5 h-3.5" />
                       )}
                       {readyToReview
-                        ? "Contrôler"
+                        ? "Ouvrir"
                         : activeTab === "TO_CONTACT"
                           ? "Rédiger le mail"
                           : "Nouveau mail"}
@@ -3239,16 +3440,15 @@ export default function OutreachPage() {
                           )}
                           {canCompose && (
                             <button
-                              onClick={() =>
-                                setComposerGroup({
-                                  company: group.company,
-                                  targets: [target],
-                                })
-                              }
+                              onClick={() => {
+                                setComposerGroup(null);
+                                setWizardFocusGroupKey(group.groupKey);
+                                setShowCastingWizard(true);
+                              }}
                               disabled={busy}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition hover:bg-gray-50 disabled:opacity-50"
                               style={{ borderColor: "#E5E0DA", color: LICORICE }}
-                              title="Envoyer un mail à ce seul contact maintenant, même s'il est en attente (recontact plus tard). S'il a déjà été contacté hors app, un envoi « quand même » sera proposé."
+                              title="Wizard casting sur cette marque (même design que « Rédiger le mail »)"
                             >
                               <Send className="w-3.5 h-3.5" />
                               Nouveau mail
@@ -3547,11 +3747,13 @@ export default function OutreachPage() {
         open={showCastingWizard}
         market={batchCacheMarket}
         readBothMarkets={marketView === "BOTH"}
-        brands={castingBrands}
+        brands={wizardBrands}
+        wizardTitle={wizardFocusTitle}
         onClose={() => {
           setShowCastingWizard(false);
+          setWizardFocusGroupKey(null);
           // Les rédactions serveur (VPS) continuent après fermeture :
-          // on recharge pour afficher « Prêt à contrôler ».
+          // on recharge pour afficher le badge « Prêt ».
           void loadTargets();
         }}
         onFlash={(kind, message) => flash(kind, message)}
@@ -3587,25 +3789,20 @@ export default function OutreachPage() {
             )
           );
         }}
-        onReviewBrand={(groupKey, draft) => {
+        onReviewBrand={() => {
+          // Reste dans le wizard — plus d’ouverture CastingComposer.
+        }}
+        onSendBrand={async (groupKey, draft) => {
           const group = visibleGroups.find((g) => g.groupKey === groupKey);
-          if (group) {
-            const subject = (draft?.subject || "").trim();
-            const bodyHtml = (draft?.bodyHtml || "").trim();
-            setComposerGroup({
-              company: group.company,
-              targets:
-                subject && bodyHtml
-                  ? group.targets.map((t) => ({
-                      ...t,
-                      draftSubject: subject,
-                      draftBodyHtml: bodyHtml,
-                    }))
-                  : group.targets,
-            });
-          } else {
-            flash("error", "Marque introuvable dans la file — recharge la page.");
+          if (!group) {
+            throw new Error("Marque introuvable dans la file — recharge la page.");
           }
+          // Brouillon serveur = toujours FR ; EN = traduction send-bulk par contact.
+          await sendGroupDraft(group, {
+            subject: draft.subject,
+            bodyHtml: draft.bodyHtml,
+            language: "fr",
+          });
         }}
         onDraftsWritten={() => {
           void loadTargets();
@@ -3641,6 +3838,8 @@ export default function OutreachPage() {
           senderAccounts,
           composerGroup?.targets[0]?.fromEmail ?? null
         )}`}
+        fromEmail={composerGroup?.targets[0]?.fromEmail ?? null}
+        outreachStatus={composerGroup?.targets[0]?.status ?? activeTab}
         defaultLanguage={
           composerGroup && composerGroup.targets.every((t) => t.language === "en")
             ? "en"

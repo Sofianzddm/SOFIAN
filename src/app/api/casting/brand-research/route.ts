@@ -5,6 +5,10 @@ import { prisma } from "@/lib/prisma";
 import { marqueSlug } from "@/lib/marque-resolver";
 import { xaiResponse } from "@/lib/xai";
 import {
+  getBrandResearchCache,
+  setBrandResearchCache,
+} from "@/lib/brand-research-cache";
+import {
   formatProjectBriefForPrompt,
   isTalentIndividualProspectingBrief,
   parseProjectBrief,
@@ -376,16 +380,45 @@ Réponds UNIQUEMENT en JSON strict :
 
 /**
  * Analyse une seule marque via x.ai (recherche web + X).
+ * Cache obligatoire 7 j (sauf forceRefresh) — indiv / projet / roster-fit.
  * Le modèle de raisonnement + recherche peut être lent : on laisse jusqu'à
  * 110 s par tentative et on relance une fois en cas de timeout / parse raté.
  */
-async function researchOneBrand(
+/** Exposé pour le worker fit (évite HTTP self-call + auth opaque). */
+export async function researchOneBrand(
   brand: string,
   focus: AvailabilityFocus,
   projectContext?: string,
   crm?: BrandCrmContext | null,
-  opts?: { talentProspecting?: boolean }
-): Promise<BrandResearchPayload> {
+  opts?: { talentProspecting?: boolean; forceRefresh?: boolean }
+): Promise<BrandResearchPayload & { cached?: boolean; cachedAt?: string }> {
+  if (!opts?.forceRefresh) {
+    try {
+      const hit = await getBrandResearchCache({
+        brandName: brand,
+        focus,
+        projectContext,
+      });
+      if (hit) {
+        console.info(
+          `[brand-research] cache hit ${hit.brandKey} focus=${focus} ageH=${Math.round(
+            (Date.now() - hit.fetchedAt.getTime()) / 3600000
+          )}`
+        );
+        return {
+          ...hit.payload,
+          cached: true,
+          cachedAt: hit.fetchedAt.toISOString(),
+        };
+      }
+    } catch (e) {
+      console.warn(
+        `[brand-research] cache read failed (${brand}):`,
+        e instanceof Error ? e.message : e
+      );
+    }
+  }
+
   const MAX_ATTEMPTS = 2;
   let lastError: unknown;
   const crmCtx = crm === undefined ? await loadBrandCrmContext(brand) : crm;
@@ -399,7 +432,21 @@ async function researchOneBrand(
         tools: [...BRAND_RESEARCH_TOOLS],
         timeoutMs: 110_000,
       });
-      return tryParseBrandJson(text);
+      const parsed = tryParseBrandJson(text);
+      try {
+        await setBrandResearchCache({
+          brandName: brand,
+          focus,
+          projectContext,
+          payload: parsed,
+        });
+      } catch (e) {
+        console.warn(
+          `[brand-research] cache write failed (${brand}):`,
+          e instanceof Error ? e.message : e
+        );
+      }
+      return parsed;
     } catch (e) {
       lastError = e;
       if (attempt < MAX_ATTEMPTS) {
@@ -453,6 +500,11 @@ export async function POST(request: NextRequest) {
     const talentProspecting =
       projectBriefs.length < 2 && isTalentIndividualProspectingBrief(projectBrief);
     const focus = parseAvailabilityFocus(body?.availabilityFocus);
+    const forceRefresh =
+      body?.forceRefresh === true ||
+      body?.forceRefresh === 1 ||
+      body?.forceRefresh === "1" ||
+      body?.forceRefresh === "true";
 
     // Plusieurs marques (marques filles) → on analyse CHAQUE marque dans un
     // appel dédié, en PARALLÈLE. Un seul appel couvrant 5 marques avec recherche
@@ -473,7 +525,7 @@ export async function POST(request: NextRequest) {
           focus,
           projectContext || undefined,
           undefined,
-          { talentProspecting }
+          { talentProspecting, forceRefresh }
         );
         return NextResponse.json(parsed);
       } catch (e: unknown) {
@@ -487,6 +539,7 @@ export async function POST(request: NextRequest) {
       brands.map((b: string) =>
         researchOneBrand(b, focus, projectContext || undefined, undefined, {
           talentProspecting,
+          forceRefresh,
         })
       )
     );

@@ -57,7 +57,18 @@ export type OutreachCachedLeynaExchange = {
     clientSnippet?: string | null;
     status?: "exchange" | "sent_no_reply";
     messageCount?: number;
+    talentsPitched?: string[];
+    talentsRefused?: string[];
   }>;
+  ops?: {
+    relationStatus?: string;
+    recommendedAction?: string;
+    excludeTalents?: string[];
+    alreadyPitchedTalents?: string[];
+    doNot?: string[];
+    angle?: string;
+    writeInstructions?: string;
+  } | null;
 };
 
 function brandResearchKey(name: string): string {
@@ -426,6 +437,51 @@ export function cacheOutreachSelectedTalentsMarkets(
   talentIds: string[]
 ) {
   for (const m of markets) cacheOutreachSelectedTalents(m, brandName, talentIds);
+}
+
+/** Vide caches analyse / sélection casting (local + session). */
+export function clearOutreachCastingLocalCaches(): {
+  localRemoved: string[];
+  sessionRemoved: string[];
+} {
+  if (typeof window === "undefined") {
+    return { localRemoved: [], sessionRemoved: [] };
+  }
+  const matchLocal = (k: string) =>
+    k.startsWith("po-brand-research:") ||
+    k.startsWith("po-talent-research:") ||
+    k.startsWith("po-leyna-exchange:") ||
+    k.startsWith("po-roster-fit:") ||
+    k.startsWith("po-selected-talents:") ||
+    k.startsWith("outreach-casting-skip:") ||
+    k.startsWith("casting-outreach-pending-draft:") ||
+    k.startsWith("casting-indiv-pending-draft:") ||
+    k.includes("outreach-clients") ||
+    k.includes("indiv-brand-research");
+  const matchSession = (k: string) =>
+    k.startsWith("po-") ||
+    k.startsWith("outreach-casting") ||
+    k.startsWith("casting-outreach") ||
+    k.startsWith("casting-indiv") ||
+    k.includes("outreach-clients");
+
+  const localRemoved: string[] = [];
+  for (let i = localStorage.length - 1; i >= 0; i--) {
+    const k = localStorage.key(i);
+    if (k && matchLocal(k)) {
+      localStorage.removeItem(k);
+      localRemoved.push(k);
+    }
+  }
+  const sessionRemoved: string[] = [];
+  for (let i = sessionStorage.length - 1; i >= 0; i--) {
+    const k = sessionStorage.key(i);
+    if (k && matchSession(k)) {
+      sessionStorage.removeItem(k);
+      sessionRemoved.push(k);
+    }
+  }
+  return { localRemoved, sessionRemoved };
 }
 
 export { brandResearchKey };

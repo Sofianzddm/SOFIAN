@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** Crée un job rédaction outreach (talent-research → generate-email → draft). */
+/** Crée un job rédaction outreach (Leyna → serveur → draft). */
 export async function POST(request: NextRequest) {
   try {
     const session = await getAppSession(request);
@@ -71,9 +71,15 @@ export async function POST(request: NextRequest) {
     if (!isAllowed(session.user.role)) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
-    if (!process.env.XAI_API_KEY?.trim()) {
+    if (
+      !process.env.OUTREACH_CHAT_VPS_URL?.trim() &&
+      !process.env.CARTO_CHAT_VPS_URL?.trim()
+    ) {
       return NextResponse.json(
-        { error: "Clé XAI_API_KEY non configurée sur le serveur." },
+        {
+          error:
+            "OUTREACH_CHAT_VPS_URL non configurée — tunnel VPS outreach requis.",
+        },
         { status: 500 }
       );
     }

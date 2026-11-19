@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
     const jobs = await prisma.castingRosterFitJob.findMany({
       where: {
         userId: session.user.id,
+        cancelRequested: false,
         status: { in: ["pending", "running"] },
         ...(marketFilter ? { market: marketFilter } : {}),
       },
@@ -133,6 +134,7 @@ export async function POST(request: NextRequest) {
     const parallelActive = await prisma.castingRosterFitJob.count({
       where: {
         userId: session.user.id,
+        cancelRequested: false,
         status: { in: ["pending", "running"] },
       },
     });

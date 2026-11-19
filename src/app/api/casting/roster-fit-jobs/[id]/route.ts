@@ -59,8 +59,8 @@ export async function GET(
         error: b.error,
         sortOrder: b.sortOrder,
         finishedAt: b.finishedAt,
-        brandResearch:
-          b.status === "done" ? b.brandResearch : undefined,
+        // Brief dispo dès la fin analyse marque (même si fit encore running).
+        brandResearch: b.brandResearch || undefined,
         talents:
           b.status === "done" ? parseRosterFitResult(b.result) : undefined,
       })),

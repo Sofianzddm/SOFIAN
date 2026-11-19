@@ -131,6 +131,21 @@ export interface EmailComposerProps {
   talentsSelected: Talent[];
   isGenerating: boolean;
   onGenerate: () => void;
+  /** Fil serveur (outreach) — analyse boîte + mail. */
+  onGenerateChatVps?: () => void;
+  isGeneratingChatVps?: boolean;
+  chatVpsStatus?: string;
+  /** Récap NOTES + alertes renvoyés par le fil serveur. */
+  chatVpsRecap?: {
+    notes: string;
+    hasExchange: boolean | null;
+    historySummary: string;
+    brandAnalysis?: string;
+    influenceSummary: string;
+    talentWhySummary?: string;
+    otherInfo: string;
+    alerts: string[];
+  } | null;
   editor: Editor | null;
   /** hubspot = jetons {{talent_N}} (casting HubSpot). instagram = liens cliquables (envoi Gmail direct). */
   talentInsertMode?: "hubspot" | "instagram";
@@ -182,6 +197,10 @@ export default function EmailComposer({
   talentsSelected,
   isGenerating,
   onGenerate,
+  onGenerateChatVps,
+  isGeneratingChatVps = false,
+  chatVpsStatus = "",
+  chatVpsRecap = null,
   editor,
   talentInsertMode = "hubspot",
   showPipelineVariables = false,
@@ -207,6 +226,10 @@ export default function EmailComposer({
   const [isRewritingTone, setIsRewritingTone] = useState(false);
   const [researchOpen, setResearchOpen] = useState(() => Boolean(brandResearch));
   const [talentResearchOpen, setTalentResearchOpen] = useState(true);
+  const [chatVpsRecapOpen, setChatVpsRecapOpen] = useState(true);
+  useEffect(() => {
+    if (chatVpsRecap) setChatVpsRecapOpen(true);
+  }, [chatVpsRecap]);
   const [leynaExchangeOpen, setLeynaExchangeOpen] = useState(true);
 
   // Cache batch hydraté après mount → ouvrir le panneau marque automatiquement.
@@ -586,6 +609,32 @@ export default function EmailComposer({
             {leynaExchangeOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
         )}
+        {chatVpsRecap && (
+          <button
+            type="button"
+            onClick={() => setChatVpsRecapOpen((v) => !v)}
+            className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg hover:bg-black/5"
+            style={{
+              color:
+                (chatVpsRecap.alerts?.length || 0) > 0 ? "#E11D48" : OLD_ROSE,
+            }}
+          >
+            {(chatVpsRecap.alerts?.length || 0) > 0
+              ? `Serveur · ${chatVpsRecap.alerts.length} alerte${
+                  chatVpsRecap.alerts.length > 1 ? "s" : ""
+                }`
+              : chatVpsRecap.hasExchange === true
+                ? "Serveur OK · échange"
+                : chatVpsRecap.hasExchange === false
+                  ? "Serveur OK · cold"
+                  : "Serveur OK · récap"}
+            {chatVpsRecapOpen ? (
+              <ChevronUp className="w-3 h-3" />
+            ) : (
+              <ChevronDown className="w-3 h-3" />
+            )}
+          </button>
+        )}
         {stepHint && (
           <span className="text-[11px]" style={{ color: OLD_ROSE }}>
             {stepHint}
@@ -635,6 +684,91 @@ export default function EmailComposer({
           ) : null}
           <p>{brandResearch.brandPositioning}</p>
           <p>{brandResearch.influenceStrategy}</p>
+        </div>
+      )}
+      {chatVpsRecap && chatVpsRecapOpen && (
+        <div
+          className="rounded-lg border px-3 py-2 space-y-2 text-xs shrink-0 max-h-[28rem] overflow-y-auto"
+          style={{
+            borderColor:
+              (chatVpsRecap.alerts?.length || 0) > 0
+                ? "#E11D48"
+                : chatVpsRecap.hasExchange
+                  ? "#C4B5E8"
+                  : `color-mix(in srgb, ${OLD_ROSE} 35%, transparent)`,
+            background:
+              (chatVpsRecap.alerts?.length || 0) > 0
+                ? "#FFF1F2"
+                : chatVpsRecap.hasExchange
+                  ? "#F4F0FC"
+                  : undefined,
+            color: LICORICE,
+          }}
+        >
+          <p className="font-semibold opacity-70">Récap fil serveur</p>
+          {(chatVpsRecap.alerts || []).length > 0 ? (
+            <div
+              className="rounded-md px-2 py-1.5 space-y-1"
+              style={{
+                background: "#FFE4E6",
+                border: "1px solid #FB7185",
+                color: "#9F1239",
+              }}
+            >
+              <p className="font-bold text-[11px]">⚠ Alertes</p>
+              {chatVpsRecap.alerts.map((a) => (
+                <p key={a} className="font-semibold leading-snug">
+                  {a}
+                </p>
+              ))}
+            </div>
+          ) : null}
+          <p>
+            <span className="font-semibold">Échange Leyna : </span>
+            {chatVpsRecap.hasExchange === true
+              ? "oui"
+              : chatVpsRecap.hasExchange === false
+                ? "non (cold)"
+                : "non tranché"}
+          </p>
+          {chatVpsRecap.historySummary ? (
+            <p className="whitespace-pre-wrap">
+              <span className="font-semibold">Historique : </span>
+              {chatVpsRecap.historySummary}
+            </p>
+          ) : null}
+          {chatVpsRecap.brandAnalysis ? (
+            <p className="whitespace-pre-wrap">
+              <span className="font-semibold">Analyse marque : </span>
+              {chatVpsRecap.brandAnalysis}
+            </p>
+          ) : null}
+          {chatVpsRecap.influenceSummary ? (
+            <p className="whitespace-pre-wrap">
+              <span className="font-semibold">Influence marque : </span>
+              {chatVpsRecap.influenceSummary}
+            </p>
+          ) : null}
+          {chatVpsRecap.talentWhySummary ? (
+            <p className="whitespace-pre-wrap">
+              <span className="font-semibold">Pourquoi ces profils : </span>
+              {chatVpsRecap.talentWhySummary}
+            </p>
+          ) : null}
+          {chatVpsRecap.otherInfo ? (
+            <p className="whitespace-pre-wrap">
+              <span className="font-semibold">Autres : </span>
+              {chatVpsRecap.otherInfo}
+            </p>
+          ) : null}
+          {!chatVpsRecap.historySummary &&
+          !chatVpsRecap.brandAnalysis &&
+          !chatVpsRecap.influenceSummary &&
+          !chatVpsRecap.talentWhySummary &&
+          !chatVpsRecap.otherInfo &&
+          chatVpsRecap.notes ? (
+            <p className="whitespace-pre-wrap opacity-90">{chatVpsRecap.notes}</p>
+          ) : null}
         </div>
       )}
       {enableLeynaExchange &&
@@ -1022,7 +1156,12 @@ export default function EmailComposer({
               <button
                 type="button"
                 onClick={onGenerate}
-                disabled={isGenerating || !researchReady || talentsSelected.length === 0}
+                disabled={
+                  isGenerating ||
+                  isGeneratingChatVps ||
+                  !researchReady ||
+                  talentsSelected.length === 0
+                }
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium disabled:opacity-50 ${
                   !researchReady || talentsSelected.length === 0 ? "opacity-60" : ""
                 }`}
@@ -1043,6 +1182,31 @@ export default function EmailComposer({
                   <>Rédiger</>
                 )}
               </button>
+              {onGenerateChatVps ? (
+                <button
+                  type="button"
+                  onClick={onGenerateChatVps}
+                  disabled={
+                    isGeneratingChatVps ||
+                    isGenerating ||
+                    talentsSelected.length === 0
+                  }
+                  className="inline-flex max-w-[14rem] items-center gap-1.5 truncate rounded-lg border px-2.5 py-1 text-xs font-medium disabled:opacity-50"
+                  style={{ borderColor: OLD_ROSE, color: LICORICE, background: "white" }}
+                  title="Fil serveur : analyse boîte Leyna + mail talents (call si cold)"
+                >
+                  {isGeneratingChatVps ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />
+                      <span className="truncate">
+                        {chatVpsStatus || "Fil serveur…"}
+                      </span>
+                    </>
+                  ) : (
+                    <>Fil serveur</>
+                  )}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={translateEmail}

@@ -11,7 +11,8 @@
  *  - Chaque mail de cycle = 1 OutreachTouch (nouveau thread Gmail)
  *  - Relance auto J+3 ouvrés dans le thread du touch (1 max), annulée si réponse
  *  - La réponse n'arrête PAS le cycle (info seulement) ; seul un stop manuel
- *  - From: boîte Gmail du target (target.fromEmail), défaut leyna@glowupagence.fr
+ *  - From: boîte Gmail du target (target.fromEmail), sinon portefeuille marque
+ *    (Joey / Leyna), défaut leyna@glowupagence.fr
  *  - Write-back HubSpot à chaque envoi (app_last_contacted_at / app_outreach_status)
  */
 
@@ -33,6 +34,7 @@ import {
   LEYNA_FROM_EMAIL,
 } from "@/lib/casting-auto-send";
 import { ownerFirstnameFromEmail } from "@/lib/marque-portfolio";
+import { resolvePortfolioSender } from "@/lib/marque-portfolio-server";
 import {
   collectCastingGmailIdsForEmail,
   evaluateEmailSendGuard,
@@ -52,9 +54,41 @@ import {
   OUTREACH_RECONTACT_DAYS,
 } from "@/lib/outreach-constants";
 
-/** Boîte expéditrice du cycle d'un client (défaut : Leyna). */
+/** Boîte expéditrice du cycle d'un client (défaut : Leyna) — sync, sans portefeuille. */
 export function outreachFromEmail(target: { fromEmail?: string | null }): string {
   return (target.fromEmail || "").trim().toLowerCase() || LEYNA_FROM_EMAIL;
+}
+
+/**
+ * Boîte d’envoi : fromEmail cible si posé, sinon portefeuille marque (Joey/Leyna).
+ * Persiste fromEmail sur le target quand on le résout via le portefeuille.
+ */
+export async function resolveOutreachFromEmail(target: {
+  id: string;
+  fromEmail?: string | null;
+  marqueId?: string | null;
+}): Promise<string> {
+  const explicit = (target.fromEmail || "").trim().toLowerCase();
+  if (explicit.includes("@")) return explicit;
+
+  const marqueId = String(target.marqueId || "").trim();
+  if (marqueId) {
+    const sender = await resolvePortfolioSender(marqueId);
+    const fromEmail = sender.fromEmail.trim().toLowerCase() || LEYNA_FROM_EMAIL;
+    if (fromEmail.includes("@") && fromEmail !== (target.fromEmail || "").trim().toLowerCase()) {
+      try {
+        await prisma.outreachTarget.update({
+          where: { id: target.id },
+          data: { fromEmail },
+        });
+      } catch {
+        /* soft — l’envoi continue quand même */
+      }
+    }
+    return fromEmail;
+  }
+
+  return LEYNA_FROM_EMAIL;
 }
 
 /**
@@ -269,7 +303,7 @@ export async function executeOutreachSend(
     return { ok: false, error: `Email invalide : ${target.email}` };
   }
 
-  const fromEmail = outreachFromEmail(target);
+  const fromEmail = await resolveOutreachFromEmail(target);
 
   // Opt-out : jamais bypassable.
   const optOutGuard = await evaluateEmailSendGuard(target.email, {
@@ -333,11 +367,35 @@ export async function executeOutreachSend(
     ownerFirstname: ownerFirstnameFromEmail(fromEmail),
   };
   const personalizedSubject = applyCastingTemplateVars(subjectTpl, vars);
-  const { ensureTalentExtralinksInHtml } = await import(
-    "@/lib/talent-email-links"
-  );
+  const {
+    ensureTalentExtralinksInHtml,
+    trimEmailHtmlEdges,
+  } = await import("@/lib/talent-email-links");
+  // Si le brouillon n’a que des <strong>Nom</strong>, on réinjecte les IG
+  // depuis le snapshot casting / CRM.
+  let talentLinkInputs: Array<{
+    prenom?: string | null;
+    nom?: string | null;
+    instagram?: string | null;
+  }> = [];
+  try {
+    const snap = (target.castingResearchSnapshot || {}) as {
+      talentResearch?: Array<{ talentId?: string; name?: string }>;
+    };
+    const ids = (snap.talentResearch || [])
+      .map((t) => String(t.talentId || "").trim())
+      .filter(Boolean);
+    if (ids.length > 0) {
+      talentLinkInputs = await prisma.talent.findMany({
+        where: { id: { in: ids } },
+        select: { prenom: true, nom: true, instagram: true },
+      });
+    }
+  } catch {
+    /* soft */
+  }
   const bodyTpl = normalizeEditorHtmlForEmail(
-    ensureTalentExtralinksInHtml(bodyRaw)
+    ensureTalentExtralinksInHtml(trimEmailHtmlEdges(bodyRaw), talentLinkInputs)
   );
   const personalizedBody = applyCastingTemplateVars(bodyTpl, vars);
 
@@ -431,7 +489,7 @@ export async function executeOutreachReschedule(
     return { ok: false, error: "Ce client est sorti du cycle (stoppé)." };
   }
 
-  const fromEmail = outreachFromEmail(target);
+  const fromEmail = await resolveOutreachFromEmail(target);
   const externalContact = await detectRecentExternalContact(
     fromEmail,
     target.id,
@@ -512,7 +570,7 @@ export async function executeOutreachSchedule(
     return { ok: false, error: `Email invalide : ${target.email}` };
   }
 
-  const fromEmail = outreachFromEmail(target);
+  const fromEmail = await resolveOutreachFromEmail(target);
 
   const optOutGuard = await evaluateEmailSendGuard(target.email, { force: true });
   if (!optOutGuard.allowed) {
