@@ -822,6 +822,16 @@ export default function OutreachCastingWizard({
       return sel.length === 0;
     });
     setIndex(startIdx >= 0 ? startIdx : 0);
+    // « Ouvrir » sur mail déjà prêt → rester en casting pour voir l’aperçu tout de suite
+    // (évite l’écran review vide si un job marché reprend en fond).
+    if (Object.keys(nextDrafts).length > 0) {
+      const allReady =
+        brands.filter((b) => pitchNamesForBrand(b).length > 0).length > 0 &&
+        brands
+          .filter((b) => pitchNamesForBrand(b).length > 0)
+          .every((b) => nextDrafts[b.groupKey]);
+      if (allReady) setPhase("casting");
+    }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps -- snapshot à l’open
 
   // Après reload targets (job serveur fini), hydrate brouillons + « Prêt à contrôler ».
@@ -5511,11 +5521,12 @@ export default function OutreachCastingWizard({
                 {activeWizardBrands.map((b) => {
                   const isSkip = skipped.has(b.groupKey);
                   const sel = selectedByBrand[b.groupKey] || [];
-                  const ready = readyKeys.includes(b.groupKey);
                   const draftSubject =
                     localDrafts[b.groupKey]?.subject ||
                     b.targets.find((t) => t.draftSubject)?.draftSubject ||
                     "";
+                  const ready =
+                    readyKeys.includes(b.groupKey) || brandHasReadyMail(b);
                   const isWritingNow =
                     writingOneKey === b.groupKey ||
                     autoWriteCurrent === b.company ||
@@ -5580,21 +5591,18 @@ export default function OutreachCastingWizard({
                         >
                           Choisir talents
                         </button>
-                      ) : ready ? (
+                      ) : ready || brandHasReadyMail(b) ? (
                         <div className="flex flex-wrap gap-1.5">
                           <button
                             type="button"
                             onClick={() => {
-                              const d = localDrafts[b.groupKey];
-                              onReviewBrand(
-                                b.groupKey,
-                                d
-                                  ? {
-                                      subject: d.subject,
-                                      bodyHtml: d.bodyHtml,
-                                    }
-                                  : undefined
+                              const idx = activeWizardBrands.findIndex(
+                                (x) => x.groupKey === b.groupKey
                               );
+                              if (idx >= 0) {
+                                setIndex(idx);
+                                setPhase("casting");
+                              }
                             }}
                             className="rounded-lg border px-2.5 py-1 text-xs font-medium"
                             style={{
@@ -5605,14 +5613,29 @@ export default function OutreachCastingWizard({
                             Voir le mail
                           </button>
                           {onSendBrand &&
-                          localDrafts[b.groupKey] &&
+                          (localDrafts[b.groupKey] ||
+                            (Boolean(draftSubject) &&
+                              Boolean(
+                                (
+                                  b.targets.find((t) => t.draftBodyHtml)
+                                    ?.draftBodyHtml || ""
+                                ).trim()
+                              ))) &&
                           !sentKeys.includes(b.groupKey) ? (
                             <button
                               type="button"
                               disabled={sendingKey === b.groupKey}
                               onClick={() => {
-                                const d = localDrafts[b.groupKey];
-                                if (!d) return;
+                                const d = localDrafts[b.groupKey] || {
+                                  subject: draftSubject,
+                                  bodyHtml: String(
+                                    b.targets.find((t) =>
+                                      (t.draftBodyHtml || "").trim()
+                                    )?.draftBodyHtml || ""
+                                  ),
+                                };
+                                if (!d.subject?.trim() || !d.bodyHtml?.trim())
+                                  return;
                                 void (async () => {
                                   setSendingKey(b.groupKey);
                                   try {
