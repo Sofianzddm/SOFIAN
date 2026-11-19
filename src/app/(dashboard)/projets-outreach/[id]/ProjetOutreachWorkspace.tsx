@@ -73,6 +73,10 @@ type Mission = {
   targetBrand: string;
   marqueId: string | null;
   marqueNom: string | null;
+  /** Boîte portefeuille (Leyna/Joey) — envoi réel. */
+  portfolioFromEmail?: string | null;
+  /** Prénom responsable client pour badge. */
+  portfolioOwnerName?: string | null;
   strategyReason: string;
   recommendedAngle: string | null;
   objective: string | null;
@@ -2584,7 +2588,28 @@ function MarquesTab({
                 <div className="flex min-w-0 items-center gap-2.5">
                   <PoAvatar name={name} size={26} />
                     <div className="min-w-0">
-                    <div style={{ fontWeight: 600, color: "var(--po-ink)" }}>{name}</div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span style={{ fontWeight: 600, color: "var(--po-ink)" }}>
+                        {name}
+                      </span>
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                        style={{
+                          background: "var(--po-sep)",
+                          color: "var(--po-ink)",
+                        }}
+                        title={`Responsable client · ${
+                          m.portfolioFromEmail || "leyna@glowupagence.fr"
+                        }`}
+                      >
+                        {m.portfolioOwnerName ||
+                          (String(m.portfolioFromEmail || "")
+                            .toLowerCase()
+                            .startsWith("joey@")
+                            ? "Joey"
+                            : "Leyna")}
+                      </span>
+                    </div>
                     {onCooldown ? (
                       <div
                         style={{ fontSize: 11, color: "#956A15", fontWeight: 700 }}

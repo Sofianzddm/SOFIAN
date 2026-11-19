@@ -59,6 +59,8 @@ type Mission = {
   marqueId?: string | null;
   /** Boîte d’envoi hint (portefeuille Leyna/Joey, fallback Leyna). */
   portfolioFromEmail?: string | null;
+  /** Responsable client (prénom portefeuille) pour badge UI. */
+  portfolioOwnerName?: string | null;
   strategyReason: string;
   recommendedAngle: string | null;
   objective: string | null;
@@ -118,6 +120,19 @@ const DEFAULT_PORTFOLIO_FROM = "leyna@glowupagence.fr";
 function missionFromEmail(m: { portfolioFromEmail?: string | null }): string {
   const e = (m.portfolioFromEmail || "").trim().toLowerCase();
   return e.includes("@") ? e : DEFAULT_PORTFOLIO_FROM;
+}
+
+function missionOwnerName(m: {
+  portfolioOwnerName?: string | null;
+  portfolioFromEmail?: string | null;
+}): string {
+  const named = String(m.portfolioOwnerName || "").trim();
+  if (named) return named;
+  const e = missionFromEmail(m);
+  if (e.startsWith("joey@")) return "Joey";
+  if (e.startsWith("leyna@")) return "Leyna";
+  const local = e.split("@")[0] || "Leyna";
+  return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
 /** Date réelle de rédaction (snapshot serveur) sinon dernière màj carte. */
@@ -2693,10 +2708,18 @@ export function ProspectingPipelineClient() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 space-y-1">
                     <p
-                      className="text-sm font-semibold"
+                      className="flex flex-wrap items-center gap-1.5 text-sm font-semibold"
                       style={isCastingManager ? { color: LICORICE } : { color: "#0f172a" }}
                     >
-                      {m.creatorName} → {brandDisplayName(m)}
+                      <span>
+                        {m.creatorName} → {brandDisplayName(m)}
+                      </span>
+                      <span
+                        className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+                        title={`Responsable client · envoi depuis ${missionFromEmail(m)}`}
+                      >
+                        {missionOwnerName(m)}
+                      </span>
                     </p>
                     <p
                       className="text-xs"
@@ -3106,6 +3129,12 @@ export function ProspectingPipelineClient() {
                               <span className="font-medium text-gray-900">
                                 {m.creatorName || m.talentName || "Talent"} → {brandDisplayName(m)}
                               </span>
+                              <span
+                                className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+                                title={`Responsable client · envoi depuis ${missionFromEmail(m)}`}
+                              >
+                                {missionOwnerName(m)}
+                              </span>
                               {item.alreadyAttachedCount > 0 && (
                                 <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700">
                                   {item.alreadyAttachedCount} déjà attaché
@@ -3421,11 +3450,17 @@ export function ProspectingPipelineClient() {
                     </div>
                   ) : (
                     <p
-                      className="group/brand flex items-center gap-1 text-sm font-semibold"
+                      className="group/brand flex flex-wrap items-center gap-1.5 text-sm font-semibold"
                       style={isCastingManager ? { color: LICORICE } : { color: "#111827" }}
                     >
                       <span>
                         {m.creatorName} → {brandDisplayName(m)}
+                      </span>
+                      <span
+                        className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+                        title={`Responsable client · envoi depuis ${missionFromEmail(m)}`}
+                      >
+                        {missionOwnerName(m)}
                       </span>
                       {canEditBrand && (
                         <button
@@ -3532,8 +3567,11 @@ export function ProspectingPipelineClient() {
                   })()}
                   {m.sentAt && (
                     <p className="mt-1 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                      Envoyé via Leyna le {new Date(m.sentAt).toLocaleDateString("fr-FR")}
-                      {typeof m.openCount === "number" && m.openCount > 0 ? ` · ${m.openCount} ouverture${m.openCount > 1 ? "s" : ""}` : ""}
+                      Envoyé via {missionOwnerName(m)} le{" "}
+                      {new Date(m.sentAt).toLocaleDateString("fr-FR")}
+                      {typeof m.openCount === "number" && m.openCount > 0
+                        ? ` · ${m.openCount} ouverture${m.openCount > 1 ? "s" : ""}`
+                        : ""}
                     </p>
                   )}
                   {m.relanceSentAt && (

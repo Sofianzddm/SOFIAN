@@ -12,6 +12,11 @@ import {
   isForbiddenCastingRecipient,
   loadCastingRecipientBlocklist,
 } from "@/lib/casting-recipient-guard";
+import {
+  PORTFOLIO_FALLBACK_FROM_EMAIL,
+  portfolioDisplayName,
+  ownerFirstnameFromEmail,
+} from "@/lib/marque-portfolio";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -68,7 +73,19 @@ async function loadCampaign(id: string) {
       contactMissions: {
         orderBy: { createdAt: "desc" },
         include: {
-          marque: { select: { id: true, nom: true } },
+          marque: {
+            select: {
+              id: true,
+              nom: true,
+              assignedTo: {
+                select: {
+                  prenom: true,
+                  email: true,
+                  gmailToken: { select: { email: true } },
+                },
+              },
+            },
+          },
         },
       },
       prestataires: {
@@ -198,11 +215,28 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
       createdAt: e.createdAt,
       actorName: `${e.actor.prenom} ${e.actor.nom}`.trim(),
     })),
-    missions: c.contactMissions.map((m) => ({
+    missions: c.contactMissions.map((m) => {
+      const assignee = m.marque?.assignedTo;
+      const portfolioFromEmail = (
+        assignee?.gmailToken?.email ||
+        assignee?.email ||
+        ""
+      )
+        .trim()
+        .toLowerCase();
+      const fromEmail = portfolioFromEmail.includes("@")
+        ? portfolioFromEmail
+        : PORTFOLIO_FALLBACK_FROM_EMAIL;
+      const portfolioOwnerName = assignee
+        ? portfolioDisplayName(assignee)
+        : ownerFirstnameFromEmail(fromEmail);
+      return {
       id: m.id,
       targetBrand: m.targetBrand,
       marqueId: m.marqueId,
       marqueNom: m.marque?.nom ?? null,
+      portfolioFromEmail: fromEmail,
+      portfolioOwnerName,
       strategyReason: m.strategyReason,
       recommendedAngle: m.recommendedAngle,
       objective: m.objective,
@@ -251,7 +285,8 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
       relanceCancelledAt: m.relanceCancelledAt,
       sendError: m.sendError,
       createdAt: m.createdAt,
-    })),
+    };
+    }),
     prestataires: c.prestataires.map((p) => {
       const isTalent = Boolean(p.responsableTalentId && p.responsableTalent);
       return {

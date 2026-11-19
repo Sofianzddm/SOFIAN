@@ -33,6 +33,7 @@ function isAllowed(role: string | undefined): boolean {
 /** Hint UI : boîte portefeuille (sans vérif token — l’envoi réel fallback Leyna). */
 function portfolioFromEmailHint(marque: {
   assignedTo?: {
+    prenom?: string | null;
     email?: string | null;
     gmailToken?: { email?: string | null } | null;
   } | null;
@@ -45,6 +46,37 @@ function portfolioFromEmailHint(marque: {
     .trim()
     .toLowerCase();
   return e.includes("@") ? e : PORTFOLIO_FALLBACK_FROM_EMAIL;
+}
+
+/** Prénom responsable client (badge UI) — Leyna / Joey / fallback. */
+function portfolioOwnerNameHint(marque: {
+  assignedTo?: {
+    prenom?: string | null;
+    email?: string | null;
+    gmailToken?: { email?: string | null } | null;
+  } | null;
+} | null | undefined): string {
+  const assignee = marque?.assignedTo;
+  if (assignee) {
+    const prenom = (assignee.prenom || "").trim();
+    if (prenom) {
+      return prenom.charAt(0).toUpperCase() + prenom.slice(1).toLowerCase();
+    }
+    const e = (
+      assignee.gmailToken?.email ||
+      assignee.email ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+    if (e.startsWith("joey@")) return "Joey";
+    if (e.startsWith("leyna@")) return "Leyna";
+    if (e.includes("@")) {
+      const local = e.split("@")[0] || "";
+      if (local) return local.charAt(0).toUpperCase() + local.slice(1);
+    }
+  }
+  return "Leyna";
 }
 
 /**
@@ -291,6 +323,7 @@ export async function GET(request: NextRequest) {
             marqueId: m.marqueId ?? slugHit?.marqueId ?? null,
             marqueNom: m.marque?.nom ?? slugHit?.marqueNom ?? null,
             portfolioFromEmail: portfolioFromEmailHint(m.marque),
+            portfolioOwnerName: portfolioOwnerNameHint(m.marque),
             strategyReason: m.strategyReason,
             recommendedAngle: m.recommendedAngle,
             objective: m.objective,
@@ -379,6 +412,7 @@ export async function GET(request: NextRequest) {
         marqueId: m.marqueId ?? slugHit?.marqueId ?? null,
         marqueNom: m.marque?.nom ?? slugHit?.marqueNom ?? null,
         portfolioFromEmail: portfolioFromEmailHint(m.marque),
+        portfolioOwnerName: portfolioOwnerNameHint(m.marque),
         strategyReason: m.strategyReason,
         recommendedAngle: m.recommendedAngle,
         objective: m.objective,
