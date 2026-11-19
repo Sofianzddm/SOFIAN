@@ -202,17 +202,39 @@ async function loopOnce(): Promise<number> {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const outreachJob = (prisma as any).castingOutreachDraftJob;
-  const outreachJobs: { id: string }[] = outreachJob?.findMany
+  // Contabo = 1 tick / boucle, MAIS prioriser le job qui a un item `running`
+  // (mail certifié en attente de save). Sinon l’ancien job FIFO bloque le
+  // nouveau (cas Fleur du mal : Contabo done, worker pollait encore fascent).
+  const outreachJobsRaw: { id: string; createdAt: Date }[] = outreachJob?.findMany
     ? await outreachJob.findMany({
         where: {
           status: { in: ["pending", "running"] },
           cancelRequested: false,
         },
         orderBy: { createdAt: "asc" },
-        take: MAX_PARALLEL_JOBS,
-        select: { id: true },
+        take: 20,
+        select: { id: true, createdAt: true },
       })
     : [];
+  const outreachItemModel = (prisma as any).castingOutreachDraftItem;
+  let outreachJobs: { id: string }[] = outreachJobsRaw;
+  if (outreachJobsRaw.length > 1 && outreachItemModel?.findMany) {
+    const runningItems = await outreachItemModel.findMany({
+      where: {
+        status: "running",
+        jobId: { in: outreachJobsRaw.map((j: { id: string }) => j.id) },
+      },
+      select: { jobId: true },
+      take: 20,
+    });
+    const runningJobIds = new Set(
+      runningItems.map((r: { jobId: string }) => r.jobId)
+    );
+    outreachJobs = [
+      ...outreachJobsRaw.filter((j) => runningJobIds.has(j.id)),
+      ...outreachJobsRaw.filter((j) => !runningJobIds.has(j.id)),
+    ];
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const projectJob = (prisma as any).castingProjectDraftJob;
@@ -250,13 +272,15 @@ async function loopOnce(): Promise<number> {
   );
 
   let contaboProcessed = 0;
-  // Outreach Contabo : strictement séquentiel (1 job / tour de boucle).
-  for (const j of outreachJobs.slice(0, 1)) {
+  // Outreach Contabo : 1 tick utile / boucle. Si le 1er job ne process rien
+  // (ex. Contabo busy pour un autre job), tente le suivant une fois.
+  for (const j of outreachJobs.slice(0, 2)) {
     const tick = await processOutreachDraftJobTick(j.id, 1);
     console.log(
       `[casting-fit-worker] outreach-draft job=${j.id} processed=${tick.processed} status=${tick.status} current=${tick.currentBrandName || "—"} done=${tick.done}`
     );
     contaboProcessed += tick.processed;
+    if (tick.processed > 0) break;
   }
 
   const otherResults = await Promise.all([
