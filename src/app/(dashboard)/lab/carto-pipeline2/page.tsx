@@ -21,7 +21,7 @@ import { portfolioDisplayName } from "@/lib/marque-portfolio";
 
 type ContactCouche = "marque" | "agence" | "autre";
 type FicheMarket = "FR" | "BENELUX" | "BOTH";
-/** FR+BE : … → enrich_be → assign. FR : enrich_fr → assign. BE seul : pas d’assign (CRM FR). */
+/** FR+BE : 1 carto → contacts FR+BE → enrich_fr → assign. FR→BE : 2ᵉ analyse. BE seul : pas d’assign FR. */
 type PipelinePhase =
   | "carto_fr"
   | "enrich_fr"
@@ -606,7 +606,7 @@ export default function CartoAiPipelineChatLabPage() {
     }
   }
 
-  /** FR ou FR+BE → toujours enchaîner Benelux après (même parcours). */
+  /** FR ou FR+BE → commit market BOTH (FR+shell/miroirs BE). */
   const wantsFrThenBe =
     ficheMarket === "FR" || ficheMarket === "BOTH";
 
@@ -669,6 +669,9 @@ export default function CartoAiPipelineChatLabPage() {
           market: commitMarket,
           selectedRows,
           skipAutoEnrich: true,
+          // FR+BE → mirroir. FR → puis BE → coquille BE vide.
+          mirrorBeContacts:
+            commitMarket === "BOTH" ? ficheMarket === "BOTH" : undefined,
         }),
       });
       const data = await res.json();
@@ -684,6 +687,16 @@ export default function CartoAiPipelineChatLabPage() {
           setBeCommitResult(result);
         }
         setPipelinePhase("enrich_be");
+      } else if (commitMarket === "BOTH" && result.marqueIdBe) {
+        // FR+BE : contacts déjà sur les 2 fiches — pas de 2ᵉ carto Benelux
+        setCommitResult(result);
+        setBeCommitResult({
+          ...result,
+          marqueId: result.marqueIdBe,
+          fichePath: result.fichePathBe || result.fichePath,
+          market: "BENELUX",
+        });
+        setPipelinePhase("enrich_fr");
       } else {
         setCommitResult(result);
         setBeCommitResult(null);
@@ -732,18 +745,13 @@ export default function CartoAiPipelineChatLabPage() {
       );
       return;
     }
-    // FR+BE : interdiction d’attribuer avant enrichissement Benelux (étape 4).
+    // FR → puis BE (pas FR+BE) : encore besoin de la 2ᵉ analyse si BE pas commit.
     if (
-      (ficheMarket === "BOTH" || commitResult?.marqueIdBe) &&
+      ficheMarket !== "BOTH" &&
+      commitResult?.marqueIdBe &&
       !beCommitResult
     ) {
-      if (commitResult?.marqueIdBe) {
-        continueToBeneluxCarto();
-        return;
-      }
-      setError(
-        "Fais d’abord l’analyse + enrichissement Benelux (étapes 3–4), puis l’attribution."
-      );
+      continueToBeneluxCarto();
       return;
     }
     setError(null);
@@ -1025,14 +1033,19 @@ export default function CartoAiPipelineChatLabPage() {
     : commitResult;
 
   if (enrichActive && enrichSource) {
-    // FR ou FR+BE : après enrich FR → toujours Benelux (jamais d’attribution ici).
+    // FR → puis BE : après enrich FR, enchaîner analyse BE.
+    // FR+BE : contacts déjà mirroirés — on peut attribuer après enrich FR.
     const showContinueBe =
-      pipelinePhase === "enrich_fr" && Boolean(commitResult?.marqueIdBe);
+      pipelinePhase === "enrich_fr" &&
+      Boolean(commitResult?.marqueIdBe) &&
+      ficheMarket !== "BOTH" &&
+      !beCommitResult;
     const canAssignFr = Boolean(frMarqueIdForAssign());
     const showFinishAssign =
       canAssignFr &&
-      pipelinePhase === "enrich_be" &&
-      Boolean(beCommitResult);
+      Boolean(beCommitResult) &&
+      (pipelinePhase === "enrich_be" ||
+        (pipelinePhase === "enrich_fr" && ficheMarket === "BOTH"));
 
     return (
       <div className="mx-auto max-w-5xl space-y-6 p-6">
@@ -1087,8 +1100,8 @@ export default function CartoAiPipelineChatLabPage() {
         {showContinueBe ? (
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
             <p className="flex-1 text-sm text-amber-950">
-              Enrichissement FR terminé. Suite obligatoire : analyse Benelux →
-              sélection → enrichissement BE → attribution (FR + BE).
+              Enrichissement FR terminé. Suite : analyse Benelux → enrich BE →
+              attribution (FR + BE).
             </p>
             <button
               type="button"
@@ -1101,8 +1114,9 @@ export default function CartoAiPipelineChatLabPage() {
         ) : showFinishAssign ? (
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
             <p className="flex-1 text-sm text-emerald-950">
-              Enrichissement Benelux terminé — attribue Leyna ou Joey (FR +
-              Benelux lié).
+              {ficheMarket === "BOTH"
+                ? "Contacts déjà sur FR + Benelux — attribue Leyna ou Joey."
+                : "Enrichissement Benelux terminé — attribue Leyna ou Joey (FR + Benelux lié)."}
             </p>
             <button
               type="button"
@@ -1434,7 +1448,7 @@ export default function CartoAiPipelineChatLabPage() {
                     {(
                       [
                         ["FR", "🇫🇷 FR → puis BE"],
-                        ["BOTH", "FR+BE"],
+                        ["BOTH", "FR+BE (les 2)"],
                         ["BENELUX", "BE seul"],
                       ] as const
                     ).map(([m, label]) => (
@@ -1452,7 +1466,12 @@ export default function CartoAiPipelineChatLabPage() {
                       </button>
                     ))}
                   </div>
-                  {ficheMarket !== "BENELUX" ? (
+                  {ficheMarket === "BOTH" ? (
+                    <p className="text-xs text-emerald-800">
+                      Les contacts sélectionnés partent sur la fiche FR et la
+                      fiche Benelux liée — pas de 2ᵉ analyse.
+                    </p>
+                  ) : ficheMarket === "FR" ? (
                     <p className="text-xs text-amber-800">
                       Après l’enrichissement FR : analyse BE → enrich BE →
                       attribution Leyna/Joey (les deux fiches).
@@ -1565,7 +1584,7 @@ export default function CartoAiPipelineChatLabPage() {
                   {isFrBeBeneluxPass
                     ? "Enregistre sur la fiche Benelux puis enrichis (emails, langue)"
                     : ficheMarket === "BOTH"
-                      ? "Enregistre FR (+ fiche BE liée), enrichis FR, puis analyse Benelux"
+                      ? "Enregistre les contacts sur FR + Benelux, puis enrichis / attribue"
                       : "Enregistre sur la/les fiche(s) puis enrichis ici (emails, FR/BE, langue FR/EN par contact)"}
                 </p>
               </div>
@@ -1596,7 +1615,9 @@ export default function CartoAiPipelineChatLabPage() {
                     ? "Enregistrement…"
                     : isFrBeBeneluxPass
                       ? `Passer à l'enrichissement Benelux (${selectedRows.length})`
-                      : `Passer à l'enrichissement (${selectedRows.length})`}
+                      : ficheMarket === "BOTH"
+                        ? `Enregistrer sur FR + Benelux (${selectedRows.length})`
+                        : `Passer à l'enrichissement (${selectedRows.length})`}
                 </button>
                 <span className="text-xs text-gray-500">
                   {isFrBeBeneluxPass

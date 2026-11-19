@@ -29,6 +29,8 @@ export async function POST(request: NextRequest) {
       market?: string;
       selectedRows?: CartoAiContactCandidate[];
       skipAutoEnrich?: boolean;
+      /** BOTH : mirroirer les contacts sur BE (défaut true). false = coquille BE seule. */
+      mirrorBeContacts?: boolean;
     };
 
     const company = String(body.company || "").trim();
@@ -65,6 +67,8 @@ export async function POST(request: NextRequest) {
       selectedRows: body.selectedRows,
       userId: session.user.id,
       skipAutoEnrich: body.skipAutoEnrich === true,
+      mirrorBeContacts:
+        market === "BOTH" ? body.mirrorBeContacts !== false : undefined,
     });
 
     return NextResponse.json(result);

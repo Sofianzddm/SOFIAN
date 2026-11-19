@@ -498,13 +498,18 @@ export async function commitCartoAiPipeline(opts: {
   selectedRows: CartoAiContactCandidate[];
   userId: string;
   skipAutoEnrich?: boolean;
+  /**
+   * market=BOTH :
+   * - true (défaut) → mêmes contacts sur FR + BE (parcours FR+BE lab)
+   * - false → contacts FR + coquille BE vide (parcours « FR → puis BE »)
+   */
+  mirrorBeContacts?: boolean;
 }): Promise<CartoAiCommitResult> {
   const company = opts.company.trim();
   if (!company && !opts.marqueId) throw new Error("Fiche requise");
   if (!opts.selectedRows.length) throw new Error("Aucun contact sélectionné");
 
   if (opts.market === "BOTH") {
-    // FR : contacts sélectionnés. BE : coquille vide liée (contacts = analyse BE plus tard).
     const fr = await commitFrance({
       company: company || "Marque",
       marqueId: opts.marqueId,
@@ -515,6 +520,44 @@ export async function commitCartoAiPipeline(opts: {
       skipAutoEnrich: opts.skipAutoEnrich,
     });
     const beName = fr.company || company || "Entreprise";
+    const mirror = opts.mirrorBeContacts !== false;
+
+    if (mirror) {
+      // FR+BE : mêmes contacts sur les deux fiches (pas de 2ᵉ analyse).
+      const be = await commitBenelux({
+        company: beName,
+        companyId: null,
+        domain: opts.domain,
+        language: opts.language,
+        selectedRows: opts.selectedRows,
+        userId: opts.userId,
+        skipAutoEnrich: opts.skipAutoEnrich,
+      });
+      try {
+        await prisma.beneluxCompany.update({
+          where: { id: be.marqueId },
+          data: { linkedMarqueId: fr.marqueId },
+        });
+      } catch (e) {
+        console.warn("[carto-ai] link BE→FR:", e);
+      }
+      return {
+        marqueId: fr.marqueId,
+        company: fr.company,
+        market: "BOTH",
+        fichePath: fr.fichePath,
+        marqueIdBe: be.marqueId,
+        fichePathBe: be.fichePath,
+        created: fr.created + be.created,
+        skipped: fr.skipped + be.skipped,
+        emailsAuto: fr.emailsAuto + be.emailsAuto,
+        queued: fr.queued + be.queued,
+        enrolled: fr.enrolled + be.enrolled,
+        contactIds: [...fr.contactIds, ...be.contactIds],
+      };
+    }
+
+    // FR → puis BE : coquille Benelux liée, contacts = 2ᵉ carto plus tard.
     const beShell = await findOrCreateBeneluxCompany(beName, opts.userId);
     try {
       await prisma.beneluxCompany.update({
