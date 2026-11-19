@@ -62,6 +62,25 @@ export async function GET(request: NextRequest) {
             sendError: true,
           },
         },
+        company: {
+          select: {
+            linkedMarqueId: true,
+            linkedMarque: {
+              select: {
+                assignedToId: true,
+                assignedTo: {
+                  select: {
+                    id: true,
+                    prenom: true,
+                    nom: true,
+                    email: true,
+                    role: true,
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -82,8 +101,9 @@ export async function GET(request: NextRequest) {
       siblingRows.map((r) => normalizeEmail(r.email)).filter(Boolean)
     );
 
-    const targets = rows.map(({ companyId, companyName, ...t }) => {
+    const targets = rows.map(({ companyId, companyName, company, ...t }) => {
       const emailNorm = normalizeEmail(t.email);
+      const linked = company?.linkedMarque || null;
       return {
         ...t,
         marqueId: companyId,
@@ -93,6 +113,10 @@ export async function GET(request: NextRequest) {
         lastInbound: lastInbound.get(emailNorm) || null,
         /** Présent aussi dans le pipeline Clients FR (import / enrichissement FR+BE). */
         alsoInSiblingMarket: siblingEmails.has(emailNorm),
+        assignedToId: linked?.assignedToId ?? null,
+        assignedTo: linked?.assignedTo ?? null,
+        /** Attribution portefeuille = fiche FR liée (sinon null → pas de sélecteur). */
+        assignMarqueId: company?.linkedMarqueId ?? null,
       };
     });
 

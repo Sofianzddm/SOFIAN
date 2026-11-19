@@ -58,6 +58,20 @@ export async function GET(request: NextRequest) {
             sendError: true,
           },
         },
+        marque: {
+          select: {
+            assignedToId: true,
+            assignedTo: {
+              select: {
+                id: true,
+                prenom: true,
+                nom: true,
+                email: true,
+                role: true,
+              },
+            },
+          },
+        },
         // Sous-marques couvertes par ce contact (une seule cible/email, mais on
         // affiche toutes les marques filles qu'il couvre → pas de contact répété).
         marqueContact: {
@@ -86,7 +100,7 @@ export async function GET(request: NextRequest) {
       siblingRows.map((r) => normalizeEmail(r.email)).filter(Boolean)
     );
 
-    const shaped = targets.map(({ marqueContact, ...t }) => {
+    const shaped = targets.map(({ marqueContact, marque, ...t }) => {
       const covered = (marqueContact?.sousMarques || [])
         .map((s) => s.marque.nom)
         .filter((nom) => nom && nom !== t.company);
@@ -97,6 +111,11 @@ export async function GET(request: NextRequest) {
         lastInbound: lastInbound.get(emailNorm) || null,
         /** Présent aussi dans le pipeline BENELUX (import / enrichissement FR+BE). */
         alsoInSiblingMarket: siblingEmails.has(emailNorm),
+        /** Portefeuille Leyna / Joey — fiche marque. */
+        assignedToId: marque?.assignedToId ?? null,
+        assignedTo: marque?.assignedTo ?? null,
+        /** Id FR pour PATCH /api/marques/:id/assign */
+        assignMarqueId: t.marqueId,
       };
     });
 

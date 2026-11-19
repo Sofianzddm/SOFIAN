@@ -199,6 +199,14 @@ type Touch = TouchSummary & {
   clicks?: TouchClick[];
 };
 
+type PortfolioOwner = {
+  id: string;
+  prenom: string | null;
+  nom: string | null;
+  email: string | null;
+  role: string;
+};
+
 type Target = {
   id: string;
   marqueId: string;
@@ -208,6 +216,11 @@ type Target = {
   company: string;
   language: string;
   fromEmail: string | null;
+  /** Portefeuille fiche marque (Leyna / Joey). */
+  assignedToId?: string | null;
+  assignedTo?: PortfolioOwner | null;
+  /** Id marque FR pour PATCH assign (null en BE sans lien FR). */
+  assignMarqueId?: string | null;
   status: TargetStatus;
   draftSubject: string | null;
   draftBodyHtml: string | null;
@@ -619,6 +632,7 @@ export default function OutreachPage() {
   // Correction d'erreur de classement : ce « client » est en réalité une agence.
   const [convertTarget, setConvertTarget] = useState<Target | null>(null);
   const [senderAccounts, setSenderAccounts] = useState<SenderAccount[]>([]);
+  const [portfolioOwners, setPortfolioOwners] = useState<PortfolioOwner[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedTouches, setExpandedTouches] = useState<Touch[]>([]);
   const [expandedLoading, setExpandedLoading] = useState(false);
@@ -789,6 +803,18 @@ export default function OutreachPage() {
     }
   }, []);
 
+  const loadPortfolioOwners = useCallback(async () => {
+    try {
+      const res = await fetch("/api/marques/portfolio-owners");
+      const data = (await res.json().catch(() => ({}))) as {
+        owners?: PortfolioOwner[];
+      };
+      if (res.ok) setPortfolioOwners(data.owners || []);
+    } catch {
+      /* non bloquant */
+    }
+  }, []);
+
   // Restaure le dernier marché choisi (persisté entre sessions).
   // Un deep-link /outreach?market=BENELUX&q=Entreprise (depuis l'annuaire
   // BENELUX) est prioritaire sur le marché mémorisé.
@@ -838,8 +864,17 @@ export default function OutreachPage() {
       loadTargets();
       loadPendingContacts();
       loadSenderAccounts();
+      loadPortfolioOwners();
     }
-  }, [sessionStatus, role, marketView, loadTargets, loadPendingContacts, loadSenderAccounts]);
+  }, [
+    sessionStatus,
+    role,
+    marketView,
+    loadTargets,
+    loadPendingContacts,
+    loadSenderAccounts,
+    loadPortfolioOwners,
+  ]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNowTick(Date.now()), 30_000);
@@ -1586,6 +1621,85 @@ export default function OutreachPage() {
       }
     },
     [flash, loadTargets]
+  );
+
+  /**
+   * Assigne la fiche marque à Leyna / Joey : maj CRM + fromEmail sur tous
+   * les contacts du cycle (mails partent de leur boîte).
+   */
+  const handleAssignPortfolio = useCallback(
+    async (
+      group: { marqueId: string; company: string; targets: Target[] },
+      assignedToId: string | null
+    ) => {
+      const assignMarqueId =
+        group.targets
+          .map((t) => t.assignMarqueId || (t.pipeline === "BENELUX" ? null : t.marqueId))
+          .find((id) => Boolean(id)) ||
+        (group.targets[0]?.pipeline === "BENELUX" ? null : group.marqueId);
+      if (!assignMarqueId) {
+        flash(
+          "error",
+          "Pas de fiche France liée — ouvre la fiche Benelux et lie une marque FR pour attribuer."
+        );
+        return;
+      }
+      const siblingBeId =
+        group.targets.find((t) => t.pipeline === "BENELUX")?.marqueId ||
+        group.targets.find((t) => t.siblingPipeline === "BENELUX")
+          ?.siblingMarqueId ||
+        null;
+      setActionBusy(group.marqueId);
+      try {
+        const res = await fetch(`/api/marques/${assignMarqueId}/assign`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            assignedToId,
+            marqueIdBe: siblingBeId || undefined,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || "Attribution impossible");
+        }
+        const owner = (data.assignedTo || null) as PortfolioOwner | null;
+        const fromEmail =
+          String(data.fromEmail || "").trim().toLowerCase() || null;
+        const ownerId = owner?.id || assignedToId;
+        setTargets((prev) =>
+          prev.map((t) => {
+            const sameMarque =
+              t.marqueId === group.marqueId ||
+              t.assignMarqueId === assignMarqueId ||
+              t.siblingMarqueId === group.marqueId ||
+              t.siblingMarqueId === assignMarqueId;
+            if (!sameMarque) return t;
+            return {
+              ...t,
+              fromEmail,
+              assignedToId: ownerId,
+              assignedTo: owner,
+              assignMarqueId: assignMarqueId,
+            };
+          })
+        );
+        const label = owner
+          ? [owner.prenom, owner.nom].filter(Boolean).join(" ").trim() ||
+            owner.email ||
+            "Attribué"
+          : "Leyna (défaut)";
+        flash(
+          "success",
+          `${group.company} → ${label}${fromEmail ? ` · ${fromEmail}` : ""}`
+        );
+      } catch (e) {
+        flash("error", e instanceof Error ? e.message : "Erreur");
+      } finally {
+        setActionBusy(null);
+      }
+    },
+    [flash]
   );
 
   /**
@@ -2960,6 +3074,69 @@ export default function OutreachPage() {
                       {group.pending.length > 0 &&
                         `${group.pending.length} en attente d'email`}
                     </span>
+                    {group.targets.length > 0 && (() => {
+                      const assignMarqueId =
+                        group.targets
+                          .map(
+                            (t) =>
+                              t.assignMarqueId ||
+                              (t.pipeline === "BENELUX" ? null : t.marqueId)
+                          )
+                          .find((id) => Boolean(id)) ||
+                        (group.targets[0]?.pipeline === "BENELUX"
+                          ? null
+                          : group.marqueId);
+                      const currentOwnerId =
+                        group.targets.find((t) => t.assignedToId)?.assignedToId ||
+                        "";
+                      const currentFrom =
+                        group.targets.find((t) => t.fromEmail)?.fromEmail ||
+                        null;
+                      return (
+                        <label
+                          className="ml-1 inline-flex items-center gap-1.5"
+                          title={
+                            assignMarqueId
+                              ? `Portefeuille · mails depuis ${
+                                  currentFrom || DEFAULT_SENDER_EMAIL
+                                }`
+                              : "Lie d’abord une fiche France pour attribuer"
+                          }
+                        >
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                            Assigné
+                          </span>
+                          <select
+                            value={currentOwnerId}
+                            disabled={groupBusy || !assignMarqueId}
+                            onChange={(e) => {
+                              const v = e.target.value.trim();
+                              void handleAssignPortfolio(
+                                group,
+                                v ? v : null
+                              );
+                            }}
+                            className="max-w-[140px] rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <option value="">Leyna (défaut)</option>
+                            {portfolioOwners.map((o) => {
+                              const label =
+                                [o.prenom, o.nom]
+                                  .filter(Boolean)
+                                  .join(" ")
+                                  .trim() ||
+                                o.email ||
+                                o.id;
+                              return (
+                                <option key={o.id} value={o.id}>
+                                  {label}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </label>
+                      );
+                    })()}
                   </div>
                   {canCompose && group.targets.length > 0 && (
                     <button

@@ -3,8 +3,14 @@
 # Mot de passe SSH une seule fois (ControlMaster).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-HOST="${CARTO_CHAT_VPS_SSH:-root@169.58.229.98}"
-REMOTE="/opt/glowup-casting-worker/scripts/carto-chat-vps"
+# Outreach Contabo = OUTREACH_CHAT_VPS_SSH (défaut 156.67…) + /opt/glowup-outreach-chat
+# Carto Contabo = CARTO_CHAT_VPS_SSH (169.58…) + /opt/glowup-casting-worker
+HOST="${OUTREACH_CHAT_VPS_SSH:-${CARTO_CHAT_VPS_SSH:-root@156.67.103.166}}"
+if [[ "$HOST" == *"156.67"* ]] || [[ "${SYNC_TARGET:-}" == "outreach" ]]; then
+  REMOTE="/opt/glowup-outreach-chat/scripts/carto-chat-vps"
+else
+  REMOTE="${CARTO_CHAT_VPS_REMOTE:-/opt/glowup-casting-worker/scripts/carto-chat-vps}"
+fi
 CTRL="/tmp/carto-chat-vps-ssh-%C"
 export RSYNC_RSH="ssh -o ControlMaster=auto -o ControlPath=${CTRL} -o ControlPersist=10m"
 

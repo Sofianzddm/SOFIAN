@@ -4,14 +4,20 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { canWriteMarqueCrm } from "@/lib/marque-crm-access";
 import { isMarquePortfolioRole } from "@/lib/marque-portfolio";
+import { resolvePortfolioSender } from "@/lib/marque-portfolio-server";
 
 type RouteContext = { params: Promise<{ id: string }> };
+
+function canAssignPortfolio(role: string | undefined | null): boolean {
+  return canWriteMarqueCrm(role) || role === "CASTING_MANAGER";
+}
 
 /**
  * PATCH — Attribue la marque FR au portefeuille Leyna ou Joey.
  * Body: { assignedToId: string | null, marqueIdBe?: string }
  * Si marqueIdBe (ou fiches BE déjà linkedMarqueId) : garantit le lien FR↔BE
  * pour que le portefeuille s’applique aussi à la fiche Benelux liée.
+ * Sync aussi `fromEmail` sur les targets outreach FR (+ BE liés).
  */
 export async function PATCH(request: NextRequest, { params }: RouteContext) {
   try {
@@ -19,7 +25,7 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!canWriteMarqueCrm(session.user.role)) {
+    if (!canAssignPortfolio(session.user.role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
@@ -108,8 +114,27 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
       },
     });
 
+    // Boîte d’envoi = owner portefeuille (Joey / Leyna) → sync targets cycle.
+    const sender = await resolvePortfolioSender(id);
+    const fromEmail = sender.fromEmail.trim().toLowerCase() || null;
+    const frUpdated = await prisma.outreachTarget.updateMany({
+      where: { marqueId: id },
+      data: { fromEmail },
+    });
+    let beUpdated = 0;
+    if (linkedBe.length > 0) {
+      const beRes = await prisma.beneluxOutreachTarget.updateMany({
+        where: { companyId: { in: linkedBe.map((b) => b.id) } },
+        data: { fromEmail },
+      });
+      beUpdated = beRes.count;
+    }
+
     return NextResponse.json({
       ...marque,
+      fromEmail,
+      ownerFirstname: sender.ownerFirstname,
+      targetsSynced: { fr: frUpdated.count, benelux: beUpdated },
       linkedBenelux: linkedBe,
       appliedToBenelux: linkedBe.length > 0,
     });

@@ -1601,13 +1601,23 @@ export class ChatGptDriver {
       `[carto-chat-vps] ensureEffort target=${TARGET} (${aliases.join("/")}) env=${process.env.CARTO_CHAT_EFFORT_LEVEL || "default"} override=${Number.isFinite(fromArg) ? fromArg : "—"}`
     );
 
-    // Ratios slider 5 crans : Instant=0 … Medium≈0.25 … High≈0.55 … XHigh≈0.78 … Pro≈0.98
-    // Instant : NE PAS dériver vers 0.10/0.17 (atterrit sur Moyen).
-    const SLIDER_RATIO = { 1: 0.02, 2: 0.25, 3: 0.55, 4: 0.78, 5: 0.98 };
-    const sliderRatiosForTarget = (t) => {
-      if (t === 1) return [0.0, 0.02, 0.05];
-      const base = SLIDER_RATIO[t] ?? 0.55;
-      return [base, Math.min(0.7, base + 0.08), Math.min(0.85, base + 0.15)];
+    // ChatGPT UI 2026 : souvent 3 crans (Instant / Medium / High) → « N of 3 ».
+    // Ancien 5 crans : Instant=0 … Medium≈0.25 … High≈0.55 … XHigh≈0.78 … Pro≈0.98
+    // Sur 3 crans, High est à DROITE (~0.9) — 0.55/0.70 atterrissent sur Medium.
+    const SLIDER_RATIO_5 = { 1: 0.02, 2: 0.25, 3: 0.55, 4: 0.78, 5: 0.98 };
+    const SLIDER_RATIO_3 = { 1: 0.02, 2: 0.5, 3: 0.92, 4: 0.92, 5: 0.98 };
+    const sliderRatiosForTarget = (t, steps = 3) => {
+      if (t === 1) return [0.0, 0.02, 0.05, 0.08];
+      const table = steps <= 3 ? SLIDER_RATIO_3 : SLIDER_RATIO_5;
+      const base = table[t] ?? (steps <= 3 ? 0.92 : 0.55);
+      if (steps <= 3 && (t === 3 || t >= 3)) {
+        return [0.88, 0.94, 0.98, 0.999];
+      }
+      return [
+        base,
+        Math.min(0.98, base + 0.06),
+        Math.min(0.999, base + 0.12),
+      ];
     };
 
     for (let attempt = 1; attempt <= 4; attempt++) {
@@ -1623,6 +1633,24 @@ export class ChatGptDriver {
           continue;
         }
 
+        // Bouton souvent disabled pendant génération / stream — attendre l’activation.
+        for (let w = 0; w < 12; w++) {
+          const disabled =
+            (await selector.getAttribute("disabled").catch(() => null)) !=
+              null ||
+            (await selector.getAttribute("aria-disabled").catch(() => "")) ===
+              "true" ||
+            (await selector.getAttribute("data-disabled").catch(() => null)) !=
+              null;
+          if (!disabled) break;
+          if (w === 0) {
+            console.warn(
+              `[carto-chat-vps] sélecteur Effort disabled — attente (try ${attempt})`
+            );
+          }
+          await sleep(500);
+        }
+
         const current = await this.readEffortLabel();
         const attr = await this.readEffortAttr();
         if (this.isEffortMatch(current, attr, TARGET)) {
@@ -1635,7 +1663,9 @@ export class ChatGptDriver {
         console.log(
           `[carto-chat-vps] effort try ${attempt}: « ${current} » attr=${attr} → ${aliases.join("/")}`
         );
-        await selector.click({ timeout: 4000 });
+        await selector.click({ timeout: 4000, force: true }).catch(() =>
+          selector.click({ timeout: 4000 })
+        );
         await sleep(700);
 
         // ★ 1) Clic direct sur Instantané / High / … dans le menu
@@ -1670,7 +1700,33 @@ export class ChatGptDriver {
         if (await slider.isVisible({ timeout: 2000 }).catch(() => false)) {
           const box = await slider.boundingBox();
           if (box && box.width >= 8) {
-            for (const ratio of sliderRatiosForTarget(TARGET)) {
+            // Détecte 3 vs 5 crans via la 1ʳᵉ lecture de description
+            let sliderSteps = 3;
+            const probeDesc = await this.page.evaluate(() => {
+              const nodes = Array.from(
+                document.querySelectorAll(
+                  '[data-reasoning-slider="true"], [aria-label="Puissance"], [aria-label="Power"]'
+                )
+              );
+              const s =
+                nodes.find((el) => {
+                  const b = el.getBoundingClientRect();
+                  return b.width > 0 && b.height > 0;
+                }) || nodes[0];
+              const ids = (s?.getAttribute("aria-describedby") || "").split(
+                /\s+/
+              );
+              return ids
+                .map((id) => document.getElementById(id)?.innerText || "")
+                .filter(Boolean)[0];
+            });
+            const mSteps = /(\d+)\s*(?:of|sur)\s*(\d+)/i.exec(probeDesc || "");
+            if (mSteps) sliderSteps = Number(mSteps[2]) || 3;
+            console.log(
+              `[carto-chat-vps] slider steps=${sliderSteps} probe=« ${probeDesc || "?"} »`
+            );
+
+            for (const ratio of sliderRatiosForTarget(TARGET, sliderSteps)) {
               await this.page.mouse.click(
                 box.x + box.width * ratio,
                 box.y + box.height / 2
@@ -1679,7 +1735,7 @@ export class ChatGptDriver {
               const desc = await this.page.evaluate(() => {
                 const nodes = Array.from(
                   document.querySelectorAll(
-                    '[data-reasoning-slider="true"], [aria-label="Puissance"]'
+                    '[data-reasoning-slider="true"], [aria-label="Puissance"], [aria-label="Power"]'
                   )
                 );
                 const s =
@@ -1699,17 +1755,33 @@ export class ChatGptDriver {
               console.log(
                 `[carto-chat-vps] slider ratio=${ratio.toFixed(2)} → desc=${desc || "?"} label=« ${liveLabel} » attr=${liveAttr}`
               );
-              if (
-                this.isEffortMatch(liveLabel, liveAttr, TARGET) ||
-                (desc &&
-                  (new RegExp(`${TARGET}\\s*sur\\s*5`, "i").test(desc) ||
-                    this.isEffortAtTarget(desc, TARGET)))
-              ) {
-                // Instant : si desc dit 1/5 mais label encore Moyen → continue
+              const wantStep =
+                sliderSteps <= 3
+                  ? TARGET === 1
+                    ? 1
+                    : TARGET === 2
+                      ? 2
+                      : 3
+                  : TARGET;
+              const descHit =
+                desc &&
+                (new RegExp(`${wantStep}\\s*(?:of|sur)\\s*${sliderSteps}`, "i").test(
+                  desc
+                ) ||
+                  this.isEffortAtTarget(desc, TARGET));
+              if (this.isEffortMatch(liveLabel, liveAttr, TARGET) || descHit) {
+                // Instant : si desc dit 1/N mais label encore Moyen → continue
                 if (
                   TARGET === 1 &&
                   this.isMediumLabel(liveLabel) &&
                   !this.isEffortAtTarget(desc || "", 1)
+                ) {
+                  continue;
+                }
+                // High : ne jamais valider sur Medium même si ratio « proche »
+                if (
+                  (TARGET === 3 || TARGET >= 3) &&
+                  this.isMediumLabel(liveLabel)
                 ) {
                   continue;
                 }
@@ -2052,11 +2124,17 @@ export class ChatGptDriver {
             effortAttrNow = await this.readEffortAttr();
           }
           if (!this.isEffortMatch(effortNow, effortAttrNow, targetEffort)) {
-            // Instant / High : ne jamais envoyer en Moyen par défaut UI
+            // Instant / High : JAMAIS envoyer en Moyen (régression « envoi malgré »)
             if (
               (targetEffort === 1 || targetEffort === 3) &&
-              this.isMediumLabel(effortNow)
+              (this.isMediumLabel(effortNow) || effortAttrNow === "medium")
             ) {
+              throw new Error(
+                `Effort non appliqué : « ${effortNow} » (attr=${effortAttrNow}) au lieu de cible ${targetEffort} — abandon pour retry`
+              );
+            }
+            // Autre mismatch hors Medium : bloquer aussi Instant/High
+            if (targetEffort === 1 || targetEffort === 3) {
               throw new Error(
                 `Effort non appliqué : « ${effortNow} » (attr=${effortAttrNow}) au lieu de cible ${targetEffort} — abandon pour retry`
               );
