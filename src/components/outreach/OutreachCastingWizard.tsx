@@ -973,14 +973,23 @@ export default function OutreachCastingWizard({
     }
   }, [open, activeWizardBrands, index]);
 
-  // Plus aucune marque à caster / contrôler ici → écran review (job Contabo peut continuer).
+  // Lot déjà 100 % prêt (ex. « Ouvrir » Karl) → rester sur l’aperçu mail + Leyna.
+  useEffect(() => {
+    if (!open || !lotAlreadyReady) return;
+    if (phase !== "casting") setPhase("casting");
+  }, [open, lotAlreadyReady, phase]);
+
+  // Plus aucune marque à caster → écran review (job Contabo peut continuer).
+  // Sauf lot déjà prêt : on garde le casting pour voir le brouillon.
   useEffect(() => {
     if (!open) return;
+    if (lotAlreadyReady) return;
     if (activeWizardBrands.length > 0) return;
     if (!(serverDraftRunning || fitRunning)) return;
     if (phase === "casting" || phase === "writing") setPhase("review");
   }, [
     open,
+    lotAlreadyReady,
     activeWizardBrands.length,
     serverDraftRunning,
     fitRunning,
@@ -1186,7 +1195,25 @@ export default function OutreachCastingWizard({
 
   const currentDraft = useMemo(() => {
     if (!current) return null;
-    return localDrafts[current.groupKey] || null;
+    const local = localDrafts[current.groupKey];
+    if (
+      String(local?.subject || "").trim() &&
+      String(local?.bodyHtml || "").trim()
+    ) {
+      return local;
+    }
+    // Fallback Neon / targets (Ouvrir sur marque Prêt si localDrafts pas encore hydraté)
+    const t = current.targets.find(
+      (x) =>
+        Boolean((x.draftSubject || "").trim()) &&
+        Boolean((x.draftBodyHtml || "").trim())
+    );
+    if (!t) return null;
+    return {
+      subject: String(t.draftSubject || "").trim(),
+      bodyHtml: String(t.draftBodyHtml || "").trim(),
+      chatVps: t.castingResearchSnapshot?.chatVps || null,
+    };
   }, [current, localDrafts]);
 
   /** Findings Leyna / notes issus de la rédaction (pas le scan Gmail optionnel). */
@@ -4537,7 +4564,10 @@ export default function OutreachCastingWizard({
                   : "Aucune marque à caster dans cette file. Recharge la page ou change d’onglet."
                 : "Aucune marque restante dans ce lot."}
             </div>
-          ) : phase === "casting" && current ? (
+          ) : current &&
+            (phase === "casting" ||
+              lotAlreadyReady ||
+              Boolean(currentDraft)) ? (
             <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px]">
               {/* Brief + meta */}
               <div className="space-y-4 border-b p-4 lg:border-b-0 lg:border-r" style={{ borderColor: "#E5E0DA" }}>
