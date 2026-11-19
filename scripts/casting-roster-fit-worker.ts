@@ -46,6 +46,62 @@ async function recoverStuck() {
       `[casting-fit-worker] recovered ${stuckBrands.count} stuck roster brand(s)`
     );
   }
+
+  // Fails Neon / transient récents (< 30 min) → pending auto (Aparanjan).
+  const neonFailCutoff = new Date(Date.now() - 30 * 60 * 1000);
+  const softFails = await prisma.castingRosterFitBrand.findMany({
+    where: {
+      status: "failed",
+      finishedAt: { gte: neonFailCutoff },
+      OR: [
+        { error: { contains: "Can't reach database", mode: "insensitive" } },
+        { error: { contains: "P1001", mode: "insensitive" } },
+        { error: { contains: "P1017", mode: "insensitive" } },
+        { error: { contains: "Protected deployment", mode: "insensitive" } },
+        {
+          error: {
+            contains: "PrismaClientInitializationError",
+            mode: "insensitive",
+          },
+        },
+        { error: { contains: "Timed out fetching", mode: "insensitive" } },
+      ],
+    },
+    select: { id: true, jobId: true, brandName: true },
+    take: 40,
+  });
+  if (softFails.length > 0) {
+    await prisma.castingRosterFitBrand.updateMany({
+      where: { id: { in: softFails.map((b) => b.id) } },
+      data: {
+        status: "pending",
+        error: "Reprise auto worker (blip Neon/réseau)",
+        finishedAt: null,
+        startedAt: null,
+      },
+    });
+    const jobIds = [...new Set(softFails.map((b) => b.jobId))];
+    for (const jobId of jobIds) {
+      const failedLeft = await prisma.castingRosterFitBrand.count({
+        where: { jobId, status: "failed" },
+      });
+      await prisma.castingRosterFitJob.updateMany({
+        where: {
+          id: jobId,
+          status: { in: ["pending", "running", "failed"] },
+          cancelRequested: false,
+        },
+        data: {
+          failed: failedLeft,
+          status: "running",
+          finishedAt: null,
+        },
+      });
+    }
+    console.warn(
+      `[casting-fit-worker] soft-requeued ${softFails.length} Neon/transient fail(s): ${softFails.map((b) => b.brandName).join(", ")}`
+    );
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const indivItem = (prisma as any).castingIndivDraftItem;
   if (indivItem?.updateMany) {

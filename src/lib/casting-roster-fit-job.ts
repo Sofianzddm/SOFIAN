@@ -16,6 +16,30 @@ import {
 } from "@/lib/casting-roster-fit-core";
 import { countFitChainedContaboInFlight } from "@/lib/casting-contabo-global-lock";
 
+/** Blip Neon / Prisma / réseau → reprise auto, jamais failed définitif. */
+export function isSoftFitTransientError(msg: string): boolean {
+  const m = String(msg || "").toLowerCase();
+  if (!m) return false;
+  return (
+    m.includes("can't reach database") ||
+    m.includes("cant reach database") ||
+    m.includes("p1001") ||
+    m.includes("p1002") ||
+    m.includes("p1017") ||
+    m.includes("server has closed the connection") ||
+    m.includes("connection reset") ||
+    m.includes("econnreset") ||
+    m.includes("econnrefused") ||
+    m.includes("etimedout") ||
+    m.includes("timed out fetching") ||
+    m.includes("prismaclientinitializationerror") ||
+    m.includes("prismaclientknownrequesterror") ||
+    m.includes("fetch failed") ||
+    m.includes("socket hang up") ||
+    m.includes("protected deployment")
+  );
+}
+
 export type CreateRosterFitJobBrandInput = {
   groupKey: string;
   brandName: string;
@@ -556,6 +580,34 @@ export async function processRosterFitJobTick(
       const msg =
         e instanceof Error ? e.message.slice(0, 500) : "Erreur analyse casting";
       console.error(`[roster-fit-job] ${jobId} / ${next.brandName}:`, e);
+      // Blip Neon / réseau → pending auto (pas failed) ; prochain tick reprend.
+      if (isSoftFitTransientError(msg)) {
+        console.warn(
+          `[roster-fit-job] soft retry ${next.brandName}: ${msg.slice(0, 120)}`
+        );
+        await prisma.castingRosterFitBrand.update({
+          where: { id: next.id },
+          data: {
+            status: "pending",
+            error: `Reprise auto (blip DB/réseau) — ${msg.slice(0, 180)}`,
+            startedAt: null,
+            finishedAt: null,
+          },
+        });
+        await prisma.castingRosterFitJob.updateMany({
+          where: {
+            id: jobId,
+            cancelRequested: false,
+            status: { not: "cancelled" },
+          },
+          data: {
+            currentBrandName: `Reprise auto · ${next.brandName}`.slice(0, 80),
+            status: "running",
+          },
+        });
+        processed += 1;
+        break;
+      }
       await prisma.castingRosterFitBrand.update({
         where: { id: next.id },
         data: {
