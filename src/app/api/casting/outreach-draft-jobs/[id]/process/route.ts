@@ -55,7 +55,10 @@ export async function POST(
       }
     }
 
-    if (!process.env.OUTREACH_CHAT_VPS_URL?.trim()) {
+    const externalWorker =
+      String(process.env.CASTING_FIT_EXTERNAL_WORKER || "").trim() === "1";
+    // Avec worker externe, /process n’est pas le chemin Contabo (no-op / ignore).
+    if (!externalWorker && !process.env.OUTREACH_CHAT_VPS_URL?.trim()) {
       return NextResponse.json(
         { error: "OUTREACH_CHAT_VPS_URL manquant." },
         { status: 500 }

@@ -1281,17 +1281,6 @@ export default function OutreachCastingWizard({
     [brandsWithCache, skipped, selectedByBrand]
   );
 
-  // Outreach : toutes les marques ont une sélection. Indiv/projet : talents figés.
-  const allCastingDone =
-    brandsWithCache.length > 0 &&
-    (isIndivMode || isProjectMode
-      ? brandsWithCache.every(
-          (b) =>
-            skipped.has(b.groupKey) ||
-            (selectedByBrand[b.groupKey] || []).length > 0
-        )
-      : castingProgress.done >= brandsWithCache.length);
-
   const persistSelection = useCallback(
     (brand: OutreachCastingBrand, pitch: string, ids: string[]) => {
       const markets = outreachCacheMarketsForContact({
@@ -4018,18 +4007,29 @@ export default function OutreachCastingWizard({
         for (const k of groupKeys) serverDraftQueuedRef.current.delete(k);
         setServerDraftRunning(false);
         setServerDraftJobId(null);
+        const msg =
+          e instanceof Error ? e.message : "Rédaction impossible.";
+        // Contabo obligatoire en outreach — pas de bascule navigateur (qualité / file).
+        const contaboMissing =
+          /OUTREACH_CHAT_VPS_URL|VPS Chat|tunnel VPS outreach|Contabo/i.test(
+            msg
+          );
         onFlash?.(
           "error",
-          `${e instanceof Error ? e.message : "Rédaction impossible."} — bascule rédaction navigateur.`
+          contaboMissing
+            ? `${msg} — pas de bascule navigateur (Contabo outreach requis).`
+            : `${msg} — bascule rédaction navigateur.`
         );
-        for (const k of groupKeys) {
-          const fitsMap = fitByBrandRef.current[k] || {};
-          const ids = (
-            talentIdsByKey?.[k] ||
-            selectedByBrandRef.current[k] ||
-            autoPickRecommended(Object.values(fitsMap), 8)
-          ).slice(0, 8);
-          if (ids.length > 0) enqueueAutoWriteRef.current(k, ids);
+        if (!contaboMissing) {
+          for (const k of groupKeys) {
+            const fitsMap = fitByBrandRef.current[k] || {};
+            const ids = (
+              talentIdsByKey?.[k] ||
+              selectedByBrandRef.current[k] ||
+              autoPickRecommended(Object.values(fitsMap), 8)
+            ).slice(0, 8);
+            if (ids.length > 0) enqueueAutoWriteRef.current(k, ids);
+          }
         }
       } finally {
         serverDraftStartingRef.current = false;
@@ -5964,17 +5964,63 @@ export default function OutreachCastingWizard({
                     )}
                   </button>
                 ) : null}
-                {allCastingDone && (
+                {onSendBrand &&
+                current &&
+                currentDraft &&
+                !sentKeys.includes(current.groupKey) ? (
                   <button
                     type="button"
-                    onClick={() => setPhase("review")}
-                    disabled={Boolean(writingOneKey)}
-                    className="rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-40"
-                    style={{ borderColor: "#E5E0DA", color: LICORICE }}
+                    disabled={
+                      Boolean(writingOneKey) ||
+                      sendingKey === current.groupKey ||
+                      editingDraftKey === current.groupKey
+                    }
+                    onClick={() => {
+                      const brand = current;
+                      const draft = currentDraft;
+                      if (!brand || !draft) return;
+                      void (async () => {
+                        setSendingKey(brand.groupKey);
+                        try {
+                          await onSendBrand(brand.groupKey, {
+                            subject: draft.subject,
+                            bodyHtml: draft.bodyHtml,
+                          });
+                          setSentKeys((prev) =>
+                            prev.includes(brand.groupKey)
+                              ? prev
+                              : [...prev, brand.groupKey]
+                          );
+                          onFlash?.(
+                            "success",
+                            `Envoi programmé · ${brand.company}`
+                          );
+                        } catch (e) {
+                          onFlash?.(
+                            "error",
+                            e instanceof Error
+                              ? e.message
+                              : "Envoi impossible."
+                          );
+                        } finally {
+                          setSendingKey(null);
+                        }
+                      })();
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                    style={{ background: OLD_ROSE }}
+                    title="Contrôle l’aperçu ci-dessus puis programme l’envoi pour cette marque"
                   >
-                    Voir le récap
+                    {sendingKey === current.groupKey ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Envoi…
+                      </>
+                    ) : (
+                      "Contrôler et envoyer"
+                    )}
                   </button>
-                )}
+                ) : null}
                 <button
                   type="button"
                   onClick={goNext}

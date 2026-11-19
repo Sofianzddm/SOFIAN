@@ -71,7 +71,11 @@ export async function POST(request: NextRequest) {
     if (!isAllowed(session.user.role)) {
       return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     }
-    if (!process.env.OUTREACH_CHAT_VPS_URL?.trim()) {
+    // Contabo : soit Next traite le job (URL requise), soit le worker VPS
+    // (CASTING_FIT_EXTERNAL_WORKER=1) — l’URL vit alors sur le Contabo, pas ici.
+    const externalWorker =
+      String(process.env.CASTING_FIT_EXTERNAL_WORKER || "").trim() === "1";
+    if (!externalWorker && !process.env.OUTREACH_CHAT_VPS_URL?.trim()) {
       return NextResponse.json(
         {
           error:
