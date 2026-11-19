@@ -1087,9 +1087,32 @@ export async function createOutreachDraftJob(args: {
     }))
     .filter((it) => it.groupKey && it.targetIds.length > 0 && it.talentIds.length > 0);
 
-  // Filet serveur : WAITING / mail prêt → jamais remis en rédaction Contabo.
+  // Filet serveur : WAITING / mail prêt / déjà done sur ce groupKey → jamais Contabo.
   const items: typeof rawItems = [];
   for (const it of rawItems) {
+    // Filet fort : un item done avec mail pour ce groupKey = hors wizard à vie
+    // (même si les drafts targets ont été effacés — cas Aurélie Bidermann).
+    const priorDone = await prisma.castingOutreachDraftItem.findFirst({
+      where: {
+        groupKey: it.groupKey,
+        status: "done",
+        AND: [
+          { draftSubject: { not: null } },
+          { draftBodyHtml: { not: null } },
+          { NOT: { draftSubject: "" } },
+          { NOT: { draftBodyHtml: "" } },
+        ],
+      },
+      select: { id: true, draftSubject: true, finishedAt: true },
+      orderBy: { finishedAt: "desc" },
+    });
+    if (priorDone) {
+      console.info(
+        `[outreach-draft-job] skip create ${it.brandName}: déjà done (${String(priorDone.draftSubject || "").slice(0, 40)})`
+      );
+      continue;
+    }
+
     const eligible = await filterTargetIdsNeedingDraft(it.pipeline, it.targetIds);
     if (eligible.length === 0) {
       console.info(
@@ -1445,7 +1468,39 @@ async function processOneOutreachItem(itemId: string): Promise<{
     return { ok: false, brandName, error: "Annulé" };
   }
 
-  // Hor wizard : WAITING / envoyé / mail déjà prêt → jamais Contabo ni clear drafts.
+  // Autre job a déjà rédigé ce groupKey → ne jamais réécrire (Aurélie Bidermann).
+  try {
+    const priorDone = await prisma.castingOutreachDraftItem.findFirst({
+      where: {
+        groupKey: item.groupKey,
+        status: "done",
+        id: { not: item.id },
+        AND: [
+          { draftSubject: { not: null } },
+          { draftBodyHtml: { not: null } },
+          { NOT: { draftSubject: "" } },
+          { NOT: { draftBodyHtml: "" } },
+        ],
+      },
+      select: { draftSubject: true, draftBodyHtml: true },
+      orderBy: { finishedAt: "desc" },
+    });
+    if (priorDone?.draftSubject && priorDone?.draftBodyHtml) {
+      return {
+        ok: true,
+        brandName,
+        subject: String(priorDone.draftSubject).trim(),
+        bodyHtml: String(priorDone.draftBodyHtml).trim(),
+      };
+    }
+  } catch (e) {
+    console.warn(
+      "[outreach-draft-job] priorDone check soft:",
+      e instanceof Error ? e.message : e
+    );
+  }
+
+  // Hors wizard : WAITING / envoyé / mail déjà prêt → jamais Contabo ni clear drafts.
   try {
     const existingOnTargets =
       item.pipeline === "BENELUX"
