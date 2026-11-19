@@ -56,6 +56,7 @@ import {
   cacheOutreachSelectedTalentsMarkets,
   cacheOutreachTalentResearchMarkets,
   clearOutreachCastingLocalCaches,
+  ensureOutreachCastingCacheEpoch,
   loadOutreachBrandResearchCacheMarkets,
   loadOutreachLeynaExchangeCacheMarkets,
   loadOutreachSelectedTalentsCacheMarkets,
@@ -821,6 +822,8 @@ export default function OutreachPage() {
   // ?resetCasting=1 → vide caches analyse/sélection + URL propre (pas de wizard).
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // Invalide caches navigateur de toute l’équipe si epoch serveur a bougé.
+    ensureOutreachCastingCacheEpoch();
     const params = new URLSearchParams(window.location.search);
     if (params.get("resetCasting") === "1") {
       clearOutreachCastingLocalCaches();

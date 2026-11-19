@@ -1,7 +1,31 @@
 /**
  * Cache localStorage du batch Outreach Clients
  * (marque / talent / Leyna) — partagé barre batch ↔ CastingComposer.
+ *
+ * Incrémente `OUTREACH_CASTING_CACHE_EPOCH` pour invalider tous les navigateurs
+ * (Manon, Julien, …) au prochain chargement de /outreach.
  */
+export const OUTREACH_CASTING_CACHE_EPOCH = "20261119-reset-fr-tocontact";
+
+const EPOCH_STORAGE_KEY = "outreach-casting-cache-epoch";
+
+/** Au chargement : si epoch changé → purge totale des caches casting. */
+export function ensureOutreachCastingCacheEpoch(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const current = localStorage.getItem(EPOCH_STORAGE_KEY);
+    if (current === OUTREACH_CASTING_CACHE_EPOCH) return;
+    clearOutreachCastingLocalCaches();
+    localStorage.setItem(EPOCH_STORAGE_KEY, OUTREACH_CASTING_CACHE_EPOCH);
+    try {
+      sessionStorage.setItem(EPOCH_STORAGE_KEY, OUTREACH_CASTING_CACHE_EPOCH);
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    /* private mode */
+  }
+}
 
 export type OutreachCachedBrandResearch = {
   recentCampaigns: string;
