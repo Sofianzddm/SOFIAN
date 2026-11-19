@@ -1332,23 +1332,17 @@ export default function OutreachPage() {
       .map((g) => groupToCastingBrand(g));
   }, [visibleGroups, activeTab, groupToCastingBrand]);
 
-  /** Lot complet, ou 1 marque si ouvert via « Rédiger le mail ». */
+  /** Lot complet, ou 1 marque si ouvert via « Rédiger le mail » / « Ouvrir ». */
   const wizardBrands = useMemo((): OutreachCastingBrand[] => {
     if (!wizardFocusGroupKey) return castingBrands;
     const fromList = castingBrands.filter(
       (b) => b.groupKey === wizardFocusGroupKey
     );
     if (fromList.length > 0) return fromList;
-    // Ne pas réinjecter une marque déjà prête (sortie wizard).
+    // Focus explicite (« Ouvrir » / prêt à contrôler) : réinjecter même si
+    // le mail est déjà rédigé — sinon Leyna + brouillon disparaissent de l’UI.
     const group = visibleGroups.find((g) => g.groupKey === wizardFocusGroupKey);
     if (!group || group.targets.length === 0) return [];
-    const alreadyReady = group.targets.some(
-      (t) =>
-        Boolean((t.draftSubject || "").trim()) &&
-        Boolean((t.draftBodyHtml || "").trim()) &&
-        !t.scheduledSendAt
-    );
-    if (alreadyReady) return [];
     return [groupToCastingBrand(group)];
   }, [
     castingBrands,

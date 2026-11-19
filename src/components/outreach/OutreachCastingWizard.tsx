@@ -714,6 +714,7 @@ export default function OutreachCastingWizard({
     > = {};
     const nextReady: string[] = [];
     const nextContexts: Record<string, string> = {};
+    let leynaSeeded = false;
     for (const b of brands) {
       const pitch = defaultPitchBrand(b);
       const seededCtx = String(b.draftContext || "").trim();
@@ -723,15 +724,24 @@ export default function OutreachCastingWizard({
           (t.draftSubject || "").trim() && (t.draftBodyHtml || "").trim()
       );
       if (existing) {
-        const snapChat =
-          b.targets.find((t) => t.castingResearchSnapshot?.chatVps)
-            ?.castingResearchSnapshot?.chatVps || null;
+        const snapRow = b.targets.find(
+          (t) =>
+            t.castingResearchSnapshot?.chatVps ||
+            t.castingResearchSnapshot?.leynaExchange
+        );
+        const snapChat = snapRow?.castingResearchSnapshot?.chatVps || null;
+        const snapLeyna = snapRow?.castingResearchSnapshot?.leynaExchange || null;
         nextDrafts[b.groupKey] = {
           subject: String(existing.draftSubject || "").trim(),
           bodyHtml: String(existing.draftBodyHtml || "").trim(),
           chatVps: snapChat,
         };
         nextReady.push(b.groupKey);
+        // Historique Leyna déjà en snapshot (job Contabo) → cache UI dès l’ouverture.
+        if (snapLeyna && pitch) {
+          cacheOutreachLeynaExchangeMarkets(viewCacheMarkets, pitch, snapLeyna);
+          leynaSeeded = true;
+        }
       }
       if (isProjectMode) {
         const fromBrand = (b.selectedTalentIds || [])
@@ -791,12 +801,15 @@ export default function OutreachCastingWizard({
     setLocalDrafts(nextDrafts);
     setReadyKeys(nextReady);
     setDraftContextByBrand(nextContexts);
+    if (leynaSeeded) setProjectCacheTick((n) => n + 1);
 
     // Reprendre à la première marque non skip / sans sélection (outreach)
     // ou sans brouillon (indiv — talent déjà sélectionné).
+    // Si tout est déjà rédigé (ex. « Ouvrir » Longchamp prêt) → index 0.
     const startIdx = brandsWithCache.findIndex((b) => {
       if (skip.has(b.groupKey)) return false;
       if (lockedTalentId) return !nextDrafts[b.groupKey];
+      if (nextDrafts[b.groupKey]) return false;
       const sel = nextSel[b.groupKey] || [];
       return sel.length === 0;
     });
@@ -808,13 +821,23 @@ export default function OutreachCastingWizard({
   useEffect(() => {
     if (!open) return;
     const readyFromTargets: string[] = [];
+    let leynaHydrated = false;
     setLocalDrafts((prev) => {
       let changed = false;
       const next = { ...prev };
       for (const b of brands) {
-        const snap =
-          b.targets.find((t) => t.castingResearchSnapshot?.chatVps)
-            ?.castingResearchSnapshot?.chatVps || null;
+        const pitch = defaultPitchBrand(b);
+        const snapRow = b.targets.find(
+          (t) =>
+            t.castingResearchSnapshot?.chatVps ||
+            t.castingResearchSnapshot?.leynaExchange
+        );
+        const snap = snapRow?.castingResearchSnapshot?.chatVps || null;
+        const snapLeyna = snapRow?.castingResearchSnapshot?.leynaExchange || null;
+        if (snapLeyna && pitch) {
+          cacheOutreachLeynaExchangeMarkets(viewCacheMarkets, pitch, snapLeyna);
+          leynaHydrated = true;
+        }
         const existing = b.targets.find(
           (t) =>
             (t.draftSubject || "").trim() && (t.draftBodyHtml || "").trim()
@@ -851,6 +874,7 @@ export default function OutreachCastingWizard({
       }
       return changed ? next : prev;
     });
+    if (leynaHydrated) setProjectCacheTick((n) => n + 1);
     if (readyFromTargets.length > 0) {
       setReadyKeys((prev) => {
         const next = new Set(prev);
@@ -864,7 +888,7 @@ export default function OutreachCastingWizard({
         return changed ? Array.from(next) : prev;
       });
     }
-  }, [open, brands]);
+  }, [open, brands, viewCacheMarkets]);
 
   // Charge le presskit selon le marché (pas en mode projet).
   useEffect(() => {
