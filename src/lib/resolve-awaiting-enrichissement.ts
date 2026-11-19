@@ -490,3 +490,80 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
     return empty;
   }
 }
+
+/**
+ * Auto-file « Marques en attente » si 0 contact emailable (ou pas de fiche).
+ * Silencieux (pas d’email) — évite le clic manuel Enrichir.
+ * @returns true si le flag vient d’être posé
+ */
+export async function autoMarkAwaitingContactsIfEmpty(opts: {
+  missionId: string;
+  /** Si déjà calculé (ready-to-send) — saute le recompte CRM. */
+  knownEmpty?: boolean;
+}): Promise<boolean> {
+  const missionId = String(opts.missionId || "").trim();
+  if (!missionId) return false;
+
+  const mission = await prisma.contactMission.findUnique({
+    where: { id: missionId },
+    select: {
+      id: true,
+      awaitingContactsCompletion: true,
+      marqueId: true,
+    },
+  });
+  if (!mission || mission.awaitingContactsCompletion) return false;
+
+  let empty = Boolean(opts.knownEmpty);
+  if (!opts.knownEmpty) {
+    if (!mission.marqueId) {
+      empty = true;
+    } else {
+      const contacts = await prisma.marqueContact.findMany({
+        where: {
+          marqueId: mission.marqueId,
+          outreachExcluded: false,
+          diffusionOptOut: false,
+        },
+        select: { email: true, emailSuggested: true },
+        take: 50,
+      });
+      const emailable = contacts.filter((c) => {
+        const email = (c.email || c.emailSuggested || "").trim();
+        return email.includes("@");
+      }).length;
+      empty = emailable === 0;
+    }
+  }
+  if (!empty) return false;
+
+  const updated = await prisma.contactMission.updateMany({
+    where: { id: missionId, awaitingContactsCompletion: false },
+    data: {
+      awaitingContactsCompletion: true,
+      contactsCompletionRequestedAt: new Date(),
+    },
+  });
+  return updated.count > 0;
+}
+
+/** Batch : pose le flag pour une liste de missions déjà classées « à enrichir ». */
+export async function autoMarkAwaitingContactsBatch(
+  missionIds: string[]
+): Promise<number> {
+  const ids = Array.from(
+    new Set(missionIds.map((id) => String(id || "").trim()).filter(Boolean))
+  );
+  if (ids.length === 0) return 0;
+  const updated = await prisma.contactMission.updateMany({
+    where: {
+      id: { in: ids },
+      awaitingContactsCompletion: false,
+    },
+    data: {
+      awaitingContactsCompletion: true,
+      contactsCompletionRequestedAt: new Date(),
+    },
+  });
+  return updated.count;
+}

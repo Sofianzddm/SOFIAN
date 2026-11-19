@@ -477,6 +477,16 @@ async function processOneMissionItem(itemId: string): Promise<{
     },
   });
 
+  // Brouillon prêt mais 0 contact emailable CRM → file Enrichissement auto
+  if (contacts.length === 0) {
+    const { autoMarkAwaitingContactsIfEmpty } = await import(
+      "@/lib/resolve-awaiting-enrichissement"
+    );
+    await autoMarkAwaitingContactsIfEmpty({ missionId: mission.id }).catch(
+      () => false
+    );
+  }
+
   return { ok: true, brandName };
 }
 

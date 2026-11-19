@@ -16,6 +16,7 @@ import {
   INDIV_BRAND_WAVE_DAYS,
 } from "@/lib/contact-cooldown";
 import { brandsLookSame } from "@/lib/brand-match";
+import { autoMarkAwaitingContactsBatch } from "@/lib/resolve-awaiting-enrichissement";
 
 const ALLOWED_ROLES = ["HEAD_OF_SALES", "BUSINESS_DEVELOPER", "ADMIN", "HEAD_OF", "CASTING_MANAGER"] as const;
 
@@ -330,6 +331,20 @@ export async function GET(request: NextRequest) {
         availableContacts,
         alreadyAttachedCount,
       });
+    }
+
+    // 0 contact / pas de fiche → file Enrichissement auto (sans clic Enrichir)
+    if (needsEnrichment.length > 0) {
+      const ids = needsEnrichment
+        .map((row) => String((row.mission as { id?: string }).id || ""))
+        .filter(Boolean);
+      const autoQueued = await autoMarkAwaitingContactsBatch(ids);
+      if (autoQueued > 0) {
+        for (const row of needsEnrichment) {
+          const m = row.mission as { awaitingContactsCompletion?: boolean };
+          m.awaitingContactsCompletion = true;
+        }
+      }
     }
 
     return NextResponse.json({

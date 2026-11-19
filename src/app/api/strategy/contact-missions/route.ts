@@ -582,6 +582,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 0 contact emailable (ou pas de fiche) → file Enrichissement auto
+    let awaitEnrich = !marqueId;
+    if (marqueId) {
+      const crmContacts = await prisma.marqueContact.findMany({
+        where: {
+          marqueId,
+          outreachExcluded: false,
+          diffusionOptOut: false,
+        },
+        select: { email: true, emailSuggested: true },
+        take: 50,
+      });
+      const emailable = crmContacts.filter((c) => {
+        const email = (c.email || c.emailSuggested || "").trim();
+        return email.includes("@");
+      }).length;
+      awaitEnrich = emailable === 0;
+    }
+
     const mission = await contactMissionModel.create({
       data: {
         campaignId,
@@ -601,6 +620,12 @@ export async function POST(request: NextRequest) {
         stage: "TO_DRAFT",
         deadlineAt: body.deadlineAt ? new Date(body.deadlineAt) : null,
         createdById: session.user.id,
+        ...(awaitEnrich
+          ? {
+              awaitingContactsCompletion: true,
+              contactsCompletionRequestedAt: new Date(),
+            }
+          : {}),
       },
     });
 
