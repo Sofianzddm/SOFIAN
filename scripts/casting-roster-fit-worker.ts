@@ -122,8 +122,7 @@ async function recoverStuck() {
     );
   }
 
-  // Contabo orphelins : job Chat encore running/queued alors que l’item plateforme
-  // n’est plus running/pending (fail timeout, erreur DB, etc.) → coupe le zombie.
+  // Contabo orphelins : ne pas tuer un run encore utile (VPS_PENDING / fail Neon récent).
   try {
     const { cancelOrphanOutreachContaboJobs } = await import(
       "../src/lib/carto-chat-vps/vps-client"
@@ -132,10 +131,20 @@ async function recoverStuck() {
     const outreachItem = (prisma as any).castingOutreachDraftItem;
     const keepMarkers: string[] = [];
     if (outreachItem?.findMany) {
+      const recentFailCutoff = new Date(Date.now() - 15 * 60 * 1000);
       const live = await outreachItem.findMany({
-        where: { status: { in: ["running", "pending"] } },
-        select: { brandResearch: true },
-        take: 200,
+        where: {
+          OR: [
+            { status: { in: ["running", "pending"] } },
+            { error: "VPS_PENDING" },
+            {
+              status: "failed",
+              updatedAt: { gte: recentFailCutoff },
+            },
+          ],
+        },
+        select: { brandResearch: true, status: true, error: true },
+        take: 300,
       });
       for (const it of live) {
         const m = String(

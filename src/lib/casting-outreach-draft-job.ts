@@ -593,18 +593,28 @@ async function pollOutreachVpsUntilReady(opts: {
       }
       const chars = Number(ready?.answerChars || 0);
       const preview = String(ready?.promptPreview || "");
-      await prisma.castingOutreachDraftJob.update({
-        where: { id: jobId },
-        data: {
-          currentBrandName: (
-            preview
-              ? `Serveur · ${preview}`
-              : chars
-                ? `Serveur · High · ${brandName} · ${Math.round(chars / 1000)}k · poll 10s`
-                : `Serveur · High · ${brandName} · attente CODE FIN`
-          ).slice(0, 80),
-        },
-      });
+      // Progress Neon = best-effort : un blip DB ne doit JAMAIS faire fail Contabo.
+      try {
+        await prisma.castingOutreachDraftJob.update({
+          where: { id: jobId },
+          data: {
+            currentBrandName: (
+              preview
+                ? `Serveur · ${preview}`
+                : chars
+                  ? `Serveur · High · ${brandName} · ${Math.round(chars / 1000)}k · poll 10s`
+                  : `Serveur · High · ${brandName} · attente CODE FIN`
+            ).slice(0, 80),
+          },
+        });
+      } catch (progErr) {
+        const pm =
+          progErr instanceof Error ? progErr.message : String(progErr);
+        if (!isSoftOutreachVpsPollError(pm)) throw progErr;
+        console.warn(
+          `[outreach-draft-job] progress write soft ${brandName}: ${pm.slice(0, 120)}`
+        );
+      }
     } catch (e) {
       const msg =
         e instanceof Error ? e.message : "Lecture serveur impossible";
@@ -612,18 +622,7 @@ async function pollOutreachVpsUntilReady(opts: {
         console.warn(
           `[outreach-draft-job] poll soft ${brandName}: ${msg}`
         );
-        try {
-          await prisma.castingOutreachDraftJob.update({
-            where: { id: jobId },
-            data: {
-              currentBrandName:
-                `Serveur · sync · ${brandName} · reprise…`.slice(0, 80),
-            },
-          });
-        } catch {
-          /* soft */
-        }
-        // Continuer le poll dans ce tick — ne pas failed dur.
+        // Continuer le poll — Neon/réseau soft, Contabo intact.
       } else {
         // Erreur « dure » : dernière chance certified avant failed.
         try {
@@ -643,6 +642,14 @@ async function pollOutreachVpsUntilReady(opts: {
             `[outreach-draft-job] recovery fail ${brandName}:`,
             recoverErr instanceof Error ? recoverErr.message : recoverErr
           );
+        }
+        if (isSoftOutreachVpsPollError(msg)) {
+          return {
+            ok: false,
+            brandName,
+            error: "VPS_PENDING",
+            pending: true,
+          };
         }
         return {
           ok: false,
@@ -911,24 +918,53 @@ async function pollOutreachVpsUntilReady(opts: {
     savedAt: new Date().toISOString(),
   };
 
-  await saveDraftOnTargets(
-    pipeline,
-    targetIds,
-    subject,
-    bodyHtml,
-    castingResearchSnapshot,
-    brandName
-  );
-
-  // Nettoie le marker pour ne pas re-poll.
-  await prisma.castingOutreachDraftItem.update({
-    where: { id: itemId },
-    data: {
-      brandResearch: cleanBrand as object,
-    },
-  });
-
   const cleanSubject = sanitizeOutreachMailSubject(subject, brandName);
+
+  try {
+    await withDbRetry(`saveDraft ${brandName}`, () =>
+      saveDraftOnTargets(
+        pipeline,
+        targetIds,
+        subject,
+        bodyHtml,
+        castingResearchSnapshot,
+        brandName
+      )
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (isSoftOutreachVpsPollError(msg)) {
+      console.warn(
+        `[outreach-draft-job] saveDraft soft ${brandName}: ${msg.slice(0, 120)}`
+      );
+      // Contabo a le mail — ne pas cancel ; prochain tick retentera le save.
+      return {
+        ok: false,
+        brandName,
+        error: "VPS_PENDING",
+        pending: true,
+      };
+    }
+    throw e;
+  }
+
+  // Nettoie le marker pour ne pas re-poll (best-effort après save targets).
+  try {
+    await withDbRetry(`clearMarker ${brandName}`, () =>
+      prisma.castingOutreachDraftItem.update({
+        where: { id: itemId },
+        data: {
+          brandResearch: cleanBrand as object,
+        },
+      })
+    );
+  } catch (e) {
+    console.warn(
+      `[outreach-draft-job] clearMarker soft ${brandName}:`,
+      e instanceof Error ? e.message : e
+    );
+  }
+
   // Libère le slot Contabo tout de suite : sinon le driver peut rester
   // « running » sur le jeton alors que le mail est déjà en base → marque suivante bloquée.
   try {
@@ -947,6 +983,31 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Retry court sur blips Neon avant de déclarer VPS_PENDING. */
+async function withDbRetry<T>(
+  label: string,
+  fn: () => Promise<T>,
+  attempts = 3
+): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!isSoftOutreachVpsPollError(msg) || i === attempts - 1) {
+        throw e;
+      }
+      console.warn(
+        `[outreach-draft-job] db retry ${i + 1}/${attempts} ${label}: ${msg.slice(0, 100)}`
+      );
+      await sleep(1000 * (i + 1));
+    }
+  }
+  throw last;
+}
+
 /** Coupe le job Contabo lié à un item (fail / timeout / reset) — évite zombies file. */
 async function cancelContaboForOutreachItem(item: {
   brandName?: string | null;
@@ -962,6 +1023,33 @@ async function cancelContaboForOutreachItem(item: {
   } catch (e) {
     console.warn(
       `[outreach-draft-job] cancel Contabo ${item.brandName || "?"}:`,
+      e instanceof Error ? e.message : e
+    );
+  }
+}
+
+/** Évite le wizard figé sur « Marque · attente CODE FIN » après fail/done. */
+async function refreshOutreachJobCurrentBrand(jobId: string): Promise<void> {
+  try {
+    const next = await prisma.castingOutreachDraftItem.findFirst({
+      where: { jobId, status: { in: ["running", "pending"] } },
+      orderBy: [{ status: "asc" }, { sortOrder: "asc" }],
+      select: { brandName: true, status: true },
+    });
+    await prisma.castingOutreachDraftJob.update({
+      where: { id: jobId },
+      data: {
+        currentBrandName: next
+          ? (next.status === "running"
+              ? `Serveur · ${next.brandName}`
+              : `File · ${next.brandName}`
+            ).slice(0, 80)
+          : null,
+      },
+    });
+  } catch (e) {
+    console.warn(
+      "[outreach-draft-job] refresh currentBrand soft:",
       e instanceof Error ? e.message : e
     );
   }
@@ -2450,6 +2538,7 @@ async function processOutreachDraftJobTickUnlocked(
           where: { id: jobId },
           data: { failed: { increment: 1 } },
         });
+        await refreshOutreachJobCurrentBrand(jobId);
       } catch (writeErr) {
         const w = writeErr instanceof Error ? writeErr.message : String(writeErr);
         if (isSoftOutreachVpsPollError(w)) {
@@ -2466,6 +2555,28 @@ async function processOutreachDraftJobTickUnlocked(
     if (!result) continue;
     lastBrand = result.brandName;
     if (result.pending || result.error === "VPS_PENDING") {
+      processed += 1;
+      continue;
+    }
+    // Blip Neon renvoyé en result.error (pas throw) → NE PAS failed ni cancel Contabo.
+    if (
+      !result.ok &&
+      isSoftOutreachVpsPollError(String(result.error || ""))
+    ) {
+      console.warn(
+        `[outreach-draft-job] result soft ${next.brandName}: ${result.error}`
+      );
+      try {
+        await prisma.castingOutreachDraftItem.updateMany({
+          where: { id: next.id, status: { in: ["running", "pending"] } },
+          data: { error: "VPS_PENDING", status: "running" },
+        });
+      } catch (softWriteErr) {
+        console.warn(
+          `[outreach-draft-job] result soft mark fail ${next.brandName}:`,
+          softWriteErr instanceof Error ? softWriteErr.message : softWriteErr
+        );
+      }
       processed += 1;
       continue;
     }
@@ -2489,6 +2600,7 @@ async function processOutreachDraftJobTickUnlocked(
           error: skipMsg,
         },
       });
+      await refreshOutreachJobCurrentBrand(jobId);
       if (/annul/i.test(skipMsg)) cancelled = true;
       processed += 1;
       continue;
@@ -2499,25 +2611,28 @@ async function processOutreachDraftJobTickUnlocked(
         result.brandName
       );
       try {
-        await prisma.castingOutreachDraftItem.update({
-          where: { id: next.id },
-          data: {
-            status: "done",
-            finishedAt: new Date(),
-            brandName: result.brandName,
-            draftSubject: cleanSubject || null,
-            draftBodyHtml: result.bodyHtml || null,
-            error: null,
-          },
+        await withDbRetry(`done ${next.brandName}`, async () => {
+          await prisma.castingOutreachDraftItem.update({
+            where: { id: next.id },
+            data: {
+              status: "done",
+              finishedAt: new Date(),
+              brandName: result.brandName,
+              draftSubject: cleanSubject || null,
+              draftBodyHtml: result.bodyHtml || null,
+              error: null,
+            },
+          });
+          await prisma.castingOutreachDraftJob.update({
+            where: { id: jobId },
+            data: { completed: { increment: 1 } },
+          });
         });
-        await prisma.castingOutreachDraftJob.update({
-          where: { id: jobId },
-          data: { completed: { increment: 1 } },
-        });
+        await refreshOutreachJobCurrentBrand(jobId);
       } catch (writeErr) {
         const w = writeErr instanceof Error ? writeErr.message : String(writeErr);
         if (isSoftOutreachVpsPollError(w)) {
-          // Mail peut déjà être sur les targets — stash sur l’item + retry done.
+          // Mail déjà sur les targets — stash + retry done au prochain tick, Contabo OK.
           console.warn(
             `[outreach-draft-job] done-write soft ${next.brandName}: ${w}`
           );
@@ -2553,6 +2668,7 @@ async function processOutreachDraftJobTickUnlocked(
           where: { id: jobId },
           data: { failed: { increment: 1 } },
         });
+        await refreshOutreachJobCurrentBrand(jobId);
       } catch (writeErr) {
         const w = writeErr instanceof Error ? writeErr.message : String(writeErr);
         if (isSoftOutreachVpsPollError(w)) {
