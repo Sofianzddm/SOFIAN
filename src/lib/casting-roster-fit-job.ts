@@ -299,39 +299,8 @@ export async function processRosterFitJobTick(
       };
     }
 
-    // Pipeline strict 1 marque : Analyse → Fit → Contabo done, puis suivante.
-    // Gate A : une marque déjà `running` dans ce job (2 ticks concurrents).
-    const alreadyRunning = await prisma.castingRosterFitBrand.findFirst({
-      where: { jobId, status: "running" },
-      orderBy: { startedAt: "asc" },
-      select: { brandName: true, startedAt: true },
-    });
-    if (alreadyRunning) {
-      const waitLabel =
-        `En cours · ${alreadyRunning.brandName} (1 à la fois)`.slice(0, 80);
-      await prisma.castingRosterFitJob.updateMany({
-        where: {
-          id: jobId,
-          cancelRequested: false,
-          status: { not: "cancelled" },
-        },
-        data: { currentBrandName: waitLabel, status: "running" },
-      });
-      return {
-        processed,
-        done: false,
-        status: "running",
-        currentBrandName: waitLabel,
-      };
-    }
-
-    const next = await prisma.castingRosterFitBrand.findFirst({
-      where: { jobId, status: "pending" },
-      orderBy: { sortOrder: "asc" },
-    });
-    if (!next) break;
-
-    // Gate B : Contabo encore busy sur une marque déjà fittée de ce job.
+    // Gate Contabo : pas de nouvelle analyse tant que rédaction d’une marque
+    // déjà fittée de ce job est encore pending/running.
     const contaboInFlight = await countFitChainedContaboInFlight({
       fitJobId: jobId,
       userId: fresh.userId,
@@ -358,13 +327,50 @@ export async function processRosterFitJobTick(
       };
     }
 
-    lastBrand = next.brandName;
-    // Claim atomique (évite double process si 2 workers).
-    const claimed = await prisma.castingRosterFitBrand.updateMany({
-      where: { id: next.id, status: "pending" },
-      data: { status: "running", startedAt: new Date(), error: null },
+    // Claim atomique 1-à-1 : transaction = si une marque est déjà running,
+    // on ne claim rien (évite Aparanjan + bott en parallèle).
+    const next = await prisma.$transaction(async (tx) => {
+      const runningNow = await tx.castingRosterFitBrand.findFirst({
+        where: { jobId, status: "running" },
+        select: { brandName: true },
+      });
+      if (runningNow) {
+        return { blockedBy: runningNow.brandName as string, brand: null };
+      }
+      const candidate = await tx.castingRosterFitBrand.findFirst({
+        where: { jobId, status: "pending" },
+        orderBy: { sortOrder: "asc" },
+      });
+      if (!candidate) return { blockedBy: null, brand: null };
+      const claimed = await tx.castingRosterFitBrand.updateMany({
+        where: { id: candidate.id, status: "pending" },
+        data: { status: "running", startedAt: new Date(), error: null },
+      });
+      if (claimed.count === 0) return { blockedBy: null, brand: null };
+      return { blockedBy: null, brand: candidate };
     });
-    if (claimed.count === 0) continue;
+
+    if (next.blockedBy) {
+      const waitLabel = `En cours · ${next.blockedBy} (1 à la fois)`.slice(0, 80);
+      await prisma.castingRosterFitJob.updateMany({
+        where: {
+          id: jobId,
+          cancelRequested: false,
+          status: { not: "cancelled" },
+        },
+        data: { currentBrandName: waitLabel, status: "running" },
+      });
+      return {
+        processed,
+        done: false,
+        status: "running",
+        currentBrandName: waitLabel,
+      };
+    }
+    if (!next.brand) break;
+
+    const brand = next.brand;
+    lastBrand = brand.brandName;
 
     // Ne jamais écraser un cancel (sinon Arrêter casting « revient »).
     const keepAlive = await prisma.castingRosterFitJob.updateMany({
@@ -373,11 +379,11 @@ export async function processRosterFitJobTick(
         cancelRequested: false,
         status: { not: "cancelled" },
       },
-      data: { currentBrandName: next.brandName, status: "running" },
+      data: { currentBrandName: brand.brandName, status: "running" },
     });
     if (keepAlive.count === 0) {
       await prisma.castingRosterFitBrand.updateMany({
-        where: { id: next.id, status: "running" },
+        where: { id: brand.id, status: "running" },
         data: {
           status: "pending",
           startedAt: null,
@@ -393,7 +399,7 @@ export async function processRosterFitJobTick(
     }
 
     try {
-      let research = normalizeBrandResearch(next.brandResearch);
+      let research = normalizeBrandResearch(brand.brandResearch);
       // Brief manquant → analyse marque serveur (survit à la fermeture / VPS).
       if (!hasBrandResearchBrief(research)) {
         await prisma.castingRosterFitJob.updateMany({
@@ -403,7 +409,7 @@ export async function processRosterFitJobTick(
             status: { not: "cancelled" },
           },
           data: {
-            currentBrandName: `AI · Analyse marque · ${next.brandName}`.slice(
+            currentBrandName: `AI · Analyse marque · ${brand.brandName}`.slice(
               0,
               80
             ),
@@ -424,7 +430,7 @@ export async function processRosterFitJobTick(
               "@/app/api/casting/brand-research/route"
             );
             brData = normalizeBrandResearch(
-              await researchOneBrand(next.brandName, focus)
+              await researchOneBrand(brand.brandName, focus)
             );
           } catch (e) {
             const msg =
@@ -434,7 +440,7 @@ export async function processRosterFitJobTick(
                   ? e
                   : JSON.stringify(e).slice(0, 400);
             throw new Error(
-              msg || `Analyse marque impossible (${next.brandName})`
+              msg || `Analyse marque impossible (${brand.brandName})`
             );
           }
         } else {
@@ -443,7 +449,7 @@ export async function processRosterFitJobTick(
             method: "POST",
             headers: internalJobHeaders(),
             body: JSON.stringify({
-              brandName: next.brandName,
+              brandName: brand.brandName,
               availabilityFocus: focus,
             }),
           });
@@ -472,7 +478,7 @@ export async function processRosterFitJobTick(
           afterBr.status === "cancelled"
         ) {
           await prisma.castingRosterFitBrand.updateMany({
-            where: { id: next.id, status: "running" },
+            where: { id: brand.id, status: "running" },
             data: {
               status: "pending",
               startedAt: null,
@@ -496,7 +502,7 @@ export async function processRosterFitJobTick(
         }
         research = brData;
         await prisma.castingRosterFitBrand.update({
-          where: { id: next.id },
+          where: { id: brand.id },
           data: { brandResearch: research as object },
         });
       }
@@ -508,12 +514,12 @@ export async function processRosterFitJobTick(
           status: { not: "cancelled" },
         },
         data: {
-          currentBrandName: `AI · Fit casting · ${next.brandName}`.slice(0, 80),
+          currentBrandName: `AI · Fit casting · ${brand.brandName}`.slice(0, 80),
         },
       });
       if (keepFitLabel.count === 0) {
         await prisma.castingRosterFitBrand.updateMany({
-          where: { id: next.id, status: "running" },
+          where: { id: brand.id, status: "running" },
           data: {
             status: "pending",
             startedAt: null,
@@ -529,12 +535,12 @@ export async function processRosterFitJobTick(
       }
 
       const talents = await runRosterFitForBrand({
-        brandName: next.brandName,
+        brandName: brand.brandName,
         brandResearch: research,
         talentIds: job.talentIds,
       });
       await prisma.castingRosterFitBrand.update({
-        where: { id: next.id },
+        where: { id: brand.id },
         data: {
           status: "done",
           result: talents as object[],
@@ -561,17 +567,17 @@ export async function processRosterFitJobTick(
       ) {
         try {
           await maybeChainDraftAfterBrandDone(job, {
-            groupKey: next.groupKey,
-            brandName: next.brandName,
-            company: next.company,
-            pipeline: next.pipeline,
-            targetIds: next.targetIds || [],
+            groupKey: brand.groupKey,
+            brandName: brand.brandName,
+            company: brand.company,
+            pipeline: brand.pipeline,
+            targetIds: brand.targetIds || [],
             brandResearch: research,
             result: talents,
           });
         } catch (e) {
           console.warn(
-            `[roster-fit-job] chain draft after brand ${next.brandName}:`,
+            `[roster-fit-job] chain draft after brand ${brand.brandName}:`,
             e
           );
         }
@@ -579,14 +585,14 @@ export async function processRosterFitJobTick(
     } catch (e) {
       const msg =
         e instanceof Error ? e.message.slice(0, 500) : "Erreur analyse casting";
-      console.error(`[roster-fit-job] ${jobId} / ${next.brandName}:`, e);
+      console.error(`[roster-fit-job] ${jobId} / ${brand.brandName}:`, e);
       // Blip Neon / réseau → pending auto (pas failed) ; prochain tick reprend.
       if (isSoftFitTransientError(msg)) {
         console.warn(
-          `[roster-fit-job] soft retry ${next.brandName}: ${msg.slice(0, 120)}`
+          `[roster-fit-job] soft retry ${brand.brandName}: ${msg.slice(0, 120)}`
         );
         await prisma.castingRosterFitBrand.update({
-          where: { id: next.id },
+          where: { id: brand.id },
           data: {
             status: "pending",
             error: `Reprise auto (blip DB/réseau) — ${msg.slice(0, 180)}`,
@@ -601,7 +607,7 @@ export async function processRosterFitJobTick(
             status: { not: "cancelled" },
           },
           data: {
-            currentBrandName: `Reprise auto · ${next.brandName}`.slice(0, 80),
+            currentBrandName: `Reprise auto · ${brand.brandName}`.slice(0, 80),
             status: "running",
           },
         });
@@ -609,7 +615,7 @@ export async function processRosterFitJobTick(
         break;
       }
       await prisma.castingRosterFitBrand.update({
-        where: { id: next.id },
+        where: { id: brand.id },
         data: {
           status: "failed",
           error: msg,
