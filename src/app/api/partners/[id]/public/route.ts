@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { buildCityGroupMap } from "@/lib/city-grouping";
+import { talentBookWhere } from "@/lib/talentbook-visibility";
 
 // Route publique: GET /api/partners/[id]/public
 // ATTENTION: le paramètre "id" est en réalité le slug du partenaire.
@@ -39,9 +40,9 @@ export async function GET(
       updatedAt: partner.updatedAt,
     };
 
-    // ⚠️ Afficher uniquement les talents non archivés - même logique que /api/public/talents
+    // Même logique que /api/public/talents : actifs et non exclus du book.
     const talentsList = await prisma.talent.findMany({
-      where: { isArchived: false },
+      where: { ...talentBookWhere },
       select: {
         id: true,
         prenom: true,

@@ -67,6 +67,7 @@ interface Talent {
   commissionInbound: number;
   commissionOutbound: number;
   orderBook?: number;
+  excluTalentbook?: boolean;
   managerId?: string;
   manager: {
     id?: string;
@@ -178,7 +179,9 @@ export default function TalentsPage() {
 
   useEffect(() => {
     if (showBookOrderModal && talents.length > 0) {
-      const sorted = [...talents].sort((a, b) => {
+      const sorted = [...talents]
+        .filter((t) => !t.excluTalentbook)
+        .sort((a, b) => {
         const oA = a.orderBook ?? 999999;
         const oB = b.orderBook ?? 999999;
         if (oA !== oB) return oA - oB;
@@ -401,6 +404,15 @@ export default function TalentsPage() {
       return `${talents.length} talent(s) sous ma gestion ou en relai`;
     }
     return `${talents.length} talents dans l'agence`;
+  };
+
+  const getTalentbookBadge = (talent: Talent) => {
+    if (!talent.excluTalentbook) return null;
+    return (
+      <span className="inline-flex items-center text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-medium mt-0.5">
+        Hors talent book
+      </span>
+    );
   };
 
   const getDelegationBadge = (talent: Talent) => {
@@ -767,6 +779,7 @@ export default function TalentsPage() {
                     </p>
                     <p className="text-xs text-gray-500 truncate">{talent.email}</p>
                     {getDelegationBadge(talent)}
+                    {getTalentbookBadge(talent)}
                   </div>
                 </Link>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
@@ -944,6 +957,7 @@ export default function TalentsPage() {
                                 </p>
                                 <p className="text-sm text-gray-500">{talent.email}</p>
                                 {getDelegationBadge(talent)}
+                    {getTalentbookBadge(talent)}
                               </div>
                             </Link>
                           </td>
@@ -1107,6 +1121,7 @@ export default function TalentsPage() {
                         </p>
                         <p className="text-sm text-gray-500">{talent.email}</p>
                         {getDelegationBadge(talent)}
+                    {getTalentbookBadge(talent)}
                       </div>
                     </Link>
                   </td>

@@ -4,6 +4,7 @@ import {
   localizeTalentAttribute,
   localizeTalentAttributeList,
 } from "@/lib/talent-attributes";
+import { talentBookWhere } from "@/lib/talentbook-visibility";
 
 // Traductions pour le PDF
 const pdfTranslations = {
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
     const talents = await prisma.talent.findMany({
       where: {
         id: { in: talentIds },
-        isArchived: false,
+        ...talentBookWhere,
       },
       include: {
         stats: true,

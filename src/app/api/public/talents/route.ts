@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import { buildCityGroupMap } from "@/lib/city-grouping";
 import { belgianPaysPrismaFilter } from "@/lib/pays";
+import { talentBookWhere } from "@/lib/talentbook-visibility";
 
 // GET - Liste publique des talents pour le talent book
 // Param optionnel ?market=be pour ne renvoyer que les créateurs belges.
@@ -11,7 +12,7 @@ export async function GET(request: NextRequest) {
   try {
     const market = request.nextUrl.searchParams.get("market")?.toLowerCase();
 
-    const where: Prisma.TalentWhereInput = { isArchived: false };
+    const where: Prisma.TalentWhereInput = { ...talentBookWhere };
     if (market === "be") {
       where.pays = belgianPaysPrismaFilter;
     }

@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import ExcelJS from "exceljs";
 import { getInstagramProfileUrl, normalizeInstagramHandle } from "@/lib/social-links";
 import { buildCityGroupMapSync } from "@/lib/city-grouping";
+import { talentBookWhere } from "@/lib/talentbook-visibility";
 
 // Route publique: GET /api/partners/[id]/export
 // ATTENTION: le paramètre "id" est en réalité le slug du partenaire.
@@ -26,7 +27,7 @@ export async function GET(
     }
 
     const talentsList = await prisma.talent.findMany({
-      where: { isArchived: false },
+      where: { ...talentBookWhere },
       include: { stats: true, tarifs: true },
       orderBy: { prenom: "asc" },
     });

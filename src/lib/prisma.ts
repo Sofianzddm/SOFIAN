@@ -4,7 +4,7 @@ import { Pool } from "pg";
 import { withEmailNormalization } from "@/lib/prisma-email-guard";
 
 /** Bump uniquement si le singleton global doit être forcé après un `prisma generate`. */
-const PRISMA_CLIENT_REV = 10;
+const PRISMA_CLIENT_REV = 11;
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
