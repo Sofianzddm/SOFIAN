@@ -211,18 +211,19 @@ export async function cancelRhRequest(params: {
   });
 
   // Restauration solde CP/RTT/RECUP après congé approuvé
+  const daysToRestore = req.days ?? 0;
   if (
     approved &&
     req.type === "LEAVE" &&
     accountCode &&
     BALANCE_ACCOUNTS.has(accountCode) &&
-    req.days > 0
+    daysToRestore > 0
   ) {
     await restoreLeaveBalance({
       employeeId: req.employeeId,
       hireDate: req.employee.hireDate,
       accountCode,
-      days: req.days,
+      days: daysToRestore,
     });
   }
 
