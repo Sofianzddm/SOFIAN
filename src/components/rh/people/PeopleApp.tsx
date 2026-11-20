@@ -263,6 +263,42 @@ function PeopleAppInner() {
     }
   }
 
+  async function handleCancelRequest(id: string, who: string) {
+    if (
+      !window.confirm(
+        `Annuler la demande de ${who} ? Le collaborateur sera notifié (ce n’est pas un refus).`
+      )
+    ) {
+      return;
+    }
+    const motif =
+      window.prompt("Motif d’annulation (optionnel) :") ?? "";
+    setBusy(true);
+    flash("");
+    try {
+      const res = await fetch(`/api/rh/requests/${id}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          note: motif.trim() || "Annulée par le manager / RH",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          typeof data.error === "string" ? data.error : "Annulation impossible"
+        );
+      }
+      flash("Demande annulée — collaborateur notifié");
+      await refresh();
+      void loadSignatures();
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Erreur d'annulation", "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleApproveAll() {
     const n = inboxItems.length;
     if (!n) return;
@@ -813,6 +849,7 @@ function PeopleAppInner() {
           isHr={me?.employee.rhRole === "HR"}
           onApprove={handleApprove}
           onRefuse={handleRefuse}
+          onCancel={handleCancelRequest}
           onApproveSelected={handleApproveSelectedTimesheets}
           onRequestSignature={handleRequestSignature}
           onMonthlySignatures={handleMonthlySignatures}
@@ -829,6 +866,7 @@ function PeopleAppInner() {
             busy={busy}
             onApprove={handleApprove}
             onRefuse={handleRefuse}
+            onCancel={handleCancelRequest}
             onApproveAll={handleApproveAll}
             onOpenFiche={openFiche}
           />
@@ -898,6 +936,7 @@ function PeopleAppInner() {
           busy={busy}
           onApprove={handleApprove}
           onRefuse={handleRefuse}
+          onCancel={handleCancelRequest}
           onApproveAll={handleApproveAll}
           onOpenFiche={openFiche}
         />

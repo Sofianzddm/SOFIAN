@@ -415,6 +415,83 @@ export async function notifyTimesheetSubmitReminder(params: {
   }
 }
 
+/** Annulation d’une demande → l’autre partie (RH ↔ collab). */
+export async function notifyRhRequestCancelled(params: {
+  requestId: string;
+  employeeId: string;
+  actorId: string;
+  asManager: boolean;
+  title: string;
+  reference: string;
+  type: string;
+  note?: string;
+}) {
+  try {
+    const { emp, hrs } = await recipientsForEmployee(params.employeeId);
+    if (!emp) return;
+    const name = displayName(emp.user);
+    const note = params.note
+      ? `<p style="margin:12px 0 0;font-size:14px;color:#3D3330"><em>Motif : ${escapeHtml(params.note)}</em></p>`
+      : "";
+    const typeLabel =
+      params.type === "TIMESHEET"
+        ? "feuille de temps / heures sup"
+        : params.type === "UNPAID_LEAVE"
+          ? "congé sans solde"
+          : "congé";
+
+    if (params.asManager) {
+      // RH/manager annule → prévenir le collab
+      const espace = `${baseUrl()}/rh/espace`;
+      const prenom = emp.user.prenom || "bonjour";
+      await notifyUsers([emp.user], {
+        titre: `Demande annulée`,
+        message: `${params.reference} · ${params.title}`,
+        lien: espace,
+        subject: `[RH] ${params.reference} annulée`,
+        html: mailShell(
+          "Demande annulée",
+          `<p style="margin:0 0 12px">Bonjour ${escapeHtml(prenom)},</p>
+           <p style="margin:0 0 12px">Ta demande de <strong>${escapeHtml(typeLabel)}</strong> a été <strong>annulée</strong> par le manager / RH.</p>
+           <div style="background:#F5EDE0;border-left:4px solid #C08B8B;border-radius:0 12px 12px 0;padding:12px 16px;font-size:14px;">
+             <strong>${escapeHtml(params.reference)}</strong><br/>${escapeHtml(params.title)}
+           </div>${note}`,
+          espace,
+          "Ouvrir mon espace",
+          { eyebrow: "Espace collaborateur" }
+        ),
+      });
+    } else {
+      // Collab annule → prévenir RH + alertes
+      const peopleUrl = `${baseUrl()}/rh/people`;
+      const alerts = await alertUsers();
+      const users = [
+        ...hrs.map((h) => h.user).filter((u) => u.id !== emp.userId),
+        ...(emp.manager ? [emp.manager.user] : []),
+        ...alerts,
+      ];
+      await notifyUsers(users, {
+        titre: `Demande annulée · ${name}`,
+        message: `${name} a annulé ${params.reference}`,
+        lien: peopleUrl,
+        subject: `[RH] Annulation — ${params.reference} · ${name}`,
+        html: mailShell(
+          "Demande annulée par le collaborateur",
+          `<p style="margin:0 0 12px"><strong>${escapeHtml(name)}</strong> a annulé une demande de <strong>${escapeHtml(typeLabel)}</strong>.</p>
+           <div style="background:#F5EDE0;border-left:4px solid #C08B8B;border-radius:0 12px 12px 0;padding:12px 16px;font-size:14px;">
+             Réf. <strong>${escapeHtml(params.reference)}</strong><br/>${escapeHtml(params.title)}
+           </div>${note}`,
+          peopleUrl,
+          "Ouvrir l'inbox RH",
+          { eyebrow: "Annulation RH" }
+        ),
+      });
+    }
+  } catch (e) {
+    console.error("[rh.notify] cancelled", e);
+  }
+}
+
 /** Décision → le salarié. */
 export async function notifyRhDecision(params: {
   employeeId: string;

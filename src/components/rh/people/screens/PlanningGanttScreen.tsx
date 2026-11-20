@@ -179,25 +179,46 @@ export function PlanningGanttScreen({ onOpenFiche }: Props) {
     [byDept]
   );
 
-  // Mois en cours : aujourd’hui à gauche ; slide à gauche pour voir l’avant.
+  // Mois en cours : scrolle pour coller aujourd’hui juste après la colonne
+  // nom sticky (jours avant accessibles en slide à gauche).
   useEffect(() => {
     if (!isCurrentMonth || loading || !byDept.length) return;
+    if (!ganttDays.includes(todayIso)) return;
     scrollRefs.current = scrollRefs.current.slice(0, byDept.length);
-    const id = window.requestAnimationFrame(() => {
+
+    function scrollToToday() {
       for (const scroller of scrollRefs.current) {
         if (!scroller) continue;
         const todayEl = scroller.querySelector(
           `[data-gantt-day="${todayIso}"]`
         ) as HTMLElement | null;
         if (!todayEl) continue;
+        const styles = getComputedStyle(scroller);
         const nameWidth =
-          parseFloat(
-            getComputedStyle(scroller).getPropertyValue("--rh-gantt-name")
-          ) || 148;
-        scroller.scrollLeft = Math.max(0, todayEl.offsetLeft - nameWidth - 8);
+          parseFloat(styles.getPropertyValue("--rh-gantt-name")) || 148;
+        const padLeft = parseFloat(styles.paddingLeft) || 0;
+        const scrollerRect = scroller.getBoundingClientRect();
+        const todayRect = todayEl.getBoundingClientRect();
+        // Aligne le bord gauche du jour sur le bord droit de la colonne sticky
+        const next =
+          scroller.scrollLeft +
+          (todayRect.left - scrollerRect.left - padLeft - nameWidth);
+        scroller.scrollLeft = Math.max(0, Math.round(next));
       }
+    }
+
+    let id2 = 0;
+    const id1 = window.requestAnimationFrame(() => {
+      scrollToToday();
+      id2 = window.requestAnimationFrame(scrollToToday);
     });
-    return () => window.cancelAnimationFrame(id);
+    // Layout tardif (fonts / cartes) : 3e passage
+    const t = window.setTimeout(scrollToToday, 80);
+    return () => {
+      window.cancelAnimationFrame(id1);
+      window.cancelAnimationFrame(id2);
+      window.clearTimeout(t);
+    };
   }, [
     isCurrentMonth,
     loading,
@@ -205,7 +226,7 @@ export function PlanningGanttScreen({ onOpenFiche }: Props) {
     todayIso,
     cursor.y,
     cursor.m,
-    ganttDays.length,
+    ganttDays,
   ]);
 
   return (
@@ -455,7 +476,9 @@ export function PlanningGanttScreen({ onOpenFiche }: Props) {
               <div
                 className="rh-gantt-grid"
                 style={{
-                  gridTemplateColumns: `var(--rh-gantt-name) repeat(${ganttDays.length}, minmax(var(--rh-gantt-cell), 1fr))`,
+                  // Largeur fixe (pas de 1fr) : le mois déborde → scroll
+                  // possible, et aujourd’hui peut être collé à gauche.
+                  gridTemplateColumns: `var(--rh-gantt-name) repeat(${ganttDays.length}, var(--rh-gantt-cell))`,
                 }}
               >
                 <div className="rh-gantt-corner" />

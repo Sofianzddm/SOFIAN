@@ -25,6 +25,7 @@ type RowItem = EmployeeRequest & {
   id: string;
   reviewNote?: string;
   rawStatus: string;
+  rawType: string;
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -148,6 +149,7 @@ export function RequestsScreen({
           summary: String(item.comment || item.title || ""),
           reviewNote,
           rawStatus,
+          rawType: typeKey,
           flow: [
             {
               label: "Demande déposée",
@@ -187,19 +189,39 @@ export function RequestsScreen({
     [items]
   );
 
-  async function cancelSelected(id: string) {
+  function canCancel(req: RowItem): boolean {
     if (
-      !window.confirm(
-        "Annuler cette demande ? Elle disparaîtra de la file de ton manager."
-      )
+      req.rawStatus === "PENDING" ||
+      req.rawStatus === "PAUSED" ||
+      req.rawStatus === "DRAFT"
     ) {
-      return;
+      return true;
     }
+    // Congé / feuille approuvés : possible tant que pas signé (API décide du détail)
+    if (
+      req.rawStatus === "APPROVED" &&
+      (req.rawType === "LEAVE" ||
+        req.rawType === "UNPAID_LEAVE" ||
+        req.rawType === "TIMESHEET")
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  async function cancelSelected(req: RowItem) {
+    const approved = req.rawStatus === "APPROVED";
+    const msg = approved
+      ? `Annuler « ${req.type} » déjà approuvée ? Le solde sera rétabli si besoin, et ton manager / RH sera notifié.`
+      : "Annuler cette demande ? Ton manager / RH sera notifié et elle sortira de sa file.";
+    if (!window.confirm(msg)) return;
     setCancelling(true);
     setActionMsg(null);
     try {
-      const res = await fetch(`/api/rh/requests/${id}/cancel`, {
+      const res = await fetch(`/api/rh/requests/${req.id}/cancel`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: "Annulée par le collaborateur" }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -208,7 +230,7 @@ export function RequestsScreen({
         );
       }
       setActionMsg("Demande annulée");
-      toast.success("Demande annulée");
+      toast.success("Demande annulée — notification envoyée");
       await load();
     } catch (e) {
       const err = e instanceof Error ? e.message : "Erreur";
@@ -463,17 +485,19 @@ export function RequestsScreen({
                   >
                     <Copy size={12} /> {copied ? "Copié !" : "Copier"}
                   </RhButton>
-                  {selected.rawStatus === "PENDING" ||
-                  selected.rawStatus === "PAUSED" ||
-                  selected.rawStatus === "DRAFT" ? (
+                  {canCancel(selected) ? (
                     <RhButton
                       variant="danger"
                       style={{ flex: 1, fontSize: 12 }}
                       disabled={cancelling}
-                      onClick={() => void cancelSelected(selected.id)}
+                      onClick={() => void cancelSelected(selected)}
                     >
                       <Ban size={12} />
-                      {cancelling ? "…" : "Annuler"}
+                      {cancelling
+                        ? "…"
+                        : selected.rawStatus === "APPROVED"
+                          ? "Annuler (approuvée)"
+                          : "Annuler"}
                     </RhButton>
                   ) : null}
                 </div>

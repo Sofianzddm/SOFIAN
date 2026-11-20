@@ -38,6 +38,7 @@ type Props = {
   busy: boolean;
   onApprove: (id: string, who: string) => void;
   onRefuse: (id: string, who: string) => void;
+  onCancel: (id: string, who: string) => void;
   onApproveAll: () => void;
   onOpenFiche: (employeeId: string) => void;
 };
@@ -47,6 +48,7 @@ export function ApprovalsInboxScreen({
   busy,
   onApprove,
   onRefuse,
+  onCancel,
   onApproveAll,
   onOpenFiche,
 }: Props) {
@@ -176,6 +178,17 @@ export function ApprovalsInboxScreen({
                   {selected.meta}
                 </div>
               </div>
+              {(selected.kind === "LEAVE" ||
+                selected.kind === "UNPAID_LEAVE" ||
+                selected.kind === "TIMESHEET") && (
+                <RhButton
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void onCancel(selected.id, selected.who)}
+                >
+                  Annuler
+                </RhButton>
+              )}
               <RhButton
                 variant="danger"
                 disabled={busy}

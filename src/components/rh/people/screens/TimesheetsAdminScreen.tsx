@@ -38,6 +38,7 @@ type Props = {
   isHr: boolean;
   onApprove: (id: string, who: string) => Promise<void> | void;
   onRefuse: (id: string, who: string) => Promise<void> | void;
+  onCancel?: (id: string, who: string) => Promise<void> | void;
   onApproveSelected: (ids: string[]) => Promise<void> | void;
   onRequestSignature: (timesheetId: string, who: string) => Promise<void> | void;
   onMonthlySignatures: () => Promise<void> | void;
@@ -163,6 +164,7 @@ export function TimesheetsAdminScreen({
   isHr,
   onApprove,
   onRefuse,
+  onCancel,
   onApproveSelected,
   onRequestSignature,
   onMonthlySignatures,
@@ -455,6 +457,15 @@ export function TimesheetsAdminScreen({
                       {i.meta} · {i.title}
                     </div>
                   </button>
+                  {onCancel ? (
+                    <RhButton
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => void onCancel(i.id, i.who)}
+                    >
+                      Annuler
+                    </RhButton>
+                  ) : null}
                   <RhButton
                     variant="danger"
                     disabled={busy}

@@ -530,8 +530,11 @@
 .rh-gantt-grid {
   display: grid;
   gap: 3px;
+  /* max-content : largeur = somme des colonnes (pas d’étirement 1fr).
+     Sinon tout le mois tient à l’écran et le scroll « aujourd’hui à gauche »
+     n’a aucun effet. */
+  width: max-content;
   min-width: max-content;
-  width: 100%;
 }
 
 .rh-gantt-corner {
