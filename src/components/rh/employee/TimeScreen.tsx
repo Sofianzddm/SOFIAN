@@ -31,10 +31,9 @@ import {
 } from "@/lib/rh/constants";
 
 /**
- * input type=time contrôlé : si on commit à chaque onChange, Safari/Chrome
- * écrasent la frappe (ex. 18→12, 55→30). Draft local, commit au blur.
- * flushSync : un clic « Enregistrer » pendant la frappe ne doit pas
- * partir avec l’ancienne valeur (sinon samedi / fin de créneau perdus).
+ * type=time avec draft local : on ne resync PAS depuis les props tant que
+ * le champ est focus (sinon Safari/Chrome écrasent 18→12 en cours de frappe).
+ * Commit au blur + flushSync pour qu’Enregistrer voie la vraie valeur.
  */
 function TimeInput({
   value,
@@ -48,36 +47,37 @@ function TimeInput({
   invalid?: boolean;
 }) {
   const [draft, setDraft] = useState(value || "");
-  const [focused, setFocused] = useState(false);
-  useEffect(() => {
-    if (!focused) setDraft(value || "");
-  }, [value, focused]);
+  const focusedRef = useRef(false);
 
-  function commitDraft() {
-    const next = draft || "";
-    if (next !== (value || "")) {
-      flushSync(() => {
-        onCommit(next);
-      });
-    } else {
-      setDraft(value || "");
-    }
-  }
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(value || "");
+  }, [value]);
 
   return (
     <input
       type="time"
+      step={60}
+      data-rh-time="1"
       className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
       disabled={disabled}
-      value={focused ? draft : value || ""}
+      value={draft}
       onFocus={() => {
-        setFocused(true);
+        focusedRef.current = true;
         setDraft(value || "");
       }}
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => {
+        setDraft(e.target.value);
+      }}
       onBlur={() => {
-        setFocused(false);
-        commitDraft();
+        focusedRef.current = false;
+        const next = draft || "";
+        if (next !== (value || "")) {
+          flushSync(() => {
+            onCommit(next);
+          });
+        } else {
+          setDraft(value || "");
+        }
       }}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
@@ -92,12 +92,12 @@ function TimeInput({
   );
 }
 
-/** Force le commit de l’input time encore focus avant un save/submit. */
+/** Force le commit de l’heure encore focus avant un save/submit. */
 function flushActiveTimeInput() {
   const el = document.activeElement;
   if (
     el instanceof HTMLInputElement &&
-    el.type === "time" &&
+    el.dataset.rhTime === "1" &&
     typeof el.blur === "function"
   ) {
     el.blur();
@@ -754,10 +754,36 @@ export function TimeScreen() {
       });
     }
 
-    function baseSlots(): Slot[] {
-      if (d.slots.length) return [...d.slots];
+    /** Toujours depuis daysRef — évite d’écraser l’autre borne au blur. */
+    function liveSlots(): Slot[] {
+      const current = daysRef.current.find((x) => x.date === d.date);
+      if (current?.slots?.length) {
+        return current.slots.map((s) => ({ ...s }));
+      }
       if (special) return [{ from: "", to: "" }];
-      return defaultSlotsForDate(d.date);
+      return defaultSlotsForDate(d.date).map((s) => ({ ...s }));
+    }
+
+    function patchSlotField(index: number, field: "from" | "to", next: string) {
+      const base = liveSlots();
+      while (base.length <= index) base.push({ from: "", to: "" });
+      base[index] = {
+        ...(base[index] || { from: "", to: "" }),
+        [field]: next,
+      };
+      patchSlots(base);
+    }
+
+    function liveBreak(): { from: string; to: string } {
+      const current = daysRef.current.find((x) => x.date === d.date);
+      return {
+        from: current?.breakFrom || "",
+        to: current?.breakTo || "",
+      };
+    }
+
+    function baseSlots(): Slot[] {
+      return liveSlots();
     }
 
     return (
@@ -989,14 +1015,7 @@ export function TimeScreen() {
                   <TimeInput
                     disabled={!canEditSlots}
                     value={s.from}
-                    onCommit={(next) => {
-                      const base = baseSlots();
-                      base[i] = {
-                        ...(base[i] || { from: "", to: "" }),
-                        from: next,
-                      };
-                      patchSlots(base);
-                    }}
+                    onCommit={(next) => patchSlotField(i, "from", next)}
                   />
                 </label>
                 <label className="flex flex-col gap-1">
@@ -1004,14 +1023,7 @@ export function TimeScreen() {
                   <TimeInput
                     disabled={!canEditSlots}
                     value={s.to}
-                    onCommit={(next) => {
-                      const base = baseSlots();
-                      base[i] = {
-                        ...(base[i] || { from: "", to: "" }),
-                        to: next,
-                      };
-                      patchSlots(base);
-                    }}
+                    onCommit={(next) => patchSlotField(i, "to", next)}
                   />
                 </label>
               </div>
@@ -1070,9 +1082,10 @@ export function TimeScreen() {
                     disabled={!canEditSlots}
                     value={manualWindow.from}
                     invalid={needsLegalPause}
-                    onCommit={(next) =>
-                      patchBreak(next, manualWindow.to)
-                    }
+                    onCommit={(next) => {
+                      const other = liveBreak().to;
+                      patchBreak(next, other);
+                    }}
                   />
                 </label>
                 <label className="flex flex-col gap-1">
@@ -1081,9 +1094,10 @@ export function TimeScreen() {
                     disabled={!canEditSlots}
                     value={manualWindow.to}
                     invalid={needsLegalPause}
-                    onCommit={(next) =>
-                      patchBreak(manualWindow.from, next)
-                    }
+                    onCommit={(next) => {
+                      const other = liveBreak().from;
+                      patchBreak(other, next);
+                    }}
                   />
                 </label>
                 {needsLegalPause ? (

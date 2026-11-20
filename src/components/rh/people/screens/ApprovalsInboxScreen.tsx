@@ -617,6 +617,52 @@ export function ApprovalsInboxScreen({
                 </div>
               )}
 
+              {selected.kind === "PAUSE_AMEND" ? (
+                <div
+                  className="rounded-[12px] p-3"
+                  style={{ background: "#0E1116", border: "1px solid #1B212A" }}
+                >
+                  <div className="font-semibold" style={{ color: "#E7ECF2" }}>
+                    Aménagement horaire
+                  </div>
+                  <div
+                    className="mt-2 grid gap-2 text-[12.5px]"
+                    style={{ color: "#B9C2CE" }}
+                  >
+                    <div>
+                      <span style={{ color: "#8B95A5" }}>Date · </span>
+                      {selected.detailRaw.date
+                        ? new Date(
+                            String(selected.detailRaw.date) + "T12:00:00"
+                          ).toLocaleDateString("fr-FR", {
+                            weekday: "long",
+                            day: "numeric",
+                            month: "long",
+                          })
+                        : "—"}
+                    </div>
+                    <div>
+                      <span style={{ color: "#8B95A5" }}>Pause demandée · </span>
+                      <span
+                        className="rh-mono font-semibold"
+                        style={{ color: LIME }}
+                      >
+                        {String(selected.detailRaw.fromBreak || "—")} →{" "}
+                        {String(selected.detailRaw.toBreak || "—")}
+                      </span>
+                    </div>
+                    {selected.detailRaw.motive || selected.comment ? (
+                      <div>
+                        <span style={{ color: "#8B95A5" }}>Motif · </span>
+                        {String(
+                          selected.detailRaw.motive || selected.comment || ""
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
               {(selected.kind === "ADDRESS_CHANGE" ||
                 selected.kind === "CONTACT_CHANGE") &&
               selected.detailRaw.proposed ? (

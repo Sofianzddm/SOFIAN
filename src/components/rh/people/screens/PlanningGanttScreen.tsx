@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   RhAvatar,
   RhBadge,
@@ -94,14 +100,14 @@ export function PlanningGanttScreen({ onOpenFiche }: Props) {
     return { from, to };
   }, [cursor.y, cursor.m]);
 
-  // Mois en cours : le jour actuel à gauche. Autres mois : mois complet.
-  const ganttDays = useMemo(() => {
-    const all = daysInMonth(cursor.y, cursor.m);
-    if (!isCurrentMonth) return all;
-    const todayIso = isoDate(today);
-    const fromToday = all.filter((d) => d >= todayIso);
-    return fromToday.length ? fromToday : all;
-  }, [cursor.y, cursor.m, isCurrentMonth, today]);
+  // Mois complet — on scrolle ensuite pour mettre aujourd’hui à gauche.
+  const ganttDays = useMemo(
+    () => daysInMonth(cursor.y, cursor.m),
+    [cursor.y, cursor.m]
+  );
+
+  const scrollRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const todayIso = isoDate(today);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,6 +178,35 @@ export function PlanningGanttScreen({ onOpenFiche }: Props) {
     () => byDept.reduce((s, [, rows]) => s + rows.length, 0),
     [byDept]
   );
+
+  // Mois en cours : aujourd’hui à gauche ; slide à gauche pour voir l’avant.
+  useEffect(() => {
+    if (!isCurrentMonth || loading || !byDept.length) return;
+    scrollRefs.current = scrollRefs.current.slice(0, byDept.length);
+    const id = window.requestAnimationFrame(() => {
+      for (const scroller of scrollRefs.current) {
+        if (!scroller) continue;
+        const todayEl = scroller.querySelector(
+          `[data-gantt-day="${todayIso}"]`
+        ) as HTMLElement | null;
+        if (!todayEl) continue;
+        const nameWidth =
+          parseFloat(
+            getComputedStyle(scroller).getPropertyValue("--rh-gantt-name")
+          ) || 148;
+        scroller.scrollLeft = Math.max(0, todayEl.offsetLeft - nameWidth - 8);
+      }
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [
+    isCurrentMonth,
+    loading,
+    byDept.length,
+    todayIso,
+    cursor.y,
+    cursor.m,
+    ganttDays.length,
+  ]);
 
   return (
     <div className="rh-screen">
@@ -244,7 +279,7 @@ export function PlanningGanttScreen({ onOpenFiche }: Props) {
               ? `${ganttDays[ganttDays.length - 1]!.slice(8)}/${ganttDays[ganttDays.length - 1]!.slice(5, 7)}`
               : "—"}{" "}
             · {ganttDays.length} jour{ganttDays.length > 1 ? "s" : ""}
-            {isCurrentMonth ? " · depuis aujourd’hui" : ""}
+            {isCurrentMonth ? " · slide pour voir avant / après aujourd’hui" : ""}
             {loading ? " · chargement…" : ""}
             {loadError ? ` · ${loadError}` : ""}
           </div>
@@ -395,7 +430,7 @@ export function PlanningGanttScreen({ onOpenFiche }: Props) {
           </div>
         </RhCard>
       ) : (
-        byDept.map(([dept, rows]) => (
+        byDept.map(([dept, rows], deptIdx) => (
           <RhCard key={dept} className="rh-gantt-card">
             <RhCardHead
               title={dept}
@@ -406,6 +441,9 @@ export function PlanningGanttScreen({ onOpenFiche }: Props) {
               }
             />
             <div
+              ref={(el) => {
+                scrollRefs.current[deptIdx] = el;
+              }}
               className="rh-gantt-scroll rh-gantt-scroll--zoomed"
               style={
                 {
@@ -425,11 +463,12 @@ export function PlanningGanttScreen({ onOpenFiche }: Props) {
                   const dt = new Date(d + "T12:00:00");
                   const weekend = dt.getDay() % 6 === 0;
                   const mon = dt.getDay() === 1;
-                  const isToday = d === isoDate(today);
+                  const isToday = d === todayIso;
                   return (
                     <div
                       key={d}
                       className="rh-gantt-dayhead"
+                      data-gantt-day={d}
                       data-weekend={weekend ? "1" : "0"}
                       data-mon={mon ? "1" : "0"}
                       title={d}

@@ -205,6 +205,16 @@ export async function GET(request: NextRequest) {
         };
       }
 
+      if (r.type === "PAUSE_AMEND") {
+        detail = {
+          ...detail,
+          date: payload.date ? String(payload.date).slice(0, 10) : null,
+          fromBreak: payload.fromBreak ? String(payload.fromBreak) : null,
+          toBreak: payload.toBreak ? String(payload.toBreak) : null,
+          motive: payload.motive ? String(payload.motive) : r.comment,
+        };
+      }
+
       if (r.type === "ADDRESS_CHANGE" || r.type === "CONTACT_CHANGE") {
         detail = {
           ...detail,
