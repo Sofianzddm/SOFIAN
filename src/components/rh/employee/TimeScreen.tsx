@@ -540,11 +540,20 @@ export function TimeScreen() {
         };
       });
 
-      const res = await fetch(`/api/rh/timesheets/${refDate}`, {
+      let res = await fetch(`/api/rh/timesheets/${refDate}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ days: payloadDays }),
       });
+      // 503 = Neon / pool bref → 1 nouvel essai côté client
+      if (res.status === 503) {
+        await new Promise((r) => setTimeout(r, 700));
+        res = await fetch(`/api/rh/timesheets/${refDate}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ days: payloadDays }),
+        });
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
       const sheet = data.timesheet as Timesheet;

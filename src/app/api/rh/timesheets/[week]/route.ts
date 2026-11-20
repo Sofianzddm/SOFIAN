@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRhSessionFromRequest } from "@/lib/rh/auth";
 import {
+  isTransientPrismaError,
+  rhPrismaUserMessage,
+  withPrismaRetry,
+} from "@/lib/rh/prisma-transient";
+import {
   getOrCreateTimesheet,
   replyTimesheetPause,
   signTimesheet,
@@ -20,18 +25,31 @@ function parseWeekParam(week: string): Date {
   return new Date(week);
 }
 
+function errorResponse(e: unknown) {
+  return NextResponse.json(
+    { error: rhPrismaUserMessage(e) },
+    { status: isTransientPrismaError(e) ? 503 : 400 }
+  );
+}
+
 export async function GET(request: NextRequest, ctx: Ctx) {
   const session = await requireRhSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
   }
   const { week } = await ctx.params;
-  const data = await getOrCreateTimesheet(
-    session.employee.id,
-    parseWeekParam(week),
-    session.employee.weeklyHours
-  );
-  return NextResponse.json(data);
+  try {
+    const data = await withPrismaRetry(() =>
+      getOrCreateTimesheet(
+        session.employee.id,
+        parseWeekParam(week),
+        session.employee.weeklyHours
+      )
+    );
+    return NextResponse.json(data);
+  } catch (e) {
+    return errorResponse(e);
+  }
 }
 
 export async function PUT(request: NextRequest, ctx: Ctx) {
@@ -41,24 +59,23 @@ export async function PUT(request: NextRequest, ctx: Ctx) {
   }
   const { week } = await ctx.params;
   const body = await request.json();
-  const { timesheet } = await getOrCreateTimesheet(
-    session.employee.id,
-    parseWeekParam(week),
-    session.employee.weeklyHours
-  );
   try {
-    const updated = await updateTimesheetDays({
-      timesheetId: timesheet.id,
-      employeeId: session.employee.id,
-      weeklyHours: session.employee.weeklyHours,
-      days: body.days,
+    const updated = await withPrismaRetry(async () => {
+      const { timesheet } = await getOrCreateTimesheet(
+        session.employee.id,
+        parseWeekParam(week),
+        session.employee.weeklyHours
+      );
+      return updateTimesheetDays({
+        timesheetId: timesheet.id,
+        employeeId: session.employee.id,
+        weeklyHours: session.employee.weeklyHours,
+        days: body.days,
+      });
     });
     return NextResponse.json({ timesheet: updated });
   } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Erreur" },
-      { status: 400 }
-    );
+    return errorResponse(e);
   }
 }
 
@@ -70,45 +87,61 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   const { week } = await ctx.params;
   const body = await request.json();
   const action = body.action as string;
-  const { timesheet } = await getOrCreateTimesheet(
-    session.employee.id,
-    parseWeekParam(week),
-    session.employee.weeklyHours
-  );
   try {
     if (action === "submit") {
-      const result = await submitTimesheet({
-        timesheetId: timesheet.id,
-        employeeId: session.employee.id,
-        overtimeNote: body.overtimeNote,
+      const result = await withPrismaRetry(async () => {
+        const { timesheet } = await getOrCreateTimesheet(
+          session.employee.id,
+          parseWeekParam(week),
+          session.employee.weeklyHours
+        );
+        return submitTimesheet({
+          timesheetId: timesheet.id,
+          employeeId: session.employee.id,
+          overtimeNote: body.overtimeNote,
+        });
       });
       return NextResponse.json({ timesheet: result });
     }
     if (action === "sign") {
-      const result = await signTimesheet({
-        timesheetId: timesheet.id,
-        employeeId: session.employee.id,
-        signatureName: typeof body.signatureName === "string" ? body.signatureName : undefined,
-        signatureImageDataUrl:
-          typeof body.signatureImageDataUrl === "string"
-            ? body.signatureImageDataUrl
-            : null,
+      const result = await withPrismaRetry(async () => {
+        const { timesheet } = await getOrCreateTimesheet(
+          session.employee.id,
+          parseWeekParam(week),
+          session.employee.weeklyHours
+        );
+        return signTimesheet({
+          timesheetId: timesheet.id,
+          employeeId: session.employee.id,
+          signatureName:
+            typeof body.signatureName === "string"
+              ? body.signatureName
+              : undefined,
+          signatureImageDataUrl:
+            typeof body.signatureImageDataUrl === "string"
+              ? body.signatureImageDataUrl
+              : null,
+        });
       });
       return NextResponse.json({ timesheet: result });
     }
     if (action === "reply") {
-      await replyTimesheetPause({
-        timesheetId: timesheet.id,
-        employeeId: session.employee.id,
-        reply: body.reply || "",
+      await withPrismaRetry(async () => {
+        const { timesheet } = await getOrCreateTimesheet(
+          session.employee.id,
+          parseWeekParam(week),
+          session.employee.weeklyHours
+        );
+        await replyTimesheetPause({
+          timesheetId: timesheet.id,
+          employeeId: session.employee.id,
+          reply: body.reply || "",
+        });
       });
       return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ error: "Action inconnue" }, { status: 400 });
   } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Erreur" },
-      { status: 400 }
-    );
+    return errorResponse(e);
   }
 }
