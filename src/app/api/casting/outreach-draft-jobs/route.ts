@@ -131,10 +131,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const forceRewrite = Boolean(
+      (body as { forceRewrite?: unknown })?.forceRewrite
+    );
+
     const { jobId } = await createOutreachDraftJob({
       userId: session.user.id,
       market,
       items,
+      forceRewrite,
     });
 
     kickOutreachDraftJobProcess(jobId);

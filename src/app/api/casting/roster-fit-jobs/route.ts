@@ -3,6 +3,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import {
   CastingWizardBusyError,
   createRosterFitJob,
+  getCastingWizardBusyState,
   kickRosterFitJobProcess,
   type CreateRosterFitJobBrandInput,
 } from "@/lib/casting-roster-fit-job";
@@ -57,8 +58,17 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    // Verrou global (tous users + Contabo) → griser Analyser côté UI.
+    const wizardBusy = await getCastingWizardBusyState(
+      marketFilter || "FR"
+    );
+
     // Compat : `active` = le plus récent (éventuellement filtré market).
-    return NextResponse.json({ active: jobs[0] || null, jobs });
+    return NextResponse.json({
+      active: jobs[0] || null,
+      jobs,
+      wizardBusy,
+    });
   } catch (e) {
     console.error("GET /api/casting/roster-fit-jobs:", e);
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });

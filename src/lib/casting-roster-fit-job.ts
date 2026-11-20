@@ -68,9 +68,75 @@ export class CastingWizardBusyError extends Error {
   }
 }
 
+/** Markers Contabo encore liés à un job/item DB actif. */
+async function listActiveOutreachEndMarkers(): Promise<string[]> {
+  const items = await prisma.castingOutreachDraftItem.findMany({
+    where: {
+      status: { in: ["pending", "running"] },
+      job: {
+        status: { in: ["pending", "running"] },
+        cancelRequested: false,
+        NOT: { market: { startsWith: "INDIV:" } },
+      },
+    },
+    select: { brandResearch: true },
+    take: 80,
+  });
+  const out: string[] = [];
+  for (const it of items) {
+    const br = (it.brandResearch || {}) as { _vps?: { endMarker?: string } };
+    const m = String(br._vps?.endMarker || "").trim();
+    if (m) out.push(m);
+  }
+  return out;
+}
+
+function contaboJobIsActive(state: string | undefined | null): boolean {
+  const st = String(state || "");
+  return st === "running" || st === "queued" || st === "starting";
+}
+
+/**
+ * Contabo encore en train d’écrire → bloque Analyser.
+ * Trou historique : Annuler passe le job DB en cancelled alors que Chat
+ * continue → le verrou DB se libère et un 2e user peut lancer.
+ */
+export async function assertContaboOutreachNotBusy(): Promise<void> {
+  if (!(process.env.OUTREACH_CHAT_VPS_URL || "").trim()) return;
+  try {
+    const { cartoChatVpsHealth } = await import("@/lib/carto-chat-vps/vps-client");
+    const health = await cartoChatVpsHealth({ kind: "outreach" });
+    if (!health?.ok) return;
+    const running = Number(health.outreachRunning || 0);
+    const queued = Number(
+      health.outreachQueued ?? health.queueLength ?? 0
+    );
+    const job = health.job;
+    const busy =
+      running > 0 ||
+      queued > 0 ||
+      health.busy === true ||
+      contaboJobIsActive(job?.state) ||
+      (health.jobs || []).some((j) => contaboJobIsActive(j.state));
+    if (!busy) return;
+    const preview = String(
+      job?.promptPreview || job?.endMarker || "Contabo en cours"
+    ).slice(0, 60);
+    throw new CastingWizardBusyError({
+      kind: "outreach",
+      id: String(job?.endMarker || "contabo-busy"),
+      label: preview || "Contabo en cours",
+    });
+  } catch (e) {
+    if (e instanceof CastingWizardBusyError) throw e;
+    // Contabo injoignable : ne pas bloquer le fit (DB lock suffit).
+  }
+}
+
 /**
  * Verrou dur : un seul wizard casting à la fois (tous users).
  * INDIV:… = file séparée (1 job actif par market INDIV).
+ * Inclut Contabo : un cancel DB ne libère plus le slot tant que Chat écrit.
  */
 export async function assertCastingWizardNotBusy(market: string): Promise<void> {
   const m = String(market || "FR").trim() || "FR";
@@ -152,6 +218,21 @@ export async function assertCastingWizardNotBusy(market: string): Promise<void> 
         `rédaction ${activeOutreach.completed}/${activeOutreach.totalBrands}`,
     });
   }
+
+  await assertContaboOutreachNotBusy();
+}
+
+/** Pour l’UI : null = libre, sinon label à afficher / griser Analyser. */
+export async function getCastingWizardBusyState(
+  market: string
+): Promise<{ kind: "fit" | "outreach"; id: string; label: string } | null> {
+  try {
+    await assertCastingWizardNotBusy(market);
+    return null;
+  } catch (e) {
+    if (e instanceof CastingWizardBusyError) return e.busy;
+    return null;
+  }
 }
 
 export async function createRosterFitJob(args: {
@@ -183,23 +264,56 @@ export async function createRosterFitJob(args: {
     throw new Error("talentIds et brands requis.");
   }
 
-  // Avant un nouvel Analyser : coupe les Contabo orphelins (reset / run
-  // précédent) pour ne pas bloquer la file 1-à-1.
-  try {
-    const { cancelOrphanOutreachContaboJobs } = await import(
-      "@/lib/carto-chat-vps/vps-client"
-    );
-    const swept = await cancelOrphanOutreachContaboJobs();
-    if (swept.cancelled > 0) {
-      console.info(
-        `[roster-fit] Contabo orphelins annulés: ${swept.cancelled}`
+  // Contabo : si un run actif correspond encore à un job DB → bloque.
+  // Si ce n’est qu’un orphelin (job déjà cancelled) → tente cancel, puis
+  // re-bloque si Chat écrit encore (évite le trou Annuler → Analyser).
+  if (!(args.market || "FR").startsWith("INDIV:")) {
+    try {
+      const {
+        cartoChatVpsHealth,
+        cancelOrphanOutreachContaboJobs,
+      } = await import("@/lib/carto-chat-vps/vps-client");
+      const keep = new Set(await listActiveOutreachEndMarkers());
+      const health = await cartoChatVpsHealth({ kind: "outreach" });
+      const activeContabo = (health.jobs || []).filter(
+        (j) =>
+          contaboJobIsActive(j.state) &&
+          (!j.kind || String(j.kind) === "outreach")
+      );
+      const linked = activeContabo.filter((j) =>
+        keep.has(String(j.endMarker || "").trim())
+      );
+      if (linked.length > 0) {
+        const j0 = linked[0]!;
+        throw new CastingWizardBusyError({
+          kind: "outreach",
+          id: String(j0.endMarker || "contabo"),
+          label: String(j0.promptPreview || j0.endMarker || "Contabo").slice(
+            0,
+            60
+          ),
+        });
+      }
+      if (activeContabo.length > 0 || health.busy) {
+        const swept = await cancelOrphanOutreachContaboJobs({
+          keepEndMarkers: [...keep],
+        });
+        if (swept.cancelled > 0) {
+          console.info(
+            `[roster-fit] Contabo orphelins annulés: ${swept.cancelled}`
+          );
+        }
+        // Cancel Contabo est souvent async / soft — re-check avant create.
+        await new Promise((r) => setTimeout(r, 1_500));
+        await assertContaboOutreachNotBusy();
+      }
+    } catch (e) {
+      if (e instanceof CastingWizardBusyError) throw e;
+      console.warn(
+        "[roster-fit] Contabo gate soft-fail:",
+        e instanceof Error ? e.message : e
       );
     }
-  } catch (e) {
-    console.warn(
-      "[roster-fit] sweep Contabo soft-fail:",
-      e instanceof Error ? e.message : e
-    );
   }
 
   // Advisory lock + re-check : 2 POST simultanés ne créent pas 2 jobs.
@@ -314,11 +428,26 @@ export async function requestCancelRosterFitJob(jobId: string, userId: string) {
   if (["completed", "failed", "cancelled"].includes(job.status)) {
     return job;
   }
-  // Stop Contabo aussi (sinon orphelins après Stop / reset).
+  // Stop Contabo (markers liés + orphelins). Le verrou Analyser reste
+  // actif tant que Contabo écrit (assertContaboOutreachNotBusy).
   try {
-    const { cancelOrphanOutreachContaboJobs } = await import(
+    const { cartoChatVpsCancel, cancelOrphanOutreachContaboJobs } = await import(
       "@/lib/carto-chat-vps/vps-client"
     );
+    const linked = await prisma.castingOutreachDraftItem.findMany({
+      where: {
+        status: { in: ["pending", "running"] },
+        job: { userId, status: { in: ["pending", "running"] } },
+      },
+      select: { brandResearch: true },
+      take: 40,
+    });
+    for (const it of linked) {
+      const br = (it.brandResearch || {}) as { _vps?: { endMarker?: string } };
+      const marker = String(br._vps?.endMarker || "").trim();
+      if (!marker) continue;
+      await cartoChatVpsCancel({ endMarker: marker, kind: "outreach" });
+    }
     await cancelOrphanOutreachContaboJobs();
   } catch {
     /* soft */

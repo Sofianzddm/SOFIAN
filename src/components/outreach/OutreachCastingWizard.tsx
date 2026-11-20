@@ -398,6 +398,12 @@ export default function OutreachCastingWizard({
   /** Job serveur (survit à la fermeture de page). */
   const [fitJobId, setFitJobId] = useState<string | null>(null);
   const fitPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Verrou global (autre user / Contabo) — grise Analyser même hors mon job. */
+  const [globalWizardBusy, setGlobalWizardBusy] = useState<{
+    kind: "fit" | "outreach";
+    id: string;
+    label: string;
+  } | null>(null);
 
   /** Ajout contact avant rédaction (pipeline casting). */
   const [contactFormOpen, setContactFormOpen] = useState(false);
@@ -465,7 +471,11 @@ export default function OutreachCastingWizard({
   const startIndivServerDraftRef = useRef<(keys?: string[]) => void>(() => {});
   const startProjectServerDraftRef = useRef<(keys?: string[]) => void>(() => {});
   const startOutreachServerDraftRef = useRef<
-    (keys?: string[], talentIdsByKey?: Record<string, string[]>) => void
+    (
+      keys?: string[],
+      talentIdsByKey?: Record<string, string[]>,
+      opts?: { forceRewrite?: boolean }
+    ) => void
   >(() => {});
   const presentationExcerptRef = useRef<string | null>(
     campaignBrief?.presentationExcerpt || null
@@ -1005,6 +1015,38 @@ export default function OutreachCastingWizard({
   useEffect(() => {
     setExpandedFitId(null);
   }, [index, current?.groupKey]);
+
+  // Poll verrou global : autre user / Contabo encore actif → bouton grisé.
+  useEffect(() => {
+    if (!open || lockedTalentId) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(
+          `/api/casting/roster-fit-jobs?market=${encodeURIComponent(fitMarketKey)}`,
+          { credentials: "include" }
+        );
+        if (!res.ok || cancelled) return;
+        const data = (await res.json().catch(() => ({}))) as {
+          wizardBusy?: {
+            kind: "fit" | "outreach";
+            id: string;
+            label: string;
+          } | null;
+        };
+        if (cancelled) return;
+        setGlobalWizardBusy(data.wizardBusy || null);
+      } catch {
+        /* soft */
+      }
+    };
+    void tick();
+    const id = setInterval(() => void tick(), 4_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [open, lockedTalentId, fitMarketKey]);
 
   useEffect(() => {
     setContactFormOpen(false);
@@ -1921,6 +1963,13 @@ export default function OutreachCastingWizard({
   }, [stopFitPoll]);
 
   const runRosterFitBatch = useCallback(async () => {
+    if (globalWizardBusy) {
+      onFlash?.(
+        "error",
+        `Un casting est déjà en cours (${globalWizardBusy.label}). Arrête-le avant.`
+      );
+      return;
+    }
     if (fitRunning || fitJobId || phase !== "casting") {
       if (fitRunning || fitJobId) {
         onFlash?.(
@@ -2061,9 +2110,11 @@ export default function OutreachCastingWizard({
         parallelActive?: number;
         error?: string;
         message?: string;
+        busy?: { kind: "fit" | "outreach"; id: string; label: string };
       };
       if (!res.ok || !data.jobId) {
         if (res.status === 409) {
+          if (data.busy) setGlobalWizardBusy(data.busy);
           throw new Error(
             typeof data.error === "string"
               ? data.error
@@ -2113,6 +2164,7 @@ export default function OutreachCastingWizard({
   }, [
     fitRunning,
     fitJobId,
+    globalWizardBusy,
     phase,
     talents,
     brandsMissingFit,
@@ -3878,9 +3930,11 @@ export default function OutreachCastingWizard({
   const startOutreachServerDraft = useCallback(
     async (
       keys?: string[],
-      talentIdsByKey?: Record<string, string[]>
+      talentIdsByKey?: Record<string, string[]>,
+      opts?: { forceRewrite?: boolean }
     ) => {
       if (lockedTalentId || serverDraftStartingRef.current) return;
+      const forceRewrite = Boolean(opts?.forceRewrite);
       const source =
         keys && keys.length > 0
           ? keys
@@ -3889,9 +3943,12 @@ export default function OutreachCastingWizard({
         ...new Set(
           source.filter((k) => {
             if (!k) return false;
-            if (autoWriteDoneKeysRef.current.has(k)) return false;
-            if (readyKeysRef.current.includes(k)) return false;
-            if (localDraftsRef.current[k]) return false;
+            // Relance explicite : on ignore les verrous « déjà prêt ».
+            if (!forceRewrite) {
+              if (autoWriteDoneKeysRef.current.has(k)) return false;
+              if (readyKeysRef.current.includes(k)) return false;
+              if (localDraftsRef.current[k]) return false;
+            }
             if (serverDraftQueuedRef.current.has(k)) return false;
             return true;
           })
@@ -3943,12 +4000,17 @@ export default function OutreachCastingWizard({
                     ? fromOui
                     : fromSelection
             ).slice(0, fromOverride.length > 0 ? 30 : 8);
-            // Mail prêt / WAITING / STOPPED → hors wizard, jamais réécrit.
+            // Mail prêt → hors wizard sauf Relancer (forceRewrite).
+            // WAITING / STOPPED / déjà envoyé → jamais réécrit.
             const targetIds = brand.targets
               .filter((t) => {
                 const st = String(t.status || "TO_CONTACT").toUpperCase();
                 if (st === "WAITING" || st === "STOPPED") return false;
+                if ((t as { lastSentAt?: string | null }).lastSentAt) {
+                  return false;
+                }
                 if (st === "TO_RECONTACT") return true;
+                if (forceRewrite) return true;
                 const hasDraft =
                   Boolean((t.draftSubject || "").trim()) &&
                   Boolean((t.draftBodyHtml || "").trim());
@@ -4001,6 +4063,7 @@ export default function OutreachCastingWizard({
           body: JSON.stringify({
             market: fitMarketKey,
             items,
+            forceRewrite,
           }),
         });
         const data = (await res.json().catch(() => ({}))) as {
@@ -4018,6 +4081,19 @@ export default function OutreachCastingWizard({
         }
         for (const it of items) {
           pendingServerDraftKeysRef.current.delete(it.groupKey);
+          if (forceRewrite) {
+            autoWriteDoneKeysRef.current.delete(it.groupKey);
+          }
+        }
+        if (forceRewrite) {
+          setReadyKeys((prev) =>
+            prev.filter((k) => !items.some((it) => it.groupKey === k))
+          );
+          setLocalDrafts((prev) => {
+            const next = { ...prev };
+            for (const it of items) delete next[it.groupKey];
+            return next;
+          });
         }
         try {
           const rest = Array.from(pendingServerDraftKeysRef.current);
@@ -4041,9 +4117,13 @@ export default function OutreachCastingWizard({
         onFlash?.(
           "success",
           data.message ||
-            `Rédaction · ${items.length} marque${
-              items.length > 1 ? "s" : ""
-            } — tu peux quitter.`
+            (forceRewrite
+              ? `Relance rédaction · ${items.length} marque${
+                  items.length > 1 ? "s" : ""
+                } — Contabo réécrit.`
+              : `Rédaction · ${items.length} marque${
+                  items.length > 1 ? "s" : ""
+                } — tu peux quitter.`)
         );
         stopServerDraftPoll();
         void pollOutreachServerDraft(data.jobId);
@@ -4099,9 +4179,10 @@ export default function OutreachCastingWizard({
   useEffect(() => {
     startOutreachServerDraftRef.current = (
       keys?: string[],
-      talentIdsByKey?: Record<string, string[]>
+      talentIdsByKey?: Record<string, string[]>,
+      opts?: { forceRewrite?: boolean }
     ) => {
-      void startOutreachServerDraft(keys, talentIdsByKey);
+      void startOutreachServerDraft(keys, talentIdsByKey, opts);
     };
   }, [startOutreachServerDraft]);
 
@@ -4336,8 +4417,15 @@ export default function OutreachCastingWizard({
             }
           : null;
       })();
-    // Outreach : rédaction serveur (Grok) — autorise relance même si un mail existe.
+    // Outreach Contabo — Relancer vide le brouillon + réécrit avec la sélection UI.
     if (isOutreachMode) {
+      if (globalWizardBusy && !serverDraftRunning) {
+        onFlash?.(
+          "error",
+          `Un casting est déjà en cours (${globalWizardBusy.label}). Attends la fin.`
+        );
+        return;
+      }
       if (serverDraftRunning) {
         onFlash?.(
           "error",
@@ -4356,9 +4444,11 @@ export default function OutreachCastingWizard({
         delete next[current.groupKey];
         return next;
       });
-      await startOutreachServerDraft([current.groupKey], {
-        [current.groupKey]: ids,
-      });
+      await startOutreachServerDraft(
+        [current.groupKey],
+        { [current.groupKey]: ids },
+        { forceRewrite: true }
+      );
       return;
     }
 
@@ -4420,6 +4510,7 @@ export default function OutreachCastingWizard({
     lockedTalentId,
     fitByBrand,
     serverDraftRunning,
+    globalWizardBusy,
     startOutreachServerDraft,
   ]);
 
@@ -5925,26 +6016,29 @@ export default function OutreachCastingWizard({
                         brandsWithCache.length === 0 ||
                         Boolean(writingOneKey) ||
                         Boolean(fitRunning) ||
-                        Boolean(fitJobId)
+                        Boolean(fitJobId) ||
+                        Boolean(globalWizardBusy)
                       }
-                      className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40"
+                      className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
                       style={{
                         borderColor: OLD_ROSE,
                         color: LICORICE,
                         background: "#FDF6F4",
                       }}
                       title={
-                        fitRunning || fitJobId
-                          ? "Un casting est déjà en cours — arrête-le avant d’en relancer un"
-                          : isOutreachMode
-                            ? autoWriteAfterFit
-                              ? "AI · marque + fit, puis Serveur · Leyna + mail — tu peux quitter"
-                              : "AI · marque + fit OUI/NON seulement"
-                            : "Analyse marque si besoin, puis fit OUI/NON, Leyna et rédaction serveur"
+                        globalWizardBusy
+                          ? `Casting déjà en cours (${globalWizardBusy.label}). Arrête-le avant.`
+                          : fitRunning || fitJobId
+                            ? "Un casting est déjà en cours — arrête-le avant d’en relancer un"
+                            : isOutreachMode
+                              ? autoWriteAfterFit
+                                ? "AI · marque + fit, puis Serveur · Leyna + mail — tu peux quitter"
+                                : "AI · marque + fit OUI/NON seulement"
+                              : "Analyse marque si besoin, puis fit OUI/NON, Leyna et rédaction serveur"
                       }
                     >
                       <Sparkles className="h-4 w-4" style={{ color: OLD_ROSE }} />
-                      {fitRunning || fitJobId
+                      {globalWizardBusy || fitRunning || fitJobId
                         ? "Casting déjà en cours…"
                         : brandsMissingFit.length > 0 &&
                             Object.keys(fitByBrand).length > 0
@@ -5987,25 +6081,30 @@ export default function OutreachCastingWizard({
                       (Boolean(serverDraftRunning) &&
                         !readyKeys.includes(current.groupKey) &&
                         serverDraftQueuedRef.current.has(current.groupKey)) ||
+                      (isOutreachMode &&
+                        Boolean(globalWizardBusy) &&
+                        !serverDraftRunning) ||
                       (isIndivMode &&
                         !isProjectMode &&
                         Boolean(lockedTalentId) &&
                         !fitByBrand[current.groupKey]?.[lockedTalentId || ""] &&
                         !readyKeys.includes(current.groupKey))
                     }
-                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:opacity-40 disabled:cursor-not-allowed"
                     style={{ background: OLD_ROSE }}
                     title={
-                      isIndivMode &&
-                      !isProjectMode &&
-                      lockedTalentId &&
-                      !fitByBrand[current.groupKey]?.[lockedTalentId]
-                        ? "Fit casting obligatoire d’abord"
-                        : readyKeys.includes(current.groupKey)
-                          ? "Mail prêt — aperçu + Envoyer ci-dessus"
-                          : isOutreachMode
-                            ? "Rédige cette marque (même moteur que l’auto-rédaction)"
-                            : "Rédige cette marque tout de suite (même si le lot fit continue)"
+                      isOutreachMode && globalWizardBusy && !serverDraftRunning
+                        ? `Casting déjà en cours (${globalWizardBusy.label})`
+                        : isIndivMode &&
+                            !isProjectMode &&
+                            lockedTalentId &&
+                            !fitByBrand[current.groupKey]?.[lockedTalentId]
+                          ? "Fit casting obligatoire d’abord"
+                          : readyKeys.includes(current.groupKey)
+                            ? "Relancer : vide le brouillon et réécrit Contabo avec la sélection"
+                            : isOutreachMode
+                              ? "Rédige cette marque (même moteur que l’auto-rédaction)"
+                              : "Rédige cette marque tout de suite (même si le lot fit continue)"
                     }
                   >
                     {writingOneKey === current.groupKey ||

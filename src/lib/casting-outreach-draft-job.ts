@@ -1156,11 +1156,56 @@ async function filterTargetIdsNeedingDraft(
   });
 }
 
+/**
+ * Relance rédaction : efface les brouillons encore contrôlables
+ * (TO_CONTACT sans envoi). WAITING / STOPPED / déjà envoyé → intouchables.
+ */
+async function clearRewritableDraftsOnTargets(
+  pipeline: string,
+  targetIds: string[]
+): Promise<string[]> {
+  const ids = targetIds.map((id) => String(id || "").trim()).filter(Boolean);
+  if (ids.length === 0) return [];
+  const rows =
+    pipeline === "BENELUX"
+      ? await prisma.beneluxOutreachTarget.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            status: true,
+            lastSentAt: true,
+          },
+        })
+      : await prisma.outreachTarget.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true,
+            status: true,
+            lastSentAt: true,
+          },
+        });
+  const clearable = rows
+    .filter((t) => {
+      const st = String(t.status || "TO_CONTACT").toUpperCase();
+      if (st === "WAITING" || st === "STOPPED") return false;
+      if (t.lastSentAt) return false;
+      return true;
+    })
+    .map((t) => t.id);
+  if (clearable.length > 0) {
+    await clearDraftsOnTargets(pipeline, clearable);
+  }
+  return clearable;
+}
+
 export async function createOutreachDraftJob(args: {
   userId: string;
   market: string;
   items: CreateOutreachDraftItemInput[];
+  /** Clic « Relancer rédaction » : vide les brouillons puis Contabo. */
+  forceRewrite?: boolean;
 }): Promise<{ jobId: string }> {
+  const forceRewrite = Boolean(args.forceRewrite);
   const rawItems = args.items
     .map((it, i) => ({
       groupKey: String(it.groupKey || "").trim(),
@@ -1176,10 +1221,22 @@ export async function createOutreachDraftJob(args: {
     .filter((it) => it.groupKey && it.targetIds.length > 0 && it.talentIds.length > 0);
 
   // Filet serveur : WAITING / mail prêt → jamais Contabo.
+  // forceRewrite = clic Relancer → on vide d’abord les brouillons contrôlables.
   // Si les cibles ont encore besoin d’un draft (reprise / clear), on laisse
   // créer même s’il existe un vieux item done (sinon fascent done en 0,4s).
   const items: typeof rawItems = [];
   for (const it of rawItems) {
+    if (forceRewrite) {
+      const cleared = await clearRewritableDraftsOnTargets(
+        it.pipeline,
+        it.targetIds
+      );
+      if (cleared.length > 0) {
+        console.info(
+          `[outreach-draft-job] forceRewrite ${it.brandName}: ${cleared.length} brouillon(s) vidés`
+        );
+      }
+    }
     const eligible = await filterTargetIdsNeedingDraft(it.pipeline, it.targetIds);
     if (eligible.length === 0) {
       console.info(
@@ -1365,11 +1422,22 @@ export async function requestCancelOutreachDraftJob(jobId: string, userId: strin
     where: { id: jobId, userId },
   });
   if (!job) return null;
-  // Coupe Contabo (avec auth) — évite les orphelins après Stop / reset.
+  // Coupe Contabo marqueur par marqueur — Annuler DB ne doit plus laisser
+  // Chat tourner en silence (sinon le prochain Analyser passe le verrou).
   try {
-    const { cancelOrphanOutreachContaboJobs } = await import(
+    const { cartoChatVpsCancel, cancelOrphanOutreachContaboJobs } = await import(
       "@/lib/carto-chat-vps/vps-client"
     );
+    const items = await prisma.castingOutreachDraftItem.findMany({
+      where: { jobId },
+      select: { brandResearch: true, status: true },
+    });
+    for (const it of items) {
+      const br = (it.brandResearch || {}) as { _vps?: { endMarker?: string } };
+      const marker = String(br._vps?.endMarker || "").trim();
+      if (!marker) continue;
+      await cartoChatVpsCancel({ endMarker: marker, kind: "outreach" });
+    }
     await cancelOrphanOutreachContaboJobs();
   } catch {
     /* soft */
