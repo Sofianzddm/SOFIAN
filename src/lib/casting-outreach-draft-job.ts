@@ -1236,6 +1236,27 @@ export async function createOutreachDraftJob(args: {
           `[outreach-draft-job] forceRewrite ${it.brandName}: ${cleared.length} brouillon(s) vidés`
         );
       }
+      // Invalide les vieux items « done » du même groupKey — sinon
+      // processOneOutreachItem peut recopier le mail du matin (Printemps).
+      const wiped = await prisma.castingOutreachDraftItem.updateMany({
+        where: {
+          groupKey: it.groupKey,
+          status: "done",
+          OR: [
+            { draftSubject: { not: null } },
+            { draftBodyHtml: { not: null } },
+          ],
+        },
+        data: {
+          draftSubject: null,
+          draftBodyHtml: null,
+        },
+      });
+      if (wiped.count > 0) {
+        console.info(
+          `[outreach-draft-job] forceRewrite ${it.brandName}: ${wiped.count} prior done invalidé(s)`
+        );
+      }
     }
     const eligible = await filterTargetIdsNeedingDraft(it.pipeline, it.targetIds);
     if (eligible.length === 0) {
@@ -1245,27 +1266,17 @@ export async function createOutreachDraftJob(args: {
       continue;
     }
 
-    const priorDone = await prisma.castingOutreachDraftItem.findFirst({
-      where: {
-        groupKey: it.groupKey,
-        status: "done",
-        AND: [
-          { draftSubject: { not: null } },
-          { draftBodyHtml: { not: null } },
-          { NOT: { draftSubject: "" } },
-          { NOT: { draftBodyHtml: "" } },
-        ],
-      },
-      select: { id: true, draftSubject: true, finishedAt: true },
-      orderBy: { finishedAt: "desc" },
+    items.push({
+      ...it,
+      targetIds: eligible,
+      brandResearch: forceRewrite
+        ? {
+            ...(it.brandResearch as object),
+            _forceRewrite: true,
+            _forceRewriteAt: new Date().toISOString(),
+          }
+        : it.brandResearch,
     });
-    // priorDone + cibles encore éligibles = reprise voulue → Contabo OK.
-    if (priorDone) {
-      console.info(
-        `[outreach-draft-job] create ${it.brandName}: prior done mais ${eligible.length} cible(s) à (re)écrire — Contabo`
-      );
-    }
-    items.push({ ...it, targetIds: eligible });
   }
 
   if (items.length === 0) {
@@ -1600,9 +1611,13 @@ async function processOneOutreachItem(itemId: string): Promise<{
   let brandResearch = (item.brandResearch || {}) as BrandResearchStore;
 
   // Déjà sauvé (ex. blip Neon après saveDraftOnTargets) → ne pas relancer Contabo.
+  // Sauf Relancer (_forceRewrite) : on ignore tout corps déjà collé.
+  const forceRewriteItem = Boolean(
+    (brandResearch as { _forceRewrite?: boolean })._forceRewrite
+  );
   const existingSubject = String(item.draftSubject || "").trim();
   const existingBody = String(item.draftBodyHtml || "").trim();
-  if (existingSubject && existingBody) {
+  if (existingSubject && existingBody && !forceRewriteItem) {
     return {
       ok: true,
       brandName,
@@ -1662,6 +1677,8 @@ async function processOneOutreachItem(itemId: string): Promise<{
           String(t.draftBodyHtml || "").trim()
       );
       // Mail prêt encore sur fiche (contrôle) → finalise done SANS réécriture.
+      // Jamais priorDone : recopier un vieux item « done » renvoyait le mail
+      // du matin (Printemps) au lieu de Contabo.
       if (readyTarget) {
         return {
           ok: true,
@@ -1669,37 +1686,6 @@ async function processOneOutreachItem(itemId: string): Promise<{
           subject: String(readyTarget.draftSubject || "").trim(),
           bodyHtml: String(readyTarget.draftBodyHtml || "").trim(),
         };
-      }
-      // Autre job a déjà rédigé ce groupKey ET cibles plus éligibles.
-      try {
-        const priorDone = await prisma.castingOutreachDraftItem.findFirst({
-          where: {
-            groupKey: item.groupKey,
-            status: "done",
-            id: { not: item.id },
-            AND: [
-              { draftSubject: { not: null } },
-              { draftBodyHtml: { not: null } },
-              { NOT: { draftSubject: "" } },
-              { NOT: { draftBodyHtml: "" } },
-            ],
-          },
-          select: { draftSubject: true, draftBodyHtml: true },
-          orderBy: { finishedAt: "desc" },
-        });
-        if (priorDone?.draftSubject && priorDone?.draftBodyHtml) {
-          return {
-            ok: true,
-            brandName,
-            subject: String(priorDone.draftSubject).trim(),
-            bodyHtml: String(priorDone.draftBodyHtml).trim(),
-          };
-        }
-      } catch (e) {
-        console.warn(
-          "[outreach-draft-job] priorDone check soft:",
-          e instanceof Error ? e.message : e
-        );
       }
       // Tout envoyé / WAITING → sort du wizard, ne revient pas.
       return {
