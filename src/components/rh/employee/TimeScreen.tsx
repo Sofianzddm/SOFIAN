@@ -1,54 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, FileText, Send } from "lucide-react";
 import { RhButton, RhCard, RhCardHead } from "@/components/rh/ui/primitives";
 import { EmpLabel, EMP_COLORS } from "@/components/rh/employee/parts";
-
-/**
- * input type=time contrôlé : si on commit à chaque onChange, Safari/Chrome
- * écrasent la frappe (ex. 18→12, 55→30). Draft local, commit au blur.
- */
-function TimeInput({
-  value,
-  disabled,
-  onCommit,
-  invalid,
-}: {
-  value: string;
-  disabled?: boolean;
-  onCommit: (next: string) => void;
-  invalid?: boolean;
-}) {
-  const [draft, setDraft] = useState(value || "");
-  const [focused, setFocused] = useState(false);
-  useEffect(() => {
-    if (!focused) setDraft(value || "");
-  }, [value, focused]);
-  return (
-    <input
-      type="time"
-      className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
-      disabled={disabled}
-      value={focused ? draft : value || ""}
-      onFocus={() => {
-        setFocused(true);
-        setDraft(value || "");
-      }}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        setFocused(false);
-        const next = draft || "";
-        if (next !== (value || "")) onCommit(next);
-        else setDraft(value || "");
-      }}
-      style={
-        invalid ? { borderColor: "rgba(242,96,78,.55)" } : undefined
-      }
-    />
-  );
-}
 import {
   absenceCaption,
   breakRangeMinutes,
@@ -72,6 +29,80 @@ import {
   RH_MIN_ISO_WEEK,
   RH_MIN_ISO_YEAR,
 } from "@/lib/rh/constants";
+
+/**
+ * input type=time contrôlé : si on commit à chaque onChange, Safari/Chrome
+ * écrasent la frappe (ex. 18→12, 55→30). Draft local, commit au blur.
+ * flushSync : un clic « Enregistrer » pendant la frappe ne doit pas
+ * partir avec l’ancienne valeur (sinon samedi / fin de créneau perdus).
+ */
+function TimeInput({
+  value,
+  disabled,
+  onCommit,
+  invalid,
+}: {
+  value: string;
+  disabled?: boolean;
+  onCommit: (next: string) => void;
+  invalid?: boolean;
+}) {
+  const [draft, setDraft] = useState(value || "");
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setDraft(value || "");
+  }, [value, focused]);
+
+  function commitDraft() {
+    const next = draft || "";
+    if (next !== (value || "")) {
+      flushSync(() => {
+        onCommit(next);
+      });
+    } else {
+      setDraft(value || "");
+    }
+  }
+
+  return (
+    <input
+      type="time"
+      className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
+      disabled={disabled}
+      value={focused ? draft : value || ""}
+      onFocus={() => {
+        setFocused(true);
+        setDraft(value || "");
+      }}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        setFocused(false);
+        commitDraft();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      style={
+        invalid ? { borderColor: "rgba(242,96,78,.55)" } : undefined
+      }
+    />
+  );
+}
+
+/** Force le commit de l’input time encore focus avant un save/submit. */
+function flushActiveTimeInput() {
+  const el = document.activeElement;
+  if (
+    el instanceof HTMLInputElement &&
+    el.type === "time" &&
+    typeof el.blur === "function"
+  ) {
+    el.blur();
+  }
+}
 
 type Slot = { from: string; to: string };
 type DayRow = {
@@ -185,6 +216,10 @@ export function TimeScreen() {
   const [refDate, setRefDate] = useState(() => ymd(new Date()));
   const [ts, setTs] = useState<Timesheet | null>(null);
   const [days, setDays] = useState<DayRow[]>([]);
+  const daysRef = useRef<DayRow[]>([]);
+  useEffect(() => {
+    daysRef.current = days;
+  }, [days]);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -259,23 +294,23 @@ export function TimeScreen() {
       const sheet = data.timesheet as Timesheet;
       setTs(sheet);
       setWeekOtNote(sheet.overtimeNote || "");
-      setDays(
-        (sheet.days || [])
-          .map((d) => ({
-            ...d,
-            date: ymd(d.date as string | Date),
-            slots: (Array.isArray(d.slots) ? d.slots : []) as Slot[],
-            breakFrom: d.breakFrom || null,
-            breakTo: d.breakTo || null,
-            exception: !!d.exception,
-            note: d.note || "",
-            absenceKind: d.absenceKind || null,
-            absenceMinutes: d.absenceMinutes || 0,
-            absenceLabel: d.absenceLabel || null,
-            absenceSource: d.absenceSource || null,
-          }))
-          .sort((a, b) => isoDow(a.date) - isoDow(b.date))
-      );
+      const nextDays = (sheet.days || [])
+        .map((d) => ({
+          ...d,
+          date: ymd(d.date as string | Date),
+          slots: (Array.isArray(d.slots) ? d.slots : []) as Slot[],
+          breakFrom: d.breakFrom || null,
+          breakTo: d.breakTo || null,
+          exception: !!d.exception,
+          note: d.note || "",
+          absenceKind: d.absenceKind || null,
+          absenceMinutes: d.absenceMinutes || 0,
+          absenceLabel: d.absenceLabel || null,
+          absenceSource: d.absenceSource || null,
+        }))
+        .sort((a, b) => isoDow(a.date) - isoDow(b.date));
+      daysRef.current = nextDays;
+      setDays(nextDays);
     } finally {
       setLoading(false);
     }
@@ -373,9 +408,13 @@ export function TimeScreen() {
   }, [days, weeklyHours, schedule.workdayMinutes, weekOtNote]);
 
   function updateDay(date: string, patch: Partial<DayRow>) {
-    setDays((prev) =>
-      prev.map((d) => (d.date === date ? { ...d, ...patch } : d))
-    );
+    setDays((prev) => {
+      const next = prev.map((d) =>
+        d.date === date ? { ...d, ...patch } : d
+      );
+      daysRef.current = next;
+      return next;
+    });
   }
 
   function absencePayload(d: DayRow) {
@@ -387,91 +426,156 @@ export function TimeScreen() {
     };
   }
 
-  async function save() {
-    if (!ts || !editable) return;
-    if (live.needsLegalBreak) {
+  async function save(opts?: { quiet?: boolean }): Promise<boolean> {
+    if (!ts || !editable) return false;
+
+    // Commit l’heure encore en cours de frappe avant de lire l’état.
+    flushActiveTimeInput();
+    const snapshot = daysRef.current;
+
+    // Recalcule la pause légale sur le snapshot (pas le live stale).
+    const legalBreakDates = snapshot
+      .filter((d) => {
+        const dow = new Date(d.date + "T12:00:00").getDay();
+        const special = dow === 0 || dow === 6 || isFrenchHoliday(d.date);
+        const slots = (d.slots || []).filter((s) => s.from && s.to);
+        if (!slots.length || d.absenceKind === "FULL") return false;
+        if (special && !d.exception) return false;
+        const rangeMin =
+          d.breakFrom && d.breakTo
+            ? breakRangeMinutes(d.breakFrom, d.breakTo)
+            : 0;
+        const sanitized = sanitizeManualBreak(
+          slots,
+          d.breakFrom,
+          d.breakTo,
+          rangeMin > 0 ? rangeMin : d.breakMinutes ?? 0
+        );
+        return missingLegalBreak(slots, sanitized.breakMinutes);
+      })
+      .map((d) => d.date);
+    if (legalBreakDates.length > 0) {
       toast.error(
         `Pause légale obligatoire (≥ ${LEGAL_BREAK_MIN_MINUTES} min dès ${LEGAL_BREAK_TRIGGER_MINUTES / 60} h) — indique ta vraie pause`
       );
-      return;
+      return false;
     }
+
+    // Exception week-end cochée sans horaires valides → on bloque
+    // (évite d’écraser un samedi déjà saisi par des créneaux vides).
+    const emptyWeekendException = snapshot.find((d) => {
+      const dow = new Date(d.date + "T12:00:00").getDay();
+      const special = dow === 0 || dow === 6 || isFrenchHoliday(d.date);
+      if (!special || !d.exception) return false;
+      return !(d.slots || []).some((s) => s.from && s.to);
+    });
+    if (emptyWeekendException) {
+      const label = new Date(
+        emptyWeekendException.date + "T12:00:00"
+      ).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric" });
+      toast.error(
+        `${label} : Exception cochée sans horaires — saisis les créneaux ou décoche Exception`
+      );
+      return false;
+    }
+
     setBusy(true);
     setMsg(null);
     try {
+      const payloadDays = snapshot.map((d) => {
+        const holiday = isFrenchHoliday(d.date);
+        const weekend = (() => {
+          const dow = new Date(d.date + "T12:00:00").getDay();
+          return dow === 0 || dow === 6;
+        })();
+        const special = holiday || weekend;
+        if (special) {
+          const exception = !!d.exception;
+          const slots = exception
+            ? (d.slots || []).filter((s) => s.from && s.to)
+            : [];
+          const rangeMin =
+            d.breakFrom && d.breakTo
+              ? breakRangeMinutes(d.breakFrom, d.breakTo)
+              : 0;
+          const sanitized = sanitizeManualBreak(
+            slots,
+            d.breakFrom,
+            d.breakTo,
+            rangeMin > 0 ? rangeMin : d.breakMinutes
+          );
+          return {
+            date: d.date,
+            slots,
+            breakMinutes: slots.length ? sanitized.breakMinutes : 0,
+            breakFrom: slots.length ? sanitized.breakFrom : null,
+            breakTo: slots.length ? sanitized.breakTo : null,
+            exception,
+            note: d.note || null,
+            ...absencePayload(d),
+          };
+        }
+        const slots = d.slots.length
+          ? d.slots
+          : defaultSlotsForDate(d.date);
+        const rangeMin =
+          d.breakFrom && d.breakTo
+            ? breakRangeMinutes(d.breakFrom, d.breakTo)
+            : 0;
+        const sanitized = sanitizeManualBreak(
+          slots,
+          d.breakFrom,
+          d.breakTo,
+          rangeMin > 0 ? rangeMin : d.breakMinutes
+        );
+        return {
+          date: d.date,
+          slots,
+          breakMinutes: sanitized.breakMinutes,
+          breakFrom: sanitized.breakFrom,
+          breakTo: sanitized.breakTo,
+          exception: false,
+          note: d.note || null,
+          ...absencePayload(d),
+        };
+      });
+
       const res = await fetch(`/api/rh/timesheets/${refDate}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          days: days.map((d) => {
-            const holiday = isFrenchHoliday(d.date);
-            const weekend = (() => {
-              const dow = new Date(d.date + "T12:00:00").getDay();
-              return dow === 0 || dow === 6;
-            })();
-            const special = holiday || weekend;
-            // Week-end / férié : uniquement si l'utilisateur a saisi des créneaux
-            if (special) {
-              const exception = !!d.exception;
-              const slots = exception
-                ? (d.slots || []).filter((s) => s.from && s.to)
-                : [];
-              const rangeMin =
-                d.breakFrom && d.breakTo
-                  ? breakRangeMinutes(d.breakFrom, d.breakTo)
-                  : 0;
-              const sanitized = sanitizeManualBreak(
-                slots,
-                d.breakFrom,
-                d.breakTo,
-                rangeMin > 0 ? rangeMin : d.breakMinutes
-              );
-              return {
-                date: d.date,
-                slots,
-                breakMinutes: slots.length ? sanitized.breakMinutes : 0,
-                breakFrom: slots.length ? sanitized.breakFrom : null,
-                breakTo: slots.length ? sanitized.breakTo : null,
-                exception,
-                note: d.note || null,
-                ...absencePayload(d),
-              };
-            }
-            const slots = d.slots.length
-              ? d.slots
-              : defaultSlotsForDate(d.date);
-            const rangeMin =
-              d.breakFrom && d.breakTo
-                ? breakRangeMinutes(d.breakFrom, d.breakTo)
-                : 0;
-            const sanitized = sanitizeManualBreak(
-              slots,
-              d.breakFrom,
-              d.breakTo,
-              rangeMin > 0 ? rangeMin : d.breakMinutes
-            );
-            return {
-              date: d.date,
-              slots,
-              breakMinutes: sanitized.breakMinutes,
-              breakFrom: sanitized.breakFrom,
-              breakTo: sanitized.breakTo,
-              exception: false,
-              note: d.note || null,
-              ...absencePayload(d),
-            };
-          }),
-        }),
+        body: JSON.stringify({ days: payloadDays }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
-      setTs(data.timesheet);
+      const sheet = data.timesheet as Timesheet;
+      setTs(sheet);
+      // Applique la réponse serveur tout de suite (évite un reload qui
+      // pourrait écraser un état local encore en vol).
+      const nextDays = (sheet.days || [])
+        .map((d) => ({
+          ...d,
+          date: ymd(d.date as string | Date),
+          slots: (Array.isArray(d.slots) ? d.slots : []) as Slot[],
+          breakFrom: d.breakFrom || null,
+          breakTo: d.breakTo || null,
+          exception: !!d.exception,
+          note: d.note || "",
+          absenceKind: d.absenceKind || null,
+          absenceMinutes: d.absenceMinutes || 0,
+          absenceLabel: d.absenceLabel || null,
+          absenceSource: d.absenceSource || null,
+        }))
+        .sort((a, b) => isoDow(a.date) - isoDow(b.date));
+      daysRef.current = nextDays;
+      setDays(nextDays);
       setMsg("Enregistré");
-      toast.success("Semaine enregistrée");
-      await load();
+      if (!opts?.quiet) toast.success("Semaine enregistrée");
+      return true;
     } catch (e) {
       const err = e instanceof Error ? e.message : "Erreur";
       setMsg(err);
       toast.error(err);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -482,7 +586,11 @@ export function TimeScreen() {
     setBusy(true);
     setMsg(null);
     try {
-      await save();
+      const saved = await save({ quiet: true });
+      if (!saved) {
+        toast.error("Envoi annulé — corrige la feuille puis réessaie");
+        return;
+      }
       const res = await fetch(`/api/rh/timesheets/${refDate}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

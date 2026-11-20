@@ -769,7 +769,7 @@ function PeopleAppInner() {
       )}
 
       {screen === "planning" && (
-        <PlanningGanttScreen planning={planning} onOpenFiche={openFiche} />
+        <PlanningGanttScreen onOpenFiche={openFiche} />
       )}
 
       {screen === "remote" && (

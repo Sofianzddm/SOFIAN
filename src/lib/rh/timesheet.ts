@@ -318,6 +318,11 @@ export async function updateTimesheetDays(params: {
         `Coche « Exception » pour saisir des heures le ${iso} (week-end / férié)`
       );
     }
+    if (special && exception && slots.length === 0) {
+      throw new Error(
+        `Exception cochée le ${iso} sans horaires — saisis les créneaux ou décoche Exception`
+      );
+    }
 
     const fromRange =
       typeof day.breakFrom === "string" && /^\d{2}:\d{2}$/.test(day.breakFrom)
@@ -966,8 +971,12 @@ export async function listSignedTimesheets(opts?: {
         },
       },
     },
-    orderBy: [{ signedAt: "desc" }, { isoYear: "desc" }, { isoWeek: "desc" }],
-    take: opts?.take ?? 100,
+    orderBy: [
+      { employee: { user: { nom: "asc" } } },
+      { isoYear: "desc" },
+      { isoWeek: "desc" },
+    ],
+    take: opts?.take ?? 500,
   });
 }
 

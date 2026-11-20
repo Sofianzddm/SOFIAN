@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   RhAvatar,
   RhBadge,
@@ -19,12 +19,12 @@ import {
   RTT,
   SICK,
   TT,
+  isoDate,
   type PlanningData,
   type PlanningEmp,
 } from "@/components/rh/people/people-utils";
 
 type Props = {
-  planning: PlanningData | null;
   onOpenFiche: (employeeId: string) => void;
 };
 
@@ -48,27 +48,88 @@ function matchesTeamScope(
   return true;
 }
 
-export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
+function monthLabelFr(year: number, monthIndex: number) {
+  const label = new Date(year, monthIndex, 1).toLocaleDateString("fr-FR", {
+    month: "long",
+    year: "numeric",
+  });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function shiftMonth(year: number, monthIndex: number, delta: number) {
+  const d = new Date(year, monthIndex + delta, 1);
+  return { y: d.getFullYear(), m: d.getMonth() };
+}
+
+function daysInMonth(year: number, monthIndex: number): string[] {
+  const last = new Date(year, monthIndex + 1, 0).getDate();
+  return Array.from({ length: last }, (_, i) =>
+    isoDate(new Date(year, monthIndex, i + 1))
+  );
+}
+
+export function PlanningGanttScreen({ onOpenFiche }: Props) {
+  const today = useMemo(() => new Date(), []);
+  const [cursor, setCursor] = useState(() => ({
+    y: today.getFullYear(),
+    m: today.getMonth(),
+  }));
+  const [planning, setPlanning] = useState<PlanningData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const [ganttQuery, setGanttQuery] = useState("");
   const [ganttDept, setGanttDept] = useState<string>("all");
   const [teamScope, setTeamScope] = useState<TeamScope>("all");
   const [ganttFocus, setGanttFocus] = useState<"all" | "absence" | "presence">(
     "all"
   );
-  const [ganttWeeks, setGanttWeeks] = useState<1 | 2 | 4>(4);
-  const [ganttOffset, setGanttOffset] = useState(0);
 
+  const isCurrentMonth =
+    cursor.y === today.getFullYear() && cursor.m === today.getMonth();
+
+  const range = useMemo(() => {
+    const from = isoDate(new Date(cursor.y, cursor.m, 1));
+    const to = isoDate(new Date(cursor.y, cursor.m + 1, 0));
+    return { from, to };
+  }, [cursor.y, cursor.m]);
+
+  // Mois en cours : le jour actuel à gauche. Autres mois : mois complet.
   const ganttDays = useMemo(() => {
-    if (!planning) return [];
-    const start = new Date(planning.from + "T12:00:00");
-    start.setDate(start.getDate() + ganttOffset * 7);
-    const len = ganttWeeks * 7;
-    return Array.from({ length: len }, (_, i) => {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      return d.toISOString().slice(0, 10);
-    });
-  }, [planning, ganttWeeks, ganttOffset]);
+    const all = daysInMonth(cursor.y, cursor.m);
+    if (!isCurrentMonth) return all;
+    const todayIso = isoDate(today);
+    const fromToday = all.filter((d) => d >= todayIso);
+    return fromToday.length ? fromToday : all;
+  }, [cursor.y, cursor.m, isCurrentMonth, today]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/rh/planning?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`
+        );
+        if (!res.ok) throw new Error("Planning indisponible");
+        const data = (await res.json()) as PlanningData;
+        if (!cancelled) setPlanning(data);
+      } catch (e) {
+        if (!cancelled) {
+          setPlanning(null);
+          setLoadError(
+            e instanceof Error ? e.message : "Erreur chargement planning"
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [range.from, range.to]);
 
   const planningDepts = useMemo(() => {
     const set = new Set<string>();
@@ -100,9 +161,6 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
           ["OFFICE", "TT", "TRAVEL", "SITE"].includes(ev.kind)
         );
       }
-      if (ganttFocus !== "all" && events.length === 0 && q) {
-        // keep person if name matched even without events in focus
-      }
       const list = map.get(e.department) || [];
       list.push({ ...e, events });
       map.set(e.department, list);
@@ -120,7 +178,7 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
       <RhPageHero
         eyebrow="PLANNING"
         title="Gantt équipe"
-        subtitle="Vue calendaire pour anticiper absences et présence — filtre par pôle, personne ou type."
+        subtitle="Vue calendaire mois par mois — absences et présence, filtre par pôle ou personne."
       />
 
       <RhCard className="rh-gantt-filters">
@@ -136,52 +194,62 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
             <div className="flex items-center gap-2 shrink-0">
               <RhButton
                 variant="secondary"
-                disabled={ganttOffset <= 0}
-                onClick={() => setGanttOffset((v) => Math.max(0, v - 1))}
-                aria-label="Semaine précédente"
+                onClick={() =>
+                  setCursor((c) => shiftMonth(c.y, c.m, -1))
+                }
+                aria-label="Mois précédent"
               >
                 ‹
               </RhButton>
               <span
-                className="rh-mono text-[11px] whitespace-nowrap px-1"
-                style={{ color: "#8B95A5" }}
+                className="rh-mono text-[12.5px] font-semibold whitespace-nowrap px-1 min-w-[140px] text-center"
+                style={{ color: "#E7ECF2" }}
               >
-                {ganttDays[0]?.slice(5) || "—"} →{" "}
-                {ganttDays[ganttDays.length - 1]?.slice(5) || "—"}
+                {monthLabelFr(cursor.y, cursor.m)}
               </span>
               <RhButton
                 variant="secondary"
-                disabled={ganttOffset >= 3}
-                onClick={() => setGanttOffset((v) => Math.min(3, v + 1))}
-                aria-label="Semaine suivante"
+                onClick={() =>
+                  setCursor((c) => shiftMonth(c.y, c.m, 1))
+                }
+                aria-label="Mois suivant"
               >
                 ›
               </RhButton>
+              {!isCurrentMonth ? (
+                <RhButton
+                  variant="secondary"
+                  onClick={() =>
+                    setCursor({
+                      y: today.getFullYear(),
+                      m: today.getMonth(),
+                    })
+                  }
+                >
+                  Ce mois
+                </RhButton>
+              ) : null}
             </div>
           </div>
 
+          <div
+            className="text-[12px]"
+            style={{ color: "#8B95A5" }}
+          >
+            {ganttDays[0]
+              ? `${ganttDays[0].slice(8)}/${ganttDays[0].slice(5, 7)}`
+              : "—"}{" "}
+            →{" "}
+            {ganttDays[ganttDays.length - 1]
+              ? `${ganttDays[ganttDays.length - 1]!.slice(8)}/${ganttDays[ganttDays.length - 1]!.slice(5, 7)}`
+              : "—"}{" "}
+            · {ganttDays.length} jour{ganttDays.length > 1 ? "s" : ""}
+            {isCurrentMonth ? " · depuis aujourd’hui" : ""}
+            {loading ? " · chargement…" : ""}
+            {loadError ? ` · ${loadError}` : ""}
+          </div>
+
           <div className="flex flex-wrap gap-1.5">
-            {(
-              [
-                [1, "1 sem."],
-                [2, "2 sem."],
-                [4, "4 sem."],
-              ] as const
-            ).map(([n, label]) => (
-              <button
-                key={n}
-                type="button"
-                className="rh-gantt-chip"
-                data-active={ganttWeeks === n ? "1" : "0"}
-                onClick={() => {
-                  setGanttWeeks(n);
-                  setGanttOffset(0);
-                }}
-              >
-                {label}
-              </button>
-            ))}
-            <span className="rh-gantt-chip-sep" />
             {(
               [
                 ["all", "Tout"],
@@ -234,16 +302,16 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
             {planningDepts
               .filter((d) => matchesTeamScope(d, teamScope))
               .map((d) => (
-              <button
-                key={d}
-                type="button"
-                className="rh-gantt-chip"
-                data-active={ganttDept === d ? "1" : "0"}
-                onClick={() => setGanttDept(d)}
-              >
-                {d}
-              </button>
-            ))}
+                <button
+                  key={d}
+                  type="button"
+                  className="rh-gantt-chip"
+                  data-active={ganttDept === d ? "1" : "0"}
+                  onClick={() => setGanttDept(d)}
+                >
+                  {d}
+                </button>
+              ))}
           </div>
 
           <div
@@ -259,8 +327,7 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
             {(ganttDept !== "all" ||
               ganttQuery ||
               ganttFocus !== "all" ||
-              ganttWeeks !== 4 ||
-              ganttOffset !== 0) && (
+              !isCurrentMonth) && (
               <button
                 type="button"
                 className="border-0 bg-transparent cursor-pointer text-[12px] underline"
@@ -269,8 +336,11 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
                   setGanttDept("all");
                   setGanttQuery("");
                   setGanttFocus("all");
-                  setGanttWeeks(4);
-                  setGanttOffset(0);
+                  setTeamScope("all");
+                  setCursor({
+                    y: today.getFullYear(),
+                    m: today.getMonth(),
+                  });
                 }}
               >
                 Réinitialiser
@@ -310,10 +380,18 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
         </div>
       </RhCard>
 
-      {byDept.length === 0 ? (
+      {loading && !planning ? (
         <RhCard>
           <div className="p-6 text-[13px]" style={{ color: "#8B95A5" }}>
-            Aucun collaborateur pour ces filtres.
+            Chargement du mois…
+          </div>
+        </RhCard>
+      ) : byDept.length === 0 ? (
+        <RhCard>
+          <div className="p-6 text-[13px]" style={{ color: "#8B95A5" }}>
+            {loadError
+              ? loadError
+              : "Aucun collaborateur pour ces filtres."}
           </div>
         </RhCard>
       ) : (
@@ -327,7 +405,15 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
                 </RhBadge>
               }
             />
-            <div className="rh-gantt-scroll">
+            <div
+              className="rh-gantt-scroll rh-gantt-scroll--zoomed"
+              style={
+                {
+                  ["--rh-gantt-cell"]: "44px",
+                  ["--rh-gantt-name"]: "148px",
+                } as CSSProperties
+              }
+            >
               <div
                 className="rh-gantt-grid"
                 style={{
@@ -339,6 +425,7 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
                   const dt = new Date(d + "T12:00:00");
                   const weekend = dt.getDay() % 6 === 0;
                   const mon = dt.getDay() === 1;
+                  const isToday = d === isoDate(today);
                   return (
                     <div
                       key={d}
@@ -346,6 +433,11 @@ export function PlanningGanttScreen({ planning, onOpenFiche }: Props) {
                       data-weekend={weekend ? "1" : "0"}
                       data-mon={mon ? "1" : "0"}
                       title={d}
+                      style={
+                        isToday
+                          ? { boxShadow: `inset 0 -2px 0 ${LIME}` }
+                          : undefined
+                      }
                     >
                       <span className="rh-gantt-dow">
                         {dt

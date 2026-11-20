@@ -601,6 +601,22 @@
   line-height: 1;
   user-select: none;
 }
+
+.rh-gantt-scroll--zoomed .rh-gantt-cell {
+  height: 30px;
+  font-size: 10.5px;
+  border-radius: 5px;
+}
+.rh-gantt-scroll--zoomed .rh-gantt-dayhead {
+  font-size: 10px;
+}
+.rh-gantt-scroll--zoomed .rh-gantt-dow {
+  font-size: 9px;
+}
+.rh-gantt-scroll--zoomed .rh-gantt-name {
+  font-size: 12.5px;
+  min-height: 32px;
+}
 .rh-gantt-cell[data-empty="1"] {
   color: transparent;
   background: transparent;

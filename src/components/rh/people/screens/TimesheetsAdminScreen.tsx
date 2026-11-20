@@ -78,6 +78,76 @@ function formatReminderAt(iso: string | null) {
   });
 }
 
+function monthKeyFromWeekStart(weekStart: string) {
+  return weekStart.slice(0, 7); // YYYY-MM
+}
+
+function monthLabelFr(ym: string) {
+  const [y, m] = ym.split("-").map(Number);
+  const label = new Date(y, m - 1, 1).toLocaleDateString("fr-FR", {
+    month: "long",
+    year: "numeric",
+  });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+type SignedEmployeeGroup = {
+  employeeId: string;
+  name: string;
+  email: string;
+  months: Array<{ key: string; label: string; items: SigItem[] }>;
+  totalCount: number;
+};
+
+function groupSignedByEmployeeAndMonth(items: SigItem[]): SignedEmployeeGroup[] {
+  const byEmp = new Map<
+    string,
+    { employeeId: string; name: string; email: string; byMonth: Map<string, SigItem[]> }
+  >();
+
+  for (const t of items) {
+    const empId = t.employeeId || t.email || t.id;
+    let emp = byEmp.get(empId);
+    if (!emp) {
+      emp = {
+        employeeId: empId,
+        name: t.name,
+        email: t.email,
+        byMonth: new Map(),
+      };
+      byEmp.set(empId, emp);
+    }
+    const mk = monthKeyFromWeekStart(t.weekStart);
+    const list = emp.byMonth.get(mk) || [];
+    list.push(t);
+    emp.byMonth.set(mk, list);
+  }
+
+  return [...byEmp.values()]
+    .map((emp) => {
+      const months = [...emp.byMonth.entries()]
+        .sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([key, monthItems]) => ({
+          key,
+          label: monthLabelFr(key),
+          items: [...monthItems].sort((a, b) => {
+            if (a.isoYear !== b.isoYear) return b.isoYear - a.isoYear;
+            return b.isoWeek - a.isoWeek;
+          }),
+        }));
+      return {
+        employeeId: emp.employeeId,
+        name: emp.name,
+        email: emp.email,
+        months,
+        totalCount: months.reduce((s, m) => s + m.items.length, 0),
+      };
+    })
+    .sort((a, b) =>
+      a.name.localeCompare(b.name, "fr", { sensitivity: "base" })
+    );
+}
+
 const STATUS_LABEL: Record<string, string> = {
   MISSING: "Non créée",
   DRAFT: "Brouillon",
@@ -123,6 +193,42 @@ export function TimesheetsAdminScreen({
   const [missing, setMissing] = useState<MissingItem[]>([]);
   const [missingLoading, setMissingLoading] = useState(false);
   const [remindingId, setRemindingId] = useState<string | null>(null);
+  const [signedMonthFilter, setSignedMonthFilter] = useState<string>("all");
+  const [signedEmpFilter, setSignedEmpFilter] = useState<string>("all");
+
+  const signedMonthOptions = useMemo(() => {
+    const keys = new Set<string>();
+    for (const t of signedItems) keys.add(monthKeyFromWeekStart(t.weekStart));
+    return [...keys].sort((a, b) => b.localeCompare(a));
+  }, [signedItems]);
+
+  const signedEmployeeOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of signedItems) {
+      const id = t.employeeId || t.email || t.id;
+      if (!map.has(id)) map.set(id, t.name);
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) =>
+        a.name.localeCompare(b.name, "fr", { sensitivity: "base" })
+      );
+  }, [signedItems]);
+
+  const signedGrouped = useMemo(() => {
+    let items = signedItems;
+    if (signedMonthFilter !== "all") {
+      items = items.filter(
+        (t) => monthKeyFromWeekStart(t.weekStart) === signedMonthFilter
+      );
+    }
+    if (signedEmpFilter !== "all") {
+      items = items.filter(
+        (t) => (t.employeeId || t.email || t.id) === signedEmpFilter
+      );
+    }
+    return groupSignedByEmployeeAndMonth(items);
+  }, [signedItems, signedMonthFilter, signedEmpFilter]);
 
   const loadMissing = useCallback(async () => {
     setMissingLoading(true);
@@ -571,54 +677,171 @@ export function TimesheetsAdminScreen({
               Aucune feuille signée pour le moment
             </div>
           ) : (
-            signedItems.map((t) => {
-              const wLabel = weekLabel(t.isoYear, t.isoWeek);
-              const pdfHref =
-                t.signedPdfUrl ||
-                t.pdfUrl ||
-                (t.employeeId
-                  ? `/api/rh/timesheets/${wLabel}/pdf?employeeId=${encodeURIComponent(t.employeeId)}`
-                  : null);
-              const signedLabel = t.signedAt
-                ? new Date(t.signedAt).toLocaleDateString("fr-FR", {
-                    day: "2-digit",
-                    month: "short",
-                    year: "numeric",
-                  })
-                : null;
-              return (
-                <div
-                  key={t.id}
-                  className="flex flex-wrap items-center gap-3 px-4 py-3"
-                  style={{ borderBottom: "1px solid #15191F" }}
-                >
-                  <div className="flex-1 min-w-[160px]">
-                    <div className="text-[12.5px] font-medium">{t.name}</div>
-                    <div
-                      className="rh-mono text-[10px]"
-                      style={{ color: "#7E8998" }}
-                    >
-                      S{t.isoWeek} {t.isoYear} ·{" "}
-                      {Math.round(t.totalMinutes / 60)} h
-                      {signedLabel ? ` · signée le ${signedLabel}` : ""}
-                    </div>
-                  </div>
-                  <RhBadge bg="rgba(70,214,192,.13)" fg="#46D6C0">
-                    Signée
-                  </RhBadge>
-                  {pdfHref ? (
-                    <RhButton
-                      variant="secondary"
-                      onClick={() =>
-                        window.open(pdfHref, "_blank", "noopener")
-                      }
-                    >
-                      PDF signé
-                    </RhButton>
-                  ) : null}
+            <>
+              <div
+                className="flex flex-wrap items-end gap-3 px-4 py-3"
+                style={{ borderBottom: "1px solid #15191F" }}
+              >
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px]" style={{ color: "#7E8998" }}>
+                    Salarié
+                  </span>
+                  <select
+                    className="rh-input text-[12.5px]"
+                    value={signedEmpFilter}
+                    onChange={(e) => setSignedEmpFilter(e.target.value)}
+                    style={{ minWidth: 180 }}
+                  >
+                    <option value="all">Tous</option>
+                    {signedEmployeeOptions.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px]" style={{ color: "#7E8998" }}>
+                    Mois
+                  </span>
+                  <select
+                    className="rh-input text-[12.5px]"
+                    value={signedMonthFilter}
+                    onChange={(e) => setSignedMonthFilter(e.target.value)}
+                    style={{ minWidth: 160 }}
+                  >
+                    <option value="all">Tous</option>
+                    {signedMonthOptions.map((ym) => (
+                      <option key={ym} value={ym}>
+                        {monthLabelFr(ym)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span className="text-[12px]" style={{ color: "#7E8998" }}>
+                  {signedGrouped.reduce((s, g) => s + g.totalCount, 0)} feuille
+                  {signedGrouped.reduce((s, g) => s + g.totalCount, 0) > 1
+                    ? "s"
+                    : ""}{" "}
+                  · {signedGrouped.length} salarié
+                  {signedGrouped.length > 1 ? "s" : ""}
+                </span>
+              </div>
+
+              {signedGrouped.length === 0 ? (
+                <div className="p-4 text-[12px]" style={{ color: "#8B95A5" }}>
+                  Aucune feuille pour ce filtre
                 </div>
-              );
-            })
+              ) : (
+                signedGrouped.map((emp) => (
+                  <div
+                    key={emp.employeeId}
+                    style={{ borderBottom: "1px solid #15191F" }}
+                  >
+                    <div
+                      className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5"
+                      style={{ background: "#0E1116" }}
+                    >
+                      <button
+                        type="button"
+                        className="border-0 bg-transparent cursor-pointer p-0 text-left"
+                        onClick={() =>
+                          emp.employeeId && onOpenFiche(emp.employeeId)
+                        }
+                      >
+                        <div
+                          className="text-[13px] font-semibold"
+                          style={{ color: "#E7ECF2" }}
+                        >
+                          {emp.name}
+                        </div>
+                        <div
+                          className="text-[11px]"
+                          style={{ color: "#7E8998" }}
+                        >
+                          {emp.totalCount} feuille
+                          {emp.totalCount > 1 ? "s" : ""}
+                          {emp.email ? ` · ${emp.email}` : ""}
+                        </div>
+                      </button>
+                    </div>
+
+                    {emp.months.map((month) => (
+                      <div key={`${emp.employeeId}-${month.key}`}>
+                        <div
+                          className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.04em]"
+                          style={{
+                            color: LIME,
+                            background: "rgba(229,242,181,.06)",
+                            borderTop: "1px solid #15191F",
+                          }}
+                        >
+                          {month.label}
+                          <span
+                            className="ml-2 font-normal normal-case tracking-normal"
+                            style={{ color: "#7E8998" }}
+                          >
+                            · {month.items.length} semaine
+                            {month.items.length > 1 ? "s" : ""}
+                          </span>
+                        </div>
+                        {month.items.map((t) => {
+                          const wLabel = weekLabel(t.isoYear, t.isoWeek);
+                          const pdfHref = t.employeeId
+                            ? `/api/rh/timesheets/${wLabel}/pdf?employeeId=${encodeURIComponent(t.employeeId)}`
+                            : null;
+                          const signedLabel = t.signedAt
+                            ? new Date(t.signedAt).toLocaleDateString("fr-FR", {
+                                day: "2-digit",
+                                month: "short",
+                                year: "numeric",
+                              })
+                            : null;
+                          return (
+                            <div
+                              key={t.id}
+                              className="flex flex-wrap items-center gap-3 px-4 py-2.5"
+                              style={{ borderTop: "1px solid #12161C" }}
+                            >
+                              <div className="flex-1 min-w-[140px]">
+                                <div
+                                  className="rh-mono text-[12.5px] font-medium"
+                                  style={{ color: "#E7ECF2" }}
+                                >
+                                  S{t.isoWeek} · {t.isoYear}
+                                </div>
+                                <div
+                                  className="rh-mono text-[10px]"
+                                  style={{ color: "#7E8998" }}
+                                >
+                                  {Math.round(t.totalMinutes / 60)} h
+                                  {signedLabel
+                                    ? ` · signée le ${signedLabel}`
+                                    : ""}
+                                </div>
+                              </div>
+                              <RhBadge bg="rgba(70,214,192,.13)" fg="#46D6C0">
+                                Signée
+                              </RhBadge>
+                              {pdfHref ? (
+                                <RhButton
+                                  variant="secondary"
+                                  onClick={() =>
+                                    window.open(pdfHref, "_blank", "noopener")
+                                  }
+                                >
+                                  PDF signé
+                                </RhButton>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                ))
+              )}
+            </>
           )}
         </RhCard>
       ) : null}
