@@ -53,18 +53,37 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     weeklyHours
   );
 
-  // Signé → PDF tamponné Cloudinary. Sinon toujours régénéré à la volée
-  // (un vieux pdfUrl gardait des HS à 0 après correction des jours).
+  const filename = `feuille-temps-S${timesheet.isoWeek}-${timesheet.isoYear}.pdf`;
+
+  // Signé : proxy serveur du PDF Cloudinary (évite « Accès non autorisé »
+  // si le collab ouvre une URL raw privée). Sinon régénération à la volée
+  // (HS / totaux toujours à jour).
   if (timesheet.signedPdfUrl && timesheet.status === "SIGNED") {
-    return NextResponse.redirect(timesheet.signedPdfUrl);
+    try {
+      const upstream = await fetch(timesheet.signedPdfUrl);
+      if (upstream.ok) {
+        const buf = Buffer.from(await upstream.arrayBuffer());
+        return new NextResponse(new Uint8Array(buf), {
+          headers: {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": `inline; filename="${filename}"`,
+            "Cache-Control": "private, max-age=60",
+          },
+        });
+      }
+    } catch {
+      // fallback génération ci-dessous
+    }
   }
 
   try {
-    const { buffer, filename } = await getTimesheetPdfBuffer(timesheet.id);
+    const { buffer, filename: generatedName } = await getTimesheetPdfBuffer(
+      timesheet.id
+    );
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${filename}"`,
+        "Content-Disposition": `inline; filename="${generatedName}"`,
         "Cache-Control": "private, max-age=60",
       },
     });

@@ -516,16 +516,16 @@ export function TimesheetsAdminScreen({
                     {t.signatureRequestedAt ? " · envoyée" : ""}
                   </div>
                 </div>
-                {(t.pdfUrl || t.signedPdfUrl) && (
+                {(t.pdfUrl || t.signedPdfUrl || t.employeeId) && (
                   <RhButton
                     variant="secondary"
-                    onClick={() =>
-                      window.open(
-                        t.signedPdfUrl || t.pdfUrl || "",
-                        "_blank",
-                        "noopener"
-                      )
-                    }
+                    onClick={() => {
+                      const wLabel = weekLabel(t.isoYear, t.isoWeek);
+                      const href = t.employeeId
+                        ? `/api/rh/timesheets/${wLabel}/pdf?employeeId=${encodeURIComponent(t.employeeId)}`
+                        : t.signedPdfUrl || t.pdfUrl || "";
+                      if (href) window.open(href, "_blank", "noopener");
+                    }}
                   >
                     PDF
                   </RhButton>

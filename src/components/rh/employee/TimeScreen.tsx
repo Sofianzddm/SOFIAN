@@ -478,12 +478,12 @@ export function TimeScreen() {
     );
   }
 
+  // Toujours via l’API authentifiée — les URL Cloudinary raw renvoient
+  // « Accès non autorisé » si ouvertes directement par le collab.
   const pdfHref =
-    ts?.signedPdfUrl ||
-    ts?.pdfUrl ||
-    (ts && ts.status !== "DRAFT"
+    ts && ts.status !== "DRAFT"
       ? `/api/rh/timesheets/${refDate}/pdf`
-      : null);
+      : null;
 
   function renderDayCard(d: DayRow, special: boolean) {
     const holiday = frenchHolidayLabel(d.date);
