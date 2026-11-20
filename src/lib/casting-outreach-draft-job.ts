@@ -1175,11 +1175,19 @@ export async function createOutreachDraftJob(args: {
     }))
     .filter((it) => it.groupKey && it.targetIds.length > 0 && it.talentIds.length > 0);
 
-  // Filet serveur : WAITING / mail prêt / déjà done sur ce groupKey → jamais Contabo.
+  // Filet serveur : WAITING / mail prêt → jamais Contabo.
+  // Si les cibles ont encore besoin d’un draft (reprise / clear), on laisse
+  // créer même s’il existe un vieux item done (sinon fascent done en 0,4s).
   const items: typeof rawItems = [];
   for (const it of rawItems) {
-    // Filet fort : un item done avec mail pour ce groupKey = hors wizard à vie
-    // (même si les drafts targets ont été effacés — cas Aurélie Bidermann).
+    const eligible = await filterTargetIdsNeedingDraft(it.pipeline, it.targetIds);
+    if (eligible.length === 0) {
+      console.info(
+        `[outreach-draft-job] skip create ${it.brandName}: déjà prêt/envoyé`
+      );
+      continue;
+    }
+
     const priorDone = await prisma.castingOutreachDraftItem.findFirst({
       where: {
         groupKey: it.groupKey,
@@ -1194,19 +1202,11 @@ export async function createOutreachDraftJob(args: {
       select: { id: true, draftSubject: true, finishedAt: true },
       orderBy: { finishedAt: "desc" },
     });
+    // priorDone + cibles encore éligibles = reprise voulue → Contabo OK.
     if (priorDone) {
       console.info(
-        `[outreach-draft-job] skip create ${it.brandName}: déjà done (${String(priorDone.draftSubject || "").slice(0, 40)})`
+        `[outreach-draft-job] create ${it.brandName}: prior done mais ${eligible.length} cible(s) à (re)écrire — Contabo`
       );
-      continue;
-    }
-
-    const eligible = await filterTargetIdsNeedingDraft(it.pipeline, it.targetIds);
-    if (eligible.length === 0) {
-      console.info(
-        `[outreach-draft-job] skip create ${it.brandName}: déjà prêt/envoyé`
-      );
-      continue;
     }
     items.push({ ...it, targetIds: eligible });
   }
@@ -1556,39 +1556,9 @@ async function processOneOutreachItem(itemId: string): Promise<{
     return { ok: false, brandName, error: "Annulé" };
   }
 
-  // Autre job a déjà rédigé ce groupKey → ne jamais réécrire (Aurélie Bidermann).
-  try {
-    const priorDone = await prisma.castingOutreachDraftItem.findFirst({
-      where: {
-        groupKey: item.groupKey,
-        status: "done",
-        id: { not: item.id },
-        AND: [
-          { draftSubject: { not: null } },
-          { draftBodyHtml: { not: null } },
-          { NOT: { draftSubject: "" } },
-          { NOT: { draftBodyHtml: "" } },
-        ],
-      },
-      select: { draftSubject: true, draftBodyHtml: true },
-      orderBy: { finishedAt: "desc" },
-    });
-    if (priorDone?.draftSubject && priorDone?.draftBodyHtml) {
-      return {
-        ok: true,
-        brandName,
-        subject: String(priorDone.draftSubject).trim(),
-        bodyHtml: String(priorDone.draftBodyHtml).trim(),
-      };
-    }
-  } catch (e) {
-    console.warn(
-      "[outreach-draft-job] priorDone check soft:",
-      e instanceof Error ? e.message : e
-    );
-  }
-
-  // Hors wizard : WAITING / envoyé / mail déjà prêt → jamais Contabo ni clear drafts.
+  // Cibles d’abord : si des contacts ont encore besoin d’un mail (draft vidé /
+  // reprise), on NE court-circuite PAS Contabo avec un vieux priorDone
+  // (cas fascent : done en 0,4s avec l’ancien sujet pendant que Chat tournait).
   try {
     const existingOnTargets =
       item.pipeline === "BENELUX"
@@ -1631,6 +1601,37 @@ async function processOneOutreachItem(itemId: string): Promise<{
           subject: String(readyTarget.draftSubject || "").trim(),
           bodyHtml: String(readyTarget.draftBodyHtml || "").trim(),
         };
+      }
+      // Autre job a déjà rédigé ce groupKey ET cibles plus éligibles.
+      try {
+        const priorDone = await prisma.castingOutreachDraftItem.findFirst({
+          where: {
+            groupKey: item.groupKey,
+            status: "done",
+            id: { not: item.id },
+            AND: [
+              { draftSubject: { not: null } },
+              { draftBodyHtml: { not: null } },
+              { NOT: { draftSubject: "" } },
+              { NOT: { draftBodyHtml: "" } },
+            ],
+          },
+          select: { draftSubject: true, draftBodyHtml: true },
+          orderBy: { finishedAt: "desc" },
+        });
+        if (priorDone?.draftSubject && priorDone?.draftBodyHtml) {
+          return {
+            ok: true,
+            brandName,
+            subject: String(priorDone.draftSubject).trim(),
+            bodyHtml: String(priorDone.draftBodyHtml).trim(),
+          };
+        }
+      } catch (e) {
+        console.warn(
+          "[outreach-draft-job] priorDone check soft:",
+          e instanceof Error ? e.message : e
+        );
       }
       // Tout envoyé / WAITING → sort du wizard, ne revient pas.
       return {
