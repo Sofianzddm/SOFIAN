@@ -3985,20 +3985,15 @@ export default function OutreachCastingWizard({
               Object.values(fitsMap),
               8
             );
-            // Override (post-cast) > sélection UI > OUI casting.
-            // Si la sélection UI n’a aucun OUI alors que des OUI existent → force OUI.
-            const selectionHasOui =
-              fromOui.length === 0 ||
-              fromSelection.some((id) => fromOui.includes(id));
-            // Override Chat = roster à analyser (jusqu’à 30). Sinon pitch max 8.
+            // Override (Relancer) > sélection UI explicite > OUI casting.
+            // Ne JAMAIS écraser une sélection UI par les OUI (sinon « anciens
+            // talents » au relance — cas Printemps).
             const talentIds = (
               fromOverride.length > 0
                 ? fromOverride
-                : fromSelection.length > 0 && selectionHasOui
+                : fromSelection.length > 0
                   ? fromSelection
-                  : fromOui.length > 0
-                    ? fromOui
-                    : fromSelection
+                  : fromOui
             ).slice(0, fromOverride.length > 0 ? 30 : 8);
             // Mail prêt → hors wizard sauf Relancer (forceRewrite).
             // WAITING / STOPPED / déjà envoyé → jamais réécrit.
