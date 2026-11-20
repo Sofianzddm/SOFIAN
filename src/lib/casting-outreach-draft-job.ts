@@ -393,6 +393,9 @@ export function isSoftOutreachVpsPollError(msg: string): boolean {
 }
 
 type BrandResearchStore = BrandResearch & {
+  /** Relancer : interdit tout court-circuit ancien mail. */
+  _forceRewrite?: boolean;
+  _forceRewriteAt?: string;
   _vps?: {
     endMarker?: string;
     /** Claim anti-doublon avant ask-async. */
@@ -402,6 +405,8 @@ type BrandResearchStore = BrandResearch & {
     talentResearch?: TalentResearchItem[];
     /** Compte Joey → cold A, pas de tour Gmail Leyna. */
     joeyCold?: boolean;
+    /** Persiste le mode Relancer dans le claim Contabo. */
+    forceRewrite?: boolean;
   };
 };
 
@@ -840,29 +845,43 @@ async function pollOutreachVpsUntilReady(opts: {
     bodyHtml = ensureJoeyGoldIntroHtml(bodyHtml);
   }
 
-  // Filet officiel TALENTS_MISSING : injecte les puces absentes (CRM) avant assert.
+  // Filet TALENTS : Relancer = strict (pas d’injection qui « répare » un vieux
+  // mail Contabo). Sinon injecte les puces absentes puis assert.
   const igByTalentId = new Map(
     talentRows.map((r) => [r.id, r.instagram] as const)
   );
-  bodyHtml = ensureRequiredTalentsInHtml(
-    bodyHtml,
-    research.map((t) => ({
-      name: String(t.name || "").trim(),
-      instagram: igByTalentId.get(String(t.talentId || "").trim()) || null,
-      pitch:
-        String(t.castingWhyFit || "").trim() ||
-        String(t.suggestedAngle || "").trim() ||
-        String(t.whyRelevant || "").trim() ||
-        String(t.whoTheyAre || "").trim() ||
-        "",
-    })),
-    { language: bodyLang }
+  const forceRewriteSave = Boolean(
+    (brandResearch as { _forceRewrite?: boolean })._forceRewrite ||
+      brandResearch._vps?.forceRewrite
   );
+  const requiredNames =
+    knownTalentNames.length > 0
+      ? knownTalentNames
+      : talentRows
+          .map((r) => `${r.prenom || ""} ${r.nom || ""}`.trim())
+          .filter(Boolean);
+
+  if (!forceRewriteSave) {
+    bodyHtml = ensureRequiredTalentsInHtml(
+      bodyHtml,
+      research.map((t) => ({
+        name: String(t.name || "").trim(),
+        instagram: igByTalentId.get(String(t.talentId || "").trim()) || null,
+        pitch:
+          String(t.castingWhyFit || "").trim() ||
+          String(t.suggestedAngle || "").trim() ||
+          String(t.whyRelevant || "").trim() ||
+          String(t.whoTheyAre || "").trim() ||
+          "",
+      })),
+      { language: bodyLang }
+    );
+  }
 
   try {
     assertOutreachVpsMailQuality(bodyHtml, {
       joey: Boolean(brandResearch._vps?.joeyCold),
-      requiredTalentNames: knownTalentNames,
+      requiredTalentNames: requiredNames,
     });
   } catch (e) {
     return {
@@ -1157,8 +1176,10 @@ async function filterTargetIdsNeedingDraft(
 }
 
 /**
- * Relance rédaction : efface les brouillons encore contrôlables
- * (TO_CONTACT sans envoi). WAITING / STOPPED / déjà envoyé → intouchables.
+ * Obligation Relancer : efface TOUS les brouillons des cibles passées
+ * (même WAITING / déjà envoyés). On ne touche pas status / lastSentAt —
+ * uniquement draftSubject / draftBodyHtml / schedule, pour ne jamais
+ * réutiliser un vieux mail Contabo.
  */
 async function clearRewritableDraftsOnTargets(
   pipeline: string,
@@ -1170,30 +1191,36 @@ async function clearRewritableDraftsOnTargets(
     pipeline === "BENELUX"
       ? await prisma.beneluxOutreachTarget.findMany({
           where: { id: { in: ids } },
-          select: {
-            id: true,
-            status: true,
-            lastSentAt: true,
-          },
+          select: { id: true, status: true },
         })
       : await prisma.outreachTarget.findMany({
           where: { id: { in: ids } },
-          select: {
-            id: true,
-            status: true,
-            lastSentAt: true,
-          },
+          select: { id: true, status: true },
         });
+  // STOPPED = hors wizard, on n’y touche pas. Le reste : wipe brouillon.
   const clearable = rows
-    .filter((t) => {
-      const st = String(t.status || "TO_CONTACT").toUpperCase();
-      if (st === "WAITING" || st === "STOPPED") return false;
-      if (t.lastSentAt) return false;
-      return true;
-    })
+    .filter((t) => String(t.status || "").toUpperCase() !== "STOPPED")
     .map((t) => t.id);
   if (clearable.length > 0) {
     await clearDraftsOnTargets(pipeline, clearable);
+    // Coupe aussi un éventuel envoi programmé encore en file.
+    const sched = {
+      scheduledSendAt: null as Date | null,
+      scheduledSubject: null as string | null,
+      scheduledBodyHtml: null as string | null,
+      scheduledById: null as string | null,
+    };
+    if (pipeline === "BENELUX") {
+      await prisma.beneluxOutreachTarget.updateMany({
+        where: { id: { in: clearable } },
+        data: sched,
+      });
+    } else {
+      await prisma.outreachTarget.updateMany({
+        where: { id: { in: clearable } },
+        data: sched,
+      });
+    }
   }
   return clearable;
 }
@@ -1220,32 +1247,37 @@ export async function createOutreachDraftJob(args: {
     }))
     .filter((it) => it.groupKey && it.targetIds.length > 0 && it.talentIds.length > 0);
 
-  // Filet serveur : WAITING / mail prêt → jamais Contabo.
-  // forceRewrite = clic Relancer → on vide d’abord les brouillons contrôlables.
-  // Si les cibles ont encore besoin d’un draft (reprise / clear), on laisse
-  // créer même s’il existe un vieux item done (sinon fascent done en 0,4s).
+  // Obligation : toute nouvelle rédaction d’un groupKey déjà « done »
+  // = Relancer → on efface l’ancien mail et on force Contabo.
   const items: typeof rawItems = [];
   for (const it of rawItems) {
-    if (forceRewrite) {
+    const priorDoneCount = await prisma.castingOutreachDraftItem.count({
+      where: {
+        groupKey: it.groupKey,
+        status: "done",
+        OR: [
+          { draftSubject: { not: null } },
+          { draftBodyHtml: { not: null } },
+        ],
+      },
+    });
+    const mustRewrite = forceRewrite || priorDoneCount > 0;
+
+    if (mustRewrite) {
       const cleared = await clearRewritableDraftsOnTargets(
         it.pipeline,
         it.targetIds
       );
       if (cleared.length > 0) {
         console.info(
-          `[outreach-draft-job] forceRewrite ${it.brandName}: ${cleared.length} brouillon(s) vidés`
+          `[outreach-draft-job] rewrite ${it.brandName}: ${cleared.length} brouillon(s) vidés`
         );
       }
-      // Invalide les vieux items « done » du même groupKey — sinon
-      // processOneOutreachItem peut recopier le mail du matin (Printemps).
+      // Invalide TOUS les items done du groupKey (même après envoi partiel).
       const wiped = await prisma.castingOutreachDraftItem.updateMany({
         where: {
           groupKey: it.groupKey,
           status: "done",
-          OR: [
-            { draftSubject: { not: null } },
-            { draftBodyHtml: { not: null } },
-          ],
         },
         data: {
           draftSubject: null,
@@ -1254,7 +1286,7 @@ export async function createOutreachDraftJob(args: {
       });
       if (wiped.count > 0) {
         console.info(
-          `[outreach-draft-job] forceRewrite ${it.brandName}: ${wiped.count} prior done invalidé(s)`
+          `[outreach-draft-job] rewrite ${it.brandName}: ${wiped.count} prior done invalidé(s)`
         );
       }
     }
@@ -1269,7 +1301,7 @@ export async function createOutreachDraftJob(args: {
     items.push({
       ...it,
       targetIds: eligible,
-      brandResearch: forceRewrite
+      brandResearch: mustRewrite
         ? {
             ...(it.brandResearch as object),
             _forceRewrite: true,
@@ -1613,7 +1645,8 @@ async function processOneOutreachItem(itemId: string): Promise<{
   // Déjà sauvé (ex. blip Neon après saveDraftOnTargets) → ne pas relancer Contabo.
   // Sauf Relancer (_forceRewrite) : on ignore tout corps déjà collé.
   const forceRewriteItem = Boolean(
-    (brandResearch as { _forceRewrite?: boolean })._forceRewrite
+    (brandResearch as { _forceRewrite?: boolean })._forceRewrite ||
+      brandResearch._vps?.forceRewrite
   );
   const existingSubject = String(item.draftSubject || "").trim();
   const existingBody = String(item.draftBodyHtml || "").trim();
@@ -1671,14 +1704,22 @@ async function processOneOutreachItem(itemId: string): Promise<{
       .map((t) => t.id);
 
     if (eligibleIds.length === 0) {
+      // Relancer (_forceRewrite) : JAMAIS finaliser avec un brouillon fiche
+      // (même si un contact a encore l’ancien mail). Contabo obligatoire.
+      if (forceRewriteItem) {
+        return {
+          ok: false,
+          brandName,
+          error:
+            "FORCE_REWRITE — brouillons à réécrire mais plus de cible éligible (déjà envoyé ?).",
+        };
+      }
       const readyTarget = existingOnTargets.find(
         (t) =>
           String(t.draftSubject || "").trim() &&
           String(t.draftBodyHtml || "").trim()
       );
-      // Mail prêt encore sur fiche (contrôle) → finalise done SANS réécriture.
-      // Jamais priorDone : recopier un vieux item « done » renvoyait le mail
-      // du matin (Printemps) au lieu de Contabo.
+      // Mail prêt encore sur fiche (1er passage) → finalise done SANS Contabo.
       if (readyTarget) {
         return {
           ok: true,
@@ -2194,8 +2235,15 @@ async function processOneOutreachItem(itemId: string): Promise<{
 
   const launchingAt = new Date().toISOString();
   const endMarker = createEndMarker();
+  const forceRewriteRun = Boolean(
+    (brandResearch as { _forceRewrite?: boolean })._forceRewrite ||
+      brandResearch._vps?.forceRewrite
+  );
   const claimBr: BrandResearchStore = sanitizeJsonForDb({
     ...brandResearch,
+    ...(forceRewriteRun
+      ? { _forceRewrite: true, _forceRewriteAt: launchingAt }
+      : {}),
     _vps: {
       ...(brandResearch._vps || {}),
       endMarker,
@@ -2204,6 +2252,7 @@ async function processOneOutreachItem(itemId: string): Promise<{
       leynaExchange: leynaSlim,
       talentResearch,
       joeyCold: isJoeySender,
+      ...(forceRewriteRun ? { forceRewrite: true } : {}),
     },
   });
 
