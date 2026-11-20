@@ -5967,8 +5967,10 @@ export default function OutreachCastingWizard({
                         }}
                       />
                       {isOutreachMode
-                        ? "AI marque + fit → serveur Leyna puis mail — tu peux quitter"
-                        : "AI marque + fit → serveur Leyna puis mail"}
+                        ? "AI marque + fit → Contabo Leyna puis mail — tu peux quitter"
+                        : isIndivMode
+                          ? "AI marque + fit → serveur app (Leyna + mail, pas Contabo)"
+                          : "AI marque + fit → serveur Leyna puis mail"}
                     </label>
                     {fitRunning || serverDraftRunning ? (
                       <button
@@ -6066,8 +6068,10 @@ export default function OutreachCastingWizard({
                         onChange={(e) => setAutoWriteAfterFit(e.target.checked)}
                       />
                       {isOutreachMode
-                        ? "AI marque + fit → serveur Leyna puis mail — tu peux quitter"
-                        : "AI marque + fit → serveur Leyna puis mail"}
+                        ? "AI marque + fit → Contabo Leyna puis mail — tu peux quitter"
+                        : isIndivMode
+                          ? "AI marque + fit → serveur app (Leyna + mail, pas Contabo)"
+                          : "AI marque + fit → serveur Leyna puis mail"}
                     </label>
                   </div>
                 )}

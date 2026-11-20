@@ -640,18 +640,21 @@ export async function processRosterFitJobTick(
       };
     }
 
-    // Gate Contabo : pas de nouvelle analyse tant que rédaction d’une marque
-    // déjà fittée de ce job est encore pending/running.
+    // Gate rédaction chaînée : pas de nouvelle analyse tant qu’une marque
+    // déjà fittée de ce job est encore pending/running (Contabo en outreach,
+    // job indiv-draft en INDIV — pas le VPS Contabo).
+    const marketNow = String(fresh.market || "");
     const contaboInFlight = await countFitChainedContaboInFlight({
       fitJobId: jobId,
       userId: fresh.userId,
-      market: String(fresh.market || ""),
+      market: marketNow,
     });
     if (contaboInFlight > 0) {
-      const waitLabel = "Attente rédaction Contabo (1 marque à la fois)".slice(
-        0,
-        80
-      );
+      const waitLabel = (
+        marketNow.startsWith("INDIV:") || marketNow.startsWith("PROJECT:")
+          ? "Attente rédaction serveur (1 marque à la fois)"
+          : "Attente rédaction Contabo (1 marque à la fois)"
+      ).slice(0, 80);
       await prisma.castingRosterFitJob.updateMany({
         where: {
           id: jobId,

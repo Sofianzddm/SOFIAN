@@ -83,13 +83,38 @@ async function internalPost<T = Record<string, unknown>>(
   body: unknown
 ): Promise<{ ok: boolean; status: number; data: T }> {
   const url = `${appBaseUrl()}${path}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: internalJobHeaders(),
-    body: JSON.stringify(body),
-  });
-  const data = (await res.json().catch(() => ({}))) as T;
-  return { ok: res.ok, status: res.status, data };
+  const maxAttempts = 3;
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: internalJobHeaders(),
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json().catch(() => ({}))) as T;
+      return { ok: res.ok, status: res.status, data };
+    } catch (e) {
+      lastErr = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      // Self-HTTP Vercel / cold start : « fetch failed » → retry court.
+      if (
+        attempt < maxAttempts &&
+        /fetch failed|ECONNRESET|ECONNREFUSED|socket|UND_ERR|timeout|abort/i.test(
+          msg
+        )
+      ) {
+        await new Promise((r) => setTimeout(r, 800 * attempt));
+        continue;
+      }
+      throw new Error(
+        `Appel interne ${path} échoué (${msg || "réseau"}) — base ${url.replace(/\/api\/.*$/, "")}`
+      );
+    }
+  }
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error(`Appel interne ${path} échoué`);
 }
 
 type BrandResearch = {
