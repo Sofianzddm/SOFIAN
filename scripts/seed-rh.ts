@@ -256,6 +256,19 @@ const ROSTER: SeedEmp[] = [
     rtt: 3,
     recup: 2,
   },
+  {
+    email: "lena.kozlovic@glowupagence.eu",
+    prenom: "Léna",
+    nom: "Kozlovic",
+    matricule: "EMP-0044",
+    jobTitle: "Talent Manager",
+    department: "Talent Management",
+    avatarColor: "#C4A7E7",
+    remoteAgreement: 2,
+    rhRole: "COLLAB",
+    hireDate: "2026-11-03",
+    managerMatricule: "EMP-0001",
+  },
 ];
 
 async function ensureUser(e: SeedEmp) {
