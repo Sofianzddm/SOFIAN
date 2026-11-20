@@ -108,9 +108,7 @@ export async function assertContaboOutreachNotBusy(): Promise<void> {
     const health = await cartoChatVpsHealth({ kind: "outreach" });
     if (!health?.ok) return;
     const running = Number(health.outreachRunning || 0);
-    const queued = Number(
-      health.outreachQueued ?? health.queueLength ?? 0
-    );
+    const queued = Number(health.queueLength || 0);
     const job = health.job;
     const busy =
       running > 0 ||
