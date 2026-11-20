@@ -1921,7 +1921,15 @@ export default function OutreachCastingWizard({
   }, [stopFitPoll]);
 
   const runRosterFitBatch = useCallback(async () => {
-    if (fitRunning || phase !== "casting") return;
+    if (fitRunning || fitJobId || phase !== "casting") {
+      if (fitRunning || fitJobId) {
+        onFlash?.(
+          "error",
+          "Un casting est déjà en cours — arrête-le avant d’en relancer un."
+        );
+      }
+      return;
+    }
     userStoppedCastingRef.current = false;
     fitLaunchAbortRef.current?.abort();
     const launchAc = new AbortController();
@@ -2055,6 +2063,13 @@ export default function OutreachCastingWizard({
         message?: string;
       };
       if (!res.ok || !data.jobId) {
+        if (res.status === 409) {
+          throw new Error(
+            typeof data.error === "string"
+              ? data.error
+              : "Un casting est déjà en cours — arrête-le avant d’en relancer un."
+          );
+        }
         throw new Error(
           typeof data.error === "string" ? data.error : "Impossible de lancer le job"
         );
@@ -2097,6 +2112,7 @@ export default function OutreachCastingWizard({
     }
   }, [
     fitRunning,
+    fitJobId,
     phase,
     talents,
     brandsMissingFit,
@@ -5907,7 +5923,9 @@ export default function OutreachCastingWizard({
                         !current ||
                         talents.length === 0 ||
                         brandsWithCache.length === 0 ||
-                        Boolean(writingOneKey)
+                        Boolean(writingOneKey) ||
+                        Boolean(fitRunning) ||
+                        Boolean(fitJobId)
                       }
                       className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-40"
                       style={{
@@ -5916,22 +5934,26 @@ export default function OutreachCastingWizard({
                         background: "#FDF6F4",
                       }}
                       title={
-                        isOutreachMode
-                          ? autoWriteAfterFit
-                            ? "AI · marque + fit, puis Serveur · Leyna + mail — tu peux quitter"
-                            : "AI · marque + fit OUI/NON seulement"
-                          : "Analyse marque si besoin, puis fit OUI/NON, Leyna et rédaction serveur"
+                        fitRunning || fitJobId
+                          ? "Un casting est déjà en cours — arrête-le avant d’en relancer un"
+                          : isOutreachMode
+                            ? autoWriteAfterFit
+                              ? "AI · marque + fit, puis Serveur · Leyna + mail — tu peux quitter"
+                              : "AI · marque + fit OUI/NON seulement"
+                            : "Analyse marque si besoin, puis fit OUI/NON, Leyna et rédaction serveur"
                       }
                     >
                       <Sparkles className="h-4 w-4" style={{ color: OLD_ROSE }} />
-                      {brandsMissingFit.length > 0 &&
-                      Object.keys(fitByBrand).length > 0
-                        ? `Analyser le casting (${brandsMissingFit.length})`
-                        : Object.keys(fitByBrand).length >=
-                            brandsWithCache.filter((b) => !skipped.has(b.groupKey))
-                              .length && brandsWithCache.length > 0
-                          ? "Relancer l’analyse casting"
-                          : "Analyser le casting"}
+                      {fitRunning || fitJobId
+                        ? "Casting déjà en cours…"
+                        : brandsMissingFit.length > 0 &&
+                            Object.keys(fitByBrand).length > 0
+                          ? `Analyser le casting (${brandsMissingFit.length})`
+                          : Object.keys(fitByBrand).length >=
+                              brandsWithCache.filter((b) => !skipped.has(b.groupKey))
+                                .length && brandsWithCache.length > 0
+                            ? "Relancer l’analyse casting"
+                            : "Analyser le casting"}
                     </button>
                     <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-600">
                       <input

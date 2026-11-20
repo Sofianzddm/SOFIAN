@@ -50,6 +50,110 @@ export type CreateRosterFitJobBrandInput = {
   pipeline?: "FR" | "BENELUX" | null;
 };
 
+/** Un casting wizard (fit / outreach) est déjà actif — pas de 2e job. */
+export class CastingWizardBusyError extends Error {
+  readonly code = "CASTING_WIZARD_BUSY" as const;
+  readonly busy: {
+    kind: "fit" | "outreach";
+    id: string;
+    label: string;
+  };
+
+  constructor(busy: { kind: "fit" | "outreach"; id: string; label: string }) {
+    super(
+      `Un casting est déjà en cours (${busy.label}). Arrête-le avant d’en relancer un.`
+    );
+    this.name = "CastingWizardBusyError";
+    this.busy = busy;
+  }
+}
+
+/**
+ * Verrou dur : un seul wizard casting à la fois (tous users).
+ * INDIV:… = file séparée (1 job actif par market INDIV).
+ */
+export async function assertCastingWizardNotBusy(market: string): Promise<void> {
+  const m = String(market || "FR").trim() || "FR";
+  const isIndiv = m.startsWith("INDIV:");
+
+  if (isIndiv) {
+    const activeIndiv = await prisma.castingRosterFitJob.findFirst({
+      where: {
+        market: m,
+        status: { in: ["pending", "running"] },
+        cancelRequested: false,
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        currentBrandName: true,
+        completed: true,
+        totalBrands: true,
+      },
+    });
+    if (activeIndiv) {
+      throw new CastingWizardBusyError({
+        kind: "fit",
+        id: activeIndiv.id,
+        label:
+          activeIndiv.currentBrandName ||
+          `indiv ${activeIndiv.completed}/${activeIndiv.totalBrands}`,
+      });
+    }
+    return;
+  }
+
+  const activeFit = await prisma.castingRosterFitJob.findFirst({
+    where: {
+      status: { in: ["pending", "running"] },
+      cancelRequested: false,
+      NOT: { market: { startsWith: "INDIV:" } },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      currentBrandName: true,
+      completed: true,
+      totalBrands: true,
+      market: true,
+    },
+  });
+  if (activeFit) {
+    throw new CastingWizardBusyError({
+      kind: "fit",
+      id: activeFit.id,
+      label:
+        activeFit.currentBrandName ||
+        `${activeFit.market} ${activeFit.completed}/${activeFit.totalBrands}`,
+    });
+  }
+
+  const activeOutreach = await prisma.castingOutreachDraftJob.findFirst({
+    where: {
+      status: { in: ["pending", "running"] },
+      cancelRequested: false,
+      NOT: { market: { startsWith: "INDIV:" } },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      currentBrandName: true,
+      completed: true,
+      totalBrands: true,
+      market: true,
+    },
+  });
+  if (activeOutreach) {
+    throw new CastingWizardBusyError({
+      kind: "outreach",
+      id: activeOutreach.id,
+      label:
+        activeOutreach.currentBrandName ||
+        `rédaction ${activeOutreach.completed}/${activeOutreach.totalBrands}`,
+    });
+  }
+}
+
 export async function createRosterFitJob(args: {
   userId: string;
   market: string;
@@ -98,27 +202,105 @@ export async function createRosterFitJob(args: {
     );
   }
 
-  const job = await prisma.castingRosterFitJob.create({
-    data: {
-      userId: args.userId,
-      market: args.market || "FR",
-      status: "pending",
-      talentIds,
-      totalBrands: brands.length,
-      brands: {
-        create: brands.map((b) => ({
-          groupKey: b.groupKey,
-          brandName: b.brandName,
-          company: b.company,
-          brandResearch: b.brandResearch as object,
-          targetIds: b.targetIds,
-          pipeline: b.pipeline,
-          sortOrder: b.sortOrder,
-          status: "pending",
-        })),
+  // Advisory lock + re-check : 2 POST simultanés ne créent pas 2 jobs.
+  const job = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(88442205)`;
+    // Re-assert dans la tx (lecture après lock).
+    const market = args.market || "FR";
+    const isIndiv = market.startsWith("INDIV:");
+    if (isIndiv) {
+      const activeIndiv = await tx.castingRosterFitJob.findFirst({
+        where: {
+          market,
+          status: { in: ["pending", "running"] },
+          cancelRequested: false,
+        },
+        select: {
+          id: true,
+          currentBrandName: true,
+          completed: true,
+          totalBrands: true,
+        },
+      });
+      if (activeIndiv) {
+        throw new CastingWizardBusyError({
+          kind: "fit",
+          id: activeIndiv.id,
+          label:
+            activeIndiv.currentBrandName ||
+            `indiv ${activeIndiv.completed}/${activeIndiv.totalBrands}`,
+        });
+      }
+    } else {
+      const activeFit = await tx.castingRosterFitJob.findFirst({
+        where: {
+          status: { in: ["pending", "running"] },
+          cancelRequested: false,
+          NOT: { market: { startsWith: "INDIV:" } },
+        },
+        select: {
+          id: true,
+          currentBrandName: true,
+          completed: true,
+          totalBrands: true,
+          market: true,
+        },
+      });
+      if (activeFit) {
+        throw new CastingWizardBusyError({
+          kind: "fit",
+          id: activeFit.id,
+          label:
+            activeFit.currentBrandName ||
+            `${activeFit.market} ${activeFit.completed}/${activeFit.totalBrands}`,
+        });
+      }
+      const activeOutreach = await tx.castingOutreachDraftJob.findFirst({
+        where: {
+          status: { in: ["pending", "running"] },
+          cancelRequested: false,
+          NOT: { market: { startsWith: "INDIV:" } },
+        },
+        select: {
+          id: true,
+          currentBrandName: true,
+          completed: true,
+          totalBrands: true,
+        },
+      });
+      if (activeOutreach) {
+        throw new CastingWizardBusyError({
+          kind: "outreach",
+          id: activeOutreach.id,
+          label:
+            activeOutreach.currentBrandName ||
+            `rédaction ${activeOutreach.completed}/${activeOutreach.totalBrands}`,
+        });
+      }
+    }
+
+    return tx.castingRosterFitJob.create({
+      data: {
+        userId: args.userId,
+        market: args.market || "FR",
+        status: "pending",
+        talentIds,
+        totalBrands: brands.length,
+        brands: {
+          create: brands.map((b) => ({
+            groupKey: b.groupKey,
+            brandName: b.brandName,
+            company: b.company,
+            brandResearch: b.brandResearch as object,
+            targetIds: b.targetIds,
+            pipeline: b.pipeline,
+            sortOrder: b.sortOrder,
+            status: "pending",
+          })),
+        },
       },
-    },
-    select: { id: true },
+      select: { id: true },
+    });
   });
 
   return { jobId: job.id };

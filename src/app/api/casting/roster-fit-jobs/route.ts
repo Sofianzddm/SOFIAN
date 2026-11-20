@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
 import {
+  CastingWizardBusyError,
   createRosterFitJob,
   kickRosterFitJobProcess,
   type CreateRosterFitJobBrandInput,
@@ -119,7 +120,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Jobs parallèles illimités (FR / BE / BOTH / onglets) — on n’annule plus l’existant.
     const { jobId } = await createRosterFitJob({
       userId: session.user.id,
       market,
@@ -131,24 +131,27 @@ export async function POST(request: NextRequest) {
     kickRosterFitJobProcess(jobId);
 
     const external = process.env.CASTING_FIT_EXTERNAL_WORKER === "1";
-    const parallelActive = await prisma.castingRosterFitJob.count({
-      where: {
-        userId: session.user.id,
-        cancelRequested: false,
-        status: { in: ["pending", "running"] },
-      },
-    });
 
     return NextResponse.json({
       jobId,
       totalBrands: brands.length,
-      parallelActive,
+      parallelActive: 1,
       worker: external ? "vps" : process.env.VERCEL ? "vercel" : "in-process",
       message: external
-        ? `Job en file (${parallelActive} actif${parallelActive > 1 ? "s" : ""}) — worker VPS. Tu peux quitter / lancer d’autres marchés.`
-        : `Job lancé (${parallelActive} actif${parallelActive > 1 ? "s" : ""}) — tu peux quitter / lancer d’autres marchés.`,
+        ? "Casting lancé — 1 seul job à la fois (VPS). Tu peux quitter."
+        : "Casting lancé — 1 seul job à la fois. Tu peux quitter.",
     });
   } catch (e) {
+    if (e instanceof CastingWizardBusyError) {
+      return NextResponse.json(
+        {
+          error: e.message,
+          code: e.code,
+          busy: e.busy,
+        },
+        { status: 409 }
+      );
+    }
     console.error("POST /api/casting/roster-fit-jobs:", e);
     return NextResponse.json(
       {
