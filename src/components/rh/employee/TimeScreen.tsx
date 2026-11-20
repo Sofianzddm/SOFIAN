@@ -5,6 +5,50 @@ import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, FileText, Send } from "lucide-react";
 import { RhButton, RhCard, RhCardHead } from "@/components/rh/ui/primitives";
 import { EmpLabel, EMP_COLORS } from "@/components/rh/employee/parts";
+
+/**
+ * input type=time contrôlé : si on commit à chaque onChange, Safari/Chrome
+ * écrasent la frappe (ex. 18→12, 55→30). Draft local, commit au blur.
+ */
+function TimeInput({
+  value,
+  disabled,
+  onCommit,
+  invalid,
+}: {
+  value: string;
+  disabled?: boolean;
+  onCommit: (next: string) => void;
+  invalid?: boolean;
+}) {
+  const [draft, setDraft] = useState(value || "");
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setDraft(value || "");
+  }, [value, focused]);
+  return (
+    <input
+      type="time"
+      className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
+      disabled={disabled}
+      value={focused ? draft : value || ""}
+      onFocus={() => {
+        setFocused(true);
+        setDraft(value || "");
+      }}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        setFocused(false);
+        const next = draft || "";
+        if (next !== (value || "")) onCommit(next);
+        else setDraft(value || "");
+      }}
+      style={
+        invalid ? { borderColor: "rgba(242,96,78,.55)" } : undefined
+      }
+    />
+  );
+}
 import {
   absenceCaption,
   breakRangeMinutes,
@@ -19,6 +63,7 @@ import {
   slotsBreakMinutes,
   slotsBreakWindow,
   splitOvertime,
+  overtimePremium,
 } from "@/lib/rh/calculations";
 import { frenchHolidayLabel, isFrenchHoliday } from "@/lib/rh/holidays";
 import { useRhData } from "@/components/rh/RhDataContext";
@@ -574,38 +619,30 @@ export function TimeScreen() {
     function patchSlots(next: Slot[]) {
       const clean = next.filter((s) => s.from || s.to);
       const filled = clean.filter((s) => s.from && s.to);
-      const rangeMin =
-        d.breakFrom && d.breakTo
-          ? breakRangeMinutes(d.breakFrom, d.breakTo)
-          : 0;
-      const sanitized = sanitizeManualBreak(
-        filled,
-        d.breakFrom,
-        d.breakTo,
-        rangeMin || d.breakMinutes || 0
-      );
-      updateDay(d.date, {
-        slots: clean,
-        breakMinutes: sanitized.breakMinutes,
-        breakFrom: sanitized.breakFrom,
-        breakTo: sanitized.breakTo,
-      });
+      const gaps = slotsBreakMinutes(filled);
+      // Multi-créneaux : pause = trou auto. Sinon on conserve la pause saisie
+      // (sanitize seulement au blur pause / à l’enregistrement serveur).
+      if (gaps > 0) {
+        const win = slotsBreakWindow(filled);
+        updateDay(d.date, {
+          slots: clean,
+          breakMinutes: gaps,
+          breakFrom: win?.from ?? null,
+          breakTo: win?.to ?? null,
+        });
+        return;
+      }
+      updateDay(d.date, { slots: clean });
     }
 
     function patchBreak(from: string, to: string) {
-      const filled = (d.slots.length ? d.slots : []).filter(
-        (s) => s.from && s.to
-      );
-      const sanitized = sanitizeManualBreak(
-        filled,
-        from || null,
-        to || null,
-        breakRangeMinutes(from, to)
-      );
+      // Commit brut au blur — pas de sanitize agressif pendant la saisie
+      // (sinon horaires qui « sautent » : 18→12, 55→30).
+      const range = breakRangeMinutes(from, to);
       updateDay(d.date, {
-        breakFrom: sanitized.breakFrom,
-        breakTo: sanitized.breakTo,
-        breakMinutes: sanitized.breakMinutes,
+        breakFrom: from || null,
+        breakTo: to || null,
+        breakMinutes: range,
       });
     }
 
@@ -841,16 +878,14 @@ export function TimeScreen() {
                 )}
                 <label className="flex flex-col gap-1">
                   <EmpLabel>Début</EmpLabel>
-                  <input
-                    type="time"
-                    className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
+                  <TimeInput
                     disabled={!canEditSlots}
                     value={s.from}
-                    onChange={(e) => {
+                    onCommit={(next) => {
                       const base = baseSlots();
                       base[i] = {
                         ...(base[i] || { from: "", to: "" }),
-                        from: e.target.value,
+                        from: next,
                       };
                       patchSlots(base);
                     }}
@@ -858,16 +893,14 @@ export function TimeScreen() {
                 </label>
                 <label className="flex flex-col gap-1">
                   <EmpLabel>Fin</EmpLabel>
-                  <input
-                    type="time"
-                    className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
+                  <TimeInput
                     disabled={!canEditSlots}
                     value={s.to}
-                    onChange={(e) => {
+                    onCommit={(next) => {
                       const base = baseSlots();
                       base[i] = {
                         ...(base[i] || { from: "", to: "" }),
-                        to: e.target.value,
+                        to: next,
                       };
                       patchSlots(base);
                     }}
@@ -925,35 +958,23 @@ export function TimeScreen() {
                 </div>
                 <label className="flex flex-col gap-1">
                   <EmpLabel>Début</EmpLabel>
-                  <input
-                    type="time"
-                    className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
+                  <TimeInput
                     disabled={!canEditSlots}
                     value={manualWindow.from}
-                    onChange={(e) =>
-                      patchBreak(e.target.value, manualWindow.to)
-                    }
-                    style={
-                      needsLegalPause
-                        ? { borderColor: "rgba(242,96,78,.55)" }
-                        : undefined
+                    invalid={needsLegalPause}
+                    onCommit={(next) =>
+                      patchBreak(next, manualWindow.to)
                     }
                   />
                 </label>
                 <label className="flex flex-col gap-1">
                   <EmpLabel>Fin</EmpLabel>
-                  <input
-                    type="time"
-                    className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
+                  <TimeInput
                     disabled={!canEditSlots}
                     value={manualWindow.to}
-                    onChange={(e) =>
-                      patchBreak(manualWindow.from, e.target.value)
-                    }
-                    style={
-                      needsLegalPause
-                        ? { borderColor: "rgba(242,96,78,.55)" }
-                        : undefined
+                    invalid={needsLegalPause}
+                    onCommit={(next) =>
+                      patchBreak(manualWindow.from, next)
                     }
                   />
                 </label>
@@ -1240,7 +1261,7 @@ export function TimeScreen() {
             ? ` (${live.overDates.size} jour${live.overDates.size > 1 ? "s" : ""})`
             : ""}
           {live.at25 + live.at50 > 0
-            ? ` · ${minutesToLabel(live.at25 + live.at50)} HS`
+            ? ` · ${minutesToLabel(live.at25 + live.at50)} HS → équivalent payé ${minutesToLabel(live.totalMinutes + overtimePremium(live.at25, live.at50).premiumTotal)}`
             : ""}
           . Justifie <strong>chaque</strong> jour concerné avant envoi
           {live.missingOtNotes.length
@@ -1329,34 +1350,104 @@ export function TimeScreen() {
           </div>
 
           <RhCard className="mt-3 p-4">
-            <RhCardHead title="Heures supplémentaires" />
-            <div className="flex flex-wrap gap-6 p-4">
-              <div>
-                <EmpLabel>Total</EmpLabel>
-                <div className="rh-mono text-[22px]" style={{ color: EMP_COLORS.text }}>
-                  {minutesToLabel(live.totalMinutes)}
+            <RhCardHead title="Récapitulatif semaine" />
+            {(() => {
+              const prem = overtimePremium(live.at25, live.at50);
+              const paidWeek = live.totalMinutes + prem.premiumTotal;
+              const row = (
+                label: string,
+                value: string,
+                hint?: string | null,
+                strong?: boolean
+              ) => (
+                <div
+                  className="flex items-start justify-between gap-4 px-4 py-2.5"
+                  style={{
+                    borderBottom: strong
+                      ? "none"
+                      : `1px solid ${EMP_COLORS.borderSubtle}`,
+                    background: strong
+                      ? "rgba(229,242,181,.12)"
+                      : undefined,
+                    borderRadius: strong ? 10 : 0,
+                  }}
+                >
+                  <span
+                    className={`text-[12.5px] ${strong ? "font-semibold" : ""}`}
+                    style={{
+                      color: strong ? EMP_COLORS.accent : EMP_COLORS.dim,
+                    }}
+                  >
+                    {label}
+                  </span>
+                  <div className="text-right">
+                    <div
+                      className={`rh-mono ${strong ? "text-[20px] font-semibold" : "text-[15px]"}`}
+                      style={{
+                        color: strong ? EMP_COLORS.accent : EMP_COLORS.text,
+                      }}
+                    >
+                      {value}
+                    </div>
+                    {hint ? (
+                      <div
+                        className="rh-mono mt-0.5 text-[11px]"
+                        style={{ color: EMP_COLORS.dim }}
+                      >
+                        {hint}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-              <div>
-                <EmpLabel>25 %</EmpLabel>
-                <div className="rh-mono text-[18px]" style={{ color: EMP_COLORS.warning }}>
-                  {minutesToLabel(live.at25)}
+              );
+              return (
+                <div className="flex flex-col pt-1">
+                  {row(
+                    "Temps travaillé",
+                    minutesToLabel(live.totalMinutes)
+                  )}
+                  {row(
+                    `HS 25 % · ${minutesToLabel(live.at25)}`,
+                    live.at25 > 0
+                      ? `+${minutesToLabel(prem.premium25)} maj.`
+                      : "—",
+                    live.at25 > 0
+                      ? `→ ${minutesToLabel(prem.paidEquivalent25)} payées`
+                      : null
+                  )}
+                  {row(
+                    `HS 50 % · ${minutesToLabel(live.at50)}`,
+                    live.at50 > 0
+                      ? `+${minutesToLabel(prem.premium50)} maj.`
+                      : "—",
+                    live.at50 > 0
+                      ? `→ ${minutesToLabel(prem.paidEquivalent50)} payées`
+                      : null
+                  )}
+                  {prem.premiumTotal > 0
+                    ? row(
+                        "Majoration totale",
+                        `+${minutesToLabel(prem.premiumTotal)}`
+                      )
+                    : null}
+                  {row(
+                    "Équivalent payé",
+                    minutesToLabel(paidWeek),
+                    prem.premiumTotal > 0
+                      ? "travaillé + majorations"
+                      : null,
+                    true
+                  )}
+                  <p
+                    className="m-0 px-4 pb-3 pt-2 text-[12px] leading-[1.45]"
+                    style={{ color: EMP_COLORS.dim }}
+                  >
+                    Contrat {weeklyHours} h · chaque jour en dépassement a sa
+                    propre justification sur la carte du jour.
+                  </p>
                 </div>
-              </div>
-              <div>
-                <EmpLabel>50 %</EmpLabel>
-                <div className="rh-mono text-[18px]" style={{ color: EMP_COLORS.orange }}>
-                  {minutesToLabel(live.at50)}
-                </div>
-              </div>
-              <p
-                className="m-0 max-w-[320px] self-center text-[12.5px] leading-[1.45]"
-                style={{ color: EMP_COLORS.dim }}
-              >
-                Contrat {weeklyHours} h · chaque jour en dépassement a sa propre
-                justification sur la carte du jour.
-              </p>
-            </div>
+              );
+            })()}
             {editable && live.at25 + live.at50 > 0 ? (
               <label className="flex flex-col gap-1 px-4 pb-4">
                 <EmpLabel>

@@ -7,6 +7,7 @@ export {
   remoteEntitlement,
   normalizeRemoteAgreement,
   splitOvertime,
+  overtimePremium,
   bookableBalance,
   mealVoucherCount,
   mileageAllowance,

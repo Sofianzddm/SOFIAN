@@ -53,29 +53,8 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     weeklyHours
   );
 
-  const filename = `feuille-temps-S${timesheet.isoWeek}-${timesheet.isoYear}.pdf`;
-
-  // Signé : proxy serveur du PDF Cloudinary (évite « Accès non autorisé »
-  // si le collab ouvre une URL raw privée). Sinon régénération à la volée
-  // (HS / totaux toujours à jour).
-  if (timesheet.signedPdfUrl && timesheet.status === "SIGNED") {
-    try {
-      const upstream = await fetch(timesheet.signedPdfUrl);
-      if (upstream.ok) {
-        const buf = Buffer.from(await upstream.arrayBuffer());
-        return new NextResponse(new Uint8Array(buf), {
-          headers: {
-            "Content-Type": "application/pdf",
-            "Content-Disposition": `inline; filename="${filename}"`,
-            "Cache-Control": "private, max-age=60",
-          },
-        });
-      }
-    } catch {
-      // fallback génération ci-dessous
-    }
-  }
-
+  // Toujours régénérer depuis le template (HS, majorations, équivalent
+  // payé à jour). L’archive DocuSeal reste sur signedPdfUrl.
   try {
     const { buffer, filename: generatedName } = await getTimesheetPdfBuffer(
       timesheet.id

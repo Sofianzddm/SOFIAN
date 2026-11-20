@@ -335,16 +335,39 @@ export function ApprovalsInboxScreen({
                   style={{ background: "#0E1116", border: "1px solid #1B212A" }}
                 >
                   <div className="font-semibold" style={{ color: "#E7ECF2" }}>
-                    Feuille · Semaine {String(selected.detailRaw.week || "—")} ·{" "}
-                    {String(selected.detailRaw.totalLabel || "—")}
+                    Feuille · Semaine {String(selected.detailRaw.week || "—")} ·
+                    travaillé {String(selected.detailRaw.totalLabel || "—")}
                   </div>
                   <div
                     className="mt-1 text-[12px]"
                     style={{ color: "#8B95A5" }}
                   >
-                    HS 25 % {String(selected.detailRaw.ot25Label || "0 h")} · HS
-                    50 % {String(selected.detailRaw.ot50Label || "0 h")}
+                    HS 25 % {String(selected.detailRaw.ot25Label || "0 h")}
+                    {selected.detailRaw.ot25PremiumLabel
+                      ? ` (+${String(selected.detailRaw.ot25PremiumLabel)} maj.)`
+                      : ""}
                   </div>
+                  <div
+                    className="mt-0.5 text-[12px]"
+                    style={{ color: "#8B95A5" }}
+                  >
+                    HS 50 % {String(selected.detailRaw.ot50Label || "0 h")}
+                    {selected.detailRaw.ot50PremiumLabel
+                      ? ` (+${String(selected.detailRaw.ot50PremiumLabel)} maj.)`
+                      : ""}
+                  </div>
+                  {selected.detailRaw.paidEquivalentLabel ? (
+                    <div
+                      className="mt-2 text-[13px] font-semibold"
+                      style={{ color: "#E5F2B5" }}
+                    >
+                      Équivalent payé{" "}
+                      {String(selected.detailRaw.paidEquivalentLabel)}
+                      {selected.detailRaw.otPremiumTotalLabel
+                        ? ` · maj. ${String(selected.detailRaw.otPremiumTotalLabel)}`
+                        : ""}
+                    </div>
+                  ) : null}
                   {Array.isArray(selected.detailRaw.days) &&
                   (
                     selected.detailRaw.days as Array<Record<string, unknown>>

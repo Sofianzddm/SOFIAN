@@ -6,6 +6,7 @@ import {
   minutesToLabel,
   remoteEntitlement,
   splitOvertime,
+  overtimePremium,
   cpExercise,
   completedMonthsSince,
   nextPeriodCpAccrued,
@@ -88,6 +89,22 @@ export function runRhCalculationTests(): string[] {
   const customCap = splitOvertime(35 * 60 + 5 * 60, 35 * 60, 3);
   assert(customCap.at25 === 3 * 60 && customCap.at50 === 2 * 60, "cap 3h");
   ok("splitOvertime HS 25/50");
+
+  const prem = overtimePremium(8 * 60, 8 * 60 + 50);
+  assert(prem.premium25 === 2 * 60, "8h@25 → +2h maj");
+  assert(prem.paidEquivalent25 === 10 * 60, "8h@25 → 10h payées");
+  assert(prem.premium50 === Math.round((8 * 60 + 50) * 0.5), "8h50@50 maj");
+  assert(
+    prem.paidEquivalent50 === 8 * 60 + 50 + prem.premium50,
+    "équivalent 50 %"
+  );
+  // Alice S42 : 51h50 travaillées → +6h25 maj. → 58h15 payées
+  const aliceWorked = 51 * 60 + 50;
+  assert(
+    aliceWorked + prem.premiumTotal === 58 * 60 + 15,
+    "51h50 + maj. → 58h15"
+  );
+  ok("overtimePremium majoration");
 
   const hire = new Date("2025-12-02");
   const today = new Date("2026-08-04");

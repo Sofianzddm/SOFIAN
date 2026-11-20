@@ -8,7 +8,7 @@ import {
   isRhManager,
   requireRhSessionFromRequest,
 } from "@/lib/rh/auth";
-import { minutesToLabel } from "@/lib/rh/calculations";
+import { minutesToLabel, overtimePremium } from "@/lib/rh/calculations";
 import { reconcileTimesheetAbsences } from "@/lib/rh/timesheet";
 
 export async function GET(request: NextRequest) {
@@ -149,6 +149,25 @@ export async function GET(request: NextRequest) {
           totalLabel: ts ? minutesToLabel(ts.totalMinutes) : null,
           ot25Label: ts ? minutesToLabel(ts.ot25Minutes) : null,
           ot50Label: ts ? minutesToLabel(ts.ot50Minutes) : null,
+          ...(ts && ts.ot25Minutes + ts.ot50Minutes > 0
+            ? (() => {
+                const prem = overtimePremium(ts.ot25Minutes, ts.ot50Minutes);
+                return {
+                  ot25PremiumLabel:
+                    prem.premium25 > 0
+                      ? minutesToLabel(prem.premium25)
+                      : null,
+                  ot50PremiumLabel:
+                    prem.premium50 > 0
+                      ? minutesToLabel(prem.premium50)
+                      : null,
+                  otPremiumTotalLabel: minutesToLabel(prem.premiumTotal),
+                  paidEquivalentLabel: minutesToLabel(
+                    ts.totalMinutes + prem.premiumTotal
+                  ),
+                };
+              })()
+            : {}),
           overtimeNote: ts?.overtimeNote || payload.overtimeNote,
           days: (ts?.days || []).map((d) => ({
             date: d.date.toISOString().slice(0, 10),

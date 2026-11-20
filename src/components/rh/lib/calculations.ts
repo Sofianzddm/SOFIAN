@@ -54,6 +54,32 @@ export function splitOvertime(
   return { at25, at50 };
 }
 
+/**
+ * Majoration payée (heures « en plus ») + équivalent temps payé.
+ * Ex. 8 h @ 25 % → majoration 2 h · équivalent 10 h.
+ */
+export function overtimePremium(ot25Minutes: number, ot50Minutes = 0): {
+  premium25: number;
+  premium50: number;
+  premiumTotal: number;
+  paidEquivalent25: number;
+  paidEquivalent50: number;
+  paidEquivalentTotal: number;
+} {
+  const ot25 = Math.max(0, Math.round(ot25Minutes || 0));
+  const ot50 = Math.max(0, Math.round(ot50Minutes || 0));
+  const premium25 = Math.round(ot25 * 0.25);
+  const premium50 = Math.round(ot50 * 0.5);
+  return {
+    premium25,
+    premium50,
+    premiumTotal: premium25 + premium50,
+    paidEquivalent25: ot25 + premium25,
+    paidEquivalent50: ot50 + premium50,
+    paidEquivalentTotal: ot25 + ot50 + premium25 + premium50,
+  };
+}
+
 /** Journée de référence Glow Up (7 h) — base récup / HS. */
 export const WORKDAY_MINUTES = 7 * 60;
 export const RECUP_MIN_MINUTES = 15;

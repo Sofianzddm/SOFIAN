@@ -9,6 +9,7 @@ import {
 } from "@react-pdf/renderer";
 import path from "path";
 import { AGENCE_CONFIG } from "@/lib/documents/config";
+import { overtimePremium } from "@/lib/rh/calculations";
 
 const COLORS = {
   ink: "#1A1110",
@@ -102,24 +103,51 @@ const styles = StyleSheet.create({
   rowWeekend: { backgroundColor: "#F3EEF0" },
   cell: { fontSize: 8.5 },
   cellMuted: { fontSize: 8, color: COLORS.muted },
-  totals: {
+  recapBox: {
     marginTop: 14,
-    flexDirection: "row",
-    gap: 8,
-  },
-  totalCard: {
-    flex: 1,
-    backgroundColor: COLORS.soft,
-    borderRadius: 6,
-    padding: 10,
     borderWidth: 1,
     borderColor: COLORS.line,
-  },
-  totalCardAccent: {
-    flex: 1,
-    backgroundColor: COLORS.tea,
     borderRadius: 6,
-    padding: 10,
+    overflow: "hidden",
+  },
+  recapRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.line,
+    gap: 12,
+  },
+  recapRowLast: {
+    borderBottomWidth: 0,
+    backgroundColor: COLORS.tea,
+  },
+  recapRowSoft: { backgroundColor: COLORS.soft },
+  recapLabel: { fontSize: 8, color: COLORS.muted, width: "44%" },
+  recapLabelStrong: {
+    fontSize: 9,
+    fontFamily: "Helvetica-Bold",
+    color: COLORS.ink,
+    width: "44%",
+  },
+  recapValueCol: { flex: 1, alignItems: "flex-end" },
+  recapValue: {
+    fontSize: 10,
+    fontFamily: "Helvetica-Bold",
+    textAlign: "right",
+  },
+  recapValueStrong: {
+    fontSize: 12,
+    fontFamily: "Helvetica-Bold",
+    textAlign: "right",
+  },
+  recapHint: {
+    marginTop: 2,
+    fontSize: 7.5,
+    color: COLORS.muted,
+    textAlign: "right",
   },
   noteBox: {
     marginTop: 12,
@@ -440,20 +468,82 @@ export function TimesheetPdfDocument({ data }: { data: TimesheetPdfData }) {
           </View>
         ) : null}
 
-        <View style={styles.totals}>
-          <View style={styles.totalCardAccent}>
-            <Text style={styles.label}>Temps total</Text>
-            <Text style={styles.value}>{minsLabel(data.totalMinutes)}</Text>
-          </View>
-          <View style={styles.totalCard}>
-            <Text style={styles.label}>HS 25 %</Text>
-            <Text style={styles.value}>{minsLabel(data.ot25Minutes)}</Text>
-          </View>
-          <View style={styles.totalCard}>
-            <Text style={styles.label}>HS 50 %</Text>
-            <Text style={styles.value}>{minsLabel(data.ot50Minutes)}</Text>
-          </View>
-        </View>
+        <Text style={[styles.sectionTitle, { marginTop: 14 }]}>
+          Récapitulatif
+        </Text>
+        {(() => {
+          const prem = overtimePremium(data.ot25Minutes, data.ot50Minutes);
+          const paidWeek = data.totalMinutes + prem.premiumTotal;
+          return (
+            <View style={styles.recapBox}>
+              <View style={[styles.recapRow, styles.recapRowSoft]}>
+                <Text style={styles.recapLabel}>Temps travaillé</Text>
+                <View style={styles.recapValueCol}>
+                  <Text style={styles.recapValue}>
+                    {minsLabel(data.totalMinutes)}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.recapRow}>
+                <Text style={styles.recapLabel}>
+                  HS 25 % · {minsLabel(data.ot25Minutes)}
+                </Text>
+                <View style={styles.recapValueCol}>
+                  <Text style={styles.recapValue}>
+                    {data.ot25Minutes > 0
+                      ? `+${minsLabel(prem.premium25)} maj.`
+                      : "—"}
+                  </Text>
+                  {data.ot25Minutes > 0 ? (
+                    <Text style={styles.recapHint}>
+                      → {minsLabel(prem.paidEquivalent25)} payées
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              <View style={styles.recapRow}>
+                <Text style={styles.recapLabel}>
+                  HS 50 % · {minsLabel(data.ot50Minutes)}
+                </Text>
+                <View style={styles.recapValueCol}>
+                  <Text style={styles.recapValue}>
+                    {data.ot50Minutes > 0
+                      ? `+${minsLabel(prem.premium50)} maj.`
+                      : "—"}
+                  </Text>
+                  {data.ot50Minutes > 0 ? (
+                    <Text style={styles.recapHint}>
+                      → {minsLabel(prem.paidEquivalent50)} payées
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+              {prem.premiumTotal > 0 ? (
+                <View style={styles.recapRow}>
+                  <Text style={styles.recapLabel}>Majoration totale</Text>
+                  <View style={styles.recapValueCol}>
+                    <Text style={styles.recapValue}>
+                      +{minsLabel(prem.premiumTotal)}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+              <View style={[styles.recapRow, styles.recapRowLast]}>
+                <Text style={styles.recapLabelStrong}>Équivalent payé</Text>
+                <View style={styles.recapValueCol}>
+                  <Text style={styles.recapValueStrong}>
+                    {minsLabel(paidWeek)}
+                  </Text>
+                  {prem.premiumTotal > 0 ? (
+                    <Text style={styles.recapHint}>
+                      travaillé + majorations
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+          );
+        })()}
 
         {data.overtimeNote ? (
           <View style={styles.noteBox}>
