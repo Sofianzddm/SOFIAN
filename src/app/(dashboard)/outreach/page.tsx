@@ -2717,7 +2717,8 @@ export default function OutreachPage() {
               <p className="m-0 text-xs leading-snug text-slate-600">
                 Casting déjà en cours ailleurs (
                 {castingWizardBusy.label}) — FR / BENELUX / Contabo partagent
-                le même verrou. Attends la fin ou Arrête depuis l’autre file.
+                le même verrou (l’indiv reste indépendant). Attends la fin ou
+                Arrête depuis l’autre file.
               </p>
             </div>
           ) : null}

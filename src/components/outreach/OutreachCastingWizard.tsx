@@ -1016,9 +1016,13 @@ export default function OutreachCastingWizard({
     setExpandedFitId(null);
   }, [index, current?.groupKey]);
 
-  // Poll verrou global : autre user / Contabo encore actif → bouton grisé.
+  // Poll verrou outreach (FR/BE/Contabo). INDIV / PROJECT = file isolée,
+  // pas Contabo → pas de grillage depuis ce poll.
   useEffect(() => {
-    if (!open || lockedTalentId) return;
+    if (!open || lockedTalentId || isProjectMode) {
+      setGlobalWizardBusy(null);
+      return;
+    }
     let cancelled = false;
     const tick = async () => {
       try {
@@ -1035,7 +1039,18 @@ export default function OutreachCastingWizard({
           } | null;
         };
         if (cancelled) return;
-        setGlobalWizardBusy(data.wizardBusy || null);
+        const busy = data.wizardBusy || null;
+        // Notre job local → Arrêter OK, pas un verrou « ailleurs ».
+        const ownId = fitJobIdRef.current || serverDraftJobIdRef.current;
+        if (ownId && busy?.id === ownId) {
+          setGlobalWizardBusy(null);
+          return;
+        }
+        if (fitJobIdRef.current || serverDraftJobIdRef.current) {
+          setGlobalWizardBusy(null);
+          return;
+        }
+        setGlobalWizardBusy(busy);
       } catch {
         /* soft */
       }
@@ -1046,7 +1061,7 @@ export default function OutreachCastingWizard({
       cancelled = true;
       clearInterval(id);
     };
-  }, [open, lockedTalentId, fitMarketKey]);
+  }, [open, lockedTalentId, isProjectMode, fitMarketKey]);
 
   useEffect(() => {
     setContactFormOpen(false);
