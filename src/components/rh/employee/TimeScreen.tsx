@@ -10,11 +10,13 @@ import {
   breakRangeMinutes,
   dayNetMinutes,
   hhmmToMinutes,
-  minutesToHhmm,
   minutesToLabel,
   netDayMinutes,
+  ensureLegalBreak,
+  sanitizeManualBreak,
   slotsBreakMinutes,
   slotsBreakWindow,
+  slotsGrossMinutes,
   splitOvertime,
 } from "@/lib/rh/calculations";
 import { frenchHolidayLabel, isFrenchHoliday } from "@/lib/rh/holidays";
@@ -46,13 +48,6 @@ type DayRow = {
   /** MANUAL | LEAVE */
   absenceSource?: string | null;
 };
-
-/** Défaut UI si durée connue mais pas d’horaires (ex. anciennes feuilles). */
-function defaultBreakWindow(breakMinutes: number): { from: string; to: string } {
-  const mins = Math.max(0, breakMinutes || 60);
-  const from = 12 * 60;
-  return { from: minutesToHhmm(from), to: minutesToHhmm(from + mins) };
-}
 
 const FALLBACK_WEEKDAY: Slot[] = [
   { from: "09:30", to: "12:00" },
@@ -272,9 +267,15 @@ export function TimeScreen() {
         d.breakFrom && d.breakTo
           ? breakRangeMinutes(d.breakFrom, d.breakTo)
           : 0;
-      const breakMin = d.slots.length
-        ? effectiveBreak(slots, rangeMin > 0 ? rangeMin : d.breakMinutes ?? 0)
-        : 0;
+      const ensured = d.slots.length
+        ? ensureLegalBreak(
+            slots,
+            d.breakFrom,
+            d.breakTo,
+            rangeMin > 0 ? rangeMin : d.breakMinutes ?? 0
+          )
+        : { breakMinutes: 0 };
+      const breakMin = ensured.breakMinutes;
       const mins = netDayMinutes(
         dayMinutes(slots, breakMin),
         d.absenceKind,
@@ -355,24 +356,22 @@ export function TimeScreen() {
               const slots = exception
                 ? (d.slots || []).filter((s) => s.from && s.to)
                 : [];
-              const auto = slotsBreakWindow(slots);
               const rangeMin =
                 d.breakFrom && d.breakTo
                   ? breakRangeMinutes(d.breakFrom, d.breakTo)
                   : 0;
+              const ensured = ensureLegalBreak(
+                slots,
+                d.breakFrom,
+                d.breakTo,
+                rangeMin > 0 ? rangeMin : d.breakMinutes
+              );
               return {
                 date: d.date,
                 slots,
-                breakMinutes: slots.length
-                  ? effectiveBreak(
-                      slots,
-                      rangeMin > 0 ? rangeMin : d.breakMinutes
-                    )
-                  : 0,
-                breakFrom: slots.length
-                  ? auto?.from || d.breakFrom || null
-                  : null,
-                breakTo: slots.length ? auto?.to || d.breakTo || null : null,
+                breakMinutes: slots.length ? ensured.breakMinutes : 0,
+                breakFrom: slots.length ? ensured.breakFrom : null,
+                breakTo: slots.length ? ensured.breakTo : null,
                 exception,
                 note: d.note || null,
                 ...absencePayload(d),
@@ -381,20 +380,22 @@ export function TimeScreen() {
             const slots = d.slots.length
               ? d.slots
               : defaultSlotsForDate(d.date);
-            const auto = slotsBreakWindow(slots);
             const rangeMin =
               d.breakFrom && d.breakTo
                 ? breakRangeMinutes(d.breakFrom, d.breakTo)
                 : 0;
+            const ensured = ensureLegalBreak(
+              slots,
+              d.breakFrom,
+              d.breakTo,
+              rangeMin > 0 ? rangeMin : d.breakMinutes
+            );
             return {
               date: d.date,
               slots,
-              breakMinutes: effectiveBreak(
-                slots,
-                rangeMin > 0 ? rangeMin : d.breakMinutes
-              ),
-              breakFrom: auto?.from || d.breakFrom || null,
-              breakTo: auto?.to || d.breakTo || null,
+              breakMinutes: ensured.breakMinutes,
+              breakFrom: ensured.breakFrom,
+              breakTo: ensured.breakTo,
               exception: false,
               note: d.note || null,
               ...absencePayload(d),
@@ -504,15 +505,24 @@ export function TimeScreen() {
       ? slotsBreakWindow(filledSlots)
       : null;
     const autoBreak = filledSlots.length ? slotsBreakMinutes(filledSlots) : 0;
+    // Pas de fausse pause 12:00–13:00 quand rien n’est saisi (sinon week-end
+    // après-midi affiche −1 h et l’enregistrement peut échouer à 6 h+).
     const manualWindow =
       d.breakFrom && d.breakTo
         ? { from: d.breakFrom, to: d.breakTo }
-        : defaultBreakWindow(d.breakMinutes || 60);
-    const manualBreak = breakRangeMinutes(manualWindow.from, manualWindow.to);
+        : { from: "", to: "" };
+    const ensuredBreak = filledSlots.length
+      ? ensureLegalBreak(
+          filledSlots,
+          d.breakFrom,
+          d.breakTo,
+          d.breakMinutes || 0
+        )
+      : { breakFrom: null, breakTo: null, breakMinutes: 0 };
     const breakMin = filledSlots.length
       ? effectiveBreak(
           filledSlots,
-          autoBreak > 0 ? autoBreak : manualBreak || d.breakMinutes || 0
+          autoBreak > 0 ? autoBreak : ensuredBreak.breakMinutes
         )
       : 0;
     const gross = filledSlots.length ? dayMinutes(filledSlots, breakMin) : 0;
@@ -547,28 +557,38 @@ export function TimeScreen() {
     function patchSlots(next: Slot[]) {
       const clean = next.filter((s) => s.from || s.to);
       const filled = clean.filter((s) => s.from && s.to);
-      const gap = slotsBreakWindow(filled);
       const rangeMin =
         d.breakFrom && d.breakTo
           ? breakRangeMinutes(d.breakFrom, d.breakTo)
           : 0;
+      const sanitized = sanitizeManualBreak(
+        filled,
+        d.breakFrom,
+        d.breakTo,
+        rangeMin || d.breakMinutes || 0
+      );
       updateDay(d.date, {
         slots: clean,
-        breakMinutes: effectiveBreak(
-          filled,
-          gap ? slotsBreakMinutes(filled) : rangeMin || d.breakMinutes || 0
-        ),
-        breakFrom: gap?.from || d.breakFrom || null,
-        breakTo: gap?.to || d.breakTo || null,
+        breakMinutes: sanitized.breakMinutes,
+        breakFrom: sanitized.breakFrom,
+        breakTo: sanitized.breakTo,
       });
     }
 
     function patchBreak(from: string, to: string) {
-      const range = breakRangeMinutes(from, to);
+      const filled = (d.slots.length ? d.slots : []).filter(
+        (s) => s.from && s.to
+      );
+      const sanitized = sanitizeManualBreak(
+        filled,
+        from || null,
+        to || null,
+        breakRangeMinutes(from, to)
+      );
       updateDay(d.date, {
-        breakFrom: from || null,
-        breakTo: to || null,
-        breakMinutes: range,
+        breakFrom: sanitized.breakFrom,
+        breakTo: sanitized.breakTo,
+        breakMinutes: sanitized.breakMinutes,
       });
     }
 
@@ -747,7 +767,8 @@ export function TimeScreen() {
               checked={!!d.exception}
               onChange={(e) => {
                 const on = e.target.checked;
-                const defBreak = defaultBreakWindow(60);
+                // Week-end : pas de pause déjeuner préremplie (sinon créneau
+                // court / soir → pause 12–13 h hors plage → 0 h net).
                 updateDay(d.date, {
                   exception: on,
                   slots: on
@@ -755,9 +776,9 @@ export function TimeScreen() {
                       ? d.slots
                       : [{ from: "", to: "" }]
                     : [],
-                  breakMinutes: on ? 60 : 0,
-                  breakFrom: on ? defBreak.from : null,
-                  breakTo: on ? defBreak.to : null,
+                  breakMinutes: 0,
+                  breakFrom: null,
+                  breakTo: null,
                   totalMinutes: 0,
                 });
               }}
@@ -876,12 +897,12 @@ export function TimeScreen() {
               <div className="mt-0.5 flex flex-col gap-1.5">
                 <div className="flex items-baseline justify-between gap-2">
                   <EmpLabel>Pause</EmpLabel>
-                  {manualBreak > 0 ? (
+                  {ensuredBreak.breakMinutes > 0 ? (
                     <span
                       className="rh-mono text-[11px]"
                       style={{ color: EMP_COLORS.dim }}
                     >
-                      {pauseLabel(manualBreak)}
+                      {pauseLabel(ensuredBreak.breakMinutes)}
                     </span>
                   ) : null}
                 </div>
@@ -891,9 +912,12 @@ export function TimeScreen() {
                     type="time"
                     className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
                     disabled={!canEditSlots}
-                    value={manualWindow.from}
+                    value={manualWindow.from || ensuredBreak.breakFrom || ""}
                     onChange={(e) =>
-                      patchBreak(e.target.value, manualWindow.to)
+                      patchBreak(
+                        e.target.value,
+                        manualWindow.to || ensuredBreak.breakTo || ""
+                      )
                     }
                   />
                 </label>
@@ -903,12 +927,26 @@ export function TimeScreen() {
                     type="time"
                     className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
                     disabled={!canEditSlots}
-                    value={manualWindow.to}
+                    value={manualWindow.to || ensuredBreak.breakTo || ""}
                     onChange={(e) =>
-                      patchBreak(manualWindow.from, e.target.value)
+                      patchBreak(
+                        manualWindow.from || ensuredBreak.breakFrom || "",
+                        e.target.value
+                      )
                     }
                   />
                 </label>
+                {filledSlots.length > 0 &&
+                slotsGrossMinutes(filledSlots) >= 6 * 60 &&
+                ensuredBreak.breakMinutes > 0 &&
+                !(d.breakFrom && d.breakTo) ? (
+                  <span
+                    className="text-[11px] leading-[1.35]"
+                    style={{ color: EMP_COLORS.dim }}
+                  >
+                    Pause légale 20 min ajoutée automatiquement (≥ 6 h).
+                  </span>
+                ) : null}
               </div>
             )}
 

@@ -16,6 +16,8 @@ import {
   slotsBreakMinutes,
   slotsBreakWindow,
   dayNetMinutes,
+  sanitizeManualBreak,
+  ensureLegalBreak,
   absenceDeductionMinutes,
   netDayMinutes,
   collapseLeaveAbsence,
@@ -247,6 +249,51 @@ export function runRhCalculationTests(): string[] {
     "1 créneau − horaires pause"
   );
   ok("slotsBreakWindow / breakRangeMinutes");
+
+  // Pause hors plage (Anna S39 Gender Reveal) → ignorée, pas 0 h
+  const annaBug = sanitizeManualBreak(
+    [{ from: "12:40", to: "13:00" }],
+    "13:00",
+    "22:10",
+    550
+  );
+  assert(annaBug.breakMinutes === 0, "pause hors plage → 0");
+  assert(annaBug.breakFrom == null && annaBug.breakTo == null, "horaires pause nettoyés");
+  assert(
+    dayNetMinutes([{ from: "12:40", to: "13:00" }], annaBug.breakMinutes) === 20,
+    "20 min conservées"
+  );
+  const okPause = sanitizeManualBreak(
+    [{ from: "09:00", to: "18:00" }],
+    "12:00",
+    "13:00",
+    60
+  );
+  assert(okPause.breakMinutes === 60 && okPause.breakFrom === "12:00", "pause dans plage OK");
+  ok("sanitizeManualBreak hors plage");
+
+  // Week-end ≥ 6 h sans pause → pause légale auto (sinon refus d’enregistrement)
+  const weekendLong = ensureLegalBreak(
+    [{ from: "10:00", to: "18:00" }],
+    null,
+    null,
+    0
+  );
+  assert(weekendLong.breakMinutes === 20, "auto 20 min");
+  assert(
+    dayNetMinutes([{ from: "10:00", to: "18:00" }], weekendLong.breakMinutes) ===
+      460,
+    "8h − 20 min"
+  );
+  assertLegalBreak(480, weekendLong.breakMinutes);
+  const shortOk = ensureLegalBreak(
+    [{ from: "14:00", to: "17:00" }],
+    null,
+    null,
+    0
+  );
+  assert(shortOk.breakMinutes === 0, "≤ 6 h → pas d’auto pause");
+  ok("ensureLegalBreak week-end");
 
   // Absence → déduction feuille (journée, demi-journée, minutes)
   assert(netDayMinutes(420, "FULL", 420, 420) === 0, "journée absente = 0");

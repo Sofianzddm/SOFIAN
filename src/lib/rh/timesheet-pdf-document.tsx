@@ -266,9 +266,12 @@ export type TimesheetPdfData = {
 };
 
 function minsLabel(m: number) {
-  const h = Math.floor(m / 60);
-  const min = m % 60;
-  return `${h} h ${String(min).padStart(2, "0")}`;
+  if (!Number.isFinite(m)) return "0 h 00";
+  const sign = m < 0 ? "-" : "";
+  const abs = Math.abs(Math.round(m));
+  const h = Math.floor(abs / 60);
+  const min = abs % 60;
+  return `${sign}${h} h ${String(min).padStart(2, "0")}`;
 }
 
 export function TimesheetPdfDocument({ data }: { data: TimesheetPdfData }) {

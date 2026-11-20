@@ -4,7 +4,7 @@ import { v2 as cloudinary } from "cloudinary";
 import prisma from "@/lib/prisma";
 import { displayName } from "@/lib/rh/auth";
 import { frenchHolidayLabel, isFrenchHoliday } from "@/lib/rh/holidays";
-import { absenceCaption } from "@/lib/rh/calculations";
+import { absenceCaption, splitOvertime } from "@/lib/rh/calculations";
 import { getRhSettings } from "@/lib/rh/settings";
 import {
   TimesheetPdfDocument,
@@ -120,6 +120,25 @@ export async function buildTimesheetPdfData(
     };
   });
 
+  // Toujours recalculer depuis les jours (feuille APPROVED/SIGNED non
+  // réécrite par reconcile → sinon PDF garde d’anciennes HS à 0 / 35 h).
+  const totalMinutes = ts.days.reduce((s, d) => s + d.totalMinutes, 0);
+  const { at25: ot25Minutes, at50: ot50Minutes } = splitOvertime(
+    totalMinutes,
+    (ts.employee.weeklyHours || 35) * 60,
+    settings.ot25CapHours
+  );
+  if (
+    ts.totalMinutes !== totalMinutes ||
+    ts.ot25Minutes !== ot25Minutes ||
+    ts.ot50Minutes !== ot50Minutes
+  ) {
+    await prisma.rhTimesheet.update({
+      where: { id: ts.id },
+      data: { totalMinutes, ot25Minutes, ot50Minutes },
+    });
+  }
+
   const signed = opts?.signed ?? ts.status === "SIGNED";
   const approverName = ts.request?.reviewedBy
     ? displayName(ts.request.reviewedBy.user)
@@ -143,9 +162,9 @@ export async function buildTimesheetPdfData(
     weekStartLabel: fmtDate(ts.weekStart),
     weekEndLabel: fmtDate(ts.weekEnd),
     days,
-    totalMinutes: ts.totalMinutes,
-    ot25Minutes: ts.ot25Minutes,
-    ot50Minutes: ts.ot50Minutes,
+    totalMinutes,
+    ot25Minutes,
+    ot50Minutes,
     overtimeNote: ts.overtimeNote,
     generatedAtLabel: fmtDateTime(new Date()),
     approvedAtLabel: ts.request?.reviewedAt

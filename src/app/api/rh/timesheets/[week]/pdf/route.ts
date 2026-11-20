@@ -53,12 +53,10 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     weeklyHours
   );
 
-  // Si PDF déjà stocké et signé → redirect Cloudinary
+  // Signé → PDF tamponné Cloudinary. Sinon toujours régénéré à la volée
+  // (un vieux pdfUrl gardait des HS à 0 après correction des jours).
   if (timesheet.signedPdfUrl && timesheet.status === "SIGNED") {
     return NextResponse.redirect(timesheet.signedPdfUrl);
-  }
-  if (timesheet.pdfUrl && timesheet.status !== "DRAFT") {
-    return NextResponse.redirect(timesheet.pdfUrl);
   }
 
   try {

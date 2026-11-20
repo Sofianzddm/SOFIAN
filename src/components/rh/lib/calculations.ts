@@ -112,6 +112,55 @@ export function assertLegalBreak(
   }
 }
 
+/**
+ * Si ≥ 6 h brutes et pause &lt; 20 min : pose automatiquement la pause légale
+ * au milieu du créneau unique (week-end / saisie sans pause → plus de refus).
+ * Plusieurs créneaux déjà séparés par un trou : rien à faire.
+ */
+export function ensureLegalBreak(
+  slots: Array<{ from: string; to: string }>,
+  breakFrom: string | null | undefined,
+  breakTo: string | null | undefined,
+  breakMinutes = 0,
+  opts?: { minBreak?: number; triggerMinutes?: number }
+): { breakFrom: string | null; breakTo: string | null; breakMinutes: number } {
+  const sanitized = sanitizeManualBreak(slots, breakFrom, breakTo, breakMinutes);
+  const filled = slots.filter((s) => s.from && s.to);
+  const gross = slotsGrossMinutes(filled);
+  const minBreak = opts?.minBreak ?? LEGAL_BREAK_MIN_MINUTES;
+  const trigger = opts?.triggerMinutes ?? LEGAL_BREAK_TRIGGER_MINUTES;
+  if (gross < trigger || sanitized.breakMinutes >= minBreak) {
+    return sanitized;
+  }
+  // Trou déjà présent entre créneaux mais &lt; 20 min → on ne peut pas inventer
+  if (slotsBreakMinutes(filled) > 0) {
+    return sanitized;
+  }
+  if (filled.length !== 1) return sanitized;
+  const workFrom = hhmmToMinutes(filled[0].from);
+  const workTo = hhmmToMinutes(filled[0].to);
+  if (!Number.isFinite(workFrom) || !Number.isFinite(workTo) || workTo <= workFrom) {
+    return sanitized;
+  }
+  const span = workTo - workFrom;
+  if (span <= minBreak) return sanitized;
+  const mid = workFrom + Math.floor(span / 2);
+  const bf = mid - Math.floor(minBreak / 2);
+  const bt = bf + minBreak;
+  if (bf <= workFrom || bt >= workTo) {
+    return {
+      breakFrom: null,
+      breakTo: null,
+      breakMinutes: minBreak,
+    };
+  }
+  return {
+    breakFrom: minutesToHhmm(bf),
+    breakTo: minutesToHhmm(bt),
+    breakMinutes: minBreak,
+  };
+}
+
 /** "HH:MM" → minutes depuis minuit (NaN si invalide). */
 export function hhmmToMinutes(value: string): number {
   const [h, m] = String(value || "")
@@ -208,6 +257,72 @@ export function slotsBreakMinutes(
     gaps += Math.max(0, sorted[i + 1].from - sorted[i].to);
   }
   return gaps;
+}
+
+/**
+ * Pause manuelle d’un créneau unique : doit être strictement *dans* la plage
+ * de travail. Sinon (pause après la fin, hors plage, inversée) → ignorée.
+ * Évite le cas Anna S39 : travail 12:40→13:00 + pause 13:00→22:10 = 0 h.
+ */
+export function sanitizeManualBreak(
+  slots: Array<{ from: string; to: string }>,
+  breakFrom: string | null | undefined,
+  breakTo: string | null | undefined,
+  breakMinutes = 0
+): { breakFrom: string | null; breakTo: string | null; breakMinutes: number } {
+  const filled = slots.filter((s) => s.from && s.to);
+  const gaps = slotsBreakMinutes(filled);
+  if (gaps > 0) {
+    const win = slotsBreakWindow(filled);
+    return {
+      breakFrom: win?.from ?? null,
+      breakTo: win?.to ?? null,
+      breakMinutes: gaps,
+    };
+  }
+  if (filled.length !== 1) {
+    const mins = Math.max(0, breakMinutes || 0);
+    return {
+      breakFrom: breakFrom || null,
+      breakTo: breakTo || null,
+      breakMinutes: mins,
+    };
+  }
+  const workFrom = hhmmToMinutes(filled[0].from);
+  const workTo = hhmmToMinutes(filled[0].to);
+  if (!Number.isFinite(workFrom) || !Number.isFinite(workTo) || workTo <= workFrom) {
+    return { breakFrom: null, breakTo: null, breakMinutes: 0 };
+  }
+  const span = workTo - workFrom;
+  const bf =
+    typeof breakFrom === "string" && /^\d{2}:\d{2}$/.test(breakFrom)
+      ? hhmmToMinutes(breakFrom)
+      : NaN;
+  const bt =
+    typeof breakTo === "string" && /^\d{2}:\d{2}$/.test(breakTo)
+      ? hhmmToMinutes(breakTo)
+      : NaN;
+  if (
+    Number.isFinite(bf) &&
+    Number.isFinite(bt) &&
+    bf >= workFrom &&
+    bt <= workTo &&
+    bt > bf
+  ) {
+    return {
+      breakFrom: minutesToHhmm(bf),
+      breakTo: minutesToHhmm(bt),
+      breakMinutes: bt - bf,
+    };
+  }
+  // Horaires de pause saisis mais hors plage → on les jette (pas de clamp
+  // qui réduirait le travail à 0, cf. Anna S39 : pause 13:00→22:10).
+  if (Number.isFinite(bf) || Number.isFinite(bt)) {
+    return { breakFrom: null, breakTo: null, breakMinutes: 0 };
+  }
+  // Pas d’horaires : durée seule, plafonnée à la plage
+  const mins = Math.min(Math.max(0, breakMinutes || 0), span);
+  return { breakFrom: null, breakTo: null, breakMinutes: mins };
 }
 
 /**

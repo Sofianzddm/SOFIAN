@@ -5,10 +5,10 @@ import {
   breakRangeMinutes,
   collapseLeaveAbsence,
   dayNetMinutes,
+  ensureLegalBreak,
   LEGAL_BREAK_MIN_MINUTES,
   netDayMinutes,
   slotsBreakMinutes,
-  slotsBreakWindow,
   slotsGrossMinutes,
   splitOvertime,
   type LeaveAbsenceInput,
@@ -319,7 +319,6 @@ export async function updateTimesheetDays(params: {
       );
     }
 
-    const autoWindow = slotsBreakWindow(slots);
     const fromRange =
       typeof day.breakFrom === "string" && /^\d{2}:\d{2}$/.test(day.breakFrom)
         ? day.breakFrom
@@ -332,13 +331,12 @@ export async function updateTimesheetDays(params: {
       fromRange && toRange ? breakRangeMinutes(fromRange, toRange) : 0;
     const inputtedBreak =
       rangeMinutes > 0 ? rangeMinutes : Math.max(0, day.breakMinutes || 0);
-    const breakMinutes = effectiveBreakMinutes(slots, inputtedBreak);
-    const breakFrom = slots.length
-      ? autoWindow?.from || (rangeMinutes > 0 ? fromRange : null)
-      : null;
-    const breakTo = slots.length
-      ? autoWindow?.to || (rangeMinutes > 0 ? toRange : null)
-      : null;
+    // Pause hors plage ignorée + pause légale 20 min auto dès 6 h (sinon
+    // week-end sans pause → refus silencieux côté user « ça enregistre pas »).
+    const ensured = ensureLegalBreak(slots, fromRange, toRange, inputtedBreak);
+    const breakMinutes = ensured.breakMinutes;
+    const breakFrom = slots.length ? ensured.breakFrom : null;
+    const breakTo = slots.length ? ensured.breakTo : null;
 
     const manualKinds = new Set(["FULL", "HALF_AM", "HALF_PM", "MINUTES"]);
     const isManual =
@@ -348,7 +346,6 @@ export async function updateTimesheetDays(params: {
     const isLeave = day.absenceSource === "LEAVE" && !!day.absenceKind;
     const fullAbsent = day.absenceKind === "FULL";
     if (slots.length > 0 && !fullAbsent) {
-      // L3121-16 : ≥ 20 min dès 6 h brutes (plancher légal, indépendant du défaut UI)
       assertLegalBreak(slotsGrossMinutes(slots), breakMinutes, {
         minBreak: LEGAL_BREAK_MIN_MINUTES,
       });
@@ -369,6 +366,11 @@ export async function updateTimesheetDays(params: {
       activeMinutes,
       settings.workdayMinutes
     );
+    if (slots.length > 0 && !fullAbsent && totalMinutes <= 0) {
+      throw new Error(
+        `Le ${iso} aboutit à 0 h (pause hors plage ou trop longue) — corrige les horaires`
+      );
+    }
     const note =
       typeof day.note === "string" ? day.note.trim() || null : undefined;
     // Le congé accepté est réappliqué juste après : on ne le laisse pas écraser ici.
