@@ -5,6 +5,10 @@ import {
   kickOutreachDraftJobProcess,
   type CreateOutreachDraftItemInput,
 } from "@/lib/casting-outreach-draft-job";
+import {
+  CastingWizardBusyError,
+  getCastingWizardBusyState,
+} from "@/lib/casting-roster-fit-job";
 import prisma from "@/lib/prisma";
 
 export const maxDuration = 60;
@@ -54,7 +58,13 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ active: jobs[0] || null, jobs });
+    const wizardBusy = await getCastingWizardBusyState(market || "FR");
+
+    return NextResponse.json({
+      active: jobs[0] || null,
+      jobs,
+      wizardBusy,
+    });
   } catch (e) {
     console.error("GET /api/casting/outreach-draft-jobs:", e);
     return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
@@ -135,6 +145,40 @@ export async function POST(request: NextRequest) {
       (body as { forceRewrite?: unknown })?.forceRewrite
     );
 
+    // Verrou global : FR / BE / Contabo / autre user — sauf append sur
+    // NOTRE job outreach déjà actif, ou enchaînement pendant NOTRE fit.
+    const busy = await getCastingWizardBusyState(market);
+    if (busy) {
+      let allowOwn = false;
+      if (busy.kind === "outreach") {
+        const own = await prisma.castingOutreachDraftJob.findFirst({
+          where: {
+            id: busy.id,
+            userId: session.user.id,
+            market,
+            status: { in: ["pending", "running"] },
+            cancelRequested: false,
+          },
+          select: { id: true },
+        });
+        allowOwn = Boolean(own);
+      } else if (busy.kind === "fit") {
+        const ownFit = await prisma.castingRosterFitJob.findFirst({
+          where: {
+            id: busy.id,
+            userId: session.user.id,
+            status: { in: ["pending", "running"] },
+            cancelRequested: false,
+          },
+          select: { id: true },
+        });
+        allowOwn = Boolean(ownFit);
+      }
+      if (!allowOwn) {
+        throw new CastingWizardBusyError(busy);
+      }
+    }
+
     const { jobId } = await createOutreachDraftJob({
       userId: session.user.id,
       market,
@@ -160,6 +204,16 @@ export async function POST(request: NextRequest) {
       message: `Rédaction outreach serveur (${items.length}) — tu peux quitter.`,
     });
   } catch (e) {
+    if (e instanceof CastingWizardBusyError) {
+      return NextResponse.json(
+        {
+          error: e.message,
+          code: e.code,
+          busy: e.busy,
+        },
+        { status: 409 }
+      );
+    }
     console.error("POST /api/casting/outreach-draft-jobs:", e);
     return NextResponse.json(
       {

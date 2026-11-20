@@ -700,6 +700,14 @@ export default function CastingComposer({
 
   const [subject, setSubject] = useState("");
   const [talents, setTalents] = useState<PresskitTalent[]>([]);
+  /** Affichage sync : ne jamais flasher toute la liste si un lock est posé. */
+  const displayTalents = useMemo(() => {
+    if (effectiveLockedTalentIds.length === 0) return talents;
+    const byId = new Map(talents.map((t) => [t.id, t]));
+    return effectiveLockedTalentIds
+      .map((id) => byId.get(id))
+      .filter((t): t is PresskitTalent => Boolean(t));
+  }, [talents, effectiveLockedTalentIds]);
   const [loadingTalents, setLoadingTalents] = useState(false);
   const [talentsError, setTalentsError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -1556,6 +1564,7 @@ export default function CastingComposer({
           }
         }
 
+        if (cancelled) return;
         setTalents(
           effectiveLockedTalentIds.length > 0
             ? effectiveLockedTalentIds
@@ -2921,7 +2930,7 @@ export default function CastingComposer({
                   Chargement…
                 </div>
               )}
-              {!loadingTalents && !talentsError && talents.length === 0 && (
+              {!loadingTalents && !talentsError && displayTalents.length === 0 && (
                 <p className="text-xs opacity-70" style={{ color: LICORICE }}>
                   {market === "BENELUX"
                     ? "Aucun créateur belge trouvé (pays « Belgique » sur la fiche talent)."
@@ -2929,7 +2938,7 @@ export default function CastingComposer({
                 </p>
               )}
               {!loadingTalents &&
-                talents.map((t) => {
+                displayTalents.map((t) => {
                   const sel = selectedIds.has(t.id);
                   return (
                     <div

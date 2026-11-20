@@ -540,6 +540,9 @@ export function ProspectingPipelineClient() {
   const [selectedTalentId, setSelectedTalentId] = useState(ALL_TALENTS);
   const [sortOrder, setSortOrder] = useState<SortOrder>("oldest");
   const [missions, setMissions] = useState<Mission[]>([]);
+  /** Ignore les réponses API périmées (clic talent ↔ « Tous » en course). */
+  const missionsFetchGenRef = useRef(0);
+  const readyFetchGenRef = useRef(0);
   const [loading, setLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   // Rappels acquittés via le bouton « Relancer » pendant la session : le
@@ -656,14 +659,19 @@ export function ProspectingPipelineClient() {
   }
 
   async function loadMissions() {
-    const isAllTalents = selectedTalentId === ALL_TALENTS || !selectedTalentId;
+    const gen = ++missionsFetchGenRef.current;
+    const talentSnapshot = selectedTalentId;
+    const isAllTalents = talentSnapshot === ALL_TALENTS || !talentSnapshot;
     const mine = role === "STRATEGY_PLANNER" ? "&mine=1" : "";
-    const talentFilter = isAllTalents ? "" : `talentId=${encodeURIComponent(selectedTalentId)}&`;
+    const talentFilter = isAllTalents
+      ? ""
+      : `talentId=${encodeURIComponent(talentSnapshot)}&`;
     const res = await fetch(
       `/api/strategy/contact-missions?${talentFilter}${mine}`,
       { credentials: "include" }
     );
     const data = await res.json().catch(() => ({}));
+    if (gen !== missionsFetchGenRef.current) return;
     if (!res.ok) throw new Error(data.error || "Erreur missions");
     setMissions(Array.isArray(data.missions) ? (data.missions as Mission[]) : []);
   }
@@ -680,16 +688,19 @@ export function ProspectingPipelineClient() {
       setEnrichItems([]);
       return;
     }
+    const gen = ++readyFetchGenRef.current;
+    const talentSnapshot = selectedTalentId;
     setReadyLoading(true);
     try {
-      const isAllTalents = selectedTalentId === ALL_TALENTS || !selectedTalentId;
+      const isAllTalents = talentSnapshot === ALL_TALENTS || !talentSnapshot;
       const talentFilter = isAllTalents
         ? ""
-        : `?talentId=${encodeURIComponent(selectedTalentId)}`;
+        : `?talentId=${encodeURIComponent(talentSnapshot)}`;
       const res = await fetch(`/api/strategy/contact-missions/ready-to-send${talentFilter}`, {
         credentials: "include",
       });
       const data = await res.json().catch(() => ({}));
+      if (gen !== readyFetchGenRef.current) return;
       if (!res.ok) throw new Error(data.error || "Erreur contacts dispo");
       const withContactsRaw = Array.isArray(data.withContacts)
         ? data.withContacts
@@ -731,11 +742,12 @@ export function ProspectingPipelineClient() {
         return new Set(Array.from(prev).filter((id) => validIds.has(id)));
       });
     } catch (e: unknown) {
+      if (gen !== readyFetchGenRef.current) return;
       setError(e instanceof Error ? e.message : "Erreur réseau.");
       setReadyItems([]);
       setEnrichItems([]);
     } finally {
-      setReadyLoading(false);
+      if (gen === readyFetchGenRef.current) setReadyLoading(false);
     }
   }
 
@@ -1958,7 +1970,13 @@ export function ProspectingPipelineClient() {
       WON: [],
       LOST: [],
     };
-    for (const m of missions) {
+    // Filet client : même si une réponse API « tous » arrive en retard,
+    // on n’affiche que le talent sélectionné.
+    const filteredMissions =
+      selectedTalentId === ALL_TALENTS || !selectedTalentId
+        ? missions
+        : missions.filter((m) => m.talentId === selectedTalentId);
+    for (const m of filteredMissions) {
       if (m.awaitingContactsCompletion) continue;
       if (isRecontactHoldActive(m.recontactHoldUntil)) continue;
       map[m.stage].push(m);
@@ -1974,19 +1992,26 @@ export function ProspectingPipelineClient() {
       );
     }
     return map;
-  }, [missions, sortOrder]);
+  }, [missions, sortOrder, selectedTalentId]);
+
+  const missionsForSelectedTalent = useMemo(() => {
+    if (selectedTalentId === ALL_TALENTS || !selectedTalentId) return missions;
+    return missions.filter((m) => m.talentId === selectedTalentId);
+  }, [missions, selectedTalentId]);
 
   const recontactHoldMissions = useMemo(() => {
-    const list = missions.filter((m) => isRecontactHoldActive(m.recontactHoldUntil));
+    const list = missionsForSelectedTalent.filter((m) =>
+      isRecontactHoldActive(m.recontactHoldUntil)
+    );
     return list.sort((a, b) => {
       const ta = new Date(a.recontactHoldUntil || 0).getTime();
       const tb = new Date(b.recontactHoldUntil || 0).getTime();
       return ta - tb;
     });
-  }, [missions]);
+  }, [missionsForSelectedTalent]);
 
   const awaitingEnrichMissions = useMemo(() => {
-    const list = missions.filter(
+    const list = missionsForSelectedTalent.filter(
       (m) =>
         m.awaitingContactsCompletion && !isRecontactHoldActive(m.recontactHoldUntil)
     );
@@ -1996,17 +2021,19 @@ export function ProspectingPipelineClient() {
       return Number.isNaN(t) ? 0 : t;
     };
     return list.sort((a, b) => timeOf(b) - timeOf(a));
-  }, [missions]);
+  }, [missionsForSelectedTalent]);
 
   /** Horloge minute : déblocage auto J+20 sans rebuild chaque seconde. */
   const brandBlockClockMin = Math.floor(nowTick / 60_000);
   const blockedBrandClusters = useMemo(
     () =>
       buildBlockedBrandClusters(
-        missions.filter((m) => !isRecontactHoldActive(m.recontactHoldUntil)),
+        missionsForSelectedTalent.filter(
+          (m) => !isRecontactHoldActive(m.recontactHoldUntil)
+        ),
         new Date(brandBlockClockMin * 60_000)
       ),
-    [missions, brandBlockClockMin]
+    [missionsForSelectedTalent, brandBlockClockMin]
   );
 
   const isMissionBrandBlocked = (m: Mission): boolean => {
@@ -4453,6 +4480,7 @@ export function ProspectingPipelineClient() {
 
       <OutreachCastingWizard
         open={castingWizardOpen}
+        mode="indiv"
         market="FR"
         brands={castingWizardBrands}
         lockedTalentId={castingWizardTalentId}

@@ -68,7 +68,7 @@ export class CastingWizardBusyError extends Error {
   }
 }
 
-/** Markers Contabo encore liés à un job/item DB actif. */
+/** Markers Contabo encore liés à un job/item DB actif (tous marchés). */
 async function listActiveOutreachEndMarkers(): Promise<string[]> {
   const items = await prisma.castingOutreachDraftItem.findMany({
     where: {
@@ -76,7 +76,6 @@ async function listActiveOutreachEndMarkers(): Promise<string[]> {
       job: {
         status: { in: ["pending", "running"] },
         cancelRequested: false,
-        NOT: { market: { startsWith: "INDIV:" } },
       },
     },
     select: { brandResearch: true },
@@ -132,46 +131,18 @@ export async function assertContaboOutreachNotBusy(): Promise<void> {
 }
 
 /**
- * Verrou dur : un seul wizard casting à la fois (tous users).
- * INDIV:… = file séparée (1 job actif par market INDIV).
- * Inclut Contabo : un cancel DB ne libère plus le slot tant que Chat écrit.
+ * Verrou GLOBAL : un seul casting à la fois (tous users, tous marchés).
+ * FR À contacter ↔ FR À recontacter ↔ BENELUX ↔ INDIV ↔ PROJECT ↔ Contabo.
+ * Contabo : un cancel DB ne libère plus le slot tant que Chat écrit.
  */
-export async function assertCastingWizardNotBusy(market: string): Promise<void> {
-  const m = String(market || "FR").trim() || "FR";
-  const isIndiv = m.startsWith("INDIV:");
-
-  if (isIndiv) {
-    const activeIndiv = await prisma.castingRosterFitJob.findFirst({
-      where: {
-        market: m,
-        status: { in: ["pending", "running"] },
-        cancelRequested: false,
-      },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        currentBrandName: true,
-        completed: true,
-        totalBrands: true,
-      },
-    });
-    if (activeIndiv) {
-      throw new CastingWizardBusyError({
-        kind: "fit",
-        id: activeIndiv.id,
-        label:
-          activeIndiv.currentBrandName ||
-          `indiv ${activeIndiv.completed}/${activeIndiv.totalBrands}`,
-      });
-    }
-    return;
-  }
+export async function assertCastingWizardNotBusy(_market?: string): Promise<void> {
+  // Contabo d’abord (zombie après Annuler).
+  await assertContaboOutreachNotBusy();
 
   const activeFit = await prisma.castingRosterFitJob.findFirst({
     where: {
       status: { in: ["pending", "running"] },
       cancelRequested: false,
-      NOT: { market: { startsWith: "INDIV:" } },
     },
     orderBy: { createdAt: "desc" },
     select: {
@@ -196,7 +167,6 @@ export async function assertCastingWizardNotBusy(market: string): Promise<void> 
     where: {
       status: { in: ["pending", "running"] },
       cancelRequested: false,
-      NOT: { market: { startsWith: "INDIV:" } },
     },
     orderBy: { createdAt: "desc" },
     select: {
@@ -213,11 +183,9 @@ export async function assertCastingWizardNotBusy(market: string): Promise<void> 
       id: activeOutreach.id,
       label:
         activeOutreach.currentBrandName ||
-        `rédaction ${activeOutreach.completed}/${activeOutreach.totalBrands}`,
+        `rédaction ${activeOutreach.market} ${activeOutreach.completed}/${activeOutreach.totalBrands}`,
     });
   }
-
-  await assertContaboOutreachNotBusy();
 }
 
 /** Pour l’UI : null = libre, sinon label à afficher / griser Analyser. */
@@ -265,130 +233,101 @@ export async function createRosterFitJob(args: {
   // Contabo : si un run actif correspond encore à un job DB → bloque.
   // Si ce n’est qu’un orphelin (job déjà cancelled) → tente cancel, puis
   // re-bloque si Chat écrit encore (évite le trou Annuler → Analyser).
-  if (!(args.market || "FR").startsWith("INDIV:")) {
-    try {
-      const {
-        cartoChatVpsHealth,
-        cancelOrphanOutreachContaboJobs,
-      } = await import("@/lib/carto-chat-vps/vps-client");
-      const keep = new Set(await listActiveOutreachEndMarkers());
-      const health = await cartoChatVpsHealth({ kind: "outreach" });
-      const activeContabo = (health.jobs || []).filter(
-        (j) =>
-          contaboJobIsActive(j.state) &&
-          (!j.kind || String(j.kind) === "outreach")
-      );
-      const linked = activeContabo.filter((j) =>
-        keep.has(String(j.endMarker || "").trim())
-      );
-      if (linked.length > 0) {
-        const j0 = linked[0]!;
-        throw new CastingWizardBusyError({
-          kind: "outreach",
-          id: String(j0.endMarker || "contabo"),
-          label: String(j0.promptPreview || j0.endMarker || "Contabo").slice(
-            0,
-            60
-          ),
-        });
-      }
-      if (activeContabo.length > 0 || health.busy) {
-        const swept = await cancelOrphanOutreachContaboJobs({
-          keepEndMarkers: [...keep],
-        });
-        if (swept.cancelled > 0) {
-          console.info(
-            `[roster-fit] Contabo orphelins annulés: ${swept.cancelled}`
-          );
-        }
-        // Cancel Contabo est souvent async / soft — re-check avant create.
-        await new Promise((r) => setTimeout(r, 1_500));
-        await assertContaboOutreachNotBusy();
-      }
-    } catch (e) {
-      if (e instanceof CastingWizardBusyError) throw e;
-      console.warn(
-        "[roster-fit] Contabo gate soft-fail:",
-        e instanceof Error ? e.message : e
-      );
+  // S’applique à TOUS les marchés (FR / BE / INDIV / PROJECT).
+  try {
+    const {
+      cartoChatVpsHealth,
+      cancelOrphanOutreachContaboJobs,
+    } = await import("@/lib/carto-chat-vps/vps-client");
+    const keep = new Set(await listActiveOutreachEndMarkers());
+    const health = await cartoChatVpsHealth({ kind: "outreach" });
+    const activeContabo = (health.jobs || []).filter(
+      (j) =>
+        contaboJobIsActive(j.state) &&
+        (!j.kind || String(j.kind) === "outreach")
+    );
+    const linked = activeContabo.filter((j) =>
+      keep.has(String(j.endMarker || "").trim())
+    );
+    if (linked.length > 0) {
+      const j0 = linked[0]!;
+      throw new CastingWizardBusyError({
+        kind: "outreach",
+        id: String(j0.endMarker || "contabo"),
+        label: String(j0.promptPreview || j0.endMarker || "Contabo").slice(
+          0,
+          60
+        ),
+      });
     }
+    if (activeContabo.length > 0 || health.busy) {
+      const swept = await cancelOrphanOutreachContaboJobs({
+        keepEndMarkers: [...keep],
+      });
+      if (swept.cancelled > 0) {
+        console.info(
+          `[roster-fit] Contabo orphelins annulés: ${swept.cancelled}`
+        );
+      }
+      // Cancel Contabo est souvent async / soft — re-check avant create.
+      await new Promise((r) => setTimeout(r, 1_500));
+      await assertContaboOutreachNotBusy();
+    }
+  } catch (e) {
+    if (e instanceof CastingWizardBusyError) throw e;
+    console.warn(
+      "[roster-fit] Contabo gate soft-fail:",
+      e instanceof Error ? e.message : e
+    );
   }
 
   // Advisory lock + re-check : 2 POST simultanés ne créent pas 2 jobs.
+  // Verrou GLOBAL : FR ↔ BENELUX ↔ INDIV ↔ PROJECT ↔ rédaction.
   const job = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(88442205)`;
-    // Re-assert dans la tx (lecture après lock).
-    const market = args.market || "FR";
-    const isIndiv = market.startsWith("INDIV:");
-    if (isIndiv) {
-      const activeIndiv = await tx.castingRosterFitJob.findFirst({
-        where: {
-          market,
-          status: { in: ["pending", "running"] },
-          cancelRequested: false,
-        },
-        select: {
-          id: true,
-          currentBrandName: true,
-          completed: true,
-          totalBrands: true,
-        },
+    const activeFit = await tx.castingRosterFitJob.findFirst({
+      where: {
+        status: { in: ["pending", "running"] },
+        cancelRequested: false,
+      },
+      select: {
+        id: true,
+        currentBrandName: true,
+        completed: true,
+        totalBrands: true,
+        market: true,
+      },
+    });
+    if (activeFit) {
+      throw new CastingWizardBusyError({
+        kind: "fit",
+        id: activeFit.id,
+        label:
+          activeFit.currentBrandName ||
+          `${activeFit.market} ${activeFit.completed}/${activeFit.totalBrands}`,
       });
-      if (activeIndiv) {
-        throw new CastingWizardBusyError({
-          kind: "fit",
-          id: activeIndiv.id,
-          label:
-            activeIndiv.currentBrandName ||
-            `indiv ${activeIndiv.completed}/${activeIndiv.totalBrands}`,
-        });
-      }
-    } else {
-      const activeFit = await tx.castingRosterFitJob.findFirst({
-        where: {
-          status: { in: ["pending", "running"] },
-          cancelRequested: false,
-          NOT: { market: { startsWith: "INDIV:" } },
-        },
-        select: {
-          id: true,
-          currentBrandName: true,
-          completed: true,
-          totalBrands: true,
-          market: true,
-        },
+    }
+    const activeOutreach = await tx.castingOutreachDraftJob.findFirst({
+      where: {
+        status: { in: ["pending", "running"] },
+        cancelRequested: false,
+      },
+      select: {
+        id: true,
+        currentBrandName: true,
+        completed: true,
+        totalBrands: true,
+        market: true,
+      },
+    });
+    if (activeOutreach) {
+      throw new CastingWizardBusyError({
+        kind: "outreach",
+        id: activeOutreach.id,
+        label:
+          activeOutreach.currentBrandName ||
+          `rédaction ${activeOutreach.market} ${activeOutreach.completed}/${activeOutreach.totalBrands}`,
       });
-      if (activeFit) {
-        throw new CastingWizardBusyError({
-          kind: "fit",
-          id: activeFit.id,
-          label:
-            activeFit.currentBrandName ||
-            `${activeFit.market} ${activeFit.completed}/${activeFit.totalBrands}`,
-        });
-      }
-      const activeOutreach = await tx.castingOutreachDraftJob.findFirst({
-        where: {
-          status: { in: ["pending", "running"] },
-          cancelRequested: false,
-          NOT: { market: { startsWith: "INDIV:" } },
-        },
-        select: {
-          id: true,
-          currentBrandName: true,
-          completed: true,
-          totalBrands: true,
-        },
-      });
-      if (activeOutreach) {
-        throw new CastingWizardBusyError({
-          kind: "outreach",
-          id: activeOutreach.id,
-          label:
-            activeOutreach.currentBrandName ||
-            `rédaction ${activeOutreach.completed}/${activeOutreach.totalBrands}`,
-        });
-      }
     }
 
     return tx.castingRosterFitJob.create({

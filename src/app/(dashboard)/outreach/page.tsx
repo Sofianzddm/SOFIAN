@@ -627,6 +627,12 @@ export default function OutreachPage() {
   /** Job fit / rédaction serveur encore actif après fermeture du wizard. */
   const [castingServerProgress, setCastingServerProgress] =
     useState<CastingServerProgress | null>(null);
+  /** Verrou global (autre marché / user / Contabo) — grise « Wizard casting ». */
+  const [castingWizardBusy, setCastingWizardBusy] = useState<{
+    kind: "fit" | "outreach";
+    id: string;
+    label: string;
+  } | null>(null);
   const castingProgressHadJobRef = useRef(false);
   const [pendingContacts, setPendingContacts] = useState<PendingContact[]>([]);
   const [editTarget, setEditTarget] = useState<Target | null>(null);
@@ -909,6 +915,7 @@ export default function OutreachPage() {
   useEffect(() => {
     if (activeTab !== "TO_CONTACT" && activeTab !== "TO_RECONTACT") {
       setCastingServerProgress(null);
+      setCastingWizardBusy(null);
       castingProgressHadJobRef.current = false;
       return;
     }
@@ -937,6 +944,11 @@ export default function OutreachPage() {
             failed?: number;
             currentBrandName?: string | null;
           } | null;
+          wizardBusy?: {
+            kind: "fit" | "outreach";
+            id: string;
+            label: string;
+          } | null;
         };
         const draftData = (await draftRes.json().catch(() => ({}))) as {
           active?: {
@@ -947,11 +959,19 @@ export default function OutreachPage() {
             failed?: number;
             currentBrandName?: string | null;
           } | null;
+          wizardBusy?: {
+            kind: "fit" | "outreach";
+            id: string;
+            label: string;
+          } | null;
         };
         if (cancelled) return;
 
         const draft = draftData.active;
         const fit = fitData.active;
+        const busy =
+          fitData.wizardBusy || draftData.wizardBusy || null;
+        setCastingWizardBusy(busy);
         // ignore jobs déjà stoppés (cancelRequested) même si status zombie
         if (
           draft &&
@@ -2686,6 +2706,21 @@ export default function OutreachPage() {
               flash(kind, message);
             }}
           />
+          {!castingServerProgress && castingWizardBusy ? (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5"
+              style={{
+                borderColor: "#E5E0DA",
+                background: "#FBF8F4",
+              }}
+            >
+              <p className="m-0 text-xs leading-snug text-slate-600">
+                Casting déjà en cours ailleurs (
+                {castingWizardBusy.label}) — FR / BENELUX / Contabo partagent
+                le même verrou. Attends la fin ou Arrête depuis l’autre file.
+              </p>
+            </div>
+          ) : null}
           {castingServerProgress ? (
             <div
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5"
@@ -2827,7 +2862,10 @@ export default function OutreachPage() {
             </p>
             <button
               type="button"
-              disabled={castingBrands.length === 0}
+              disabled={
+                castingBrands.length === 0 ||
+                Boolean(castingWizardBusy && !castingServerProgress)
+              }
               onClick={() => {
                 setComposerGroup(null);
                 setWizardFocusGroupKey(null);
@@ -2836,9 +2874,11 @@ export default function OutreachPage() {
               className="inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
               style={{ background: OLD_ROSE }}
               title={
-                castingBrands.length === 0
-                  ? "Aucune marque dans cette file"
-                  : "Ouvrir le wizard casting plein écran"
+                castingWizardBusy && !castingServerProgress
+                  ? `Casting déjà en cours (${castingWizardBusy.label})`
+                  : castingBrands.length === 0
+                    ? "Aucune marque dans cette file"
+                    : "Ouvrir le wizard casting plein écran"
               }
             >
               Wizard casting
