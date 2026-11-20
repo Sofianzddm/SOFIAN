@@ -17,7 +17,7 @@ import {
   slotsBreakWindow,
   dayNetMinutes,
   sanitizeManualBreak,
-  ensureLegalBreak,
+  missingLegalBreak,
   absenceDeductionMinutes,
   netDayMinutes,
   collapseLeaveAbsence,
@@ -272,28 +272,27 @@ export function runRhCalculationTests(): string[] {
   assert(okPause.breakMinutes === 60 && okPause.breakFrom === "12:00", "pause dans plage OK");
   ok("sanitizeManualBreak hors plage");
 
-  // Week-end ≥ 6 h sans pause → pause légale auto (sinon refus d’enregistrement)
-  const weekendLong = ensureLegalBreak(
-    [{ from: "10:00", to: "18:00" }],
-    null,
-    null,
-    0
-  );
-  assert(weekendLong.breakMinutes === 20, "auto 20 min");
+  // ≥ 6 h sans pause = illégal — on n’invente PAS une pause
   assert(
-    dayNetMinutes([{ from: "10:00", to: "18:00" }], weekendLong.breakMinutes) ===
-      460,
-    "8h − 20 min"
+    missingLegalBreak([{ from: "10:00", to: "18:00" }], 0) === true,
+    "8 h sans pause → missing"
   );
-  assertLegalBreak(480, weekendLong.breakMinutes);
-  const shortOk = ensureLegalBreak(
-    [{ from: "14:00", to: "17:00" }],
-    null,
-    null,
-    0
+  assert(
+    missingLegalBreak([{ from: "10:00", to: "18:00" }], 20) === false,
+    "8 h + 20 min → OK"
   );
-  assert(shortOk.breakMinutes === 0, "≤ 6 h → pas d’auto pause");
-  ok("ensureLegalBreak week-end");
+  assert(
+    missingLegalBreak([{ from: "14:00", to: "17:00" }], 0) === false,
+    "3 h → pas de pause obligatoire"
+  );
+  let legalErr = false;
+  try {
+    assertLegalBreak(480, 0);
+  } catch {
+    legalErr = true;
+  }
+  assert(legalErr, "assertLegalBreak refuse 8 h sans pause");
+  ok("missingLegalBreak L3121-16");
 
   // Absence → déduction feuille (journée, demi-journée, minutes)
   assert(netDayMinutes(420, "FULL", 420, 420) === 0, "journée absente = 0");

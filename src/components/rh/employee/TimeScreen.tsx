@@ -12,11 +12,12 @@ import {
   hhmmToMinutes,
   minutesToLabel,
   netDayMinutes,
-  ensureLegalBreak,
+  LEGAL_BREAK_MIN_MINUTES,
+  LEGAL_BREAK_TRIGGER_MINUTES,
+  missingLegalBreak,
   sanitizeManualBreak,
   slotsBreakMinutes,
   slotsBreakWindow,
-  slotsGrossMinutes,
   splitOvertime,
 } from "@/lib/rh/calculations";
 import { frenchHolidayLabel, isFrenchHoliday } from "@/lib/rh/holidays";
@@ -253,6 +254,7 @@ export function TimeScreen() {
   const live = useMemo(() => {
     let totalMinutes = 0;
     const overDates = new Set<string>();
+    const missingLegalBreakDates: string[] = [];
     for (const d of days) {
       const dow = new Date(d.date + "T12:00:00").getDay();
       const weekendOrHoliday =
@@ -263,19 +265,23 @@ export function TimeScreen() {
           ? []
           : defaultSlotsForDate(d.date);
       if (!slots.length) continue;
+      if (d.absenceKind === "FULL") continue;
       const rangeMin =
         d.breakFrom && d.breakTo
           ? breakRangeMinutes(d.breakFrom, d.breakTo)
           : 0;
-      const ensured = d.slots.length
-        ? ensureLegalBreak(
+      const sanitized = d.slots.length
+        ? sanitizeManualBreak(
             slots,
             d.breakFrom,
             d.breakTo,
             rangeMin > 0 ? rangeMin : d.breakMinutes ?? 0
           )
         : { breakMinutes: 0 };
-      const breakMin = ensured.breakMinutes;
+      const breakMin = sanitized.breakMinutes;
+      if (d.slots.length && missingLegalBreak(slots, breakMin)) {
+        missingLegalBreakDates.push(d.date);
+      }
       const mins = netDayMinutes(
         dayMinutes(slots, breakMin),
         d.absenceKind,
@@ -316,6 +322,8 @@ export function TimeScreen() {
       overDates,
       missingOtNotes,
       needsWeekOtNote,
+      missingLegalBreakDates,
+      needsLegalBreak: missingLegalBreakDates.length > 0,
     };
   }, [days, weeklyHours, schedule.workdayMinutes, weekOtNote]);
 
@@ -336,6 +344,12 @@ export function TimeScreen() {
 
   async function save() {
     if (!ts || !editable) return;
+    if (live.needsLegalBreak) {
+      toast.error(
+        `Pause légale obligatoire (≥ ${LEGAL_BREAK_MIN_MINUTES} min dès ${LEGAL_BREAK_TRIGGER_MINUTES / 60} h) — indique ta vraie pause`
+      );
+      return;
+    }
     setBusy(true);
     setMsg(null);
     try {
@@ -360,7 +374,7 @@ export function TimeScreen() {
                 d.breakFrom && d.breakTo
                   ? breakRangeMinutes(d.breakFrom, d.breakTo)
                   : 0;
-              const ensured = ensureLegalBreak(
+              const sanitized = sanitizeManualBreak(
                 slots,
                 d.breakFrom,
                 d.breakTo,
@@ -369,9 +383,9 @@ export function TimeScreen() {
               return {
                 date: d.date,
                 slots,
-                breakMinutes: slots.length ? ensured.breakMinutes : 0,
-                breakFrom: slots.length ? ensured.breakFrom : null,
-                breakTo: slots.length ? ensured.breakTo : null,
+                breakMinutes: slots.length ? sanitized.breakMinutes : 0,
+                breakFrom: slots.length ? sanitized.breakFrom : null,
+                breakTo: slots.length ? sanitized.breakTo : null,
                 exception,
                 note: d.note || null,
                 ...absencePayload(d),
@@ -384,7 +398,7 @@ export function TimeScreen() {
               d.breakFrom && d.breakTo
                 ? breakRangeMinutes(d.breakFrom, d.breakTo)
                 : 0;
-            const ensured = ensureLegalBreak(
+            const sanitized = sanitizeManualBreak(
               slots,
               d.breakFrom,
               d.breakTo,
@@ -393,9 +407,9 @@ export function TimeScreen() {
             return {
               date: d.date,
               slots,
-              breakMinutes: ensured.breakMinutes,
-              breakFrom: ensured.breakFrom,
-              breakTo: ensured.breakTo,
+              breakMinutes: sanitized.breakMinutes,
+              breakFrom: sanitized.breakFrom,
+              breakTo: sanitized.breakTo,
               exception: false,
               note: d.note || null,
               ...absencePayload(d),
@@ -511,8 +525,8 @@ export function TimeScreen() {
       d.breakFrom && d.breakTo
         ? { from: d.breakFrom, to: d.breakTo }
         : { from: "", to: "" };
-    const ensuredBreak = filledSlots.length
-      ? ensureLegalBreak(
+    const sanitizedBreak = filledSlots.length
+      ? sanitizeManualBreak(
           filledSlots,
           d.breakFrom,
           d.breakTo,
@@ -522,9 +536,12 @@ export function TimeScreen() {
     const breakMin = filledSlots.length
       ? effectiveBreak(
           filledSlots,
-          autoBreak > 0 ? autoBreak : ensuredBreak.breakMinutes
+          autoBreak > 0 ? autoBreak : sanitizedBreak.breakMinutes
         )
       : 0;
+    const needsLegalPause =
+      filledSlots.length > 0 &&
+      missingLegalBreak(filledSlots, breakMin);
     const gross = filledSlots.length ? dayMinutes(filledSlots, breakMin) : 0;
     const mins = netDayMinutes(
       gross,
@@ -897,12 +914,12 @@ export function TimeScreen() {
               <div className="mt-0.5 flex flex-col gap-1.5">
                 <div className="flex items-baseline justify-between gap-2">
                   <EmpLabel>Pause</EmpLabel>
-                  {ensuredBreak.breakMinutes > 0 ? (
+                  {sanitizedBreak.breakMinutes > 0 ? (
                     <span
                       className="rh-mono text-[11px]"
                       style={{ color: EMP_COLORS.dim }}
                     >
-                      {pauseLabel(ensuredBreak.breakMinutes)}
+                      {pauseLabel(sanitizedBreak.breakMinutes)}
                     </span>
                   ) : null}
                 </div>
@@ -912,12 +929,14 @@ export function TimeScreen() {
                     type="time"
                     className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
                     disabled={!canEditSlots}
-                    value={manualWindow.from || ensuredBreak.breakFrom || ""}
+                    value={manualWindow.from}
                     onChange={(e) =>
-                      patchBreak(
-                        e.target.value,
-                        manualWindow.to || ensuredBreak.breakTo || ""
-                      )
+                      patchBreak(e.target.value, manualWindow.to)
+                    }
+                    style={
+                      needsLegalPause
+                        ? { borderColor: "rgba(242,96,78,.55)" }
+                        : undefined
                     }
                   />
                 </label>
@@ -927,24 +946,25 @@ export function TimeScreen() {
                     type="time"
                     className="rh-input rh-mono w-full px-2.5 py-2 text-[13px]"
                     disabled={!canEditSlots}
-                    value={manualWindow.to || ensuredBreak.breakTo || ""}
+                    value={manualWindow.to}
                     onChange={(e) =>
-                      patchBreak(
-                        manualWindow.from || ensuredBreak.breakFrom || "",
-                        e.target.value
-                      )
+                      patchBreak(manualWindow.from, e.target.value)
+                    }
+                    style={
+                      needsLegalPause
+                        ? { borderColor: "rgba(242,96,78,.55)" }
+                        : undefined
                     }
                   />
                 </label>
-                {filledSlots.length > 0 &&
-                slotsGrossMinutes(filledSlots) >= 6 * 60 &&
-                ensuredBreak.breakMinutes > 0 &&
-                !(d.breakFrom && d.breakTo) ? (
+                {needsLegalPause ? (
                   <span
-                    className="text-[11px] leading-[1.35]"
-                    style={{ color: EMP_COLORS.dim }}
+                    className="text-[11px] leading-[1.35] font-medium"
+                    style={{ color: EMP_COLORS.danger }}
                   >
-                    Pause légale 20 min ajoutée automatiquement (≥ 6 h).
+                    Pause légale obligatoire (≥ {LEGAL_BREAK_MIN_MINUTES}{" "}
+                    min dès {LEGAL_BREAK_TRIGGER_MINUTES / 60} h — L3121-16).
+                    Indique ta vraie pause.
                   </span>
                 ) : null}
               </div>
@@ -1105,6 +1125,7 @@ export function TimeScreen() {
           disabled={
             !editable ||
             busy ||
+            live.needsLegalBreak ||
             (live.hasOt && live.missingOtNotes.length > 0) ||
             live.needsWeekOtNote
           }
@@ -1189,6 +1210,22 @@ export function TimeScreen() {
         <p className="m-0 text-[12.5px]" style={{ color: EMP_COLORS.accent }}>{msg}</p>
       ) : null}
 
+      {live.needsLegalBreak && editable ? (
+        <div
+          className="rounded-[13px] px-4 py-3 text-[12.5px] leading-[1.45] font-medium"
+          style={{
+            background: "rgba(242,96,78,.08)",
+            border: "1px solid rgba(242,96,78,.4)",
+            color: EMP_COLORS.danger,
+          }}
+        >
+          Pause légale manquante sur {live.missingLegalBreakDates.length}{" "}
+          jour{live.missingLegalBreakDates.length > 1 ? "s" : ""} (≥{" "}
+          {LEGAL_BREAK_MIN_MINUTES} min dès {LEGAL_BREAK_TRIGGER_MINUTES / 60}{" "}
+          h — L3121-16). Sans pause réelle, l’enregistrement est refusé.
+        </div>
+      ) : null}
+
       {live.hasOt && editable ? (
         <div
           className="rounded-[13px] px-4 py-3 text-[12.5px] leading-[1.45]"
@@ -1251,7 +1288,7 @@ export function TimeScreen() {
               className="border-0 bg-transparent cursor-pointer text-[12.5px] font-medium"
               style={{ color: EMP_COLORS.dim }}
               onClick={() => void save()}
-              disabled={!editable || busy}
+              disabled={!editable || busy || live.needsLegalBreak}
             >
               Enregistrer sans envoyer
             </button>

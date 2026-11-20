@@ -5,9 +5,9 @@ import {
   breakRangeMinutes,
   collapseLeaveAbsence,
   dayNetMinutes,
-  ensureLegalBreak,
   LEGAL_BREAK_MIN_MINUTES,
   netDayMinutes,
+  sanitizeManualBreak,
   slotsBreakMinutes,
   slotsGrossMinutes,
   splitOvertime,
@@ -331,12 +331,17 @@ export async function updateTimesheetDays(params: {
       fromRange && toRange ? breakRangeMinutes(fromRange, toRange) : 0;
     const inputtedBreak =
       rangeMinutes > 0 ? rangeMinutes : Math.max(0, day.breakMinutes || 0);
-    // Pause hors plage ignorée + pause légale 20 min auto dès 6 h (sinon
-    // week-end sans pause → refus silencieux côté user « ça enregistre pas »).
-    const ensured = ensureLegalBreak(slots, fromRange, toRange, inputtedBreak);
-    const breakMinutes = ensured.breakMinutes;
-    const breakFrom = slots.length ? ensured.breakFrom : null;
-    const breakTo = slots.length ? ensured.breakTo : null;
+    // Pause hors plage ignorée. Dès 6 h : vraie pause ≥ 20 min obligatoire
+    // (L3121-16) — on n’invente jamais une pause à la place du salarié.
+    const sanitized = sanitizeManualBreak(
+      slots,
+      fromRange,
+      toRange,
+      inputtedBreak
+    );
+    const breakMinutes = sanitized.breakMinutes;
+    const breakFrom = slots.length ? sanitized.breakFrom : null;
+    const breakTo = slots.length ? sanitized.breakTo : null;
 
     const manualKinds = new Set(["FULL", "HALF_AM", "HALF_PM", "MINUTES"]);
     const isManual =

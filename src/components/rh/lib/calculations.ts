@@ -107,58 +107,27 @@ export function assertLegalBreak(
   if (grossWorkedMinutes < trigger) return;
   if (!Number.isFinite(breakMinutes) || breakMinutes < minBreak) {
     throw new Error(
-      `Pause légale : minimum ${minBreak} min dès ${trigger / 60} h de travail`
+      `Pause légale obligatoire : minimum ${minBreak} min dès ${trigger / 60} h de travail (L3121-16). Indique ta vraie pause — elle ne peut pas être inventée.`
     );
   }
 }
 
-/**
- * Si ≥ 6 h brutes et pause &lt; 20 min : pose automatiquement la pause légale
- * au milieu du créneau unique (week-end / saisie sans pause → plus de refus).
- * Plusieurs créneaux déjà séparés par un trou : rien à faire.
- */
-export function ensureLegalBreak(
+/** True si ≥ 6 h brutes et pause &lt; 20 min (illégal sans saisie réelle). */
+export function missingLegalBreak(
   slots: Array<{ from: string; to: string }>,
-  breakFrom: string | null | undefined,
-  breakTo: string | null | undefined,
   breakMinutes = 0,
   opts?: { minBreak?: number; triggerMinutes?: number }
-): { breakFrom: string | null; breakTo: string | null; breakMinutes: number } {
-  const sanitized = sanitizeManualBreak(slots, breakFrom, breakTo, breakMinutes);
+): boolean {
   const filled = slots.filter((s) => s.from && s.to);
   const gross = slotsGrossMinutes(filled);
   const minBreak = opts?.minBreak ?? LEGAL_BREAK_MIN_MINUTES;
   const trigger = opts?.triggerMinutes ?? LEGAL_BREAK_TRIGGER_MINUTES;
-  if (gross < trigger || sanitized.breakMinutes >= minBreak) {
-    return sanitized;
-  }
-  // Trou déjà présent entre créneaux mais &lt; 20 min → on ne peut pas inventer
-  if (slotsBreakMinutes(filled) > 0) {
-    return sanitized;
-  }
-  if (filled.length !== 1) return sanitized;
-  const workFrom = hhmmToMinutes(filled[0].from);
-  const workTo = hhmmToMinutes(filled[0].to);
-  if (!Number.isFinite(workFrom) || !Number.isFinite(workTo) || workTo <= workFrom) {
-    return sanitized;
-  }
-  const span = workTo - workFrom;
-  if (span <= minBreak) return sanitized;
-  const mid = workFrom + Math.floor(span / 2);
-  const bf = mid - Math.floor(minBreak / 2);
-  const bt = bf + minBreak;
-  if (bf <= workFrom || bt >= workTo) {
-    return {
-      breakFrom: null,
-      breakTo: null,
-      breakMinutes: minBreak,
-    };
-  }
-  return {
-    breakFrom: minutesToHhmm(bf),
-    breakTo: minutesToHhmm(bt),
-    breakMinutes: minBreak,
-  };
+  if (gross < trigger) return false;
+  const effective =
+    slotsBreakMinutes(filled) > 0
+      ? slotsBreakMinutes(filled)
+      : Math.max(0, breakMinutes || 0);
+  return effective < minBreak;
 }
 
 /** "HH:MM" → minutes depuis minuit (NaN si invalide). */
