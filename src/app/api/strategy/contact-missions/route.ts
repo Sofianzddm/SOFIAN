@@ -967,6 +967,19 @@ export async function PATCH(request: NextRequest) {
       },
     });
 
+    // Sync langue CRM : l'envoi Joey lit MarqueContact.language (pas seulement
+    // clientLanguage mission). Sans ça, « Client anglais » à l'écran part quand même en FR.
+    if (
+      body.clientLanguage !== undefined &&
+      (clientLanguage === "EN" || clientLanguage === "FR") &&
+      mission.marqueId
+    ) {
+      await prisma.marqueContact.updateMany({
+        where: { marqueId: mission.marqueId },
+        data: { language: clientLanguage === "EN" ? "en" : "fr" },
+      });
+    }
+
     // Journal activité (Sofian only) — fire-and-forget
     try {
       const { logUserActivity, stripHtmlPreview } = await import("@/lib/user-activity-log");

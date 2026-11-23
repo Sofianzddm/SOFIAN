@@ -61,6 +61,16 @@ function withCorrectEndMarker(text, marker) {
 }
 
 const PROMPT_SELECTORS = [
+  // UI 2025–2026 : ProseMirror composer (plus de #prompt-textarea fiable)
+  'div.ProseMirror[contenteditable="true"][role="textbox"][data-composer-markdown]',
+  'div[contenteditable="true"][role="textbox"][data-composer-markdown]',
+  'form[data-chatgpt-composer] [data-composer-markdown][contenteditable="true"]',
+  'form[data-chatgpt-composer] .ProseMirror[contenteditable="true"]',
+  'div.ProseMirror[contenteditable="true"][role="textbox"]',
+  '[contenteditable="true"][role="textbox"][aria-label*="ChatGPT" i]',
+  '[contenteditable="true"][role="textbox"][aria-label*="Ask" i]',
+  '[contenteditable="true"][role="textbox"][aria-label*="Demander" i]',
+  // Legacy
   "#prompt-textarea",
   'div[contenteditable="true"]#prompt-textarea',
   'textarea[name="prompt-textarea"]',
@@ -333,14 +343,27 @@ export class ChatGptDriver {
     return null;
   }
 
-  /** Préfère l’onglet conversation ChatGPT le plus récent (hors job parallèle). */
+  /** Préfère un onglet ChatGPT avec composer visible (pas un /c/ mort). */
   async attachBestPage() {
     if (pageAls.getStore()?.page) return; // ne pas voler la page du job
     const pages = this.context.pages();
     const chatPages = pages.filter((p) =>
       /chatgpt\.com|chat\.openai\.com/i.test(p.url())
     );
+    let withPrompt = null;
+    for (const p of chatPages) {
+      const prev = this._page;
+      this._page = p;
+      const ok = Boolean(await this.findPromptHandle().catch(() => null));
+      this._page = prev;
+      if (ok) {
+        withPrompt = p;
+        break;
+      }
+    }
     this._page =
+      withPrompt ||
+      chatPages.find((p) => /chatgpt\.com\/?(\?|$)/i.test(p.url())) ||
       chatPages.find((p) => /\/c\//.test(p.url())) ||
       chatPages[0] ||
       pages[0] ||
@@ -362,6 +385,7 @@ export class ChatGptDriver {
   async status(opts = {}) {
     await this.refreshPageHandle();
     const url = this.page?.url?.() || "";
+    const blocked = await this.detectBlockedUi().catch(() => null);
     const loggedIn = await this.isLoggedIn().catch(() => false);
     const hasPrompt = Boolean(await this.findPromptHandle().catch(() => null));
     const lastText = await this.readLastAssistantText().catch(() => "");
@@ -379,6 +403,7 @@ export class ChatGptDriver {
       url,
       loggedIn,
       hasPrompt,
+      blocked: blocked || undefined,
       busy: this.runningCount > 0,
       slotsFull: this.busy,
       runningCount: this.runningCount,
@@ -401,13 +426,14 @@ export class ChatGptDriver {
   async isLoggedIn() {
     const url = this.page.url();
     if (/auth\.openai|\/auth|login|signup/i.test(url)) return false;
+    const blocked = await this.detectBlockedUi().catch(() => null);
+    if (blocked?.blocked) return false;
     const prompt = await this.findPromptHandle();
     if (prompt) return true;
-    if (/chatgpt\.com\/c\//i.test(url)) return true;
-    // Accueil connecté
+    // Accueil connecté (ne plus faire confiance à /c/ seul — page morte / CF)
     const home = await this.page
       .evaluate(() =>
-        /Comment puis-je vous aider|How can I help|Nouveau chat|New chat/i.test(
+        /Comment puis-je vous aider|How can I help|What are you working on|Nouveau chat|New chat/i.test(
           document.body?.innerText || ""
         )
       )
@@ -415,19 +441,73 @@ export class ChatGptDriver {
     return Boolean(home);
   }
 
+  /**
+   * Cloudflare / soft-wall / shell vide — cause typique de « Champ prompt introuvable ».
+   */
+  async detectBlockedUi() {
+    return this.page
+      .evaluate(() => {
+        const title = String(document.title || "");
+        const text = String(document.body?.innerText || "").slice(0, 4000);
+        const htmlLen = String(document.body?.innerHTML || "").length;
+        const cf =
+          /just a moment|cf-browser-verification|attention required|enable javascript and cookies/i.test(
+            title + " " + text
+          );
+        const login =
+          /log in|se connecter|sign up|s'inscrire|create an account/i.test(
+            text
+          ) &&
+          !/nouveau chat|new chat|demander à chatgpt|ask chatgpt/i.test(text);
+        const emptyShell = htmlLen < 800 && text.length < 80;
+        const err =
+          /something went wrong|une erreur s'est produite|temporarily unavailable|rate limit/i.test(
+            text
+          );
+        return {
+          blocked: Boolean(cf || emptyShell || err),
+          reason: cf
+            ? "cloudflare"
+            : emptyShell
+              ? "empty-shell"
+              : err
+                ? "error-page"
+                : login
+                  ? "login-wall"
+                  : "",
+          title: title.slice(0, 120),
+          textPreview: text.replace(/\s+/g, " ").trim().slice(0, 220),
+          htmlLen,
+        };
+      })
+      .catch((e) => ({
+        blocked: true,
+        reason: "evaluate-failed",
+        title: "",
+        textPreview: e instanceof Error ? e.message : String(e),
+        htmlLen: 0,
+      }));
+  }
+
   async findPromptHandle() {
-    // Préfère le ProseMirror visible « Demander à ChatGPT » (plusieurs clones DOM).
-    const preferred = this.page
-      .locator('div.ProseMirror[contenteditable="true"][role="textbox"]')
-      .locator("visible=true");
-    const prefCount = await preferred.count().catch(() => 0);
-    for (let i = prefCount - 1; i >= 0; i--) {
-      const el = preferred.nth(i);
-      try {
-        const box = await el.boundingBox();
-        if (box && box.width >= 80 && box.height >= 16) return el;
-      } catch {
-        /* next */
+    // Préfère le ProseMirror visible (plusieurs clones DOM + data-composer-markdown).
+    const preferredSelectors = [
+      'div.ProseMirror[contenteditable="true"][role="textbox"][data-composer-markdown]',
+      'div[contenteditable="true"][role="textbox"][data-composer-markdown]',
+      'div.ProseMirror[contenteditable="true"][role="textbox"]',
+      '[contenteditable="true"][role="textbox"][data-composer-markdown]',
+    ];
+    for (const sel of preferredSelectors) {
+      const preferred = this.page.locator(sel).locator("visible=true");
+      const prefCount = await preferred.count().catch(() => 0);
+      for (let i = prefCount - 1; i >= 0; i--) {
+        const el = preferred.nth(i);
+        try {
+          const box = await el.boundingBox();
+          if (box && box.width >= 60 && box.height >= 14) return el;
+        } catch {
+          /* next */
+        }
       }
     }
 
@@ -441,10 +521,10 @@ export class ChatGptDriver {
         try {
           if (!(await el.isVisible({ timeout: 200 }))) continue;
           const box = await el.boundingBox();
-          if (!box || box.width < 80 || box.height < 16) continue;
+          if (!box || box.width < 60 || box.height < 14) continue;
           const area = box.width * box.height;
-          // Composer en bas d'écran
-          if (box.y < 200) continue;
+          // Évite les micro-éditeurs header ; l’accueil centre le composer (y ~200–500)
+          if (box.y < 80) continue;
           if (area > bestArea) {
             bestArea = area;
             best = el;
@@ -456,6 +536,71 @@ export class ChatGptDriver {
       if (best) return best;
     }
     return best;
+  }
+
+  /** Force accueil ChatGPT + attente composer (récupération session). */
+  async recoverComposer(opts = {}) {
+    const timeoutMs = Number(opts.timeoutMs || 20_000);
+    // Pendant un job (ALS) : ne toucher que la page du slot courant.
+    const inJob = Boolean(pageAls.getStore()?.page);
+    const pages = inJob
+      ? [this.page].filter(Boolean)
+      : [this.page, ...this.slots.map((s) => s.page)].filter(Boolean);
+    const unique = [...new Set(pages)];
+    const results = [];
+    for (const p of unique) {
+      const prev = this.page;
+      if (!inJob) this.page = p;
+      try {
+        await p.goto(CHATGPT_URL, {
+          waitUntil: "domcontentloaded",
+          timeout: 60_000,
+        });
+        await this._sleep(900);
+        // Fermer modales cookies / « Okay » si présentes
+        for (const label of [
+          "Accept",
+          "Accepter",
+          "OK",
+          "Okay",
+          "Got it",
+          "Close",
+          "Fermer",
+        ]) {
+          try {
+            const btn = p.getByRole("button", { name: label }).first();
+            if (await btn.isVisible({ timeout: 300 }).catch(() => false)) {
+              await btn.click({ timeout: 1500 }).catch(() => {});
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+        const box = await this.waitForPrompt(timeoutMs);
+        const blocked = await this.detectBlockedUi().catch(() => null);
+        results.push({
+          url: p.url(),
+          hasPrompt: Boolean(box),
+          blocked: blocked || null,
+        });
+      } catch (e) {
+        results.push({
+          url: p.url?.() || "",
+          hasPrompt: false,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        if (!inJob) this.page = prev;
+      }
+    }
+    if (!inJob) await this.attachBestPage();
+    const hasPrompt = Boolean(await this.findPromptHandle().catch(() => null));
+    return {
+      ok: hasPrompt,
+      hasPrompt,
+      url: this.page?.url?.() || "",
+      pages: results,
+    };
   }
 
   /** Attend le composer après Nouveau chat / navigation. */
@@ -2049,7 +2194,26 @@ export class ChatGptDriver {
               }
               box = await this.waitForPrompt(10_000);
             }
-            if (!box) throw new Error("Champ prompt ChatGPT introuvable");
+            if (!box) {
+              console.warn(
+                `[carto-chat-vps] slot ${slot.id}: prompt toujours absent — recoverComposer`
+              );
+              const recovered = await this.recoverComposer({
+                timeoutMs: 15_000,
+              });
+              box = recovered.hasPrompt
+                ? await this.findPromptHandle()
+                : null;
+              if (!box) {
+                const blocked =
+                  recovered.pages?.find((p) => p.blocked?.blocked)?.blocked ||
+                  (await this.detectBlockedUi().catch(() => null));
+                const why = blocked?.reason
+                  ? ` (${blocked.reason}: ${String(blocked.textPreview || blocked.title || "").slice(0, 80)})`
+                  : "";
+                throw new Error(`Champ prompt ChatGPT introuvable${why}`);
+              }
+            }
             console.log(
               `[carto-chat-vps] slot ${slot.id} prompt OK url=${this.page.url()}`
             );

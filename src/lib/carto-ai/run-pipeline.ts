@@ -165,9 +165,20 @@ async function commitFrance(opts: {
             },
           ],
         },
-        select: { id: true },
+        select: { id: true, language: true },
       });
-      if (existing) contactIds.push(existing.id);
+      if (existing) {
+        contactIds.push(existing.id);
+        // Re-commit carto avec EN/FR : mettre à jour la langue même si le contact existe déjà
+        // (sinon l'UI « EN » n'a aucun effet et l'envoi Joey reste en FR).
+        const wantLang = opts.language === "en" ? "en" : "fr";
+        if (String(existing.language || "").toLowerCase() !== wantLang) {
+          await prisma.marqueContact.update({
+            where: { id: existing.id },
+            data: { language: wantLang },
+          });
+        }
+      }
       skipped += 1;
       continue;
     }

@@ -21,7 +21,7 @@ import { portfolioDisplayName } from "@/lib/marque-portfolio";
 
 type ContactCouche = "marque" | "agence" | "autre";
 type FicheMarket = "FR" | "BENELUX" | "BOTH";
-/** FR+BE : 1 carto → contacts FR+BE → enrich_fr → assign. FR→BE : 2ᵉ analyse. BE seul : pas d’assign FR. */
+/** FR : fiche France uniquement. FR+BE : mirroir. BE seul : pas d’assign FR. */
 type PipelinePhase =
   | "carto_fr"
   | "enrich_fr"
@@ -68,7 +68,7 @@ export default function CartoAiPipelineChatLabPage() {
   const [company, setCompany] = useState("");
   const [domain, setDomain] = useState("");
   const [language, setLanguage] = useState<"fr" | "en">("fr");
-  /** FR (ou FR+BE) → toujours Benelux ensuite. Défaut FR. */
+  /** FR = France only. BOTH = mirroir FR+BE. BENELUX = fiche BE. */
   const [ficheMarket, setFicheMarket] = useState<FicheMarket>("FR");
   const [ficheQuery, setFicheQuery] = useState("");
   const [marqueId, setMarqueId] = useState<string | null>(null);
@@ -629,10 +629,6 @@ export default function CartoAiPipelineChatLabPage() {
     }
   }
 
-  /** FR ou FR+BE → commit market BOTH (FR+shell/miroirs BE). */
-  const wantsFrThenBe =
-    ficheMarket === "FR" || ficheMarket === "BOTH";
-
   async function runCommit() {
     if (!preview || selectedRows.length === 0) return;
     const frBeContinuation =
@@ -667,13 +663,14 @@ export default function CartoAiPipelineChatLabPage() {
     setError(null);
     setCommitting(true);
     try {
-      // FR seul = même commit que BOTH (contacts FR + coquille BE liée).
+      // FR = France uniquement (plus de coquille BE liée en douce).
+      // BOTH = mirroir contacts FR+BE. BENELUX = fiche BE.
       const commitMarket: FicheMarket = frBeContinuation
         ? "BENELUX"
         : ficheMarket === "BENELUX" ||
             (pipelinePhase === "carto_be" && !commitResult?.marqueIdBe)
           ? "BENELUX"
-          : wantsFrThenBe
+          : ficheMarket === "BOTH"
             ? "BOTH"
             : "FR";
 
@@ -692,9 +689,8 @@ export default function CartoAiPipelineChatLabPage() {
           market: commitMarket,
           selectedRows,
           skipAutoEnrich: true,
-          // FR+BE → mirroir. FR → puis BE → coquille BE vide.
-          mirrorBeContacts:
-            commitMarket === "BOTH" ? ficheMarket === "BOTH" : undefined,
+          // Mirroir contacts uniquement si l’utilisateur a choisi FR+BE.
+          mirrorBeContacts: commitMarket === "BOTH" ? true : undefined,
         }),
       });
       const data = await res.json();
@@ -768,15 +764,8 @@ export default function CartoAiPipelineChatLabPage() {
       );
       return;
     }
-    // FR → puis BE (pas FR+BE) : encore besoin de la 2ᵉ analyse si BE pas commit.
-    if (
-      ficheMarket !== "BOTH" &&
-      commitResult?.marqueIdBe &&
-      !beCommitResult
-    ) {
-      continueToBeneluxCarto();
-      return;
-    }
+    // FR+BE mirroir : pas de 2ᵉ carto. FR seul : pas de passage BE auto.
+    // (Ancien parcours « FR → coquille BE » retiré — FR reste sur la fiche France.)
     setError(null);
     setAssignPick("");
     setAssignedLabel(null);
@@ -889,6 +878,7 @@ export default function CartoAiPipelineChatLabPage() {
   function ficheMarketLabel(m: FicheMarket = ficheMarket) {
     if (m === "BOTH") return "FR + Benelux";
     if (m === "BENELUX") return "Benelux";
+    // fallthrough FR
     return "France";
   }
 
@@ -1259,7 +1249,7 @@ export default function CartoAiPipelineChatLabPage() {
             <div className="flex flex-wrap gap-2">
               {(
                 [
-                  ["FR", "🇫🇷 FR → puis BE"],
+                  ["FR", "🇫🇷 FR seul"],
                   ["BOTH", "FR+BE (les 2)"],
                   ["BENELUX", "🇧🇪 BE seul"],
                 ] as const
@@ -1285,11 +1275,11 @@ export default function CartoAiPipelineChatLabPage() {
               </p>
             ) : ficheMarket === "BOTH" ? (
               <p className="text-xs text-emerald-800">
-                1ère analyse France ; les contacts partent sur FR + fiche BE liée.
+                1 analyse : les contacts sont enregistrés sur FR + fiche BE liée.
               </p>
             ) : (
               <p className="text-xs text-gray-500">
-                Analyse France d’abord, puis enchaînement Benelux après enrichissement.
+                Analyse France uniquement — rien n’est écrit sur la fiche Benelux.
               </p>
             )}
           </div>
@@ -1522,7 +1512,7 @@ export default function CartoAiPipelineChatLabPage() {
                   <div className="flex flex-wrap gap-2">
                     {(
                       [
-                        ["FR", "🇫🇷 FR → puis BE"],
+                        ["FR", "🇫🇷 FR seul"],
                         ["BOTH", "FR+BE (les 2)"],
                         ["BENELUX", "BE seul"],
                       ] as const

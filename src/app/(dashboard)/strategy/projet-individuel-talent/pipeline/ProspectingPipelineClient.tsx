@@ -1394,9 +1394,13 @@ export function ProspectingPipelineClient() {
         byEmail.set(c.email, c);
       }
       const nextContacts = Array.from(byEmail.values());
+      // Ne PAS forcer « FR » ici : ça écrasait un EN déjà choisi dans le select
+      // juste avant « Enregistrer contact », puis planifiait l'envoi en FR.
       const patchResult = await patchMission(m.id, {
         clientContacts: nextContacts,
-        clientLanguage: (m.clientLanguage || "FR") as "FR" | "EN",
+        ...(m.clientLanguage === "EN" || m.clientLanguage === "FR"
+          ? { clientLanguage: m.clientLanguage }
+          : {}),
       });
       const unlockNote = patchResult.awaitingResolved?.message
         ? ` ${patchResult.awaitingResolved.message}`
@@ -1614,7 +1618,9 @@ export function ProspectingPipelineClient() {
       body: JSON.stringify({
         missionId: m.id,
         clientContacts: nextContacts,
-        clientLanguage: (m.clientLanguage || "FR") as "FR" | "EN",
+        ...(m.clientLanguage === "EN" || m.clientLanguage === "FR"
+          ? { clientLanguage: m.clientLanguage }
+          : {}),
       }),
     });
     const patchData = await patchRes.json().catch(() => ({}));

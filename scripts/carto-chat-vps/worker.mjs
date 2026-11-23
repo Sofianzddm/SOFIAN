@@ -705,10 +705,33 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/new-chat") {
     try {
       await driver.refreshPageHandle();
-      return send(res, 200, { ok: true, url: driver.page?.url() });
+      await driver.startFreshChat();
+      const box = await driver.waitForPrompt(12_000);
+      const blocked = await driver.detectBlockedUi().catch(() => null);
+      return send(res, 200, {
+        ok: Boolean(box),
+        url: driver.page?.url(),
+        hasPrompt: Boolean(box),
+        blocked,
+      });
     } catch (e) {
       return send(res, 500, {
         error: e instanceof Error ? e.message : "Erreur",
+      });
+    }
+  }
+
+  /** Force goto chatgpt.com sur tous les slots + diagnostic composer. */
+  if (req.method === "POST" && url.pathname === "/recover") {
+    try {
+      const body = await readJson(req).catch(() => ({}));
+      const result = await driver.recoverComposer({
+        timeoutMs: Number(body.timeoutMs) || 20_000,
+      });
+      return send(res, result.ok ? 200 : 503, result);
+    } catch (e) {
+      return send(res, 500, {
+        error: e instanceof Error ? e.message : "Erreur recover",
       });
     }
   }
