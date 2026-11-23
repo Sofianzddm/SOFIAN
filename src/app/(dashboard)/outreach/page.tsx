@@ -434,6 +434,15 @@ function formatDate(dateStr: string | null): string {
   });
 }
 
+/** Brouillon prêt à relire / envoyer (pas encore programmé). */
+function targetHasReadyDraft(t: Target): boolean {
+  return (
+    Boolean((t.draftSubject || "").trim()) &&
+    Boolean((t.draftBodyHtml || "").trim()) &&
+    !t.scheduledSendAt
+  );
+}
+
 /** Date réelle de rédaction (snapshot serveur) sinon dernière màj cible. */
 function targetDraftWrittenAt(t: Target): Date | null {
   const hasDraft =
@@ -1233,6 +1242,41 @@ export default function OutreachPage() {
 
     let groups = Array.from(map.values());
 
+    // Brouillon Contabo = contacts éligibles au moment T seulement. Si une
+    // partie du groupe a le mail prêt et l’autre non, on scinde : carte
+    // « Prêt » = contacts avec brouillon ; carte à part = le reste (wizard).
+    // Sinon on affiche 9 contacts alors que seuls 2 ont été rédigés.
+    {
+      const split: typeof groups = [];
+      for (const g of groups) {
+        if (g.targets.length < 2) {
+          split.push(g);
+          continue;
+        }
+        const ready = g.targets.filter(targetHasReadyDraft);
+        const rest = g.targets.filter((t) => !targetHasReadyDraft(t));
+        if (ready.length === 0 || rest.length === 0) {
+          split.push(g);
+          continue;
+        }
+        split.push({
+          groupKey: `${g.groupKey}::ready`,
+          marqueId: g.marqueId,
+          company: g.company,
+          targets: ready,
+          pending: [],
+        });
+        split.push({
+          groupKey: `${g.groupKey}::todo`,
+          marqueId: g.marqueId,
+          company: g.company,
+          targets: rest,
+          pending: g.pending,
+        });
+      }
+      groups = split;
+    }
+
     // Recherche : marque, nom du contact ou email.
     const q = searchTerm.trim().toLowerCase();
     if (q) {
@@ -1378,15 +1422,7 @@ export default function OutreachPage() {
     return visibleGroups
       .filter((g) => g.targets.length > 0)
       // Mail déjà prêt → hors wizard complet (file « Prêt » + bouton Ouvrir).
-      .filter(
-        (g) =>
-          !g.targets.some(
-            (t) =>
-              Boolean((t.draftSubject || "").trim()) &&
-              Boolean((t.draftBodyHtml || "").trim()) &&
-              !t.scheduledSendAt
-          )
-      )
+      .filter((g) => !g.targets.some(targetHasReadyDraft))
       .map((g) => groupToCastingBrand(g));
   }, [visibleGroups, activeTab, groupToCastingBrand]);
 
@@ -2937,12 +2973,7 @@ export default function OutreachPage() {
                 : hasEnglish
                 ? "en"
                 : "fr";
-            const readyToReview = group.targets.some(
-              (t) =>
-                Boolean((t.draftSubject || "").trim()) &&
-                Boolean((t.draftBodyHtml || "").trim()) &&
-                !t.scheduledSendAt
-            );
+            const readyToReview = group.targets.some(targetHasReadyDraft);
             const scheduledAts = group.targets
               .map((t) => t.scheduledSendAt)
               .filter((v): v is string => Boolean(v))
