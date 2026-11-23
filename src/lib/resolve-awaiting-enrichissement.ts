@@ -3,6 +3,8 @@ import {
   notifyGiftContactsReady,
   notifyMarqueCompletionResolved,
 } from "@/lib/emails/notify-enrichissement";
+import { normalizeMissionBrandKey } from "@/lib/contact-missions";
+import { queueMarqueEnrichissement } from "@/lib/envoyer-marque-outreach";
 
 export type AwaitingSourceKind = "pipeline" | "projet" | "gift";
 
@@ -39,6 +41,18 @@ function hasEmailableContact(
     return email.includes("@");
   }).length;
   return { ok: count >= MIN_EMAILABLE_CONTACTS_TO_RESOLVE, count };
+}
+
+/** Mission créée / taguée par le flux gift (strategyReason). */
+export function missionReasonLooksLikeGift(reason: string | null | undefined): boolean {
+  const r = String(reason || "").trim();
+  if (!r) return false;
+  const lower = r.toLowerCase();
+  return (
+    /^gift\b/i.test(r) ||
+    lower.includes("demande gift") ||
+    /\bgift-\d{4}-\d+\b/i.test(r)
+  );
 }
 
 export function formatAwaitingSourcesLabel(
@@ -396,9 +410,7 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
 
     const missions: ResolvedAwaitingMission[] = awaiting.map((m) => {
       const reason = String(m.strategyReason || "");
-      const isGift =
-        /^gift\b/i.test(reason.trim()) ||
-        reason.toLowerCase().includes("demande gift");
+      const isGift = missionReasonLooksLikeGift(reason);
       const source: AwaitingSourceKind = m.campaignId
         ? "projet"
         : isGift
@@ -489,6 +501,170 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
     console.error("resolveAwaitingEnrichissementForMarque:", error);
     return empty;
   }
+}
+
+/**
+ * Pose / rafraîchit une mission gift « en attente d'enrichissement » pour une
+ * marque (fichier Gifting + file principale si contacts sans email).
+ * Ne touche pas aux missions projet / pipeline existantes.
+ */
+export async function ensureGiftMarqueInAwaitingEnrichissement(opts: {
+  marqueId: string;
+  giftReference?: string | null;
+  talentId?: string | null;
+  talentName?: string | null;
+  createdById?: string | null;
+  /** Si false, ne crée rien quand la marque a déjà assez d'emails. Défaut true = forcer le signal gift. */
+  onlyIfNeedsContacts?: boolean;
+}): Promise<{
+  missionId: string | null;
+  created: boolean;
+  skipped: boolean;
+  emailableCount: number;
+  lookupQueued: number;
+}> {
+  const marqueId = String(opts.marqueId || "").trim();
+  if (!marqueId) {
+    return {
+      missionId: null,
+      created: false,
+      skipped: true,
+      emailableCount: 0,
+      lookupQueued: 0,
+    };
+  }
+
+  const marque = await prisma.marque.findUnique({
+    where: { id: marqueId },
+    select: {
+      id: true,
+      nom: true,
+      contacts: {
+        where: { outreachExcluded: false, diffusionOptOut: false },
+        select: { email: true, emailSuggested: true },
+        take: 80,
+      },
+    },
+  });
+  if (!marque) {
+    return {
+      missionId: null,
+      created: false,
+      skipped: true,
+      emailableCount: 0,
+      lookupQueued: 0,
+    };
+  }
+
+  const emailableCount = marque.contacts.filter((c) => {
+    const email = (c.email || c.emailSuggested || "").trim();
+    return email.includes("@");
+  }).length;
+
+  if (
+    opts.onlyIfNeedsContacts !== false &&
+    emailableCount >= MIN_EMAILABLE_CONTACTS_TO_RESOLVE
+  ) {
+    return {
+      missionId: null,
+      created: false,
+      skipped: true,
+      emailableCount,
+      lookupQueued: 0,
+    };
+  }
+
+  const giftLabel = opts.giftReference
+    ? `Gift ${opts.giftReference}`
+    : "Demande Gift";
+  const strategyReason = `${giftLabel} — contacts CRM à compléter`;
+  const talentName = (opts.talentName || "").trim() || "Gift";
+
+  const existing = await prisma.contactMission.findFirst({
+    where: {
+      marqueId,
+      awaitingContactsCompletion: true,
+      status: { not: "CANCELLED" },
+      campaignId: null,
+    },
+    select: { id: true, strategyReason: true },
+    orderBy: { contactsCompletionRequestedAt: "desc" },
+  });
+  const reusable =
+    existing && missionReasonLooksLikeGift(existing.strategyReason)
+      ? existing
+      : null;
+
+  let missionId: string;
+  let created = false;
+  if (reusable) {
+    missionId = reusable.id;
+    await prisma.contactMission.update({
+      where: { id: reusable.id },
+      data: {
+        contactsCompletionRequestedAt: new Date(),
+        strategyReason,
+        ...(opts.talentId ? { talentId: opts.talentId } : {}),
+      },
+    });
+  } else {
+    let createdById = String(opts.createdById || "").trim();
+    if (!createdById) {
+      const fallback = await prisma.user.findFirst({
+        where: {
+          actif: true,
+          role: { in: ["ADMIN", "CASTING_MANAGER"] },
+        },
+        select: { id: true },
+        orderBy: { createdAt: "asc" },
+      });
+      createdById = fallback?.id || "";
+    }
+    if (!createdById) {
+      return {
+        missionId: null,
+        created: false,
+        skipped: true,
+        emailableCount,
+        lookupQueued: 0,
+      };
+    }
+    const mission = await prisma.contactMission.create({
+      data: {
+        talentId: opts.talentId || null,
+        creatorName: talentName,
+        targetBrand: marque.nom,
+        targetBrandKey: normalizeMissionBrandKey(marque.nom),
+        marqueId,
+        strategyReason,
+        awaitingContactsCompletion: true,
+        contactsCompletionRequestedAt: new Date(),
+        createdById,
+      },
+      select: { id: true },
+    });
+    missionId = mission.id;
+    created = true;
+  }
+
+  let lookupQueued = 0;
+  try {
+    const queued = await queueMarqueEnrichissement({ marqueId });
+    if (queued.ok) lookupQueued = queued.queued;
+  } catch (e) {
+    console.warn(
+      "[ensureGiftAwaiting] queue soft:",
+      e instanceof Error ? e.message : e
+    );
+  }
+
+  return {
+    missionId,
+    created,
+    skipped: false,
+    emailableCount,
+    lookupQueued,
+  };
 }
 
 /**

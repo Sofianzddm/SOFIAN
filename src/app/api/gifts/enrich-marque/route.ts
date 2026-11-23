@@ -3,8 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
-import { normalizeMissionBrandKey } from "@/lib/contact-missions";
-import { queueMarqueEnrichissement } from "@/lib/envoyer-marque-outreach";
+import { ensureGiftMarqueInAwaitingEnrichissement } from "@/lib/resolve-awaiting-enrichissement";
 
 /**
  * POST /api/gifts/enrich-marque
@@ -29,7 +28,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Non authentifié" }, { status: 401 });
     }
 
-    const user = session.user as { id: string; role?: string; name?: string | null; email?: string | null };
+    const user = session.user as {
+      id: string;
+      role?: string;
+      name?: string | null;
+      email?: string | null;
+    };
     if (!ALLOWED.includes((user.role || "") as (typeof ALLOWED)[number])) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
@@ -99,18 +103,13 @@ export async function POST(req: NextRequest) {
 
     const marque = await prisma.marque.findUnique({
       where: { id: resolved.marqueId },
-      select: {
-        id: true,
-        nom: true,
-        contacts: {
-          // Gift : contacts masqués outreach OK, hors Achats/AO
-          where: { OR: [{ source: null }, { source: { not: "AO" } }] },
-          select: { email: true, emailSuggested: true },
-        },
-      },
+      select: { id: true, nom: true },
     });
     if (!marque) {
-      return NextResponse.json({ error: "Marque introuvable après création" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Marque introuvable après création" },
+        { status: 500 }
+      );
     }
 
     if (gift) {
@@ -136,64 +135,20 @@ export async function POST(req: NextRequest) {
     }
 
     const giftLabel = gift?.reference ? `Gift ${gift.reference}` : "Demande Gift";
-    const strategyReason = `${giftLabel} — contacts CRM à compléter`;
 
-    // Mission déjà en file pour cette marque (évite les doublons) ?
-    const existingAwaiting = await prisma.contactMission.findFirst({
-      where: {
-        marqueId: marque.id,
-        awaitingContactsCompletion: true,
-        status: { not: "CANCELLED" },
-      },
-      select: { id: true },
-      orderBy: { contactsCompletionRequestedAt: "desc" },
+    // Clic « Enrichir » : toujours signaler, même si 2+ emails (contrôle CRM).
+    const ensured = await ensureGiftMarqueInAwaitingEnrichissement({
+      marqueId: marque.id,
+      giftReference: gift?.reference || null,
+      talentId: resolvedTalentId,
+      talentName,
+      createdById: user.id,
+      onlyIfNeedsContacts: false,
     });
 
-    let missionId = existingAwaiting?.id || null;
-    let alreadyQueued = Boolean(existingAwaiting);
-
-    if (!existingAwaiting) {
-      const mission = await prisma.contactMission.create({
-        data: {
-          talentId: resolvedTalentId,
-          creatorName: talentName || "Gift",
-          targetBrand: marque.nom,
-          targetBrandKey: normalizeMissionBrandKey(marque.nom),
-          marqueId: marque.id,
-          strategyReason,
-          awaitingContactsCompletion: true,
-          contactsCompletionRequestedAt: new Date(),
-          createdById: user.id,
-        },
-        select: { id: true },
-      });
-      missionId = mission.id;
-    } else {
-      await prisma.contactMission.update({
-        where: { id: existingAwaiting.id },
-        data: {
-          contactsCompletionRequestedAt: new Date(),
-          strategyReason,
-          ...(resolvedTalentId ? { talentId: resolvedTalentId } : {}),
-        },
-      });
-    }
-
-    // Contacts sans email → file principale /enrichissement (QUEUED),
-    // en plus du signal « Marques en attente » (tab=attente).
-    let lookupQueued = 0;
-    try {
-      const queued = await queueMarqueEnrichissement({ marqueId: marque.id });
-      if (queued.ok) lookupQueued = queued.queued;
-    } catch (e) {
-      console.warn(
-        "[gifts/enrich-marque] queueMarqueEnrichissement soft:",
-        e instanceof Error ? e.message : e
-      );
-    }
-
-    const requestedByName =
-      user.name?.trim() || user.email || "Quelqu’un";
+    const lookupQueued = ensured.lookupQueued;
+    const alreadyQueued = !ensured.created && !ensured.skipped;
+    const requestedByName = user.name?.trim() || user.email || "Quelqu’un";
     const enrichLien =
       lookupQueued > 0 ? "/enrichissement" : "/enrichissement?tab=attente";
 
@@ -226,11 +181,6 @@ export async function POST(req: NextRequest) {
       )
     );
 
-    const emailableCount = marque.contacts.filter((c) => {
-      const email = (c.email || c.emailSuggested || "").trim();
-      return email.includes("@");
-    }).length;
-
     const baseMsg = alreadyQueued
       ? `${marque.nom} est déjà signalée en attente`
       : `${marque.nom} ajoutée et envoyée en enrichissement`;
@@ -243,10 +193,10 @@ export async function POST(req: NextRequest) {
       ok: true,
       marque: { id: marque.id, nom: marque.nom },
       created: resolved.created,
-      missionId,
+      missionId: ensured.missionId,
       alreadyQueued,
       lookupQueued,
-      emailableCount,
+      emailableCount: ensured.emailableCount,
       enrichPath: enrichLien,
       message: `${baseMsg}${queueMsg}.`,
     });

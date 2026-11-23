@@ -8,6 +8,7 @@ import type { Role } from "@prisma/client";
 import { Resend } from "resend";
 import { render } from "@react-email/render";
 import { GiftStatutEmail } from "@/emails/GiftStatutEmail";
+import { ensureGiftMarqueInAwaitingEnrichissement } from "@/lib/resolve-awaiting-enrichissement";
 
 // GET /api/gifts/[id] - Détails d'une demande
 export async function GET(
@@ -399,6 +400,30 @@ export async function PATCH(
         if (!demande.marqueId) {
           updateData.marqueId = fresh[0];
         }
+        // Marques sans assez d'emails → file Gifting / enrichissement.
+        const talentRow = await prisma.talent.findUnique({
+          where: { id: demande.talentId },
+          select: { prenom: true, nom: true },
+        });
+        const talentName =
+          `${talentRow?.prenom || ""} ${talentRow?.nom || ""}`.trim() || "Gift";
+        await Promise.all(
+          fresh.map((marqueId) =>
+            ensureGiftMarqueInAwaitingEnrichissement({
+              marqueId,
+              giftReference: demande.reference,
+              talentId: demande.talentId,
+              talentName,
+              createdById: user.id,
+              onlyIfNeedsContacts: true,
+            }).catch((e) => {
+              console.warn(
+                "[gifts] ensure awaiting soft:",
+                e instanceof Error ? e.message : e
+              );
+            })
+          )
+        );
       }
     }
 

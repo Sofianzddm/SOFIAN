@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
-import { formatAwaitingSourcesLabel } from "@/lib/resolve-awaiting-enrichissement";
+import {
+  formatAwaitingSourcesLabel,
+  missionReasonLooksLikeGift,
+} from "@/lib/resolve-awaiting-enrichissement";
 
 /**
  * GET — marques en attente d'enrichissement, groupées par fiche CRM.
@@ -11,6 +14,47 @@ import { formatAwaitingSourcesLabel } from "@/lib/resolve-awaiting-enrichissemen
 const ALLOWED = ["ADMIN", "CASTING_MANAGER"] as const;
 
 type SourceKind = "pipeline" | "projet" | "gift";
+
+const AWAITING_MISSION_SELECT = {
+  id: true,
+  targetBrand: true,
+  creatorName: true,
+  strategyReason: true,
+  stage: true,
+  contactsCompletionRequestedAt: true,
+  updatedAt: true,
+  marqueId: true,
+  campaignId: true,
+  marque: {
+    select: {
+      id: true,
+      nom: true,
+    },
+  },
+  campaign: {
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      talent: { select: { prenom: true, nom: true } },
+    },
+  },
+  talent: { select: { prenom: true, nom: true } },
+  createdBy: { select: { prenom: true, nom: true } },
+} as const;
+
+const AWAITING_BASE_WHERE = {
+  awaitingContactsCompletion: true,
+  status: { not: "CANCELLED" as const },
+  OR: [
+    { campaignId: null },
+    {
+      campaign: {
+        status: { not: "CLOSED" as const },
+      },
+    },
+  ],
+};
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,52 +66,47 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
-    const missions = await prisma.contactMission.findMany({
-      where: {
-        awaitingContactsCompletion: true,
-        status: { not: "CANCELLED" },
-        OR: [
-          { campaignId: null },
-          {
-            campaign: {
-              status: { not: "CLOSED" },
-            },
-          },
+    // File générale plafonnée + TOUJOURS les missions gift (sinon elles
+    // disparaissent du filtre Gifting dès que le pipeline dépasse le plafond).
+    const [recentMissions, giftMissions] = await Promise.all([
+      prisma.contactMission.findMany({
+        where: AWAITING_BASE_WHERE,
+        orderBy: [
+          { contactsCompletionRequestedAt: "desc" },
+          { updatedAt: "desc" },
         ],
-      },
-      orderBy: [
-        { contactsCompletionRequestedAt: "desc" },
-        { updatedAt: "desc" },
-      ],
-      take: 300,
-      select: {
-        id: true,
-        targetBrand: true,
-        creatorName: true,
-        strategyReason: true,
-        stage: true,
-        contactsCompletionRequestedAt: true,
-        updatedAt: true,
-        marqueId: true,
-        campaignId: true,
-        marque: {
-          select: {
-            id: true,
-            nom: true,
-          },
+        take: 300,
+        select: AWAITING_MISSION_SELECT,
+      }),
+      prisma.contactMission.findMany({
+        where: {
+          awaitingContactsCompletion: true,
+          status: { not: "CANCELLED" },
+          campaignId: null,
+          OR: [
+            { strategyReason: { startsWith: "Gift ", mode: "insensitive" } },
+            {
+              strategyReason: { contains: "Demande Gift", mode: "insensitive" },
+            },
+            {
+              strategyReason: { contains: "demande gift", mode: "insensitive" },
+            },
+            { strategyReason: { contains: "GIFT-", mode: "insensitive" } },
+          ],
         },
-        campaign: {
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            talent: { select: { prenom: true, nom: true } },
-          },
-        },
-        talent: { select: { prenom: true, nom: true } },
-        createdBy: { select: { prenom: true, nom: true } },
-      },
-    });
+        orderBy: [
+          { contactsCompletionRequestedAt: "desc" },
+          { updatedAt: "desc" },
+        ],
+        take: 200,
+        select: AWAITING_MISSION_SELECT,
+      }),
+    ]);
+
+    const byId = new Map<string, (typeof recentMissions)[number]>();
+    for (const m of recentMissions) byId.set(m.id, m);
+    for (const m of giftMissions) byId.set(m.id, m);
+    const missions = Array.from(byId.values());
 
     const marqueIds = Array.from(
       new Set(
@@ -137,13 +176,69 @@ export async function GET(request: NextRequest) {
 
     const groups = new Map<string, Group>();
 
+    // Marques aussi liées à une demande gift (même si la mission est projet /
+    // pipeline) → source « gift » pour le filtre Gifting.
+    const giftsByMarque = new Map<
+      string,
+      Array<{ id: string; reference: string; talentName: string }>
+    >();
+    if (marqueIds.length > 0) {
+      const [giftLinks, giftPrincipals] = await Promise.all([
+        prisma.demandeGiftMarque.findMany({
+          where: { marqueId: { in: marqueIds } },
+          select: {
+            marqueId: true,
+            demandeGift: {
+              select: {
+                id: true,
+                reference: true,
+                talent: { select: { prenom: true, nom: true } },
+              },
+            },
+          },
+          take: 500,
+        }),
+        prisma.demandeGift.findMany({
+          where: { marqueId: { in: marqueIds } },
+          select: {
+            id: true,
+            reference: true,
+            marqueId: true,
+            talent: { select: { prenom: true, nom: true } },
+          },
+          take: 500,
+        }),
+      ]);
+      const pushGift = (
+        mid: string,
+        g: {
+          id: string;
+          reference: string;
+          talent?: { prenom?: string | null; nom?: string | null } | null;
+        }
+      ) => {
+        const list = giftsByMarque.get(mid) || [];
+        if (list.some((x) => x.id === g.id)) return;
+        list.push({
+          id: g.id,
+          reference: g.reference,
+          talentName: `${g.talent?.prenom || ""} ${g.talent?.nom || ""}`.trim(),
+        });
+        giftsByMarque.set(mid, list);
+      };
+      for (const row of giftLinks) {
+        if (row.demandeGift?.id) pushGift(row.marqueId, row.demandeGift);
+      }
+      for (const g of giftPrincipals) {
+        if (g.marqueId) pushGift(g.marqueId, g);
+      }
+    }
+
     for (const m of missions) {
       const brandName = m.marque?.nom || m.targetBrand;
       const marqueId = m.marqueId || m.marque?.id || null;
       const reason = String(m.strategyReason || "");
-      const isGift =
-        /^gift\b/i.test(reason.trim()) ||
-        reason.toLowerCase().includes("demande gift");
+      const isGift = missionReasonLooksLikeGift(reason);
       const kind: SourceKind = m.campaignId
         ? "projet"
         : isGift
@@ -161,9 +256,12 @@ export async function GET(request: NextRequest) {
         ? `${m.createdBy.prenom || ""} ${m.createdBy.nom || ""}`.trim()
         : "";
       const requestedAt = m.contactsCompletionRequestedAt?.toISOString() ?? null;
+      const linkedGifts = marqueId ? giftsByMarque.get(marqueId) || [] : [];
+      const primaryGift = linkedGifts[0] || null;
       const contextLabel =
         kind === "gift"
-          ? reason.split("—")[0]?.trim() || "Gifting"
+          ? reason.split("—")[0]?.trim() ||
+            (primaryGift ? `Gifting ${primaryGift.reference}` : "Gifting")
           : kind === "pipeline"
             ? "Pipeline indiv"
             : m.campaign?.title
@@ -171,7 +269,9 @@ export async function GET(request: NextRequest) {
               : "Projet outreach";
       const contextPath =
         kind === "gift"
-          ? "/gifts"
+          ? primaryGift
+            ? `/gifts/${primaryGift.id}`
+            : "/gifts"
           : kind === "pipeline"
             ? "/strategy/projet-individuel-talent/pipeline"
             : `/projets-outreach/${m.campaignId}`;
@@ -219,6 +319,27 @@ export async function GET(request: NextRequest) {
         requestedByName: requester || null,
         requestedAt,
       });
+
+      // Lien gift CRM même si la mission active est projet / pipeline.
+      if (linkedGifts.length > 0 && !group.sources.includes("gift")) {
+        group.sources.push("gift");
+      }
+      for (const g of linkedGifts) {
+        const giftLabel = `Gifting ${g.reference}`;
+        if (group.contexts.some((c) => c.kind === "gift" && c.label === giftLabel)) {
+          continue;
+        }
+        group.contexts.push({
+          missionId: m.id,
+          kind: "gift",
+          label: giftLabel,
+          path: `/gifts/${g.id}`,
+          talentName: g.talentName || talentName || m.creatorName,
+          creatorName: m.creatorName,
+          requestedByName: requester || null,
+          requestedAt,
+        });
+      }
     }
 
     const items = Array.from(groups.values()).map((g) => {

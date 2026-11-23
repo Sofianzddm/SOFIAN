@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import {
   formatAwaitingSourcesLabel,
+  missionReasonLooksLikeGift,
   notifyAssistanteTmGiftReady,
   notifyCastingMarqueDebloquee,
   type AwaitingSourceKind,
@@ -70,9 +71,7 @@ export async function POST(
 
     const reason = String(mission.strategyReason || "");
     const isGift =
-      !mission.campaignId &&
-      (/^gift\b/i.test(reason.trim()) ||
-        reason.toLowerCase().includes("demande gift"));
+      !mission.campaignId && missionReasonLooksLikeGift(reason);
     const source: AwaitingSourceKind = mission.campaignId
       ? "projet"
       : isGift
