@@ -7,6 +7,7 @@ import type {
   CartoAiContactCandidate,
   CartoAiMarche,
 } from "@/lib/carto-ai/types";
+import type { CartoChatMarket } from "@/lib/carto-chat-vps/chat-prompt";
 
 /** Classement JSON post-Chat — mini = rapide (le research est déjà fait par Chat). */
 const OPENAI_MODEL = "gpt-4o-mini";
@@ -530,12 +531,23 @@ function mergeContacts(
 export async function structureChatAnswer(opts: {
   company: string;
   chatAnswer: string;
+  /** FR (défaut) ou BENELUX — change le biais d'extraction / marche. */
+  market?: CartoChatMarket;
 }): Promise<StructuredChat> {
   const apiKey = process.env.OPENAI_API_KEY?.trim()?.replace(/^["']|["']$/g, "");
   if (!apiKey) throw new Error("OPENAI_API_KEY manquante");
 
+  const market: CartoChatMarket =
+    opts.market === "BENELUX" ? "BENELUX" : "FR";
   const fullAnswer = opts.chatAnswer;
   const answerForModel = clipAnswer(fullAnswer);
+  const marketRules =
+    market === "BENELUX"
+      ? `- Marché = BENELUX : marche "EU" pour les contacts BE/NL/LU / Benelux.
+- N'extrais PAS les contacts purement France/Paris sauf s'ils couvrent explicitement le Benelux (preuve dans note).
+- Agences : priorise le mandat local Belux/NL/LU ; ne force pas une agence FR sans preuve Benelux.
+- Localisations attendues : Bruxelles, Anvers, Amsterdam, Rotterdam, Luxembourg, Benelux…`
+      : `- Marché = FRANCE : marche "FR" par défaut (EU/INT seulement si explicitement EMEA/international).`;
 
   const first = await callStructureModel({
     apiKey,
@@ -544,6 +556,7 @@ export async function structureChatAnswer(opts: {
     user: `Tu structures la réponse ChatGPT suivante pour Glow-up (carto influence).
 
 Marque: ${opts.company}
+Marché cible: ${market === "BENELUX" ? "Benelux (BE/NL/LU)" : "France"}
 
 Réponse Chat (${fullAnswer.length} caractères — extrais TOUTES les personnes nommées):
 """
@@ -555,10 +568,11 @@ ${jsonSchemaHint()}
 
 Règles EXHAUSTIVES (critique — ne pas sous-extraire):
 - Objectif: 15 à 30 contacts si la réponse en cite autant. INTERDIT de s'arrêter à 3–10.
-- Parcours TOUS les tableaux et listes (marque, agence, marketing, digital, com DPP, secondaires, top 10, périphèse).
+- Parcours TOUS les tableaux et listes (marque, agence, marketing, digital, com DPP, secondaires, top 10, synthèseèse).
 - Inclus P1, P2, P3 ET P4 (historiques / périphériques / à vérifier).
 - Une personne = une entrée. Déduplique prénom+nom. Ne invente PAS de noms.
 ${perimeterRules()}
+${marketRules}
 - agencies[]: agences nommées; primary:true = mandat influence/RP le plus solide.
 - poste: rôle réel — PAS "Profil LinkedIn…".
 - note: preuve courte.
@@ -580,11 +594,24 @@ ${perimeterRules()}
       `[carto-structure] ${contacts.length} contacts < ${MIN_CONTACTS_BEFORE_SECOND_PASS} — 2e passe oubliés`
     );
     try {
+      const secondFocus =
+        market === "BENELUX"
+          ? `- Profils Belgium / België / Netherlands / Nederland / Luxembourg / Benelux
+- Brand / marketing / influence / communicatie / PR locaux
+- Agences mandat Belux ou NL (pas seulement une agence FR)
+- Noms du top 10 / synthèseèse absents de la liste
+- Historiques P4 et périphériques Benelux`
+          : `- Com / RP / événements DPP
+- Digital / e-commerce marque
+- Marketing produit cités dans les tableaux
+- Historiques P4 et "contacts périphériques"
+- Noms du top 10 / synthèseèse absents de la liste ci-dessus
+- Agences one-shot (Boss Corp, Globe…) en "Autre agence …"`;
       const second = await callStructureModel({
         apiKey,
         system:
           "Tu complètes une carto influence. N'extrais QUE les personnes manquantes. JSON strict.",
-        user: `Passe 2 / 2 — contacts OUBLIÉS uniquement pour ${opts.company}.
+        user: `Passe 2 / 2 — contacts OUBLIÉS uniquement pour ${opts.company} (marché ${market === "BENELUX" ? "Benelux" : "France"}).
 
 Déjà extraits (NE PAS les renvoyer):
 ${already.map((n) => `- ${n}`).join("\n") || "(aucun)"}
@@ -598,14 +625,10 @@ Extrais UNIQUEMENT un JSON (même schéma):
 ${jsonSchemaHint()}
 
 Focus obligatoire — cherche surtout:
-- Com / RP / événements DPP (Karina, Mathieu, Frédérique, Anne-Laure…)
-- Digital / e-commerce marque (Margaux Antoine, Léa Amsellem…)
-- Marketing produit cités dans les tableaux
-- Historiques P4 et "contacts périphériques"
-- Noms du top 10 / synthèseèse absents de la liste ci-dessus
-- Agences one-shot (Boss Corp, Globe…) en "Autre agence …"
+${secondFocus}
 
 ${perimeterRules()}
+${marketRules}
 - Ne renvoie QUE des personnes ABSENTES de la liste "déjà extraits".
 - agencies[]: seulement si nouvelle agence utile (sinon []).
 - Réponds JSON pur.`,
@@ -646,5 +669,19 @@ ${perimeterRules()}
       e instanceof Error ? e.message : e
     );
   }
+
+  // Classement P1 → P4 (stable) avant retour UI / commit.
+  const prioRank = (p: string | null | undefined) => {
+    const s = String(p || "").toUpperCase();
+    if (s.includes("P1")) return 0;
+    if (s.includes("P2")) return 1;
+    if (s.includes("P3")) return 2;
+    if (s.includes("P4")) return 3;
+    return 4;
+  };
+  withLi = [...withLi].sort(
+    (a, b) => prioRank(a.priorite) - prioRank(b.priorite)
+  );
+
   return { contacts: withLi, agencies };
 }

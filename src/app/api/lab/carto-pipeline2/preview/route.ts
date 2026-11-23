@@ -35,6 +35,8 @@ export async function POST(request: NextRequest) {
       company?: string;
       domain?: string;
       language?: string;
+      /** FR (défaut) | BENELUX — structuration + biais marché. */
+      market?: string;
       mode?: string;
       chatAnswer?: string;
       chatPrompt?: string;
@@ -48,6 +50,7 @@ export async function POST(request: NextRequest) {
     }
 
     const language = body.language === "en" ? "en" : "fr";
+    const market = body.market === "BENELUX" ? "BENELUX" : "FR";
     const domain = String(body.domain || "").trim() || null;
     const mode =
       body.mode === "paste"
@@ -83,6 +86,7 @@ export async function POST(request: NextRequest) {
                 company,
                 domain,
                 language,
+                market,
                 endMarker: body.endMarker
                   ? String(body.endMarker)
                   : undefined,
@@ -91,6 +95,7 @@ export async function POST(request: NextRequest) {
                 company,
                 domain,
                 language,
+                market,
                 chatPrompt: body.chatPrompt
                   ? String(body.chatPrompt)
                   : undefined,

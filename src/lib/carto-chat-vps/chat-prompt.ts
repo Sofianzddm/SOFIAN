@@ -350,9 +350,44 @@ const GEO_BY_MARKET: Record<
     en_geo: "au Benelux (Belgique, Pays-Bas, Luxembourg)",
     geo: "Benelux",
     geo_query:
-      "Benelux OR Belgium OR Netherlands OR Luxembourg OR Belgique OR Nederland",
+      "Benelux OR Belgium OR Netherlands OR Luxembourg OR Belgique OR Nederland OR België",
   },
 };
+
+/** Annexes marché — le corps FR seul ne suffit pas pour le Benelux. */
+const BENELUX_MARKET_APPENDIX = `
+### RÈGLES SPÉCIFIQUES — MARCHÉ BENELUX (critique)
+
+Tu cartographies **uniquement** le marché Benelux. Ce n’est **pas** une copie de la France.
+
+**Interdit :**
+- Recopier les contacts France / Paris / « Head of Influence France » comme s’ils géraient le Benelux
+- Te limiter aux recherches en français
+- Assumer que l’agence FR (WOO, Olyn, etc.) détient aussi le mandat BE/NL/LU sans preuve locale
+- Te concentrer sur Bruxelles uniquement en oubliant Amsterdam / Anvers / Luxembourg
+
+**Obligatoire — langues & requêtes :**
+Refais **chaque** recherche clé en **FR + NL + EN** (et DE pour le Luxembourg si pertinent) :
+- FR : influence, créateurs, RP, communication, brand
+- NL : influencer, influencers, marketing, merk, communicatie, PR, partnerships, creators
+- EN : influencer marketing, brand marketing, PR agency, casting, creators Benelux
+
+Requêtes LinkedIn / web à lancer explicitement :
+- \`site:linkedin.com/in/ "{marque}" Belgium OR België OR Bruxelles OR Brussels OR Antwerp OR Anvers\`
+- \`site:linkedin.com/in/ "{marque}" Netherlands OR Nederland OR Amsterdam OR Rotterdam\`
+- \`site:linkedin.com/in/ "{marque}" Luxembourg OR Benelux\`
+- \`"{marque}" (Belgium OR België OR Netherlands OR Nederland) (influencer OR influence OR creators OR PR OR agency OR agence)\`
+- \`"{marque}" Benelux (Brand Manager OR Marketing Manager OR Influence OR PR)\`
+- Variantes NL : \`"{marque}" (merkmanager OR "brand manager" OR communicatie OR "influencer marketing")\`
+
+**Localisation :**
+Priorise les profils basés **Belgique / Pays-Bas / Luxembourg** ou intitulés « Benelux », « Belux », « Belux & NL », « Nordics & Benelux ». Un profil Paris « EMEA » n’est P1 que s’il **couvre explicitement** le Benelux avec preuve.
+
+**Mandat agence local :**
+Cherche l’agence **locale** (BE/NL/LU) avant d’étendre une agence France. Note clairement si le mandat est Belux, NL-only, BE-only, ou pan-Benelux.
+
+**Livrable :** tableaux internes + groupe + agence **Benelux**, avec priorités P1–P4 calées sur ce marché uniquement.
+`;
 
 function fillGeoPlaceholders(
   body: string,
@@ -379,8 +414,12 @@ export function buildCartoChatResearchPrompt(opts: {
 }): string {
   const market = opts.market === "BENELUX" ? "BENELUX" : "FR";
   const marque = String(opts.marque || "").trim() || "{marque}";
-  return fillGeoPlaceholders(CARTO_CHAT_RESEARCH_PROMPT_BODY, market).replaceAll(
+  const base = fillGeoPlaceholders(CARTO_CHAT_RESEARCH_PROMPT_BODY, market).replaceAll(
     "{marque}",
     marque
   );
+  if (market === "BENELUX") {
+    return `${base}\n${BENELUX_MARKET_APPENDIX.replaceAll("{marque}", marque)}`;
+  }
+  return base;
 }

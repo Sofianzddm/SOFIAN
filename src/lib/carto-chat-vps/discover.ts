@@ -10,7 +10,10 @@
 
 import { gatherInfluenceGrounding } from "@/lib/carto-ai/exa-grounding";
 import { answerMatchesCompany } from "@/lib/carto-chat-vps/answer-match";
-import { CARTO_CHAT_RESEARCH_PROMPT } from "@/lib/carto-chat-vps/chat-prompt";
+import {
+  CARTO_CHAT_RESEARCH_PROMPT,
+  type CartoChatMarket,
+} from "@/lib/carto-chat-vps/chat-prompt";
 import {
   answerHasEndMarker,
   appendEndMarkerInstruction,
@@ -228,6 +231,7 @@ export async function runChatVps(opts: {
   company: string;
   domain?: string | null;
   language?: "fr" | "en";
+  market?: CartoChatMarket;
   /** Override du message (sinon la question influence FR). */
   chatPrompt?: string | null;
 }): Promise<CartoChatVpsPreviewResult> {
@@ -236,6 +240,8 @@ export async function runChatVps(opts: {
   if (!company) throw new Error("Marque requise");
   const domain = opts.domain?.trim() || null;
   const language = opts.language === "en" ? "en" : "fr";
+  const market: CartoChatMarket =
+    opts.market === "BENELUX" ? "BENELUX" : "FR";
 
   const { prompt, endMarker } = buildUserChatPrompt(company, opts.chatPrompt);
   let answer: string;
@@ -269,6 +275,7 @@ export async function runChatVps(opts: {
   let structured = await structureChatAnswer({
     company,
     chatAnswer: answer,
+    market,
   });
 
   // Capture trop tôt (0 contact) alors que Chat a fini → relire l'écran
@@ -287,6 +294,7 @@ export async function runChatVps(opts: {
       structured = await structureChatAnswer({
         company,
         chatAnswer: answer,
+        market,
       });
     } catch (e) {
       console.warn(
@@ -348,12 +356,15 @@ export async function runChatReadScreen(opts: {
   company: string;
   domain?: string | null;
   language?: "fr" | "en";
+  market?: CartoChatMarket;
   /** Si fourni : refuse l’ancienne réponse (même marque) sans ce jeton. */
   endMarker?: string | null;
 }): Promise<CartoChatVpsPreviewResult> {
   const started = Date.now();
   const company = opts.company.trim();
   if (!company) throw new Error("Marque requise");
+  const market: CartoChatMarket =
+    opts.market === "BENELUX" ? "BENELUX" : "FR";
 
   const expected = opts.endMarker?.trim() || null;
   // ★ Toujours cibler CE run — sans marker, /read-last prend le « primary »
@@ -377,6 +388,7 @@ export async function runChatReadScreen(opts: {
   const structured = await structureChatAnswer({
     company,
     chatAnswer: answer,
+    market,
   });
 
   return {

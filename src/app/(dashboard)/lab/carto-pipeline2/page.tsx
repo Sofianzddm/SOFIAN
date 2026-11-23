@@ -209,6 +209,16 @@ export default function CartoAiPipelineChatLabPage() {
     return "marque";
   }
 
+  /** P1 → P4 (puis sans prio) — pour le classement dans chaque colonne. */
+  function priorityRank(p: string | null | undefined): number {
+    const s = String(p || "").toUpperCase();
+    if (s.includes("P1")) return 0;
+    if (s.includes("P2")) return 1;
+    if (s.includes("P3")) return 2;
+    if (s.includes("P4")) return 3;
+    return 4;
+  }
+
   const grouped = useMemo(() => {
     const map: Record<
       ContactCouche,
@@ -217,6 +227,13 @@ export default function CartoAiPipelineChatLabPage() {
     rows.forEach((c, i) => {
       map[contactCouche(c)].push({ c, i });
     });
+    for (const key of Object.keys(map) as ContactCouche[]) {
+      map[key].sort((a, b) => {
+        const d = priorityRank(a.c.priorite) - priorityRank(b.c.priorite);
+        if (d !== 0) return d;
+        return a.i - b.i;
+      });
+    }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, primaryAgency]);
@@ -322,6 +339,7 @@ export default function CartoAiPipelineChatLabPage() {
             company: company.trim(),
             domain: domain.trim() || undefined,
             language,
+            market,
             mode: "read_screen",
             // Toujours LE jeton de CE run (jamais un ancien)
             endMarker: ourEndMarker || undefined,
@@ -584,6 +602,10 @@ export default function CartoAiPipelineChatLabPage() {
       }
       setLastEndMarker(endMarker);
 
+      const readMarket: CartoChatMarket =
+        pipelinePhase === "carto_be" || ficheMarket === "BENELUX"
+          ? "BENELUX"
+          : "FR";
       const res = await fetch("/api/lab/carto-pipeline2/preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -591,6 +613,7 @@ export default function CartoAiPipelineChatLabPage() {
           company: company.trim(),
           domain: domain.trim() || undefined,
           language,
+          market: readMarket,
           mode: "read_screen",
           endMarker,
         }),
@@ -849,15 +872,18 @@ export default function CartoAiPipelineChatLabPage() {
 
   function switchFicheMarket(next: FicheMarket) {
     if (next === ficheMarket) return;
+    const wasBenelux = ficheMarket === "BENELUX";
+    const nextBenelux = next === "BENELUX";
     setFicheMarket(next);
-    clearMarque();
-    // Changer de marché invalide l’aperçu (prompt FR ≠ BE).
-    setPreview(null);
-    setSelected({});
-    setCommitResult(null);
-    setBeCommitResult(null);
-    setError(null);
-    setPipelinePhase(next === "BENELUX" ? "carto_be" : "carto_fr");
+    // FR ↔ BOTH : même cible France — garde preview, sélection et fiche.
+    // FR/BOTH ↔ BE : autre type de fiche → reset marque seulement.
+    // Ne jamais vider preview/commit : sinon retour « page d'accueil » après Analyse.
+    if (wasBenelux !== nextBenelux) {
+      clearMarque();
+    }
+    if (!preview && !commitResult) {
+      setPipelinePhase(nextBenelux ? "carto_be" : "carto_fr");
+    }
   }
 
   function ficheMarketLabel(m: FicheMarket = ficheMarket) {
