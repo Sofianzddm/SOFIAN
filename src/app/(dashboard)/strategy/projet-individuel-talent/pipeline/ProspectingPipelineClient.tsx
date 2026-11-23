@@ -91,6 +91,7 @@ type Mission = {
     email?: string;
     role?: string;
     market?: "FR" | "BENELUX";
+    language?: "fr" | "en";
   }> | null;
   scheduledSendAt?: string | null;
   sentAt?: string | null;
@@ -1593,6 +1594,7 @@ export function ProspectingPipelineClient() {
         email?: string;
         role?: string;
         market?: "FR" | "BENELUX";
+        language?: "fr" | "en";
       }
     >();
     for (const c of currentContacts) {
