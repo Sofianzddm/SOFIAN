@@ -172,6 +172,9 @@ export default function GiftDetailPage() {
   const [activeTab, setActiveTab] = useState<"chat" | "brands">("chat");
   const [enriching, setEnriching] = useState(false);
   const [enrichFlash, setEnrichFlash] = useState<string | null>(null);
+  const [enrichFlashHref, setEnrichFlashHref] = useState(
+    "/enrichissement?tab=attente"
+  );
   const [archiving, setArchiving] = useState(false);
   const [marqueQuery, setMarqueQuery] = useState("");
   const [marqueSuggestions, setMarqueSuggestions] = useState<
@@ -523,6 +526,7 @@ export default function GiftDetailPage() {
     try {
       setEnriching(true);
       setEnrichFlash(null);
+      setEnrichFlashHref("/enrichissement?tab=attente");
       const res = await fetch("/api/gifts/enrich-marque", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -535,6 +539,9 @@ export default function GiftDetailPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data.error || "Impossible d'envoyer en enrichissement");
+      }
+      if (typeof data.enrichPath === "string" && data.enrichPath) {
+        setEnrichFlashHref(data.enrichPath);
       }
       setEnrichFlash(
         data.message ||
@@ -1029,10 +1036,7 @@ export default function GiftDetailPage() {
                     {enrichFlash && (
                       <p className="mt-2 text-xs font-medium text-amber-800">
                         {enrichFlash}{" "}
-                        <Link
-                          href="/enrichissement?tab=attente"
-                          className="underline"
-                        >
+                        <Link href={enrichFlashHref} className="underline">
                           Voir la file
                         </Link>
                       </p>
@@ -1396,7 +1400,7 @@ export default function GiftDetailPage() {
                             <div className="min-w-0">
                               {awaiting ? (
                                 <Link
-                                  href="/enrichissement?tab=attente"
+                                  href="/enrichissement"
                                   className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-[3px] text-xs font-medium text-amber-800 hover:bg-amber-100"
                                   title="Voir la file d'enrichissement"
                                 >

@@ -141,6 +141,9 @@ export default function NewGiftPage() {
   const [showCibleSuggestions, setShowCibleSuggestions] = useState(false);
   const [enrichingMarque, setEnrichingMarque] = useState(false);
   const [enrichFlash, setEnrichFlash] = useState<string | null>(null);
+  const [enrichFlashHref, setEnrichFlashHref] = useState(
+    "/enrichissement?tab=attente"
+  );
 
   const [formData, setFormData] = useState({
     talentId: "",
@@ -311,6 +314,7 @@ export default function NewGiftPage() {
       setEnrichingMarque(true);
       setError(null);
       setEnrichFlash(null);
+      setEnrichFlashHref("/enrichissement?tab=attente");
       const res = await fetch("/api/gifts/enrich-marque", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -328,6 +332,9 @@ export default function NewGiftPage() {
         prev.some((m) => m.id === marque.id) ? prev : [...prev, marque]
       );
       addCible({ type: "MARQUE", id: marque.id, label: marque.nom });
+      if (typeof data.enrichPath === "string" && data.enrichPath) {
+        setEnrichFlashHref(data.enrichPath);
+      }
       setEnrichFlash(
         data.message ||
           `${marque.nom} ajoutée et envoyée en enrichissement.`
@@ -834,7 +841,7 @@ export default function NewGiftPage() {
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
                   {enrichFlash}{" "}
                   <a
-                    href="/enrichissement?tab=attente"
+                    href={enrichFlashHref}
                     className="font-semibold underline"
                   >
                     Voir la file

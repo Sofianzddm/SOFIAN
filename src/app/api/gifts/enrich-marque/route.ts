@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
 import { normalizeMissionBrandKey } from "@/lib/contact-missions";
+import { queueMarqueEnrichissement } from "@/lib/envoyer-marque-outreach";
 
 /**
  * POST /api/gifts/enrich-marque
@@ -178,9 +179,23 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Contacts sans email → file principale /enrichissement (QUEUED),
+    // en plus du signal « Marques en attente » (tab=attente).
+    let lookupQueued = 0;
+    try {
+      const queued = await queueMarqueEnrichissement({ marqueId: marque.id });
+      if (queued.ok) lookupQueued = queued.queued;
+    } catch (e) {
+      console.warn(
+        "[gifts/enrich-marque] queueMarqueEnrichissement soft:",
+        e instanceof Error ? e.message : e
+      );
+    }
+
     const requestedByName =
       user.name?.trim() || user.email || "Quelqu’un";
-    const enrichLien = "/enrichissement?tab=attente";
+    const enrichLien =
+      lookupQueued > 0 ? "/enrichissement" : "/enrichissement?tab=attente";
 
     const notifyUsers = await prisma.user.findMany({
       where: {
@@ -190,6 +205,11 @@ export async function POST(req: NextRequest) {
       select: { id: true },
     });
 
+    const notifyDetail =
+      lookupQueued > 0
+        ? `${lookupQueued} email${lookupQueued > 1 ? "s" : ""} à trouver`
+        : "compléter la fiche CRM";
+
     await Promise.all(
       notifyUsers.map((u) =>
         prisma.notification.create({
@@ -197,9 +217,9 @@ export async function POST(req: NextRequest) {
             userId: u.id,
             type: "GENERAL",
             titre: `Enrichir ${marque.nom}`,
-            message: `${requestedByName} a mis ${marque.nom} en attente d'enrichissement (${giftLabel}${
+            message: `${requestedByName} a mis ${marque.nom} en enrichissement (${giftLabel}${
               talentName ? ` · ${talentName}` : ""
-            }).`,
+            } — ${notifyDetail}).`,
             lien: enrichLien,
           },
         })
@@ -211,17 +231,24 @@ export async function POST(req: NextRequest) {
       return email.includes("@");
     }).length;
 
+    const baseMsg = alreadyQueued
+      ? `${marque.nom} est déjà signalée en attente`
+      : `${marque.nom} ajoutée et envoyée en enrichissement`;
+    const queueMsg =
+      lookupQueued > 0
+        ? ` — ${lookupQueued} email${lookupQueued > 1 ? "s" : ""} à trouver dans la file`
+        : " — complète la fiche CRM (Marques en attente)";
+
     return NextResponse.json({
       ok: true,
       marque: { id: marque.id, nom: marque.nom },
       created: resolved.created,
       missionId,
       alreadyQueued,
+      lookupQueued,
       emailableCount,
       enrichPath: enrichLien,
-      message: alreadyQueued
-        ? `${marque.nom} est déjà en file d'enrichissement.`
-        : `${marque.nom} ajoutée et envoyée en enrichissement.`,
+      message: `${baseMsg}${queueMsg}.`,
     });
   } catch (error) {
     console.error("POST /api/gifts/enrich-marque:", error);

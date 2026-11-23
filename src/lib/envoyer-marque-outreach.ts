@@ -201,10 +201,13 @@ export async function queueMarqueEnrichissement(opts: {
       nom: true,
       siteWeb: true,
       contacts: {
-        // Influence (CARTO) ET achats/appel d'offre (AO) : on complète les
-        // emails manquants des deux feuilles. Seuls les CARTO seront ensuite
-        // enrôlés en outreach (cf. enrollInfluenceContacts).
-        where: { source: { in: ["CARTO", "AO"] }, ...ENROLLABLE_CONTACT_WHERE },
+        // Influence (CARTO), achats/AO, et contacts CRM sans source (fiche
+        // manuelle / gift) : on complète les emails manquants. Seuls les
+        // CARTO seront ensuite enrôlés en outreach (cf. enrollInfluenceContacts).
+        where: {
+          OR: [{ source: "CARTO" }, { source: "AO" }, { source: null }],
+          ...ENROLLABLE_CONTACT_WHERE,
+        },
         select: {
           id: true,
           prenom: true,
