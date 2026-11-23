@@ -9,14 +9,11 @@ import {
   canAccessProjetsOutreach,
 } from "@/lib/projets-outreach";
 import {
-  isForbiddenCastingRecipient,
-  loadCastingRecipientBlocklist,
-} from "@/lib/casting-recipient-guard";
-import {
   PORTFOLIO_FALLBACK_FROM_EMAIL,
   portfolioDisplayName,
   ownerFirstnameFromEmail,
 } from "@/lib/marque-portfolio";
+import { loadBrandContactsFrAndBe } from "@/lib/crm-brand-contacts";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -259,6 +256,7 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
         role: string;
         linkedinUrl: string;
         language: "fr" | "en";
+        market: "FR" | "BENELUX";
       }>,
       scheduledSendAt: m.scheduledSendAt,
       sentAt: m.sentAt,
@@ -327,92 +325,27 @@ async function attachMarqueContacts<
     }>;
   }
 >(campaign: T): Promise<T> {
-  const marqueIds = Array.from(
-    new Set(
-      campaign.missions
-        .map((m) => m.marqueId)
-        .filter((id): id is string => Boolean(id))
-    )
+  // Une requête FR+BE par mission (marque liée + homonymes Benelux).
+  await Promise.all(
+    campaign.missions.map(async (m) => {
+      const brand = String(m.marqueNom || m.targetBrand || "").trim();
+      const contacts = await loadBrandContactsFrAndBe({
+        marqueIds: m.marqueId ? [m.marqueId] : [],
+        brandNames: brand ? [brand] : [],
+        requireEmail: true,
+      });
+      m.marqueContacts = contacts.map((c) => ({
+        id: c.id,
+        firstname: c.firstname,
+        lastname: c.lastname,
+        email: c.email,
+        role: c.role,
+        linkedinUrl: c.linkedinUrl,
+        language: c.language,
+        market: c.market,
+      }));
+    })
   );
-  if (marqueIds.length === 0) return campaign;
-
-  const brandByMarqueId = new Map<string, string>();
-  for (const m of campaign.missions) {
-    if (!m.marqueId) continue;
-    const brand = String(m.marqueNom || m.targetBrand || "").trim();
-    if (brand && !brandByMarqueId.has(m.marqueId)) {
-      brandByMarqueId.set(m.marqueId, brand);
-    }
-  }
-
-  const rows = await prisma.marqueContact.findMany({
-    where: {
-      marqueId: { in: marqueIds },
-      outreachExcluded: false,
-      diffusionOptOut: false,
-    },
-    select: {
-      id: true,
-      marqueId: true,
-      prenom: true,
-      nom: true,
-      email: true,
-      emailSuggested: true,
-      poste: true,
-      principal: true,
-      linkedinUrl: true,
-      source: true,
-      language: true,
-    },
-    orderBy: [{ principal: "desc" }, { nom: "asc" }],
-  });
-
-  const blocklist = await loadCastingRecipientBlocklist();
-  const byMarque = new Map<
-    string,
-    Array<{
-      id: string;
-      firstname: string;
-      lastname: string;
-      email: string;
-      role: string;
-      linkedinUrl: string;
-      language: "fr" | "en";
-    }>
-  >();
-  for (const r of rows) {
-    // Exclure uniquement les Appels d'offres. source null/vide = OK (sinon
-    // Prisma NOT source=AO excluait aussi les NULL → 0 contacts Nuxe).
-    if (String(r.source || "").trim().toUpperCase() === "AO") continue;
-    const email = String(r.email || r.emailSuggested || "").trim();
-    if (!email || !email.includes("@")) continue;
-    const firstname = String(r.prenom || "").trim();
-    const lastname = String(r.nom || "").trim();
-    if (
-      isForbiddenCastingRecipient(
-        { email, firstname, lastname },
-        blocklist,
-        { brand: brandByMarqueId.get(r.marqueId) }
-      )
-    ) {
-      continue;
-    }
-    const list = byMarque.get(r.marqueId) || [];
-    list.push({
-      id: r.id,
-      firstname,
-      lastname,
-      email,
-      role: String(r.poste || "").trim(),
-      linkedinUrl: String(r.linkedinUrl || "").trim(),
-      language: String(r.language || "").toLowerCase() === "en" ? "en" : "fr",
-    });
-    byMarque.set(r.marqueId, list);
-  }
-
-  for (const m of campaign.missions) {
-    m.marqueContacts = m.marqueId ? byMarque.get(m.marqueId) || [] : [];
-  }
   return campaign;
 }
 

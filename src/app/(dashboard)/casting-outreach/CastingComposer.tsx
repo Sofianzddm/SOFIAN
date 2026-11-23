@@ -64,7 +64,13 @@ type CastingRecipient = {
   linkedinUrl?: string;
   /** Sous-marques couvertes par ce contact (variable {{ contact.marques }}). */
   marques?: string[];
+  /** Client France ou Benelux (drapeau à la sélection). */
+  market?: "FR" | "BENELUX";
 };
+
+function contactMarketFlag(market?: "FR" | "BENELUX" | null): string {
+  return market === "BENELUX" ? "🇧🇪" : market === "FR" ? "🇫🇷" : "";
+}
 
 /** Langue d'écriture : client EN (mission ou fiche CRM) → anglais systématique. */
 function resolveClientEmailLanguage(
@@ -457,6 +463,7 @@ export interface CastingComposerProps {
         email: string;
         role?: string;
         linkedinUrl?: string;
+        market?: "FR" | "BENELUX";
       }>;
     },
     ctx?: {
@@ -2524,6 +2531,7 @@ export default function CastingComposer({
         email: string;
         role?: string;
         linkedinUrl?: string;
+        market?: "FR" | "BENELUX";
       }>;
     }
   ) => {
@@ -2634,6 +2642,7 @@ export default function CastingComposer({
         email: c.email,
         role: c.role,
         linkedinUrl: c.linkedinUrl,
+        market: c.market,
       }));
 
     const contactIds = useHubspot
@@ -2710,6 +2719,7 @@ export default function CastingComposer({
         email: c.email,
         role: c.role,
         linkedinUrl: c.linkedinUrl,
+        market: c.market,
       }));
     if (selectedContacts.length === 0) {
       onError("Coche au moins un contact destinataire.");
@@ -3126,6 +3136,9 @@ export default function CastingComposer({
                           }}
                         />
                         <span style={{ fontWeight: 600 }}>
+                          {contactMarketFlag(c.market)
+                            ? `${contactMarketFlag(c.market)} `
+                            : ""}
                           {`${c.firstname} ${c.lastname}`.trim() || "—"}
                         </span>
                         {c.role ? (
@@ -4191,7 +4204,19 @@ export default function CastingComposer({
                       />
                       <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium" style={{ color: LICORICE }}>
+                          {contactMarketFlag(c.market)
+                            ? `${contactMarketFlag(c.market)} `
+                            : ""}
                           {`${c.firstname} ${c.lastname}`.trim() || "Contact"}
+                          {c.market === "BENELUX" ? (
+                            <span className="ml-1.5 text-[10px] font-semibold opacity-70">
+                              Benelux
+                            </span>
+                          ) : c.market === "FR" ? (
+                            <span className="ml-1.5 text-[10px] font-semibold opacity-70">
+                              France
+                            </span>
+                          ) : null}
                         </div>
                         {c.role ? (
                           <div className="text-xs mt-0.5 opacity-80" style={{ color: LICORICE }}>

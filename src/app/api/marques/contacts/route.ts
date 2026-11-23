@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import {
+  loadBrandContactsFrAndBe,
+  resolveMarqueIdsForBrand,
+  type CrmBrandContact,
+} from "@/lib/crm-brand-contacts";
+import {
+  isForbiddenCastingRecipient,
+  loadCastingRecipientBlocklist,
+} from "@/lib/casting-recipient-guard";
 import prisma from "@/lib/prisma";
 import { findAllMarqueIdsByName, findMarqueByName } from "@/lib/marque-resolver";
 import {
   loadFuzzyCandidatesCached,
   rankFuzzyCandidates,
 } from "@/lib/marque-fuzzy-search";
-import {
-  isForbiddenCastingRecipient,
-  loadCastingRecipientBlocklist,
-} from "@/lib/casting-recipient-guard";
 
 type SearchedContact = {
   id: string;
@@ -23,14 +28,14 @@ type SearchedContact = {
   source: "app";
   /** Langue fiche contact CRM : "fr" | "en" */
   language?: "fr" | "en";
+  /** FR ou Benelux (si includeBenelux). */
+  market?: "FR" | "BENELUX";
 };
 
 /**
  * Résout une marque à partir d'un nom saisi.
  * 1. Essai exact (slug/alias) via `findMarqueByName`.
- * 2. Repli flou tolérant aux fautes / suffixes : "Grazia" → "Grazia France",
- *    "grazai" → "Grazia", etc. Évite le "ça ne remonte pas" quand le nom stocké
- *    diffère légèrement de ce qui est tapé.
+ * 2. Repli flou tolérant aux fautes / suffixes.
  */
 async function resolveMarqueId(brand: string): Promise<string | null> {
   const exact = await findMarqueByName(brand);
@@ -50,12 +55,10 @@ async function resolveMarqueId(brand: string): Promise<string | null> {
   return ranked[0]?.id ?? null;
 }
 
-// Recherche les contacts d'une marque dans le CRM interne (table `marques`).
-async function searchAppContacts(brand: string): Promise<{
+async function searchAppContactsFrOnly(brand: string): Promise<{
   contacts: SearchedContact[];
   marqueId: string | null;
 }> {
-  // Toutes les fiches au même nom (doublons inclus), pas seulement le 1er slug.
   let marqueIds = await findAllMarqueIdsByName(brand);
   if (marqueIds.length === 0) {
     const fallback = await resolveMarqueId(brand);
@@ -65,10 +68,6 @@ async function searchAppContacts(brand: string): Promise<{
     return { contacts: [], marqueId: null };
   }
 
-  // On renvoie aussi les contacts sans email (importés via carto) : ils doivent
-  // « remonter » pour que l'utilisateur puisse les compléter manuellement.
-  // En revanche on exclut les contacts « Achats / Appel d'offre » (source "AO"),
-  // qui n'ont pas leur place dans le pipeline de prospection talent.
   const rows = await prisma.marqueContact.findMany({
     where: {
       marqueId: { in: marqueIds },
@@ -89,7 +88,6 @@ async function searchAppContacts(brand: string): Promise<{
     orderBy: [{ principal: "desc" }, { nom: "asc" }],
   });
 
-  // Prefère la fiche au slug canonique (ou la 1re) comme marqueId « principal ».
   const primary =
     (await findMarqueByName(brand))?.marqueId ?? marqueIds[0] ?? null;
 
@@ -103,7 +101,10 @@ async function searchAppContacts(brand: string): Promise<{
       role: (c.poste || "").trim(),
       companyName: c.marque?.nom || brand,
       source: "app" as const,
-      language: (String(c.language || "").toLowerCase() === "en" ? "en" : "fr") as "fr" | "en",
+      language: (String(c.language || "").toLowerCase() === "en" ? "en" : "fr") as
+        | "fr"
+        | "en",
+      market: "FR" as const,
     }))
     .filter(
       (c) =>
@@ -117,8 +118,23 @@ async function searchAppContacts(brand: string): Promise<{
   return { contacts, marqueId: primary };
 }
 
+function mapMerged(c: CrmBrandContact): SearchedContact {
+  return {
+    id: c.id,
+    firstname: c.firstname,
+    lastname: c.lastname,
+    email: c.email,
+    role: c.role,
+    companyName: c.companyName,
+    source: "app",
+    language: c.language,
+    market: c.market,
+  };
+}
+
 // GET - Recherche les contacts d'une marque dans le CRM interne uniquement.
 // HubSpot n'est plus interrogé (imports / listes HubSpot désactivés pour le casting).
+// ?includeBenelux=1 → ajoute les contacts Benelux liés / homonymes (drapeau market).
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -134,7 +150,43 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const app = await searchAppContacts(brand);
+    const includeBenelux =
+      request.nextUrl.searchParams.get("includeBenelux") === "1" ||
+      request.nextUrl.searchParams.get("includeBenelux") === "true";
+
+    if (includeBenelux) {
+      const marqueIds = await resolveMarqueIdsForBrand(brand);
+      const merged = await loadBrandContactsFrAndBe({
+        marqueIds,
+        brandNames: [brand],
+        // Garder aussi sans email pour complétion manuelle (comportement historique FR).
+        requireEmail: false,
+      });
+      const blocklist = await loadCastingRecipientBlocklist();
+      const byKey = new Map<string, SearchedContact>();
+      for (const raw of merged) {
+        const c = mapMerged(raw);
+        if (
+          isForbiddenCastingRecipient(
+            { email: c.email, firstname: c.firstname, lastname: c.lastname },
+            blocklist,
+            { brand }
+          )
+        ) {
+          continue;
+        }
+        const email = c.email.trim().toLowerCase();
+        const key = email || `id:${c.id}`;
+        if (byKey.has(key)) continue;
+        byKey.set(key, c);
+      }
+      return NextResponse.json({
+        contacts: Array.from(byKey.values()),
+        marqueId: marqueIds[0] ?? null,
+      });
+    }
+
+    const app = await searchAppContactsFrOnly(brand);
 
     const blocklist = await loadCastingRecipientBlocklist();
     const byKey = new Map<string, SearchedContact>();

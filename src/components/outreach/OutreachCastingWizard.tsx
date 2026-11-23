@@ -243,6 +243,7 @@ type WizardCrmHit = {
   lastname: string;
   email: string;
   role: string;
+  market?: "FR" | "BENELUX";
 };
 
 type Phase = "casting" | "writing" | "review";
@@ -1079,8 +1080,10 @@ export default function OutreachCastingWizard({
     setCrmSearching(true);
     setCrmSearched(false);
     try {
+      const includeBe =
+        mode === "project" || readBothMarkets ? "&includeBenelux=1" : "";
       const res = await fetch(
-        `/api/marques/contacts?brand=${encodeURIComponent(brand)}`,
+        `/api/marques/contacts?brand=${encodeURIComponent(brand)}${includeBe}`,
         { credentials: "include" }
       );
       const data = await res.json().catch(() => ({}));
@@ -1100,12 +1103,17 @@ export default function OutreachCastingWizard({
             lastname?: string;
             email?: string;
             role?: string;
+            market?: string;
           }) => ({
             id: String(c.id || c.email || Math.random()),
             firstname: String(c.firstname || "").trim(),
             lastname: String(c.lastname || "").trim(),
             email: String(c.email || "").trim(),
             role: String(c.role || "").trim(),
+            market:
+              String(c.market || "").toUpperCase() === "BENELUX"
+                ? ("BENELUX" as const)
+                : ("FR" as const),
           })
         )
       );
@@ -1120,7 +1128,7 @@ export default function OutreachCastingWizard({
     } finally {
       setCrmSearching(false);
     }
-  }, [current, onFlash]);
+  }, [current, mode, onFlash, readBothMarkets]);
 
   const saveWizardContact = useCallback(async () => {
     if (!current || !onAddContact) return;

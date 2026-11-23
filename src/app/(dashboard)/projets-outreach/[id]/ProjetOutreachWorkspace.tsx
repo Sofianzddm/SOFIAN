@@ -93,6 +93,7 @@ type Mission = {
     lastname?: string;
     email?: string;
     role?: string;
+    market?: "FR" | "BENELUX";
   }> | null;
   marqueContacts?: Array<{
     id: string;
@@ -102,6 +103,7 @@ type Mission = {
     role: string;
     linkedinUrl?: string;
     language?: "fr" | "en";
+    market?: "FR" | "BENELUX";
   }>;
   scheduledSendAt: string | null;
   sentAt: string | null;
@@ -322,6 +324,7 @@ function effectiveMissionContacts(m: Mission) {
     role: c.role,
     linkedinUrl: c.linkedinUrl || "",
     language: (c.language === "en" ? "en" : "fr") as "fr" | "en",
+    market: (c.market === "BENELUX" ? "BENELUX" : "FR") as "FR" | "BENELUX",
   }));
   const fromCrm = crm.filter(
     (c) => c.email && !c.email.toLowerCase().endsWith("@glowupagence.fr")
@@ -344,8 +347,23 @@ function effectiveMissionContacts(m: Mission) {
           role: String(c.role || "").trim(),
           linkedinUrl: "",
           language: "fr" as const,
+          market: (c.market === "BENELUX" ? "BENELUX" : "FR") as "FR" | "BENELUX",
         }))
     : [];
+}
+
+function missionContactsLabel(
+  contacts: Array<{ market?: "FR" | "BENELUX" }>
+): string {
+  const n = contacts.length;
+  if (n === 0) return "0 contact";
+  const be = contacts.filter((c) => c.market === "BENELUX").length;
+  const fr = n - be;
+  if (be > 0 && fr > 0) {
+    return `${n} contact${n > 1 ? "s" : ""} · 🇫🇷 ${fr} · 🇧🇪 ${be}`;
+  }
+  if (be > 0) return `${n} contact${n > 1 ? "s" : ""} 🇧🇪`;
+  return `${n} contact${n > 1 ? "s" : ""}`;
 }
 
 function deriveClientLanguage(
@@ -1681,7 +1699,7 @@ function ACompleterTab({
         </div>
         {awaiting.map((m) => {
           const name = m.marqueNom || m.targetBrand;
-          const contactCount = effectiveMissionContacts(m).length;
+          const contactsForRow = effectiveMissionContacts(m);
           return (
             <div
               key={m.id}
@@ -1705,7 +1723,7 @@ function ACompleterTab({
                 ) : null}
               </div>
               <div style={{ fontSize: 12.5, fontWeight: 600 }}>
-                {contactCount} emailé{contactCount > 1 ? "s" : ""}
+                {missionContactsLabel(contactsForRow)}
               </div>
               <div className="po-col-hide-mobile">
                 <PriorityBadge priority={m.priority} />
@@ -2571,7 +2589,7 @@ function MarquesTab({
         ) : (
           campaign.missions.map((m) => {
             const name = m.marqueNom || m.targetBrand;
-            const contactCount = effectiveMissionContacts(m).length;
+            const contactsForRow = effectiveMissionContacts(m);
             const awaiting = Boolean(m.awaitingContactsCompletion);
             const onCooldown = brandCooldownActive(m);
             const needsCompletion = Boolean(m.marqueId) && !awaiting;
@@ -2668,7 +2686,7 @@ function MarquesTab({
                       fontWeight: awaiting ? 600 : 400,
                     }}
                   >
-                    {contactCount} emailé{contactCount > 1 ? "s" : ""}
+                    {missionContactsLabel(contactsForRow)}
                   </div>
                   {awaiting ? (
                     isAdmin ? (
@@ -2829,6 +2847,8 @@ function RedactionTab({
       email: string;
       role?: string;
       linkedinUrl?: string;
+      language?: "fr" | "en";
+      market?: "FR" | "BENELUX";
     }>;
     initialSubject?: string;
     initialBodyHtml?: string;
@@ -2849,6 +2869,7 @@ function RedactionTab({
         lastname?: string;
         email?: string;
         role?: string;
+        market?: "FR" | "BENELUX";
       }> | null;
       projectTitle?: string | null;
       projectDescription?: string | null;
@@ -3843,7 +3864,7 @@ function RedactionTab({
       if (brand.length >= 2) {
         try {
           const res = await fetch(
-            `/api/marques/contacts?brand=${encodeURIComponent(brand)}`,
+            `/api/marques/contacts?brand=${encodeURIComponent(brand)}&includeBenelux=1`,
             { credentials: "include", signal: ac.signal }
           );
           const data = await res.json().catch(() => ({}));
@@ -3856,6 +3877,8 @@ function RedactionTab({
                 email?: string;
                 role?: string;
                 language?: string;
+                market?: string;
+                linkedinUrl?: string;
               }>
             )
               .map((c) => ({
@@ -3864,10 +3887,13 @@ function RedactionTab({
                 lastname: String(c.lastname || "").trim(),
                 email: String(c.email || "").trim(),
                 role: String(c.role || "").trim(),
-                linkedinUrl: "",
+                linkedinUrl: String(c.linkedinUrl || "").trim(),
                 language: (String(c.language || "").toLowerCase() === "en"
                   ? "en"
                   : "fr") as "fr" | "en",
+                market: (String(c.market || "").toUpperCase() === "BENELUX"
+                  ? "BENELUX"
+                  : "FR") as "FR" | "BENELUX",
               }))
               .filter((c) => c.email.includes("@"));
             if (live.length > 0) local = live;
@@ -4011,6 +4037,10 @@ function RedactionTab({
       const recipientEmails = contacts
         .map((c) => String(c.email || "").trim())
         .filter((e) => e.includes("@"));
+      const hasBe = contacts.some((c) => c.market === "BENELUX");
+      const hasFr = contacts.some((c) => c.market !== "BENELUX");
+      const genMarket =
+        hasBe && hasFr ? "BOTH" : hasBe ? "BENELUX" : "FR";
 
       // Même endpoint + mêmes champs que le bouton « Rédiger » du composer.
       const res = await fetch("/api/casting/generate-email", {
@@ -4020,8 +4050,8 @@ function RedactionTab({
         signal: ac.signal,
         body: JSON.stringify({
           language: genLanguage,
-          market: "FR",
-          availabilityFocus: "FR",
+          market: genMarket,
+          availabilityFocus: genMarket === "BENELUX" ? "BENELUX" : "FR",
           brandName,
           brandResearch,
           talents: talentsPayload,
@@ -4052,6 +4082,7 @@ function RedactionTab({
           lastname: c.lastname || "",
           email: c.email,
           role: c.role || "",
+          market: c.market === "BENELUX" ? "BENELUX" : "FR",
         })),
       });
     };
@@ -4399,7 +4430,7 @@ function RedactionTab({
     if (brand.length >= 2) {
       try {
         const res = await fetch(
-          `/api/marques/contacts?brand=${encodeURIComponent(brand)}`,
+          `/api/marques/contacts?brand=${encodeURIComponent(brand)}&includeBenelux=1`,
           { credentials: "include" }
         );
         const data = await res.json().catch(() => ({}));
@@ -4411,6 +4442,8 @@ function RedactionTab({
             email?: string;
             role?: string;
             language?: string;
+            market?: string;
+            linkedinUrl?: string;
           }>)
             .map((c) => ({
               id: String(c.id || "").trim(),
@@ -4418,10 +4451,13 @@ function RedactionTab({
               lastname: String(c.lastname || "").trim(),
               email: String(c.email || "").trim(),
               role: String(c.role || "").trim(),
-              linkedinUrl: "",
+              linkedinUrl: String(c.linkedinUrl || "").trim(),
               language: (String(c.language || "").toLowerCase() === "en"
                 ? "en"
                 : "fr") as "fr" | "en",
+              market: (String(c.market || "").toUpperCase() === "BENELUX"
+                ? "BENELUX"
+                : "FR") as "FR" | "BENELUX",
             }))
             .filter((c) => c.id && c.email.includes("@"));
           if (live.length > 0) localContacts = live;
@@ -4520,6 +4556,7 @@ function RedactionTab({
         role: c.role,
         linkedinUrl: c.linkedinUrl,
         language: c.language,
+        market: c.market,
       })),
       initialSubject: String(m.draftEmailSubject || "").trim(),
       initialBodyHtml: String(m.draftEmailBody || "").trim(),
@@ -4577,6 +4614,7 @@ function RedactionTab({
         email: string;
         role?: string;
         linkedinUrl?: string;
+        market?: "FR" | "BENELUX";
       }>;
     },
     ctx?: {
@@ -4593,6 +4631,14 @@ function RedactionTab({
       const selected = Array.isArray(draft?.selectedContacts)
         ? draft.selectedContacts.filter((c) => String(c.email || "").trim())
         : [];
+      const mapSelectedContacts = () =>
+        selected.map((c) => ({
+          firstname: c.firstname,
+          lastname: c.lastname,
+          email: c.email,
+          role: c.role || "",
+          market: c.market === "BENELUX" ? "BENELUX" : "FR",
+        }));
 
       if (status === "en_cours") {
         setProgress?.({ label: "Enregistrement du brouillon…", percent: 55 });
@@ -4604,12 +4650,7 @@ function RedactionTab({
           draftLanguage,
           ...(selected.length > 0
             ? {
-                clientContacts: selected.map((c) => ({
-                  firstname: c.firstname,
-                  lastname: c.lastname,
-                  email: c.email,
-                  role: c.role || "",
-                })),
+                clientContacts: mapSelectedContacts(),
               }
             : {}),
         });
@@ -4637,12 +4678,7 @@ function RedactionTab({
           draftEmailSubject: draft?.subject ?? "",
           draftEmailBody: draft?.bodyHtml ?? "",
           draftLanguage,
-          clientContacts: selected.map((c) => ({
-            firstname: c.firstname,
-            lastname: c.lastname,
-            email: c.email,
-            role: c.role || "",
-          })),
+          clientContacts: mapSelectedContacts(),
         });
 
         setProgress?.({ label: "Planification de l'envoi Leyna…", percent: 45 });
@@ -4782,6 +4818,7 @@ function RedactionTab({
             brandColumn="todo"
             useHubspot={false}
             allowSchedule={false}
+            market="BOTH"
             enableTalentResearch
             initialBrandResearch={composerInitialBrandResearch}
             onBrandResearchCached={cacheBrandResearch}
@@ -5125,7 +5162,7 @@ function RedactionTab({
           <span />
         </div>
         {draftable.map((m) => {
-          const contactCount = effectiveMissionContacts(m).length;
+          const contactsForRow = effectiveMissionContacts(m);
           const name = m.marqueNom || m.targetBrand;
           const awaiting = Boolean(m.awaitingContactsCompletion);
           const onCooldown = brandCooldownActive(m);
@@ -5291,7 +5328,7 @@ function RedactionTab({
                     fontWeight: awaiting || onCooldown ? 600 : 400,
                   }}
                 >
-                  {contactCount} contact(s)
+                  {missionContactsLabel(contactsForRow)}
                 </div>
               </div>
               <div>
@@ -5389,6 +5426,7 @@ function RedactionTab({
         open={castingWizardOpen}
         mode="project"
         market="FR"
+        readBothMarkets
         campaignId={campaign.id}
         campaignBrief={{
           id: campaign.id,
