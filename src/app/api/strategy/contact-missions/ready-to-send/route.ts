@@ -17,10 +17,14 @@ import {
 } from "@/lib/contact-cooldown";
 import { brandsLookSame } from "@/lib/brand-match";
 import { autoMarkAwaitingContactsBatch } from "@/lib/resolve-awaiting-enrichissement";
+import { loadBrandContactsFrAndBe } from "@/lib/crm-brand-contacts";
+import { isBelgianPays } from "@/lib/pays";
 
 const ALLOWED_ROLES = ["HEAD_OF_SALES", "BUSINESS_DEVELOPER", "ADMIN", "HEAD_OF", "CASTING_MANAGER"] as const;
 
 const contactMissionModel = (prisma as unknown as { contactMission: any }).contactMission;
+
+type ContactMarket = "FR" | "BENELUX";
 
 type AppContactOut = {
   id: string;
@@ -30,6 +34,7 @@ type AppContactOut = {
   role: string;
   principal: boolean;
   blockedByCooldown: boolean;
+  market: ContactMarket;
 };
 
 function isValidEmail(value: string): boolean {
@@ -134,7 +139,7 @@ export async function GET(request: NextRequest) {
         where,
         orderBy: { createdAt: "desc" },
         include: {
-          talent: { select: { id: true, prenom: true, nom: true } },
+          talent: { select: { id: true, prenom: true, nom: true, pays: true } },
           campaign: { select: { id: true, title: true } },
         },
         take: 800,
@@ -192,17 +197,17 @@ export async function GET(request: NextRequest) {
     const uniqueMarqueIds = Array.from(
       new Set(Array.from(marqueIdsByMission.values()).flat())
     );
-    const contactsByMarque = new Map<
-      string,
-      Array<{
-        id: string;
-        prenom: string | null;
-        nom: string;
-        email: string | null;
-        poste: string | null;
-        principal: boolean;
-      }>
-    >();
+    type MarqueContactRow = {
+      id: string;
+      prenom: string | null;
+      nom: string;
+      email: string | null;
+      poste: string | null;
+      principal: boolean;
+      market: ContactMarket;
+    };
+
+    const contactsByMarque = new Map<string, MarqueContactRow[]>();
 
     const marqueNomById = new Map<string, string>();
     if (uniqueMarqueIds.length > 0) {
@@ -235,9 +240,49 @@ export async function GET(request: NextRequest) {
         const email = (row.email || "").trim();
         if (!email || !isValidEmail(email)) continue;
         const list = contactsByMarque.get(row.marqueId) || [];
-        list.push(row);
+        list.push({ ...row, market: "FR" });
         contactsByMarque.set(row.marqueId, list);
       }
+    }
+
+    // Talents belges : contacts Benelux (liés / homonymes) en plus du CRM FR.
+    const belgianMissionIds = new Set(
+      missions
+        .filter((m) => isBelgianPays(m.talent?.pays))
+        .map((m) => String(m.id))
+    );
+    const beContactsByMission = new Map<string, MarqueContactRow[]>();
+    if (belgianMissionIds.size > 0) {
+      await Promise.all(
+        missions
+          .filter((m) => belgianMissionIds.has(String(m.id)))
+          .map(async (m) => {
+            const marqueIds = marqueIdsByMission.get(m.id) || [];
+            const brand = String(m.targetBrand || "").trim();
+            const nom = m.marqueId ? marqueNomById.get(m.marqueId) : null;
+            const brandNames = [brand, nom].filter(
+              (n): n is string => Boolean(n && String(n).trim())
+            );
+            if (marqueIds.length === 0 && brandNames.length === 0) return;
+            const merged = await loadBrandContactsFrAndBe({
+              marqueIds,
+              brandNames,
+              requireEmail: true,
+            });
+            const rows: MarqueContactRow[] = merged
+              .filter((c) => c.market === "BENELUX")
+              .map((c) => ({
+                id: c.id,
+                prenom: c.firstname || null,
+                nom: c.lastname || c.firstname || "",
+                email: c.email,
+                poste: c.role || null,
+                principal: false,
+                market: "BENELUX" as const,
+              }));
+            if (rows.length > 0) beContactsByMission.set(String(m.id), rows);
+          })
+      );
     }
 
     type ReadyItem = {
@@ -254,17 +299,34 @@ export async function GET(request: NextRequest) {
     const withContacts: ReadyItem[] = [];
     const needsEnrichment: EnrichItem[] = [];
 
+    const awaitingToClear: string[] = [];
+
     for (const m of missions) {
       if (isBrandBlocked(m)) continue;
-      if ((m as { awaitingContactsCompletion?: boolean }).awaitingContactsCompletion) {
-        continue;
-      }
 
       const marqueIds = marqueIdsByMission.get(m.id) || [];
       const primaryMarqueId = m.marqueId || marqueIds[0] || null;
       const missionPayload = mapMission(m, primaryMarqueId, marqueNomById);
+      const isAwaiting = Boolean(
+        (m as { awaitingContactsCompletion?: boolean }).awaitingContactsCompletion
+      );
 
-      if (marqueIds.length === 0) {
+      const frContacts = marqueIds.flatMap((id) => contactsByMarque.get(id) || []);
+      const beContacts = belgianMissionIds.has(String(m.id))
+        ? beContactsByMission.get(String(m.id)) || []
+        : [];
+      const marqueContacts = [...frContacts, ...beContacts];
+
+      // Déjà en file enrichissement : si des contacts FR/BE sont dispo, on
+      // débloque ; sinon on laisse dans l’onglet Enrichissement (skip ici).
+      if (isAwaiting) {
+        if (marqueContacts.length === 0) continue;
+        awaitingToClear.push(String(m.id));
+        (missionPayload as { awaitingContactsCompletion?: boolean }).awaitingContactsCompletion =
+          false;
+      }
+
+      if (marqueIds.length === 0 && marqueContacts.length === 0) {
         needsEnrichment.push({
           mission: missionPayload,
           reason: "no_marque",
@@ -273,7 +335,6 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      const marqueContacts = marqueIds.flatMap((id) => contactsByMarque.get(id) || []);
       if (marqueContacts.length === 0) {
         needsEnrichment.push({
           mission: missionPayload,
@@ -302,6 +363,7 @@ export async function GET(request: NextRequest) {
             email,
             role: (c.poste || "").trim(),
             principal: Boolean(c.principal),
+            market: c.market,
           };
         })
         .filter((c) => {
@@ -330,6 +392,14 @@ export async function GET(request: NextRequest) {
         mission: missionPayload,
         availableContacts,
         alreadyAttachedCount,
+      });
+    }
+
+    // Contacts trouvés (ex. Benelux) alors que la carte était en file → débloquer.
+    if (awaitingToClear.length > 0) {
+      await contactMissionModel.updateMany({
+        where: { id: { in: awaitingToClear }, awaitingContactsCompletion: true },
+        data: { awaitingContactsCompletion: false },
       });
     }
 

@@ -15,6 +15,7 @@ import {
   isRecontactHoldActive,
 } from "@/lib/recontact-hold";
 import { brandsLookSame } from "@/lib/brand-match";
+import { isBelgianPays } from "@/lib/pays";
 import {
   cacheIndivBrandResearch,
   cacheIndivLeynaExchange,
@@ -84,7 +85,13 @@ type Mission = {
     draftFailure?: { reason?: string; at?: string } | null;
   } | null;
   clientLanguage?: "FR" | "EN" | null;
-  clientContacts?: Array<{ firstname?: string; lastname?: string; email?: string; role?: string }> | null;
+  clientContacts?: Array<{
+    firstname?: string;
+    lastname?: string;
+    email?: string;
+    role?: string;
+    market?: "FR" | "BENELUX";
+  }> | null;
   scheduledSendAt?: string | null;
   sentAt?: string | null;
   sendError?: string | null;
@@ -158,7 +165,13 @@ function formatDraftWrittenBadge(d: Date): string {
   })}`;
 }
 
-type ContactDraft = { firstname: string; lastname: string; email: string; role: string };
+type ContactDraft = {
+  firstname: string;
+  lastname: string;
+  email: string;
+  role: string;
+  market?: "FR" | "BENELUX";
+};
 
 type SearchedContact = {
   id: string;
@@ -168,6 +181,7 @@ type SearchedContact = {
   role: string;
   companyName: string;
   source: "app" | "hubspot";
+  market?: "FR" | "BENELUX";
 };
 
 type ContactSearchState = {
@@ -217,7 +231,14 @@ type ReadyContact = {
   role: string;
   principal: boolean;
   blockedByCooldown: boolean;
+  market?: "FR" | "BENELUX";
 };
+
+function contactMarketFlag(market?: "FR" | "BENELUX" | null): string {
+  if (market === "BENELUX") return "🇧🇪";
+  if (market === "FR") return "🇫🇷";
+  return "";
+}
 
 type ReadyItem = {
   mission: Mission;
@@ -446,7 +467,7 @@ function relance2PlannedAt(m: Mission): Date | null {
   return businessDaysAfter(relance1, RELANCE2_BUSINESS_DAYS);
 }
 
-type TalentOption = { id: string; name: string };
+type TalentOption = { id: string; name: string; pays?: string | null };
 const ALL_TALENTS = "__ALL_TALENTS__";
 
 const LICORICE = "#1A1110";
@@ -654,8 +675,14 @@ export function ProspectingPipelineClient() {
     const mapped = rows.map((t: any) => ({
       id: String(t.id),
       name: String(t.name || `${t.prenom || ""} ${t.nom || ""}`.trim() || "Talent"),
+      pays: t.pays != null ? String(t.pays) : null,
     }));
     setTalents(mapped);
+  }
+
+  function missionTalentIsBelgian(m: Mission): boolean {
+    const fromList = talents.find((t) => t.id === m.talentId)?.pays;
+    return isBelgianPays(fromList);
   }
 
   async function loadMissions() {
@@ -1210,22 +1237,29 @@ export function ProspectingPipelineClient() {
       },
     }));
     try {
+      const includeBe = missionTalentIsBelgian(m) ? "&includeBenelux=1" : "";
       const res = await fetch(
-        `/api/marques/contacts?brand=${encodeURIComponent(brand)}`,
+        `/api/marques/contacts?brand=${encodeURIComponent(brand)}${includeBe}`,
         { credentials: "include" }
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Recherche impossible.");
       const results: SearchedContact[] = (Array.isArray(data.contacts) ? data.contacts : [])
-        .map((c: Record<string, unknown>) => ({
-          id: String(c.id || ""),
-          firstname: String(c.firstname || "").trim(),
-          lastname: String(c.lastname || "").trim(),
-          email: String(c.email || "").trim(),
-          role: String(c.role || "").trim(),
-          companyName: String(c.companyName || "").trim(),
-          source: "app" as const,
-        }));
+        .map((c: Record<string, unknown>) => {
+          const marketRaw = String(c.market || "").toUpperCase();
+          const market =
+            marketRaw === "BENELUX" ? ("BENELUX" as const) : ("FR" as const);
+          return {
+            id: String(c.id || ""),
+            firstname: String(c.firstname || "").trim(),
+            lastname: String(c.lastname || "").trim(),
+            email: String(c.email || "").trim(),
+            role: String(c.role || "").trim(),
+            companyName: String(c.companyName || "").trim(),
+            source: "app" as const,
+            market,
+          };
+        });
       setContactSearchByMission((prev) => ({
         ...prev,
         [m.id]: { loading: false, results, searched: true },
@@ -1299,6 +1333,7 @@ export function ProspectingPipelineClient() {
         lastname: sc.lastname || "",
         email: sc.email || "",
         role: sc.role || "",
+        market: sc.market === "BENELUX" ? "BENELUX" : "FR",
       };
       const firstEmptyIndex = existing.findIndex(
         (c) => !c.firstname.trim() && !c.email.trim()
@@ -1320,6 +1355,7 @@ export function ProspectingPipelineClient() {
         lastname: String(c.lastname || "").trim(),
         email: String(c.email || "").trim().toLowerCase(),
         role: String(c.role || "").trim(),
+        market: (c.market === "BENELUX" ? "BENELUX" : "FR") as "FR" | "BENELUX",
       }))
       .filter((c) => c.firstname && c.email);
 
@@ -1546,7 +1582,13 @@ export function ProspectingPipelineClient() {
     const currentContacts = Array.isArray(m.clientContacts) ? m.clientContacts : [];
     const byEmail = new Map<
       string,
-      { firstname?: string; lastname?: string; email?: string; role?: string }
+      {
+        firstname?: string;
+        lastname?: string;
+        email?: string;
+        role?: string;
+        market?: "FR" | "BENELUX";
+      }
     >();
     for (const c of currentContacts) {
       const email = String(c?.email || "")
@@ -1560,6 +1602,7 @@ export function ProspectingPipelineClient() {
         lastname: c.lastname,
         email: c.email,
         role: c.role,
+        market: c.market === "BENELUX" ? "BENELUX" : "FR",
       });
     }
     const nextContacts = Array.from(byEmail.values());
@@ -3202,6 +3245,10 @@ export function ProspectingPipelineClient() {
                                     />
                                     <span className="text-sm text-gray-800">
                                       <span className="font-medium">
+                                        {(() => {
+                                          const flag = contactMarketFlag(c.market);
+                                          return flag ? `${flag} ` : "";
+                                        })()}
                                         {c.firstname}
                                         {c.lastname ? ` ${c.lastname}` : ""}
                                       </span>
@@ -4108,12 +4155,16 @@ export function ProspectingPipelineClient() {
                                   <div className="min-w-0">
                                     <p className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs font-medium text-gray-800">
                                       <span className="min-w-0 break-words">
+                                        {(() => {
+                                          const flag = contactMarketFlag(sc.market);
+                                          return flag ? `${flag} ` : "";
+                                        })()}
                                         {[sc.firstname, sc.lastname].filter(Boolean).join(" ") ||
                                           sc.email ||
                                           "Contact sans nom"}
                                       </span>
                                       <span className="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600">
-                                        App
+                                        {sc.market === "BENELUX" ? "Benelux" : "App"}
                                       </span>
                                       {!scEmail && (
                                         <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
@@ -4143,6 +4194,12 @@ export function ProspectingPipelineClient() {
                       </div>
                       {(contactFormByMission[m.id]?.contacts || []).map((contact, index) => (
                         <div key={`${m.id}-contact-${index}`} className="grid min-w-0 grid-cols-1 gap-2">
+                          {contact.market ? (
+                            <p className="text-[11px] text-gray-500">
+                              {contactMarketFlag(contact.market)}{" "}
+                              {contact.market === "BENELUX" ? "Benelux" : "France"}
+                            </p>
+                          ) : null}
                           <input
                             value={contact.firstname}
                             onChange={(e) =>

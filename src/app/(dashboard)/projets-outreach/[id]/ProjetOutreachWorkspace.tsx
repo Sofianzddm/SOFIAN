@@ -5524,40 +5524,27 @@ function RedactionTab({
           void openComposer(withDraft);
         }}
         onSendBrand={async (groupKey, draft) => {
+          // Pas d’envoi direct : ouvrir le composer pour choisir FR / Benelux.
           const m = campaign.missions.find((x) => x.id === groupKey);
           if (!m) throw new Error("Mission introuvable — recharge la page.");
-          const subject = (draft.subject || "").trim();
-          const bodyHtml = (draft.bodyHtml || "").trim();
+          const withDraft: Mission = {
+            ...m,
+            draftEmailSubject: draft?.subject || m.draftEmailSubject,
+            draftEmailBody: draft?.bodyHtml || m.draftEmailBody,
+          };
           if (
-            subject !== (m.draftEmailSubject || "").trim() ||
-            bodyHtml !== (m.draftEmailBody || "").trim()
+            (draft.subject || "").trim() &&
+            (draft.bodyHtml || "").trim()
           ) {
             await patchMission(groupKey, {
               stage: "DRAFTED_FOR_VALIDATION",
               status: "EMAIL_DRAFTED",
-              draftEmailSubject: subject,
-              draftEmailBody: bodyHtml,
+              draftEmailSubject: draft.subject.trim(),
+              draftEmailBody: draft.bodyHtml.trim(),
             });
           }
-          const res = await fetch(
-            `/api/strategy/contact-missions/${groupKey}/schedule-send`,
-            {
-              method: "POST",
-              credentials: "include",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({}),
-            }
-          );
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) {
-            throw new Error(
-              typeof data.error === "string"
-                ? data.error
-                : "Planification impossible."
-            );
-          }
-          setSuccess("Envoi planifié.");
-          void onChanged();
+          setCastingWizardOpen(false);
+          void openComposer(withDraft);
         }}
         onDraftsWritten={() => {
           void onChanged();
@@ -5614,6 +5601,12 @@ function EnvoisTab({
         (m.scheduledSendAt && !m.sentAt))
   );
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [sendPicker, setSendPicker] = useState<{
+    missionId: string;
+    force: boolean;
+    forceReason?: string;
+    selectedIds: Set<string>;
+  } | null>(null);
   const waveBlocks =
     !bypassesWaveCastingGate(role) &&
     (campaign.wave?.status === "COLLECTING" ||
@@ -5638,10 +5631,52 @@ function EnvoisTab({
     return reason.trim();
   }
 
-  async function scheduleAndSend(
+  function openSendPicker(
     missionId: string,
     force = false,
     forceReason?: string
+  ) {
+    if (!canSendMails) return;
+    if (waveBlocks) {
+      setError(
+        "Envoi bloqué : la vague Strategy n’est pas encore validée (Casting fermé)."
+      );
+      return;
+    }
+    const mission = queue.find((m) => m.id === missionId);
+    if (!mission) return;
+    const contacts = effectiveMissionContacts(mission);
+    if (contacts.length === 0) {
+      setError(
+        `Aucun contact email pour « ${mission.marqueNom || mission.targetBrand} ». Complète la fiche CRM.`
+      );
+      return;
+    }
+    const hasBoth =
+      contacts.some((c) => c.market === "BENELUX") &&
+      contacts.some((c) => c.market !== "BENELUX");
+    setSendPicker({
+      missionId,
+      force,
+      forceReason,
+      // FR+BE → rien coché pour forcer le choix ; sinon tout sélectionné.
+      selectedIds: hasBoth
+        ? new Set()
+        : new Set(contacts.map((c) => c.id).filter(Boolean)),
+    });
+  }
+
+  async function scheduleAndSend(
+    missionId: string,
+    force = false,
+    forceReason?: string,
+    selectedContacts?: Array<{
+      firstname: string;
+      lastname: string;
+      email: string;
+      role: string;
+      market?: "FR" | "BENELUX";
+    }>
   ) {
     if (!canSendMails) return;
     if (waveBlocks) {
@@ -5655,6 +5690,26 @@ function EnvoisTab({
     setBusyId(missionId);
     setError(null);
     try {
+      if (selectedContacts && selectedContacts.length > 0) {
+        const patchRes = await fetch("/api/strategy/contact-missions", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            missionId,
+            clientContacts: selectedContacts,
+          }),
+        });
+        const patchData = await patchRes.json().catch(() => ({}));
+        if (!patchRes.ok) {
+          throw new Error(
+            typeof patchData.error === "string"
+              ? patchData.error
+              : "Impossible d’enregistrer les destinataires."
+          );
+        }
+      }
+
       const scheduleRes = await fetch(
         `/api/strategy/contact-missions/${missionId}/schedule-send`,
         {
@@ -5681,7 +5736,7 @@ function EnvoisTab({
           );
           if (!reason) return;
           setBusyId(null);
-          await scheduleAndSend(missionId, true, reason);
+          await scheduleAndSend(missionId, true, reason, selectedContacts);
           return;
         }
         throw new Error(scheduleData.error || "Planification impossible.");
@@ -5694,6 +5749,7 @@ function EnvoisTab({
       const sendData = await sendRes.json().catch(() => ({}));
       if (!sendRes.ok) throw new Error(sendData.error || "Envoi impossible.");
 
+      setSendPicker(null);
       setSuccess(
         force
           ? `Envoyé (forcé) depuis Leyna (${sendData.succeeded ?? 0} destinataire(s)).`
@@ -5705,6 +5761,33 @@ function EnvoisTab({
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function confirmSendPicker() {
+    if (!sendPicker) return;
+    const mission = queue.find((m) => m.id === sendPicker.missionId);
+    if (!mission) {
+      setSendPicker(null);
+      return;
+    }
+    const pool = effectiveMissionContacts(mission);
+    const selected = pool.filter((c) => sendPicker.selectedIds.has(c.id));
+    if (selected.length === 0) {
+      setError("Coche au moins un client (FR ou Benelux).");
+      return;
+    }
+    await scheduleAndSend(
+      sendPicker.missionId,
+      sendPicker.force,
+      sendPicker.forceReason,
+      selected.map((c) => ({
+        firstname: c.firstname,
+        lastname: c.lastname,
+        email: c.email,
+        role: c.role || "",
+        market: c.market,
+      }))
+    );
   }
 
   if (waveBlocks) {
@@ -5763,67 +5846,201 @@ function EnvoisTab({
 
   const cols = "1.2fr 1.6fr 1.4fr .9fr auto";
 
+  const pickerMission = sendPicker
+    ? queue.find((m) => m.id === sendPicker.missionId)
+    : null;
+  const pickerContacts = pickerMission
+    ? effectiveMissionContacts(pickerMission)
+    : [];
+
   return (
-    <div className="po-card po-table-scroll">
-      <div className="po-table-head" style={{ gridTemplateColumns: cols }}>
-        <span>Marque</span>
-        <span>Objet</span>
-        <span>Contacts</span>
-        <span>Stage</span>
-        <span />
+    <>
+      <div className="po-card po-table-scroll">
+        <div className="po-table-head" style={{ gridTemplateColumns: cols }}>
+          <span>Marque</span>
+          <span>Objet</span>
+          <span>Contacts</span>
+          <span>Stage</span>
+          <span />
+        </div>
+        {queue.map((m) => {
+          const contacts = effectiveMissionContacts(m);
+          return (
+            <div
+              key={m.id}
+              className="po-table-row"
+              style={{ gridTemplateColumns: cols }}
+            >
+              <div style={{ fontWeight: 600 }}>
+                {m.marqueNom || m.targetBrand}
+              </div>
+              <div className="truncate">{m.draftEmailSubject || EMPTY}</div>
+              <div
+                className="truncate"
+                style={{ fontSize: 12, color: "var(--po-secondary)" }}
+              >
+                {missionContactsLabel(contacts)}
+              </div>
+              <div>
+                <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
+              </div>
+              <div style={{ textAlign: "right" }}>
+                {canSendMails && (
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    <button
+                      type="button"
+                      disabled={busyId === m.id}
+                      onClick={() => openSendPicker(m.id, false)}
+                      className="po-btn po-btn-primary"
+                      style={{ padding: "7px 12px", fontSize: 12 }}
+                    >
+                      {busyId === m.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Send className="h-3.5 w-3.5" />
+                      )}
+                      Envoyer
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId === m.id}
+                      onClick={() => {
+                        const reason = askUrgentForceReason(
+                          m.marqueNom || m.targetBrand,
+                          "Forcer l’envoi ignore le plafond projet 30 jours (contacts déjà contactés sur cette ligne)."
+                        );
+                        if (reason) openSendPicker(m.id, true, reason);
+                      }}
+                      className="po-btn po-btn-secondary"
+                      style={{ padding: "7px 12px", fontSize: 12 }}
+                      title="Ignore le plafond anti-spam projet (30 j)"
+                    >
+                      Forcer l’envoi
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
-      {queue.map((m) => {
-        const contacts = Array.isArray(m.clientContacts) ? m.clientContacts : [];
-        return (
-          <div key={m.id} className="po-table-row" style={{ gridTemplateColumns: cols }}>
-            <div style={{ fontWeight: 600 }}>{m.marqueNom || m.targetBrand}</div>
-            <div className="truncate">{m.draftEmailSubject || EMPTY}</div>
-            <div className="truncate" style={{ fontSize: 12, color: "var(--po-secondary)" }}>
-              {contacts.map((c) => c.email).filter(Boolean).join(", ") || EMPTY}
+
+      {sendPicker && pickerMission ? (
+        <div
+          className="fixed inset-0 z-[500] flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Choisir les destinataires"
+          onClick={() => setSendPicker(null)}
+        >
+          <div
+            className="flex max-h-[calc(100dvh-4rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="shrink-0 border-b border-gray-100 px-5 py-3">
+              <h3 className="text-base font-semibold text-gray-900">
+                Choisis les clients (FR / Benelux)
+              </h3>
+              <p className="mt-1 text-xs text-gray-500">
+                {pickerMission.marqueNom || pickerMission.targetBrand} — coche
+                avant d’envoyer depuis Leyna.
+              </p>
             </div>
-            <div>
-              <StageDotBadge label={STAGE_LABEL[m.stage] || m.stage} />
+            <div className="flex-1 space-y-2 overflow-y-auto p-4">
+              {pickerContacts.map((c) => {
+                const checked = sendPicker.selectedIds.has(c.id);
+                return (
+                  <label
+                    key={c.id}
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 ${
+                      checked ? "border-emerald-300 bg-white" : "border-gray-200 bg-gray-50 opacity-70"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={checked}
+                      onChange={() => {
+                        setSendPicker((prev) => {
+                          if (!prev) return prev;
+                          const next = new Set(prev.selectedIds);
+                          if (next.has(c.id)) next.delete(c.id);
+                          else next.add(c.id);
+                          return { ...prev, selectedIds: next };
+                        });
+                      }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-gray-900">
+                        {c.market === "BENELUX" ? "🇧🇪 " : "🇫🇷 "}
+                        {`${c.firstname} ${c.lastname}`.trim() || "Contact"}
+                        <span className="ml-1.5 text-[10px] font-semibold text-gray-500">
+                          {c.market === "BENELUX" ? "Benelux" : "France"}
+                        </span>
+                      </div>
+                      {c.role ? (
+                        <div className="mt-0.5 text-xs text-gray-600">{c.role}</div>
+                      ) : null}
+                      <div className="mt-0.5 break-all text-xs text-gray-500">
+                        {c.email}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
             </div>
-            <div style={{ textAlign: "right" }}>
-              {canSendMails && (
-                <div className="flex flex-wrap justify-end gap-1.5">
-                  <button
-                    type="button"
-                    disabled={busyId === m.id}
-                    onClick={() => void scheduleAndSend(m.id, false)}
-                    className="po-btn po-btn-primary"
-                    style={{ padding: "7px 12px", fontSize: 12 }}
-                  >
-                    {busyId === m.id ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Send className="h-3.5 w-3.5" />
-                    )}
-                    Envoyer
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busyId === m.id}
-                    onClick={() => {
-                      const reason = askUrgentForceReason(
-                        m.marqueNom || m.targetBrand,
-                        "Forcer l’envoi ignore le plafond projet 30 jours (contacts déjà contactés sur cette ligne)."
-                      );
-                      if (reason) void scheduleAndSend(m.id, true, reason);
-                    }}
-                    className="po-btn po-btn-secondary"
-                    style={{ padding: "7px 12px", fontSize: 12 }}
-                    title="Ignore le plafond anti-spam projet (30 j)"
-                  >
-                    Forcer l’envoi
-                  </button>
-                </div>
-              )}
+            <div className="flex shrink-0 items-center justify-between gap-2 border-t border-gray-100 px-5 py-3">
+              <button
+                type="button"
+                className="text-xs text-gray-600 underline"
+                onClick={() => {
+                  const all = pickerContacts.every((c) =>
+                    sendPicker.selectedIds.has(c.id)
+                  );
+                  setSendPicker((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          selectedIds: all
+                            ? new Set()
+                            : new Set(pickerContacts.map((c) => c.id)),
+                        }
+                      : prev
+                  );
+                }}
+              >
+                Tout cocher / décocher
+              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="po-btn po-btn-secondary"
+                  style={{ padding: "7px 12px", fontSize: 12 }}
+                  onClick={() => setSendPicker(null)}
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    busyId === sendPicker.missionId ||
+                    sendPicker.selectedIds.size === 0
+                  }
+                  className="po-btn po-btn-primary"
+                  style={{ padding: "7px 12px", fontSize: 12 }}
+                  onClick={() => void confirmSendPicker()}
+                >
+                  {busyId === sendPicker.missionId ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  Envoyer ({sendPicker.selectedIds.size})
+                </button>
+              </div>
             </div>
           </div>
-        );
-      })}
-    </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 

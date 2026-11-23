@@ -686,6 +686,9 @@ export async function autoMarkAwaitingContactsIfEmpty(opts: {
       id: true,
       awaitingContactsCompletion: true,
       marqueId: true,
+      targetBrand: true,
+      talent: { select: { pays: true } },
+      marque: { select: { nom: true } },
     },
   });
   if (!mission || mission.awaitingContactsCompletion) return false;
@@ -704,10 +707,30 @@ export async function autoMarkAwaitingContactsIfEmpty(opts: {
         select: { email: true, emailSuggested: true },
         take: 50,
       });
-      const emailable = contacts.filter((c) => {
+      let emailable = contacts.filter((c) => {
         const email = (c.email || c.emailSuggested || "").trim();
         return email.includes("@");
       }).length;
+
+      // Talent belge : les contacts Benelux liés comptent aussi (évite faux « à enrichir »).
+      if (emailable === 0) {
+        const { isBelgianPays } = await import("@/lib/pays");
+        if (isBelgianPays(mission.talent?.pays)) {
+          const { loadBrandContactsFrAndBe } = await import(
+            "@/lib/crm-brand-contacts"
+          );
+          const brandNames = [
+            mission.marque?.nom,
+            mission.targetBrand,
+          ].filter((n): n is string => Boolean(n && String(n).trim()));
+          const merged = await loadBrandContactsFrAndBe({
+            marqueIds: [mission.marqueId],
+            brandNames,
+            requireEmail: true,
+          });
+          emailable = merged.filter((c) => c.market === "BENELUX").length;
+        }
+      }
       empty = emailable === 0;
     }
   }
