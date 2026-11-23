@@ -1055,15 +1055,21 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     return !(rec?.messageId && !rec.error);
   });
 
-  // Si la mission etait deja envoyee, on garde le sentAt initial pour ne
-  // pas faire repartir le compteur des relances J+3 a zero. On ne touche
-  // pas non plus au stage / status (qui sont deja SENT ou apres).
+  // Si sentAt existe déjà, on le garde (relances J+3). Mais si le stage est
+  // encore DRAFTED_FOR_VALIDATION alors que des mails sont partis, on doit
+  // quand même passer en SENT — sinon la carte reste bloquée dans
+  // « prêt à envoyer ».
   const wasAlreadySent = Boolean(mission.sentAt);
-  const stageUpdate = wasAlreadySent
-    ? {}
-    : outcome.succeeded > 0
-    ? { stage: "SENT" as const, status: "SENT" as const, sentAt: new Date() }
-    : {};
+  const stillDrafted =
+    String(mission.stage || "") === "DRAFTED_FOR_VALIDATION";
+  const stageUpdate =
+    outcome.succeeded > 0 && (!wasAlreadySent || stillDrafted)
+      ? {
+          stage: "SENT" as const,
+          status: "SENT" as const,
+          ...(wasAlreadySent ? {} : { sentAt: new Date() }),
+        }
+      : {};
 
   const combinedErrors =
     translationErrors.length > 0

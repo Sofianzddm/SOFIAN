@@ -55,6 +55,38 @@ async function resolveMarqueId(brand: string): Promise<string | null> {
   return ranked[0]?.id ?? null;
 }
 
+/** YSL Beauty / Yves Saint Laurent sont éclatés en plusieurs fiches CRM. */
+async function expandRelatedMarqueIds(
+  brand: string,
+  marqueIds: string[]
+): Promise<string[]> {
+  if (!/\bysl\b|yves\s*saint\s*laurent|saint\s*laurent\s*beaut/i.test(brand)) {
+    return marqueIds;
+  }
+  const related = await prisma.marque.findMany({
+    where: {
+      OR: [
+        { nom: { contains: "YSL", mode: "insensitive" } },
+        { nom: { contains: "Saint Laurent", mode: "insensitive" } },
+      ],
+      AND: [
+        { NOT: { nom: { contains: "L'Oréal Luxe (Samy", mode: "insensitive" } } },
+        { NOT: { nom: { contains: "Rocher", mode: "insensitive" } } },
+      ],
+    },
+    select: { id: true, nom: true },
+  });
+  return Array.from(
+    new Set([
+      ...marqueIds,
+      ...related
+        .filter((m) => !/rocher/i.test(m.nom))
+        .filter((m) => /ysl|saint\s*laurent/i.test(m.nom))
+        .map((m) => m.id),
+    ])
+  );
+}
+
 async function searchAppContactsFrOnly(brand: string): Promise<{
   contacts: SearchedContact[];
   marqueId: string | null;
@@ -64,6 +96,7 @@ async function searchAppContactsFrOnly(brand: string): Promise<{
     const fallback = await resolveMarqueId(brand);
     if (fallback) marqueIds = [fallback];
   }
+  marqueIds = await expandRelatedMarqueIds(brand, marqueIds);
   if (marqueIds.length === 0) {
     return { contacts: [], marqueId: null };
   }

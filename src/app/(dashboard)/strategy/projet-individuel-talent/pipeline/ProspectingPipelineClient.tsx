@@ -4146,8 +4146,9 @@ export function ProspectingPipelineClient() {
                           !contactSearchByMission[m.id]?.loading &&
                           (contactSearchByMission[m.id]?.results.length ?? 0) === 0 && (
                             <p className="text-xs text-gray-500">
-                              Aucun contact trouvé pour « {brandDisplayName(m)} » dans la base
-                              interne. Saisis-les manuellement ci-dessous.
+                              Aucun contact utilisable trouvé pour cette fiche (souvent exclus
+                              ou domaine bloqué). Réessaie une autre fiche YSL / Yves Saint
+                              Laurent, ou saisis-les manuellement ci-dessous.
                             </p>
                           )}
                         {(contactSearchByMission[m.id]?.results.length ?? 0) > 0 && (

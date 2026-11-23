@@ -84,11 +84,12 @@ const HARD_BLOCKED_CASTING_BRAND_RE =
   /l['’`´]?or[eé]al|\bloreal\b|\bnyx\b/i;
 
 /**
- * Exception métier : Maison Margiela Fragrances (licence L’Oréal Luxe).
- * Autorise les @*.loreal.com uniquement pour cette marque.
+ * Exception métier : licences L’Oréal Luxe autorisées en casting
+ * (Maison Margiela Fragrances, YSL Beauty / Yves Saint Laurent).
+ * Autorise les @*.loreal.com uniquement pour ces marques.
  */
 const LOREAL_HARD_BLOCK_EXEMPT_BRAND_RE =
-  /maison\s*margiela|margiela\s*fragrances?/i;
+  /maison\s*margiela|margiela\s*fragrances?|\bysl\b|yves\s*saint\s*laurent/i;
 
 export type CastingRecipientGuardOpts = {
   /** Marque / targetBrand de la mission — peut lever le hard-block L’Oréal. */
