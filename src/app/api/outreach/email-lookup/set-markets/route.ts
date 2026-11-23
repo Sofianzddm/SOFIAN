@@ -391,6 +391,8 @@ export async function POST(request: NextRequest) {
             data: {
               ...emailFields,
               outreachExcluded: snapshot.outreachExcluded,
+              // Propager la langue du jumeau (sinon FR reste `fr` alors que BE=EN).
+              language: snapshot.language === "en" ? "en" : "fr",
             },
           });
           frContactId = twin.id;
@@ -458,6 +460,7 @@ export async function POST(request: NextRequest) {
             data: {
               ...emailFields,
               outreachExcluded: snapshot.outreachExcluded,
+              language: snapshot.language === "en" ? "en" : "fr",
             },
           });
           beContactId = twin.id;

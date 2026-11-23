@@ -35,6 +35,7 @@ type AppContactOut = {
   principal: boolean;
   blockedByCooldown: boolean;
   market: ContactMarket;
+  language: "fr" | "en";
 };
 
 function isValidEmail(value: string): boolean {
@@ -205,6 +206,7 @@ export async function GET(request: NextRequest) {
       poste: string | null;
       principal: boolean;
       market: ContactMarket;
+      language: "fr" | "en";
     };
 
     const contactsByMarque = new Map<string, MarqueContactRow[]>();
@@ -233,6 +235,7 @@ export async function GET(request: NextRequest) {
           email: true,
           poste: true,
           principal: true,
+          language: true,
         },
         orderBy: [{ principal: "desc" }, { nom: "asc" }],
       });
@@ -240,7 +243,12 @@ export async function GET(request: NextRequest) {
         const email = (row.email || "").trim();
         if (!email || !isValidEmail(email)) continue;
         const list = contactsByMarque.get(row.marqueId) || [];
-        list.push({ ...row, market: "FR" });
+        list.push({
+          ...row,
+          market: "FR",
+          language:
+            String(row.language || "").toLowerCase() === "en" ? "en" : "fr",
+        });
         contactsByMarque.set(row.marqueId, list);
       }
     }
@@ -279,6 +287,7 @@ export async function GET(request: NextRequest) {
                 poste: c.role || null,
                 principal: false,
                 market: "BENELUX" as const,
+                language: c.language === "en" ? "en" : "fr",
               }));
             if (rows.length > 0) beContactsByMission.set(String(m.id), rows);
           })
@@ -364,6 +373,7 @@ export async function GET(request: NextRequest) {
             role: (c.poste || "").trim(),
             principal: Boolean(c.principal),
             market: c.market,
+            language: c.language === "en" ? ("en" as const) : ("fr" as const),
           };
         })
         .filter((c) => {

@@ -232,6 +232,7 @@ type ReadyContact = {
   principal: boolean;
   blockedByCooldown: boolean;
   market?: "FR" | "BENELUX";
+  language?: "fr" | "en";
 };
 
 function contactMarketFlag(market?: "FR" | "BENELUX" | null): string {
@@ -1607,9 +1608,14 @@ export function ProspectingPipelineClient() {
         email: c.email,
         role: c.role,
         market: c.market === "BENELUX" ? "BENELUX" : "FR",
+        language: c.language === "en" ? "en" : "fr",
       });
     }
     const nextContacts = Array.from(byEmail.values());
+    // Langue carto (étape 2) prime sur le défaut UI « Client français ».
+    const enCount = contacts.filter((c) => c.language === "en").length;
+    const derivedLang: "EN" | "FR" =
+      enCount >= Math.ceil(contacts.length / 2) ? "EN" : "FR";
 
     const patchRes = await fetch("/api/strategy/contact-missions", {
       method: "PATCH",
@@ -1618,9 +1624,7 @@ export function ProspectingPipelineClient() {
       body: JSON.stringify({
         missionId: m.id,
         clientContacts: nextContacts,
-        ...(m.clientLanguage === "EN" || m.clientLanguage === "FR"
-          ? { clientLanguage: m.clientLanguage }
-          : {}),
+        clientLanguage: derivedLang,
       }),
     });
     const patchData = await patchRes.json().catch(() => ({}));

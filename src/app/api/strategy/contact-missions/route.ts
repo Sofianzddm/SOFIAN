@@ -967,17 +967,28 @@ export async function PATCH(request: NextRequest) {
       },
     });
 
-    // Sync langue CRM : l'envoi Joey lit MarqueContact.language (pas seulement
-    // clientLanguage mission). Sans ça, « Client anglais » à l'écran part quand même en FR.
+    // Sync langue CRM (Joey lit la fiche). « Client anglais » → pousse EN.
+    // Ne JAMAIS écraser en masse vers FR : le défaut pipeline « FR » détruisait
+    // l'EN posé en carto étape 2 et les mails Joey repartaient en français.
     if (
       body.clientLanguage !== undefined &&
-      (clientLanguage === "EN" || clientLanguage === "FR") &&
+      clientLanguage === "EN" &&
       mission.marqueId
     ) {
       await prisma.marqueContact.updateMany({
         where: { marqueId: mission.marqueId },
-        data: { language: clientLanguage === "EN" ? "en" : "fr" },
+        data: { language: "en" },
       });
+      const beCompanies = await prisma.beneluxCompany.findMany({
+        where: { linkedMarqueId: mission.marqueId },
+        select: { id: true },
+      });
+      if (beCompanies.length > 0) {
+        await prisma.beneluxContact.updateMany({
+          where: { companyId: { in: beCompanies.map((c) => c.id) } },
+          data: { language: "en" },
+        });
+      }
     }
 
     // Journal activité (Sofian only) — fire-and-forget

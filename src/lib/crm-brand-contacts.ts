@@ -99,7 +99,14 @@ export async function loadBrandContactsFrAndBe(opts: {
     }
     const key = normalizeEmail(c.email);
     if (key) {
-      if (seenEmails.has(key)) return;
+      if (seenEmails.has(key)) {
+        // Même email FR+BE : garder EN si l’un des deux l’est (carto étape 2).
+        const idx = out.findIndex((x) => normalizeEmail(x.email) === key);
+        if (idx >= 0 && c.language === "en" && out[idx].language !== "en") {
+          out[idx] = { ...out[idx], language: "en" };
+        }
+        return;
+      }
       seenEmails.add(key);
     }
     out.push(c);

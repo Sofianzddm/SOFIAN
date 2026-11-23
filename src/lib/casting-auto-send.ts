@@ -425,9 +425,35 @@ async function loadMissionTalentsForSend(mission: {
  */
 async function loadBrandContactLanguages(mission: {
   marqueId?: string | null;
+  targetBrand?: string | null;
 }): Promise<Map<string, "fr" | "en">> {
   const map = new Map<string, "fr" | "en">();
   const marqueId = String(mission.marqueId || "").trim();
+  const brand = String(mission.targetBrand || "").trim();
+  if (!marqueId && !brand) return map;
+
+  // FR + Benelux (étape 2 carto pose la langue sur les deux fiches).
+  // Si un email existe des deux côtés, EN gagne (jamais écraser EN par un FR miroir).
+  try {
+    const { loadBrandContactsFrAndBe } = await import("@/lib/crm-brand-contacts");
+    const rows = await loadBrandContactsFrAndBe({
+      marqueIds: marqueId ? [marqueId] : [],
+      brandNames: brand ? [brand] : [],
+      requireEmail: true,
+    });
+    for (const c of rows) {
+      const email = String(c.email || "").trim().toLowerCase();
+      if (!email) continue;
+      const lang = c.language === "en" ? "en" : "fr";
+      const prev = map.get(email);
+      if (prev === "en" || lang === "en") map.set(email, "en");
+      else map.set(email, lang);
+    }
+    if (map.size > 0) return map;
+  } catch {
+    // fallback MarqueContact seul ci-dessous
+  }
+
   if (!marqueId) return map;
   const contacts = await prisma.marqueContact.findMany({
     where: { marqueId },
@@ -437,8 +463,6 @@ async function loadBrandContactLanguages(mission: {
     const email = String(c.email || "").trim().toLowerCase();
     if (!email) continue;
     const raw = String(c.language || "").trim().toLowerCase();
-    // Seulement si la fiche a une langue EXPLICITE — sinon on laisse
-    // threadLangFor retomber sur la langue réelle du brouillon.
     if (raw === "en" || raw.startsWith("en")) map.set(email, "en");
     else if (raw === "fr" || raw.startsWith("fr")) map.set(email, "fr");
   }
@@ -531,14 +555,22 @@ export async function buildCastingSendPreview(
   const sourceLang: "fr" | "en" =
     overrides.sourceLanguage ??
     (String(mission.draftLanguage || "").toLowerCase() === "en" ? "en" : "fr");
-  const fallbackLang: "fr" | "en" =
+  const missionLang: "fr" | "en" | null =
     String(mission.clientLanguage || "").toUpperCase() === "EN"
       ? "en"
       : String(mission.clientLanguage || "").toUpperCase() === "FR"
-      ? "fr"
-      : sourceLang;
+        ? "fr"
+        : null;
+  const fallbackLang: "fr" | "en" = missionLang || sourceLang;
 
+  // Priorité : langue fiche (carto étape 2) > sélecteur mission > brouillon.
   const contactLangByEmail = await loadBrandContactLanguages(mission);
+  const resolveContactLang = (email: string): "fr" | "en" => {
+    const fromCrm = contactLangByEmail.get(email);
+    if (fromCrm) return fromCrm;
+    if (missionLang) return missionLang;
+    return fallbackLang;
+  };
   const sender = await resolvePortfolioSender(mission.marqueId);
 
   const versions = new Map<"fr" | "en", { subject: string; body: string }>();
@@ -603,7 +635,7 @@ export async function buildCastingSendPreview(
     if (!email) continue;
     const isAlreadySent = alreadySent.has(email);
     const isBlocked = !isAlreadySent && blocked.has(email);
-    const contactLang = contactLangByEmail.get(email) ?? fallbackLang;
+    const contactLang = resolveContactLang(email);
     const version = await getVersion(contactLang);
     const vars = {
       firstname: contact.firstname || "",
@@ -740,17 +772,23 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
   // on retombe sur la version d'origine (l'erreur est consignée dans sendError).
   const sourceLang: "fr" | "en" =
     String(mission.draftLanguage || "").toLowerCase() === "en" ? "en" : "fr";
-  // Langue par défaut si un contact n'est pas (encore) sur la fiche client :
-  // on retombe sur clientLanguage de la mission, sinon sur la langue source.
-  const fallbackLang: "fr" | "en" =
+  // Sélecteur mission = fallback. La langue posée en carto (fiche CRM
+  // FR+BE) prime — sinon un défaut « FR » pipeline écrase l’EN étape 2.
+  const missionLang: "fr" | "en" | null =
     String(mission.clientLanguage || "").toUpperCase() === "EN"
       ? "en"
       : String(mission.clientLanguage || "").toUpperCase() === "FR"
-      ? "fr"
-      : sourceLang;
+        ? "fr"
+        : null;
+  const fallbackLang: "fr" | "en" = missionLang || sourceLang;
 
-  // Map email -> langue, lue depuis la fiche client (fiche marque).
   const contactLangByEmail = await loadBrandContactLanguages(mission);
+  const resolveContactLang = (email: string): "fr" | "en" => {
+    const fromCrm = contactLangByEmail.get(email);
+    if (fromCrm) return fromCrm;
+    if (missionLang) return missionLang;
+    return fallbackLang;
+  };
   const sender = await resolvePortfolioSender(mission.marqueId);
   const fromEmail = sender.fromEmail;
   const ownerFirstname = sender.ownerFirstname;
@@ -945,7 +983,7 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
     const email = (contact.email || "").toLowerCase();
     if (!email) continue;
     outcome.attempted += 1;
-    const contactLang = contactLangByEmail.get(email) ?? fallbackLang;
+    const contactLang = resolveContactLang(email);
     const version = await getVersion(contactLang);
     const personalizedSubject = ensureBrandInSubject(
       applyCastingTemplateVars(version.subject, {
@@ -1086,7 +1124,7 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
             lastname: contact.lastname,
             company: String(mission.targetBrand || ""),
             marqueId: mission.marqueId || null,
-            language: contactLangByEmail.get(email) ?? fallbackLang,
+            language: resolveContactLang(email),
             createdById,
             sentAt,
             sourceLabel: "Mail pipeline casting envoyé",
@@ -1742,27 +1780,22 @@ export async function executeCastingRelance(
   );
   // Langue utilisée pour la traduction du mail d'origine cité : celle du texte.
   const sourceLang: "fr" | "en" = draftActualLang;
-  const fallbackLang: "fr" | "en" =
+  const missionLang: "fr" | "en" | null =
     String(mission.clientLanguage || "").toUpperCase() === "EN"
       ? "en"
       : String(mission.clientLanguage || "").toUpperCase() === "FR"
-      ? "fr"
-      : draftDeclaredLang;
+        ? "fr"
+        : null;
+  const fallbackLang: "fr" | "en" = missionLang || draftDeclaredLang;
   const contactLangByEmail = await loadBrandContactLanguages(mission);
   /**
-   * Langue d’envoi = fiche client (MarqueContact.language) en priorité,
-   * sinon clientLanguage mission, sinon langue réelle du brouillon.
-   * Un contact EN ne doit JAMAIS recevoir du FR (et inversement).
+   * Langue d’envoi = fiche CRM (carto) en priorité, sinon sélecteur mission,
+   * sinon langue réelle du brouillon.
    */
   const threadLangFor = (email: string): "fr" | "en" => {
     const fromFiche = contactLangByEmail.get(email.toLowerCase());
     if (fromFiche) return fromFiche;
-    if (
-      String(mission.clientLanguage || "").toUpperCase() === "EN" ||
-      String(mission.clientLanguage || "").toUpperCase() === "FR"
-    ) {
-      return fallbackLang;
-    }
+    if (missionLang) return missionLang;
     return draftActualLang;
   };
 

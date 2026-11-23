@@ -398,9 +398,20 @@ async function commitBenelux(opts: {
             },
           ],
         },
-        select: { id: true },
+        select: { id: true, language: true },
       });
-      if (existing) contactIds.push(existing.id);
+      if (existing) {
+        contactIds.push(existing.id);
+        // Aligné sur commitFrance : re-commit EN/FR met à jour la langue
+        // même si le contact BE existe déjà (sinon l’UI EN n’a aucun effet).
+        const wantLang = opts.language === "en" ? "en" : "fr";
+        if (String(existing.language || "").toLowerCase() !== wantLang) {
+          await prisma.beneluxContact.update({
+            where: { id: existing.id },
+            data: { language: wantLang },
+          });
+        }
+      }
       skipped += 1;
       continue;
     }
