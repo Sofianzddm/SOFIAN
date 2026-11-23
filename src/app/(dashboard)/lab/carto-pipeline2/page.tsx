@@ -848,8 +848,16 @@ export default function CartoAiPipelineChatLabPage() {
   }
 
   function switchFicheMarket(next: FicheMarket) {
+    if (next === ficheMarket) return;
     setFicheMarket(next);
     clearMarque();
+    // Changer de marché invalide l’aperçu (prompt FR ≠ BE).
+    setPreview(null);
+    setSelected({});
+    setCommitResult(null);
+    setBeCommitResult(null);
+    setError(null);
+    setPipelinePhase(next === "BENELUX" ? "carto_be" : "carto_fr");
   }
 
   function ficheMarketLabel(m: FicheMarket = ficheMarket) {
@@ -1219,6 +1227,47 @@ export default function CartoAiPipelineChatLabPage() {
             </select>
           </label>
         </div>
+        {!isFrBeBeneluxPass ? (
+          <div className="space-y-1.5">
+            <span className="block text-sm text-gray-700">Marché à analyser</span>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ["FR", "🇫🇷 FR → puis BE"],
+                  ["BOTH", "FR+BE (les 2)"],
+                  ["BENELUX", "🇧🇪 BE seul"],
+                ] as const
+              ).map(([m, label]) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => switchFicheMarket(m)}
+                  disabled={loading}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50 ${
+                    ficheMarket === m
+                      ? "bg-gray-900 text-white"
+                      : "border border-gray-300 text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {ficheMarket === "BENELUX" ? (
+              <p className="text-xs text-amber-800">
+                Analyse ciblée Benelux uniquement — pas de passe France.
+              </p>
+            ) : ficheMarket === "BOTH" ? (
+              <p className="text-xs text-emerald-800">
+                1ère analyse France ; les contacts partent sur FR + fiche BE liée.
+              </p>
+            ) : (
+              <p className="text-xs text-gray-500">
+                Analyse France d’abord, puis enchaînement Benelux après enrichissement.
+              </p>
+            )}
+          </div>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -1229,7 +1278,7 @@ export default function CartoAiPipelineChatLabPage() {
           >
             {loading
               ? loadingHint || "Analyse en cours"
-              : pipelinePhase === "carto_be"
+              : pipelinePhase === "carto_be" || ficheMarket === "BENELUX"
                 ? "Analyse Benelux"
                 : "Analyse"}
           </button>
@@ -1476,7 +1525,12 @@ export default function CartoAiPipelineChatLabPage() {
                       Après l’enrichissement FR : analyse BE → enrich BE →
                       attribution Leyna/Joey (les deux fiches).
                     </p>
-                  ) : null}
+                  ) : (
+                    <p className="text-xs text-amber-800">
+                      Parcours Benelux seul — enregistre sur la fiche BE, enrichis,
+                      sans attribution portefeuille FR.
+                    </p>
+                  )}
                   <label className="relative block max-w-md text-sm">
                     <span className="mb-1 block text-gray-700">
                       {ficheMarket === "BENELUX"
