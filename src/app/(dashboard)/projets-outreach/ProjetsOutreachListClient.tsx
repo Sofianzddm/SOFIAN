@@ -40,6 +40,8 @@ type CampaignRow = {
   prestataireCount?: number;
   prestataireConfirmes?: number;
   prestataireMine?: number;
+  /** Comptes portefeuille marques — badge casting Leyna / Joey. */
+  portfolioOwners?: { joey: number; leyna: number };
 };
 
 type TalentOption = { id: string; name: string };
@@ -729,6 +731,28 @@ export function ProjetsOutreachListClient() {
                             {c.title}
                           </span>
                           <StatusBadge status={c.status} />
+                          {(c.portfolioOwners?.joey || 0) > 0 ? (
+                            <span
+                              className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+                              title={`Portefeuille Joey · ${c.portfolioOwners?.joey} marque${(c.portfolioOwners?.joey || 0) > 1 ? "s" : ""}`}
+                            >
+                              Joey
+                              {(c.portfolioOwners?.leyna || 0) > 0
+                                ? ` · ${c.portfolioOwners?.joey}`
+                                : ""}
+                            </span>
+                          ) : null}
+                          {(c.portfolioOwners?.leyna || 0) > 0 ? (
+                            <span
+                              className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+                              title={`Portefeuille Leyna · ${c.portfolioOwners?.leyna} marque${(c.portfolioOwners?.leyna || 0) > 1 ? "s" : ""}`}
+                            >
+                              Leyna
+                              {(c.portfolioOwners?.joey || 0) > 0
+                                ? ` · ${c.portfolioOwners?.leyna}`
+                                : ""}
+                            </span>
+                          ) : null}
                           {c.necessitePrestataires ? (
                             <span
                               className="po-badge"

@@ -55,6 +55,28 @@ function sanitizeJsonForDb<T>(value: T): T {
   ) as T;
 }
 
+/**
+ * Recalcule completed/failed depuis les items (anti double-comptage ticks concurrents).
+ */
+async function reconcileOutreachDraftJobCounters(jobId: string): Promise<{
+  completed: number;
+  failed: number;
+}> {
+  const [completed, failed] = await Promise.all([
+    prisma.castingOutreachDraftItem.count({
+      where: { jobId, status: "done" },
+    }),
+    prisma.castingOutreachDraftItem.count({
+      where: { jobId, status: "failed" },
+    }),
+  ]);
+  await prisma.castingOutreachDraftJob.update({
+    where: { id: jobId },
+    data: { completed, failed },
+  });
+  return { completed, failed };
+}
+
 type LeynaSlim = {
   hasExchange: boolean;
   hasSentNoReplyOnly: boolean;
@@ -2532,11 +2554,8 @@ async function processOutreachDraftJobTickUnlocked(
       where: { jobId, status: { in: ["pending", "running"] } },
     });
     if (remainingEmpty === 0) {
-      const latest = await prisma.castingOutreachDraftJob.findUnique({
-        where: { id: jobId },
-      });
-      const failed = latest?.failed || 0;
-      const completed = latest?.completed || 0;
+      const { completed, failed } =
+        await reconcileOutreachDraftJobCounters(jobId);
       const status = completed === 0 && failed > 0 ? "failed" : "completed";
       await prisma.castingOutreachDraftJob.update({
         where: { id: jobId },
@@ -2630,18 +2649,24 @@ async function processOutreachDraftJobTickUnlocked(
       }
       await cancelContaboForOutreachItem(next);
       try {
-        await prisma.castingOutreachDraftItem.update({
-          where: { id: next.id },
+        const marked = await prisma.castingOutreachDraftItem.updateMany({
+          where: {
+            id: next.id,
+            status: { in: ["running", "pending"] },
+          },
           data: {
             status: "failed",
             finishedAt: new Date(),
             error,
           },
         });
-        await prisma.castingOutreachDraftJob.update({
-          where: { id: jobId },
-          data: { failed: { increment: 1 } },
-        });
+        // Incrément seulement si on a vraiment basculé running→failed (anti ×2 ticks).
+        if (marked.count > 0) {
+          await prisma.castingOutreachDraftJob.update({
+            where: { id: jobId },
+            data: { failed: { increment: 1 } },
+          });
+        }
         await refreshOutreachJobCurrentBrand(jobId);
       } catch (writeErr) {
         const w = writeErr instanceof Error ? writeErr.message : String(writeErr);
@@ -2695,8 +2720,11 @@ async function processOutreachDraftJobTickUnlocked(
         : /annul/i.test(String(result.error || ""))
           ? "Annulé"
           : String(result.error || "Hors wizard");
-      await prisma.castingOutreachDraftItem.update({
-        where: { id: next.id },
+      await prisma.castingOutreachDraftItem.updateMany({
+        where: {
+          id: next.id,
+          status: { in: ["running", "pending"] },
+        },
         data: {
           status: "skipped",
           finishedAt: new Date(),
@@ -2716,8 +2744,11 @@ async function processOutreachDraftJobTickUnlocked(
       );
       try {
         await withDbRetry(`done ${next.brandName}`, async () => {
-          await prisma.castingOutreachDraftItem.update({
-            where: { id: next.id },
+          const marked = await prisma.castingOutreachDraftItem.updateMany({
+            where: {
+              id: next.id,
+              status: { in: ["running", "pending"] },
+            },
             data: {
               status: "done",
               finishedAt: new Date(),
@@ -2727,10 +2758,13 @@ async function processOutreachDraftJobTickUnlocked(
               error: null,
             },
           });
-          await prisma.castingOutreachDraftJob.update({
-            where: { id: jobId },
-            data: { completed: { increment: 1 } },
-          });
+          // Incrément seulement sur transition réelle (anti ×2 ticks concurrents).
+          if (marked.count > 0) {
+            await prisma.castingOutreachDraftJob.update({
+              where: { id: jobId },
+              data: { completed: { increment: 1 } },
+            });
+          }
         });
         await refreshOutreachJobCurrentBrand(jobId);
       } catch (writeErr) {
@@ -2759,8 +2793,11 @@ async function processOutreachDraftJobTickUnlocked(
     } else {
       await cancelContaboForOutreachItem(next);
       try {
-        await prisma.castingOutreachDraftItem.update({
-          where: { id: next.id },
+        const marked = await prisma.castingOutreachDraftItem.updateMany({
+          where: {
+            id: next.id,
+            status: { in: ["running", "pending"] },
+          },
           data: {
             status: "failed",
             finishedAt: new Date(),
@@ -2768,10 +2805,12 @@ async function processOutreachDraftJobTickUnlocked(
             error: result.error || "Échec",
           },
         });
-        await prisma.castingOutreachDraftJob.update({
-          where: { id: jobId },
-          data: { failed: { increment: 1 } },
-        });
+        if (marked.count > 0) {
+          await prisma.castingOutreachDraftJob.update({
+            where: { id: jobId },
+            data: { failed: { increment: 1 } },
+          });
+        }
         await refreshOutreachJobCurrentBrand(jobId);
       } catch (writeErr) {
         const w = writeErr instanceof Error ? writeErr.message : String(writeErr);
@@ -2788,6 +2827,7 @@ async function processOutreachDraftJobTickUnlocked(
   }
 
   if (cancelled) {
+    await reconcileOutreachDraftJobCounters(jobId);
     await prisma.castingOutreachDraftJob.update({
       where: { id: jobId },
       data: {
@@ -2809,11 +2849,7 @@ async function processOutreachDraftJobTickUnlocked(
   });
 
   if (remaining === 0) {
-    const latest = await prisma.castingOutreachDraftJob.findUnique({
-      where: { id: jobId },
-    });
-    const failed = latest?.failed || 0;
-    const completed = latest?.completed || 0;
+    const { completed, failed } = await reconcileOutreachDraftJobCounters(jobId);
     const status = completed === 0 && failed > 0 ? "failed" : "completed";
     await prisma.castingOutreachDraftJob.update({
       where: { id: jobId },

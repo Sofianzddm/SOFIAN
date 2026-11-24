@@ -11,6 +11,7 @@ import {
   type CampaignMode,
   type CampaignStatus,
 } from "@/lib/projets-outreach";
+import { ownerFirstnameFromEmail } from "@/lib/marque-portfolio";
 
 async function appendEvent(opts: {
   campaignId: string;
@@ -140,6 +141,52 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    /** Portefeuille marque → badge Leyna / Joey (même signal que Pipeline indiv). */
+    const portfolioRows =
+      campaignIds.length > 0
+        ? await prisma.contactMission.findMany({
+            where: { campaignId: { in: campaignIds } },
+            select: {
+              campaignId: true,
+              marque: {
+                select: {
+                  assignedTo: {
+                    select: {
+                      prenom: true,
+                      email: true,
+                      gmailToken: { select: { email: true } },
+                    },
+                  },
+                },
+              },
+            },
+          })
+        : [];
+
+    const portfolioByCampaign: Record<string, { joey: number; leyna: number }> = {};
+    for (const row of portfolioRows) {
+      if (!row.campaignId) continue;
+      if (!portfolioByCampaign[row.campaignId]) {
+        portfolioByCampaign[row.campaignId] = { joey: 0, leyna: 0 };
+      }
+      const assignee = row.marque?.assignedTo;
+      const email = (
+        assignee?.gmailToken?.email ||
+        assignee?.email ||
+        ""
+      )
+        .trim()
+        .toLowerCase();
+      const owner = assignee?.prenom?.trim()
+        ? assignee.prenom.trim()
+        : ownerFirstnameFromEmail(email || DEFAULT_SENDER_EMAIL);
+      if (owner.toLowerCase().startsWith("joey") || email.startsWith("joey@")) {
+        portfolioByCampaign[row.campaignId].joey += 1;
+      } else {
+        portfolioByCampaign[row.campaignId].leyna += 1;
+      }
+    }
+
     return NextResponse.json({
       campaigns: campaigns.map((c) => {
         const stats = byCampaign[c.id] || { total: 0, sent: 0, answered: 0, byStage: {} };
@@ -160,6 +207,15 @@ export async function GET(request: NextRequest) {
         const talentNames = talents.map((t) => t.name).filter(Boolean);
         const prestaMine = c.prestataires.filter((p) => p.responsableId === userId).length;
         const prestaConfirmes = c.prestataires.filter((p) => p.statut === "CONFIRME").length;
+        const portfolio = portfolioByCampaign[c.id] || { joey: 0, leyna: 0 };
+        // Sans marques : fallback expéditeur projet (souvent Leyna).
+        if (portfolio.joey === 0 && portfolio.leyna === 0) {
+          const sender = String(c.senderEmail || DEFAULT_SENDER_EMAIL)
+            .trim()
+            .toLowerCase();
+          if (sender.startsWith("joey@")) portfolio.joey = 1;
+          else portfolio.leyna = 1;
+        }
         return {
           id: c.id,
           title: c.title,
@@ -168,6 +224,7 @@ export async function GET(request: NextRequest) {
           mode: c.mode,
           isActive: c.isActive,
           senderEmail: c.senderEmail,
+          portfolioOwners: portfolio,
           talentId: c.talentId,
           talentName:
             c.mode === "MULTI" && talentNames.length > 1

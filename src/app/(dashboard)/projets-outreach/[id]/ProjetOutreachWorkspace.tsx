@@ -174,6 +174,48 @@ type CachedTalentResearchItem = {
   sourcesUsed?: string;
 };
 
+/** Même logique que Pipeline indiv (`missionFromEmail` / `missionOwnerName`). */
+function missionFromEmail(m: {
+  portfolioFromEmail?: string | null;
+}): string {
+  const e = String(m.portfolioFromEmail || "")
+    .trim()
+    .toLowerCase();
+  return e.includes("@") ? e : "leyna@glowupagence.fr";
+}
+
+function missionOwnerName(m: {
+  portfolioOwnerName?: string | null;
+  portfolioFromEmail?: string | null;
+}): string {
+  const named = String(m.portfolioOwnerName || "").trim();
+  if (named) return named;
+  const e = missionFromEmail(m);
+  if (e.startsWith("joey@")) return "Joey";
+  if (e.startsWith("leyna@")) return "Leyna";
+  const local = e.split("@")[0] || "Leyna";
+  return local.charAt(0).toUpperCase() + local.slice(1);
+}
+
+/** Badge responsable client — même style que Pipeline indiv. */
+function PortfolioOwnerBadge({
+  mission,
+}: {
+  mission: {
+    portfolioOwnerName?: string | null;
+    portfolioFromEmail?: string | null;
+  };
+}) {
+  return (
+    <span
+      className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+      title={`Responsable client · envoi depuis ${missionFromEmail(mission)}`}
+    >
+      {missionOwnerName(mission)}
+    </span>
+  );
+}
+
 /** Clé cache stable : ignore casse, accents, espaces (JouéClub ≈ Joué club). */
 function brandResearchKey(name: string): string {
   return name
@@ -643,6 +685,20 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
 
   const sender = campaign.senderEmail || "leyna@glowupagence.fr";
   const tmLabel = campaign.ownerTmName || "HORS TM";
+  const portfolioCounts = (() => {
+    let joey = 0;
+    let leyna = 0;
+    for (const m of campaign.missions) {
+      const owner = missionOwnerName(m).toLowerCase();
+      if (owner.startsWith("joey")) joey += 1;
+      else leyna += 1;
+    }
+    if (joey === 0 && leyna === 0) {
+      if (sender.toLowerCase().startsWith("joey@")) joey = 1;
+      else leyna = 1;
+    }
+    return { joey, leyna };
+  })();
 
   return (
     <div className="po-root">
@@ -687,6 +743,24 @@ export function ProjetOutreachWorkspace({ campaignId }: { campaignId: string }) 
                 }}
               >
                 {campaign.title}
+                {portfolioCounts.joey > 0 ? (
+                  <span
+                    className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+                    title={`Portefeuille Joey · ${portfolioCounts.joey} marque${portfolioCounts.joey > 1 ? "s" : ""}`}
+                  >
+                    Joey
+                    {portfolioCounts.leyna > 0 ? ` · ${portfolioCounts.joey}` : ""}
+                  </span>
+                ) : null}
+                {portfolioCounts.leyna > 0 ? (
+                  <span
+                    className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+                    title={`Portefeuille Leyna · ${portfolioCounts.leyna} marque${portfolioCounts.leyna > 1 ? "s" : ""}`}
+                  >
+                    Leyna
+                    {portfolioCounts.joey > 0 ? ` · ${portfolioCounts.leyna}` : ""}
+                  </span>
+                ) : null}
                 {campaign.mode === "MULTI" ? (
                   <span
                     className="po-badge"
@@ -2610,23 +2684,7 @@ function MarquesTab({
                       <span style={{ fontWeight: 600, color: "var(--po-ink)" }}>
                         {name}
                       </span>
-                      <span
-                        className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                        style={{
-                          background: "var(--po-sep)",
-                          color: "var(--po-ink)",
-                        }}
-                        title={`Responsable client · ${
-                          m.portfolioFromEmail || "leyna@glowupagence.fr"
-                        }`}
-                      >
-                        {m.portfolioOwnerName ||
-                          (String(m.portfolioFromEmail || "")
-                            .toLowerCase()
-                            .startsWith("joey@")
-                            ? "Joey"
-                            : "Leyna")}
-                      </span>
+                      <PortfolioOwnerBadge mission={m} />
                     </div>
                     {onCooldown ? (
                       <div
@@ -5200,12 +5258,15 @@ function RedactionTab({
               <div className="flex min-w-0 items-start gap-2.5">
                 <PoAvatar name={name} size={26} />
                 <div className="min-w-0 flex-1">
-                  <div
-                    style={{ fontWeight: 600, color: "var(--po-ink)", lineHeight: 1.25 }}
-                    className="truncate"
-                    title={name}
-                  >
-                    {name}
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <div
+                      style={{ fontWeight: 600, color: "var(--po-ink)", lineHeight: 1.25 }}
+                      className="truncate"
+                      title={name}
+                    >
+                      {name}
+                    </div>
+                    <PortfolioOwnerBadge mission={m} />
                   </div>
                   <div className="mt-1 flex flex-wrap gap-1">
                     {hasBrandAnalysis ? (
@@ -5871,8 +5932,11 @@ function EnvoisTab({
               className="po-table-row"
               style={{ gridTemplateColumns: cols }}
             >
-              <div style={{ fontWeight: 600 }}>
-                {m.marqueNom || m.targetBrand}
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span style={{ fontWeight: 600 }}>
+                  {m.marqueNom || m.targetBrand}
+                </span>
+                <PortfolioOwnerBadge mission={m} />
               </div>
               <div className="truncate">{m.draftEmailSubject || EMPTY}</div>
               <div
