@@ -1,14 +1,15 @@
 import type { NextRequest } from "next/server";
 
-/** Auth interne worker/cron (Bearer CRON_SECRET ou INTERNAL_JOB_SECRET). */
+/** Auth interne worker/cron (Bearer CRON_SECRET et/ou INTERNAL_JOB_SECRET). */
 export function isInternalJobAuth(request: NextRequest): boolean {
   const auth = request.headers.get("authorization") || "";
-  const secret =
-    process.env.CRON_SECRET?.trim() ||
-    process.env.INTERNAL_JOB_SECRET?.trim() ||
-    "";
-  if (secret && auth === `Bearer ${secret}`) return true;
-  if (request.headers.get("x-glowup-job-kick") === "1" && !secret) {
+  const secrets = [
+    process.env.CRON_SECRET?.trim(),
+    process.env.INTERNAL_JOB_SECRET?.trim(),
+  ].filter((s): s is string => Boolean(s));
+  // Accepte l’un OU l’autre : le VPS n’a parfois que INTERNAL_JOB_SECRET.
+  if (secrets.some((secret) => auth === `Bearer ${secret}`)) return true;
+  if (request.headers.get("x-glowup-job-kick") === "1" && secrets.length === 0) {
     return process.env.NODE_ENV !== "production";
   }
   return false;

@@ -83,7 +83,7 @@ async function internalPost<T = Record<string, unknown>>(
   body: unknown
 ): Promise<{ ok: boolean; status: number; data: T }> {
   const url = `${appBaseUrl()}${path}`;
-  const maxAttempts = 3;
+  const maxAttempts = 4;
   let lastErr: unknown = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -91,24 +91,32 @@ async function internalPost<T = Record<string, unknown>>(
         method: "POST",
         headers: internalJobHeaders(),
         body: JSON.stringify(body),
+        // DNS Contabo parfois >10s (défaut undici) → timeout connect trop court.
+        signal: AbortSignal.timeout(180_000),
       });
       const data = (await res.json().catch(() => ({}))) as T;
       return { ok: res.ok, status: res.status, data };
     } catch (e) {
       lastErr = e;
       const msg = e instanceof Error ? e.message : String(e);
-      // Self-HTTP Vercel / cold start : « fetch failed » → retry court.
+      const cause =
+        e && typeof e === "object" && "cause" in e
+          ? String((e as { cause?: { code?: string; message?: string } }).cause?.code ||
+              (e as { cause?: { message?: string } }).cause?.message ||
+              "")
+          : "";
+      // Self-HTTP Vercel / DNS Contabo : « fetch failed » → retry.
       if (
         attempt < maxAttempts &&
-        /fetch failed|ECONNRESET|ECONNREFUSED|socket|UND_ERR|timeout|abort/i.test(
-          msg
+        /fetch failed|ECONNRESET|ECONNREFUSED|socket|UND_ERR|timeout|abort|Connect Timeout/i.test(
+          `${msg} ${cause}`
         )
       ) {
-        await new Promise((r) => setTimeout(r, 800 * attempt));
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
         continue;
       }
       throw new Error(
-        `Appel interne ${path} échoué (${msg || "réseau"}) — base ${url.replace(/\/api\/.*$/, "")}`
+        `Appel interne ${path} échoué (${msg || "réseau"}${cause ? ` / ${cause}` : ""}) — base ${url.replace(/\/api\/.*$/, "")}`
       );
     }
   }
