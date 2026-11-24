@@ -85,10 +85,34 @@ function extractOpenAiResponseText(data: Record<string, unknown>): string {
   return chunks.join("\n").trim();
 }
 
+/** Évite 400 OpenAI "Invalid body: failed to parse JSON" (surrogates orphelins). */
+function sanitizeOpenAiText(raw: string): string {
+  let s = String(raw || "").replace(
+    /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g,
+    " "
+  );
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = s.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += s[i]! + s[i + 1]!;
+        i++;
+      }
+      continue;
+    }
+    if (c >= 0xdc00 && c <= 0xdfff) continue;
+    out += s[i]!;
+  }
+  return out;
+}
+
 async function chatViaResponses(
   apiKey: string,
   prompt: string
 ): Promise<{ text: string; model: string; usedWebSearch: boolean }> {
+  const safePrompt = sanitizeOpenAiText(prompt);
   const res = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -104,7 +128,7 @@ async function chatViaResponses(
           content:
             "Tu researches l'écosystème influence/RP des marques comme un expert ChatGPT avec navigation web. Réponses riches, sourcées, en français. Pas de JSON.",
         },
-        { role: "user", content: prompt },
+        { role: "user", content: safePrompt },
       ],
       temperature: 0.3,
     }),

@@ -216,9 +216,17 @@ function primaryJob() {
 }
 
 function extractCompanyHint(prompt) {
-  const m = String(prompt || "").match(
-    /MARQUE À ANALYSER\s*:\s*(.+?)(?:\n|$)/i
-  );
+  const raw = String(prompt || "");
+  const brandSim = raw.match(/TALENT À ANALYSER\s*:\s*(.+?)(?:\n|$)/i);
+  if (brandSim) {
+    return `BRAND_SIM · ${brandSim[1].trim()}`.slice(0, 80);
+  }
+  if (/\bBRAND_SIM\b/i.test(raw)) {
+    const m2 = raw.match(/marques viser pour\s+(.+?)(?:\s*\?|\n|$)/i);
+    if (m2) return `BRAND_SIM · ${m2[1].trim()}`.slice(0, 80);
+    return "BRAND_SIM";
+  }
+  const m = raw.match(/MARQUE À ANALYSER\s*:\s*(.+?)(?:\n|$)/i);
   return m ? m[1].trim().slice(0, 80) : "";
 }
 

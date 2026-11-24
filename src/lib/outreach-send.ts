@@ -11,8 +11,8 @@
  *  - Chaque mail de cycle = 1 OutreachTouch (nouveau thread Gmail)
  *  - Relance auto J+3 ouvrés dans le thread du touch (1 max), annulée si réponse
  *  - La réponse n'arrête PAS le cycle (info seulement) ; seul un stop manuel
- *  - From: boîte Gmail du target (target.fromEmail), sinon portefeuille marque
- *    (Joey / Leyna), défaut leyna@glowupagence.fr
+ *  - From: TOUJOURS portefeuille marque (Joey / Leyna) si marque liée —
+ *    jamais un fromEmail figé d’un ancien envoi. Défaut leyna@glowupagence.fr.
  *  - Write-back HubSpot à chaque envoi (app_last_contacted_at / app_outreach_status)
  */
 
@@ -54,40 +54,45 @@ import {
   OUTREACH_RECONTACT_DAYS,
 } from "@/lib/outreach-constants";
 
-/** Boîte expéditrice du cycle d'un client (défaut : Leyna) — sync, sans portefeuille. */
+/** Boîte expéditrice stockée (défaut : Leyna) — sync, sans re-résoudre le portefeuille. */
 export function outreachFromEmail(target: { fromEmail?: string | null }): string {
   return (target.fromEmail || "").trim().toLowerCase() || LEYNA_FROM_EMAIL;
 }
 
 /**
- * Boîte d’envoi : fromEmail cible si posé, sinon portefeuille marque (Joey/Leyna).
- * Persiste fromEmail sur le target quand on le résout via le portefeuille.
+ * Boîte d’envoi réelle : portefeuille marque (Joey / Leyna) prioritaire.
+ * Un fromEmail figé (ex. Leyna alors que la fiche est Joey) ne doit JAMAIS gagner.
+ * Persiste l’alignement sur outreachTarget.fromEmail.
  */
 export async function resolveOutreachFromEmail(target: {
   id: string;
   fromEmail?: string | null;
   marqueId?: string | null;
 }): Promise<string> {
-  const explicit = (target.fromEmail || "").trim().toLowerCase();
-  if (explicit.includes("@")) return explicit;
-
+  const stored = (target.fromEmail || "").trim().toLowerCase();
   const marqueId = String(target.marqueId || "").trim();
+
   if (marqueId) {
     const sender = await resolvePortfolioSender(marqueId);
-    const fromEmail = sender.fromEmail.trim().toLowerCase() || LEYNA_FROM_EMAIL;
-    if (fromEmail.includes("@") && fromEmail !== (target.fromEmail || "").trim().toLowerCase()) {
+    const fromEmail =
+      sender.fromEmail.trim().toLowerCase() || LEYNA_FROM_EMAIL;
+    if (fromEmail.includes("@") && fromEmail !== stored) {
       try {
         await prisma.outreachTarget.update({
           where: { id: target.id },
           data: { fromEmail },
         });
+        console.warn(
+          `[outreach] fromEmail réaligné portefeuille ${stored || "∅"} → ${fromEmail} (target=${target.id})`
+        );
       } catch {
         /* soft — l’envoi continue quand même */
       }
     }
-    return fromEmail;
+    return fromEmail.includes("@") ? fromEmail : LEYNA_FROM_EMAIL;
   }
 
+  if (stored.includes("@")) return stored;
   return LEYNA_FROM_EMAIL;
 }
 
@@ -854,7 +859,12 @@ export async function executeOutreachRelance(
     touch.bodyHtml || ""
   );
 
-  const fromEmail = outreachFromEmail({ fromEmail: touch.fromEmail });
+  // Portefeuille marque > fromEmail figé du touch (bug Pampers/Ikea : Joey assigné,
+  // relance repartait en Leyna parce que touch.fromEmail était l’ancien envoi).
+  const fromEmail = await resolveOutreachFromEmail(target);
+  const touchFrom = (touch.fromEmail || "").trim().toLowerCase();
+  const sameMailbox = Boolean(touchFrom && touchFrom === fromEmail);
+
   const vars = {
     firstname: target.firstname || "",
     lastname: target.lastname || "",
@@ -867,21 +877,34 @@ export async function executeOutreachRelance(
   const trackedBody = injectOutreachTracking(body, touch.id);
 
   const fromName = await getGmailFromName(fromEmail);
+  // Citation : afficher l’expéditeur RÉEL du mail initial (pas la boîte actuelle).
+  const originalSenderLabel = sameMailbox
+    ? `${fromName} <${fromEmail}>`
+    : `${await getGmailFromName(touchFrom || fromEmail)} <${touchFrom || fromEmail}>`;
   const originalPersonalized = applyCastingTemplateVars(touch.bodyHtml || "", vars);
   const quotedOriginal = buildQuotedOriginal(originalPersonalized, {
     dateLabel: touch.sentAt ? formatFrDateTime(touch.sentAt) : "",
-    senderLabel: `${fromName} <${fromEmail}>`,
+    senderLabel: originalSenderLabel,
   });
   const finalHtml = `${trackedBody}${quotedOriginal}`;
 
-  // In-Reply-To : préférer le message de la dernière relance (R2) sinon le mail initial.
+  // In-Reply-To : message le plus récent du thread. Le RFC Message-ID se lit
+  // depuis la boîte qui possède le mail (touch.fromEmail), même si on envoie
+  // depuis le portefeuille (destinataire thread toujours via In-Reply-To).
   const replyToGmailId =
     round === 2 && touch.relanceMessageId
       ? touch.relanceMessageId
       : touch.messageId;
+  const rfcLookupBox = touchFrom || fromEmail;
   let inReplyTo: string | undefined;
   if (replyToGmailId) {
-    inReplyTo = (await getMessageRfcId(fromEmail, replyToGmailId)) || undefined;
+    inReplyTo =
+      (await getMessageRfcId(rfcLookupBox, replyToGmailId)) || undefined;
+  }
+  if (!sameMailbox) {
+    console.warn(
+      `[outreach] relance portefeuille ${fromEmail} ≠ touch ${touchFrom || "∅"} — envoi sans threadId Gmail (In-Reply-To conservé)`
+    );
   }
 
   try {
@@ -890,7 +913,8 @@ export async function executeOutreachRelance(
       to: target.email.toLowerCase(),
       subject: relanceSubject,
       htmlBody: finalHtml,
-      threadId: touch.threadId,
+      // threadId Gmail = boîte propriétaire uniquement ; sinon API Joey ≠ thread Leyna.
+      threadId: sameMailbox ? touch.threadId : undefined,
       inReplyTo,
     });
 

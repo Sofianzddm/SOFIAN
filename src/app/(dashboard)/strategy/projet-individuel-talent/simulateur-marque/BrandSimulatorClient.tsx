@@ -67,29 +67,15 @@ type SimResult = {
     instagram?: string | null;
   };
   momentContext?: string | null;
+  chatAnswer?: string;
   profile: Profile;
   brands: BrandRow[];
   pastBrands?: string[];
   meta?: {
-    candidateCount?: number;
-    secteurs?: string[];
-    contactedCount?: number;
-    pastBrandCount?: number;
     brandCount?: number;
     hasMomentContext?: boolean;
-    lifestyleSignals?: {
-      sports?: string[];
-      animaux?: string[];
-      enfants?: number | null;
-      enceinte?: boolean;
-    };
-    apify?: {
-      note?: string;
-      igCaptions?: number;
-      tiktokCaptions?: number;
-      hashtags?: string[];
-      mentions?: string[];
-    };
+    model?: string;
+    elapsedMs?: number;
   };
 };
 
@@ -106,14 +92,17 @@ export function BrandSimulatorClient() {
   const [talentId, setTalentId] = useState("");
   const [momentContext, setMomentContext] = useState("");
   const [running, setRunning] = useState(false);
-  const [phase, setPhase] = useState<"idle" | "profile" | "match" | "sponsors">(
-    "idle"
-  );
+  const [phase, setPhase] = useState<
+    "idle" | "queued" | "chat" | "structure"
+  >("idle");
+  const [loadingHint, setLoadingHint] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SimResult | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [progressLog, setProgressLog] = useState<ProgressLine[]>([]);
+  const [lastEndMarker, setLastEndMarker] = useState<string | null>(null);
   const logEndRef = useRef<HTMLDivElement | null>(null);
+  const abortRef = useRef(false);
   const [selectedBrands, setSelectedBrands] = useState<Set<string>>(new Set());
   const [addingPipeline, setAddingPipeline] = useState(false);
   const [pipelineMsg, setPipelineMsg] = useState<string | null>(null);
@@ -177,11 +166,68 @@ export function BrandSimulatorClient() {
 
   const selected = talents.find((t) => t.id === talentId) || null;
 
+  function pushLog(
+    step: string,
+    label: string,
+    detail?: string,
+    queries?: string[]
+  ) {
+    setProgressLog((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${prev.length}`,
+        step,
+        label,
+        detail,
+        queries,
+        at: Date.now(),
+      },
+    ]);
+  }
+
+  async function tryStructure(endMarker: string): Promise<SimResult | null> {
+    setPhase("structure");
+    setLoadingHint("Classement des marques");
+    pushLog("structure", "Classement OpenAI", "Extraction cartes marques…");
+    const rescue = await fetch("/api/strategy/brand-simulator", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "read_screen",
+        talentId,
+        endMarker,
+        limit: 25,
+        momentContext: momentContext.trim() || undefined,
+      }),
+    });
+    const data = await rescue.json().catch(() => ({}));
+    if (!rescue.ok) {
+      const err = String((data as { error?: string }).error || "");
+      if (
+        /autre|ne mentionne pas|relance|marker manquant|encore ancienne|trop courte/i.test(
+          err
+        )
+      ) {
+        pushLog("wait", "En attente du bon fil Chat", err.slice(0, 160));
+        setLoadingHint("Analyse Chat en cours");
+        setPhase("chat");
+        return null;
+      }
+      if (/credit|quota|billing|openai|api key|OPENAI/i.test(err)) {
+        throw new Error(err);
+      }
+      throw new Error(err || "Échec classement marques");
+    }
+    return data as SimResult;
+  }
+
   async function runSimulator() {
     if (!talentId) {
       setError("Sélectionne un créateur.");
       return;
     }
+    abortRef.current = false;
     setRunning(true);
     setError(null);
     setResult(null);
@@ -190,109 +236,184 @@ export function BrandSimulatorClient() {
     setAddedBrandKeys(new Set());
     setPipelineMsg(null);
     setPipelineError(null);
-    setPhase("profile");
+    setLastEndMarker(null);
+    setPhase("queued");
+    setLoadingHint("Lancement Chat VPS");
     try {
-      const res = await fetch("/api/strategy/brand-simulator", {
+      pushLog("start", "Lancement Chat VPS", "Fiche CRM → prompt → file Contabo");
+      const startRes = await fetch("/api/strategy/brand-simulator", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          mode: "vps_start",
           talentId,
-          limit: 50,
-          stream: true,
           momentContext: momentContext.trim() || undefined,
         }),
       });
-
-      if (!res.ok || !res.body) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Simulateur impossible.");
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let gotResult = false;
-      let lastStep = "";
-
-      const handleEvent = (event: Record<string, unknown>) => {
-        if (event.type === "progress") {
-          const step = String(event.step || "");
-          lastStep = step;
-          if (step === "match" || step === "match_more") setPhase("match");
-          else if (step === "sponsors") setPhase("sponsors");
-          else if (step === "apify" || step === "profile" || step === "crm") {
-            setPhase("profile");
-          }
-          setProgressLog((prev) => [
-            ...prev,
-            {
-              id: `${Date.now()}-${prev.length}`,
-              step,
-              label: String(event.label || step),
-              detail:
-                typeof event.detail === "string" ? event.detail : undefined,
-              queries: Array.isArray(event.queries)
-                ? (event.queries as unknown[])
-                    .map((q) => String(q || "").trim())
-                    .filter(Boolean)
-                : undefined,
-              at: Date.now(),
-            },
-          ]);
-        } else if (event.type === "result") {
-          gotResult = true;
-          const payload = { ...event };
-          delete payload.type;
-          setResult(payload as unknown as SimResult);
-        } else if (event.type === "error") {
-          throw new Error(String(event.error || "Simulateur impossible."));
-        }
+      const startData = (await startRes.json().catch(() => ({}))) as {
+        error?: string;
+        startedAt?: number;
+        endMarker?: string;
+        talentName?: string;
+        promptPreview?: string;
       };
+      if (!startRes.ok && startRes.status !== 202) {
+        throw new Error(startData.error || "Impossible de lancer Chat");
+      }
+      const ourEndMarker = String(startData.endMarker || "").trim();
+      if (!ourEndMarker) {
+        throw new Error("Marker de fin manquant — relance");
+      }
+      setLastEndMarker(ourEndMarker);
+      pushLog(
+        "queued",
+        `Chat lancé · ${startData.talentName || "talent"}`,
+        ourEndMarker.slice(-12)
+      );
+      setPhase("chat");
+      setLoadingHint("ChatGPT analyse le profil…");
 
-      const consumeBuffer = (flush: boolean) => {
-        const parts = buffer.split("\n");
-        if (!flush) {
-          buffer = parts.pop() || "";
-        } else {
-          buffer = "";
+      let idleDeadline = Date.now() + 30 * 60_000;
+      let sawRunning = false;
+      let lastChars = 0;
+      let peakChars = 0;
+      let baselineChars = -1;
+      let sawFreshAnswer = false;
+
+      while (Date.now() < idleDeadline && !abortRef.current) {
+        await new Promise((r) => setTimeout(r, 2000));
+        if (abortRef.current) break;
+
+        const hRes = await fetch("/api/strategy/brand-simulator", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: "health", talentId }),
+        });
+        const h = (await hRes.json().catch(() => ({}))) as {
+          ok?: boolean;
+          error?: string;
+          jobs?: Array<{
+            state?: string;
+            endMarker?: string;
+            answerChars?: number;
+            promptPreview?: string;
+            companyHint?: string;
+            error?: string | null;
+          }>;
+        };
+        if (!hRes.ok && h.error) {
+          pushLog("health", "Health VPS", h.error.slice(0, 120));
         }
-        for (const line of parts) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            handleEvent(JSON.parse(trimmed) as Record<string, unknown>);
-          } catch {
-            /* ligne partielle / bruit */
+
+        const jobs = Array.isArray(h.jobs) ? h.jobs : [];
+        const ourJob =
+          jobs.find((j) => String(j.endMarker || "") === ourEndMarker) || null;
+        const chars = Number(ourJob?.answerChars || 0);
+        if (baselineChars < 0 && ourJob) baselineChars = chars;
+        if (chars > peakChars) peakChars = chars;
+        const state = String(ourJob?.state || "");
+
+        if (state === "queued") {
+          setPhase("queued");
+          setLoadingHint("En file d’attente VPS…");
+        } else if (state === "running") {
+          sawRunning = true;
+          setPhase("chat");
+          setLoadingHint(
+            chars > 0
+              ? `Chat en cours · ${chars.toLocaleString("fr-FR")} car.`
+              : "ChatGPT tape…"
+          );
+          if (chars !== lastChars && chars > 0) {
+            lastChars = chars;
+            idleDeadline = Date.now() + 12 * 60_000;
+            pushLog("chat", "Réponse en cours", `${chars} caractères`);
+          }
+        } else if (state === "done" || state === "error") {
+          if (state === "error") {
+            throw new Error(ourJob?.error || "Erreur Chat VPS");
+          }
+          // Marker done → structure
+          if (chars > (baselineChars >= 0 ? baselineChars : 0) + 400) {
+            sawFreshAnswer = true;
+          }
+          const structured = await tryStructure(ourEndMarker);
+          if (structured?.brands?.length) {
+            setResult(structured);
+            setPhase("idle");
+            setLoadingHint("");
+            pushLog(
+              "done",
+              "Terminé",
+              `${structured.brands.length} marques · Chat VPS`
+            );
+            return;
+          }
+          if (!sawFreshAnswer && peakChars < 800) {
+            pushLog("wait", "Fil encore court — on attend");
+            idleDeadline = Date.now() + 8 * 60_000;
+            continue;
+          }
+          // Retry structure a few times
+          for (let i = 0; i < 4 && !abortRef.current; i++) {
+            await new Promise((r) => setTimeout(r, 4000));
+            const again = await tryStructure(ourEndMarker);
+            if (again?.brands?.length) {
+              setResult(again);
+              setPhase("idle");
+              setLoadingHint("");
+              pushLog("done", "Terminé", `${again.brands.length} marques`);
+              return;
+            }
+          }
+          throw new Error(
+            "Chat terminé mais classement marques impossible — Relire l’écran"
+          );
+        } else if (!ourJob && sawRunning) {
+          // Job disparu du health → tenter read
+          const structured = await tryStructure(ourEndMarker);
+          if (structured?.brands?.length) {
+            setResult(structured);
+            setPhase("idle");
+            setLoadingHint("");
+            return;
           }
         }
-      };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (value) {
-          buffer += decoder.decode(value, { stream: !done });
-        }
-        if (done) {
-          buffer += decoder.decode();
-          consumeBuffer(true);
-          break;
-        }
-        consumeBuffer(false);
       }
 
-      if (!gotResult) {
-        const stepHint = lastStep ? ` (étape : ${lastStep})` : "";
-        throw new Error(
-          `Flux interrompu — pas de résultat${stepHint}. Réessaie : l’analyse peut prendre plusieurs minutes.`
-        );
-      }
-      setPhase("idle");
+      if (abortRef.current) return;
+      throw new Error("Délai dépassé — Relire l’écran ou relance");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Erreur réseau.");
+      setError(e instanceof Error ? e.message : "Simulateur impossible.");
       setPhase("idle");
+      setLoadingHint("");
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function rereadScreen() {
+    if (!talentId || !lastEndMarker) {
+      setError("Lance d’abord une analyse (marker manquant).");
+      return;
+    }
+    setRunning(true);
+    setError(null);
+    try {
+      const structured = await tryStructure(lastEndMarker);
+      if (!structured?.brands?.length) {
+        throw new Error("Toujours pas de marques — attends que Chat finisse");
+      }
+      setResult(structured);
+      pushLog("done", "Relu & classé", `${structured.brands.length} marques`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Lecture écran impossible");
+    } finally {
+      setRunning(false);
+      setPhase("idle");
+      setLoadingHint("");
     }
   }
 
@@ -434,8 +555,8 @@ export function BrandSimulatorClient() {
           Simulateur marque
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-stone-500">
-          Analyse toute la fiche talent + IG + web, détecte les moments de vie
-          tout seul, puis matche des marques niches ultra-pertinentes.
+          ChatGPT (VPS carto) analyse le profil, propose des marques à viser en
+          prose, puis on classe en cartes pour la prospection indiv.
         </p>
       </div>
 
@@ -482,13 +603,24 @@ export function BrandSimulatorClient() {
               <Sparkles className="h-4 w-4" />
             )}
             {running
-              ? phase === "sponsors"
-                ? "Sponsors events…"
-                : phase === "match"
-                  ? "Matching marques…"
-                  : "Apify + analyse…"
-              : "Analyser & matcher"}
+              ? loadingHint ||
+                (phase === "structure"
+                  ? "Classement…"
+                  : phase === "queued"
+                    ? "File VPS…"
+                    : "Chat en cours…")
+              : "Analyser via Chat"}
           </button>
+          {lastEndMarker && (
+            <button
+              type="button"
+              disabled={running || !talentId}
+              onClick={() => void rereadScreen()}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50 disabled:opacity-50"
+            >
+              Relire l’écran
+            </button>
+          )}
         </div>
 
         {selected && (
@@ -564,7 +696,7 @@ export function BrandSimulatorClient() {
                 }`}
               />
               <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
-                Journal de recherche
+                Journal Chat VPS
               </p>
             </div>
             {running && (
@@ -630,6 +762,20 @@ export function BrandSimulatorClient() {
 
       {result && !running && (
         <div className="mt-8 space-y-6">
+          {result.chatAnswer && (
+            <section className="rounded-2xl border border-stone-200 bg-white p-5 sm:p-6">
+              <div className="flex items-center gap-2 text-glowup-rose">
+                <Sparkles className="h-4 w-4" />
+                <h2 className="text-sm font-semibold uppercase tracking-wide">
+                  Réponse Chat
+                </h2>
+              </div>
+              <div className="mt-4 max-h-[28rem] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-stone-700">
+                {result.chatAnswer}
+              </div>
+            </section>
+          )}
+
           <section className="rounded-2xl border border-stone-200 bg-white p-5 sm:p-6">
             <div className="flex items-center gap-2 text-glowup-rose">
               <Target className="h-4 w-4" />
@@ -661,11 +807,7 @@ export function BrandSimulatorClient() {
                 {result.profile.brandUniverseHints}
               </p>
             )}
-            {((result.talent.sports && result.talent.sports.length > 0) ||
-              result.meta?.lifestyleSignals?.animaux?.length ||
-              (result.meta?.lifestyleSignals?.enfants != null &&
-                result.meta.lifestyleSignals.enfants > 0) ||
-              result.meta?.lifestyleSignals?.enceinte) && (
+            {(result.talent.sports || []).length > 0 && (
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {(result.talent.sports || []).map((s) => (
                   <span
@@ -675,26 +817,6 @@ export function BrandSimulatorClient() {
                     {s}
                   </span>
                 ))}
-                {(result.meta?.lifestyleSignals?.animaux || []).map((a) => (
-                  <span
-                    key={`animal-${a}`}
-                    className="rounded-full border border-stone-200 bg-stone-50 px-2 py-0.5 text-[11px] text-stone-700"
-                  >
-                    {a}
-                  </span>
-                ))}
-                {result.meta?.lifestyleSignals?.enceinte && (
-                  <span className="rounded-full border border-pink-200 bg-pink-50 px-2 py-0.5 text-[11px] text-pink-800">
-                    Grossesse
-                  </span>
-                )}
-                {result.meta?.lifestyleSignals?.enfants != null &&
-                  result.meta.lifestyleSignals.enfants > 0 && (
-                    <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] text-sky-800">
-                      {result.meta.lifestyleSignals.enfants} enfant
-                      {result.meta.lifestyleSignals.enfants > 1 ? "s" : ""}
-                    </span>
-                  )}
               </div>
             )}
             {Array.isArray(result.pastBrands) && result.pastBrands.length > 0 && (
@@ -724,31 +846,9 @@ export function BrandSimulatorClient() {
                 Sources : {result.profile.sourcesUsed}
                 {result.meta?.brandCount
                   ? ` · ${result.meta.brandCount} marques`
-                  : result.meta?.candidateCount
-                    ? ` · ${result.meta.candidateCount} marques CRM scorées`
-                    : ""}
+                  : ""}
+                {result.meta?.model ? ` · ${result.meta.model}` : ""}
               </p>
-            )}
-            {result.meta?.apify && (
-              <div className="mt-3 rounded-xl border border-stone-100 bg-stone-50/80 px-3 py-2 text-[11px] text-stone-600">
-                <p className="font-semibold text-stone-700">Scrape Apify</p>
-                <p className="mt-0.5">{result.meta.apify.note}</p>
-                {(result.meta.apify.hashtags?.length ||
-                  result.meta.apify.mentions?.length) && (
-                  <p className="mt-1 text-stone-500">
-                    {result.meta.apify.hashtags?.length
-                      ? `Hashtags : ${result.meta.apify.hashtags.join(" ")}`
-                      : ""}
-                    {result.meta.apify.hashtags?.length &&
-                    result.meta.apify.mentions?.length
-                      ? " · "
-                      : ""}
-                    {result.meta.apify.mentions?.length
-                      ? `Mentions : ${result.meta.apify.mentions.join(" ")}`
-                      : ""}
-                  </p>
-                )}
-              </div>
             )}
           </section>
 

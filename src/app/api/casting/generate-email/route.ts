@@ -1702,8 +1702,37 @@ FIRST-CONTACT TALENT PROSPECTING RULES (not for follow-ups):
 - FORBIDDEN stacking hashtags, product lists, KPIs; FORBIDDEN internal jargon ("strategy side", etc.).
 `
         : "";
-    const groundingBlockFr = firstContactProspectingExtraFr;
-    const groundingBlockEn = firstContactProspectingExtraEn;
+    /**
+     * Joey + pipeline indiv : même pitch talent que Leyna au 1er contact.
+     * Pas de scan boîte / pas d’historique inventé / pas l’intro outreach
+     * « je viens de rejoindre le pôle BD » (réservée au casting clients multi).
+     */
+    const joeyIndivColdExtraFr =
+      joeyCold && isTalentProspecting
+        ? `
+JOEY · PROSPECTION INDIV (prioritaire) :
+- Présente le talent EXACTEMENT comme un premier contact Leyna (accroche marque → qui est le talent + pourquoi le fit → idée de collab → CTA).
+- INTERDIT de parler au passé / d’inventer un historique (« suite à notre échange », « comme on en avait parlé », « je reviens vers vous »).
+- INTERDIT d’analyser ou de mentionner une boîte mail / un fil Gmail / un scan Leyna.
+- INTERDIT l’intro outreach Joey « Je suis Joey, je viens de rejoindre le pôle Business Development… », talentbook, CTA « 15 minutes » style casting clients.
+- Tu écris simplement au nom de Joey : pitch talent clair, vouvoiement, CTA court sur l’intérêt pour ce talent / cette collab.
+`
+        : "";
+    const joeyIndivColdExtraEn =
+      joeyCold && isTalentProspecting
+        ? `
+JOEY · INDIV PROSPECTING (priority):
+- Present the talent EXACTLY like a Leyna first-contact pitch (brand hook → who the talent is + why the fit → collab idea → CTA).
+- FORBIDDEN talking about the past / inventing history ("following our exchange", "as we discussed", "coming back to you").
+- FORBIDDEN analyzing or mentioning a mailbox / Gmail thread / Leyna scan.
+- FORBIDDEN Joey outreach intro "I just joined the Business Development team…", talentbook, "15 minutes" client-cycle CTA.
+- Write simply as Joey: clear talent pitch, polite you, short CTA about interest in this talent / collab.
+`
+        : "";
+    const groundingBlockFr =
+      firstContactProspectingExtraFr + joeyIndivColdExtraFr;
+    const groundingBlockEn =
+      firstContactProspectingExtraEn + joeyIndivColdExtraEn;
 
     const GROK_SYSTEM_PROMPT =
       language === "en"

@@ -1,7 +1,9 @@
 /**
- * Distingue les jobs Chat VPS carto vs outreach (mail / roster).
+ * Distingue les jobs Chat VPS carto vs outreach (mail / roster) vs brand-sim.
  * Même worker / mêmes slots — le lab carto ne doit lister que la carto.
  */
+
+import { brandSimPromptLooksLike } from "@/lib/brand-sim-chat/tag";
 
 export function isOutreachChatVpsJob(previewOrHint: string): boolean {
   const t = String(previewOrHint || "");
@@ -13,12 +15,26 @@ export function isOutreachChatVpsJob(previewOrHint: string): boolean {
   return false;
 }
 
+/** Simulateur marque (BRAND_SIM) — même VPS carto, exclu du lab carto-pipeline2. */
+export function isBrandSimChatVpsJob(job: {
+  promptPreview?: string | null;
+  companyHint?: string | null;
+  kind?: string | null;
+}): boolean {
+  if (job.kind === "outreach") return false;
+  const preview = String(job.promptPreview || "");
+  const hint = String(job.companyHint || "");
+  return brandSimPromptLooksLike(`${preview} ${hint}`);
+}
+
 export function isCartoChatVpsJob(job: {
   promptPreview?: string | null;
   companyHint?: string | null;
   kind?: string | null;
 }): boolean {
   if (job.kind === "outreach") return false;
+  // Brand-sim tourne en kind=carto mais ne doit pas polluer le lab carto.
+  if (isBrandSimChatVpsJob(job)) return false;
   if (job.kind === "carto") return true;
   const preview = String(job.promptPreview || "");
   const hint = String(job.companyHint || "");

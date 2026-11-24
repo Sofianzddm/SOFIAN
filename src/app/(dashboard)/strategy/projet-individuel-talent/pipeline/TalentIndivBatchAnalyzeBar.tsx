@@ -19,6 +19,8 @@ type MissionLite = {
   creatorName: string;
   targetBrand: string;
   marqueNom?: string | null;
+  /** Boîte d’envoi portefeuille (Joey/Leyna) pour skip scan Leyna si Joey. */
+  portfolioFromEmail?: string | null;
   strategyReason: string;
   recommendedAngle: string | null;
   objective: string | null;

@@ -1155,7 +1155,7 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
  *   ajoutée » media kit/stats/call, c'est la relance 2 à J+10)
  * - Personnalisé talent x marque
  * - Variables : {{contact.firstname}} → Bonjour Marie / Bonjour
- * - Signature alignée avec le mail initial (Leyna · Glow Up Agence)
+ * - Signature = {{owner.firstname}} (Joey / Leyna selon la boîte d’envoi)
  */
 export function buildDefaultRelanceTemplate(
   targetBrand: string,
@@ -1179,7 +1179,7 @@ export function buildDefaultRelanceTemplate(
         : `<p>I'm following up on my collaboration proposal for ${brandPart} — an activation designed to bring your next campaigns to life with creators who convert.</p>`,
       `<p>Availability moves fast on our side: if the timing works for you, I can lock everything in quickly (media kit, estimates, content angles).</p>`,
       `<p>Would you be interested in ${talent ? "this creator" : "these creators"}, or could you let me know <strong>what your next campaigns would be</strong>?</p>`,
-      `<p>Best regards,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+      `<p>Best regards,<br/><strong>{{owner.firstname}}</strong><br/>Glow Up Agence</p>`,
     ].join("");
   }
 
@@ -1194,7 +1194,7 @@ export function buildDefaultRelanceTemplate(
       : `<p>Je reviens vers vous au sujet de ma proposition de collaboration pour ${brandPart} — une activation pensée pour faire vivre vos prochaines campagnes avec des créateurs qui convertissent.</p>`,
     `<p>Les disponibilités bougent vite de notre côté : si le timing vous convient, je peux tout verrouiller rapidement (media kit, estimations, angles de contenus).</p>`,
     `<p>Seriez-vous intéressé par ${talent ? "ce créateur" : "ces créateurs"}, ou pourriez-vous me dire <strong>quelles seraient vos prochaines campagnes</strong> ?</p>`,
-    `<p>Belle journée,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+    `<p>Belle journée,<br/><strong>{{owner.firstname}}</strong><br/>Glow Up Agence</p>`,
   ].join("");
 }
 
@@ -1254,7 +1254,7 @@ export function buildCondensationRelanceTemplate(
       `<p>I'm following up on our multi-talent proposal for ${brandPart}, with ${talentsHtml} — several strong angles to activate your brand with content that feels native and converts.</p>`,
       `<p>We can move fast: media kits, performance estimates and tailored content ideas ready to send as soon as you give us the green light.</p>`,
       `<p>Would you be interested in these creators, or could you let me know <strong>what your next campaigns would be</strong>?</p>`,
-      `<p>Best regards,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+      `<p>Best regards,<br/><strong>{{owner.firstname}}</strong><br/>Glow Up Agence</p>`,
     ].join("");
   }
 
@@ -1265,7 +1265,7 @@ export function buildCondensationRelanceTemplate(
     `<p>Je reviens vers vous sur notre proposition multi-talents pour ${brandPart}, avec ${talentsHtml} — plusieurs angles forts pour activer votre marque avec du contenu natif et qui convertit.</p>`,
     `<p>On peut avancer vite : media kits, estimations de performance et idées de contenus sur mesure prêts à partir dès votre feu vert.</p>`,
     `<p>Seriez-vous intéressé par ces créateurs, ou pourriez-vous me dire <strong>quelles seraient vos prochaines campagnes</strong> ?</p>`,
-    `<p>Belle journée,<br/><strong>Leyna</strong><br/>Glow Up Agence</p>`,
+    `<p>Belle journée,<br/><strong>{{owner.firstname}}</strong><br/>Glow Up Agence</p>`,
   ].join("");
 }
 
@@ -1307,7 +1307,7 @@ export function buildCondensationRelance2Template(
       `<br /><br />`,
       `And if this isn't the right moment or the right contact, just let me know — happy to follow up later.`,
       `<br /><br />`,
-      `Have a great day,<br /><strong>Leyna</strong><br />Glow Up Agence`,
+      `Have a great day,<br /><strong>{{owner.firstname}}</strong><br />Glow Up Agence`,
     ].join("");
   }
 
@@ -1335,7 +1335,7 @@ export function buildCondensationRelance2Template(
     `<br /><br />`,
     `Et si ce n'est pas le bon moment ou que je ne m'adresse pas à la bonne personne, dites-le-moi simplement — je reviendrai vers vous plus tard.`,
     `<br /><br />`,
-    `Belle journée à vous,<br /><strong>Leyna</strong><br />Glow Up Agence`,
+    `Belle journée à vous,<br /><strong>{{owner.firstname}}</strong><br />Glow Up Agence`,
   ].join("");
 }
 
@@ -1383,7 +1383,7 @@ export function buildOutreachRelanceTemplate(
       `<br /><br />`,
       `Would you be interested in these creators, or could you let me know <strong>what your next campaigns would be</strong>?`,
       `<br /><br />`,
-      `Have a great day,<br /><strong>Leyna</strong><br />Glow Up Agence`,
+      `Have a great day,<br /><strong>{{owner.firstname}}</strong><br />Glow Up Agence`,
     ].join("");
   }
 
@@ -1409,7 +1409,7 @@ export function buildOutreachRelanceTemplate(
     `<br /><br />`,
     `Seriez-vous intéressé par ces créateurs, ou pourriez-vous me dire <strong>quelles seraient vos prochaines campagnes</strong> ?`,
     `<br /><br />`,
-    `Belle journée à vous,<br /><strong>Leyna</strong><br />Glow Up Agence`,
+    `Belle journée à vous,<br /><strong>{{owner.firstname}}</strong><br />Glow Up Agence`,
   ].join("");
 }
 
@@ -1457,7 +1457,7 @@ export function buildCastingRelance2Template(
       `<br /><br />`,
       `And if this isn't the right moment or the right contact on your side, just let me know — I'll be happy to reach out at a better time.`,
       `<br /><br />`,
-      `Have a great day,<br /><strong>Leyna</strong><br />Glow Up Agence`,
+      `Have a great day,<br /><strong>{{owner.firstname}}</strong><br />Glow Up Agence`,
     ].join("");
   }
 
@@ -1486,7 +1486,7 @@ export function buildCastingRelance2Template(
     `<br /><br />`,
     `Et si ce n'est pas le bon moment ou que je ne m'adresse pas à la bonne personne chez vous, dites-le-moi simplement — je reviendrai vers vous à un moment plus opportun.`,
     `<br /><br />`,
-    `Belle journée à vous,<br /><strong>Leyna</strong><br />Glow Up Agence`,
+    `Belle journée à vous,<br /><strong>{{owner.firstname}}</strong><br />Glow Up Agence`,
   ].join("");
 }
 
@@ -1971,7 +1971,15 @@ export async function executeCastingRelance(
     return v;
   };
 
-  const defaultFromEmail = castingThreadFromEmail(sentByEmail);
+  // Portefeuille marque prioritaire (Joey/Leyna) — ne jamais rester collé à
+  // un fromEmail figé d’un 1er envoi Leyna si la fiche est passée chez Joey.
+  const portfolioSender = await resolvePortfolioSender(mission.marqueId);
+  const portfolioFrom = (portfolioSender.fromEmail || "")
+    .trim()
+    .toLowerCase();
+  const defaultFromEmail =
+    (portfolioFrom.includes("@") ? portfolioFrom : "") ||
+    castingThreadFromEmail(sentByEmail);
   const defaultOwnerFirstname = ownerFirstnameFromEmail(defaultFromEmail);
   const fromNameCache = new Map<string, string>();
   const senderLabelFor = async (fromEmail: string) => {
@@ -2041,14 +2049,21 @@ export async function executeCastingRelance(
     // répondu, et on ne relance pas une adresse en échec de remise (bounce).
     // Vérifié thread par thread via Gmail, sauf si l'appelant (cron) vient
     // déjà de faire cette vérification (skipReplyCheck).
-    const fromEmail =
+    const touchFrom =
       (record.fromEmail || "").trim().toLowerCase() || defaultFromEmail;
+    // Toujours la boîte portefeuille si dispo ; sinon boîte du 1er envoi.
+    const fromEmail = defaultFromEmail || touchFrom;
+    const sameMailbox = Boolean(touchFrom && touchFrom === fromEmail);
     const ownerFirstname =
       ownerFirstnameFromEmail(fromEmail) || defaultOwnerFirstname;
 
     if (!options.skipReplyCheck) {
       try {
-        const activity = await checkThreadActivity(fromEmail, record.threadId);
+        // Activité thread : lire depuis la boîte qui possède le fil.
+        const activity = await checkThreadActivity(
+          touchFrom || fromEmail,
+          record.threadId
+        );
         if (activity.replied) {
           skippedReplied += 1;
           repliedDetected.push(email);
@@ -2089,7 +2104,7 @@ export async function executeCastingRelance(
     // Citation du mail d'origine + In-Reply-To : la relance devient une vraie
     // réponse, threadée côté destinataire (le contenu initial reste visible
     // même si l'original est tombé dans ses spams).
-    const senderLabel = await senderLabelFor(fromEmail);
+    const senderLabel = await senderLabelFor(touchFrom || fromEmail);
     const quotedOriginal =
       options.skipQuotedOriginal || !ver.originalBodyTpl
         ? ""
@@ -2110,8 +2125,10 @@ export async function executeCastingRelance(
     const replyToMessageId =
       (round === 2 ? relance1Ids[email] || relance1Ids[email.toLowerCase()] : undefined) ||
       record.messageId;
+    // RFC Message-ID lu depuis la boîte propriétaire du mail initial.
     const inReplyTo = replyToMessageId
-      ? (await getMessageRfcId(fromEmail, replyToMessageId)) || undefined
+      ? (await getMessageRfcId(touchFrom || fromEmail, replyToMessageId)) ||
+        undefined
       : undefined;
 
     try {
@@ -2125,7 +2142,7 @@ export async function executeCastingRelance(
         to: email,
         subject: personalizedSubject,
         htmlBody: finalHtml,
-        threadId: record.threadId,
+        threadId: sameMailbox ? record.threadId : undefined,
         inReplyTo,
         includeSignature: false,
       });

@@ -332,13 +332,39 @@ async function processOneMissionItem(itemId: string): Promise<{
     .filter((c): c is NonNullable<typeof c> => Boolean(c));
 
   let recipientEmails = contacts.map((c) => c.email);
-  const leyna = await getLeynaExchangeContext({
-    recipientEmails,
-    brandName,
-    agencyName: null,
-    talentNames: [talentName],
-  });
-  if (recipientEmails.length === 0) {
+
+  // Portefeuille Joey → pas de scan boîte Leyna : intro BD + pitch talent.
+  const { resolvePortfolioSender } = await import(
+    "@/lib/marque-portfolio-server"
+  );
+  const { isJoeySender } = await import("@/lib/outreach-mail-vps/prompt");
+  const portfolio = await resolvePortfolioSender(mission.marqueId);
+  const fromEmail = (portfolio.fromEmail || "").trim().toLowerCase();
+  const joeyCold = isJoeySender(fromEmail);
+
+  const emptyLeyna: Awaited<ReturnType<typeof getLeynaExchangeContext>> = {
+    hasExchange: false,
+    hasSentNoReplyOnly: false,
+    tone: null,
+    bannerLabel: "Compte Joey — pas de scan Leyna",
+    alerts: [],
+    promptBlockFr: "",
+    promptBlockEn: "",
+    scanStatus: "empty",
+    fetchedAt: new Date().toISOString(),
+    contacts: [],
+  };
+
+  const leyna: Awaited<ReturnType<typeof getLeynaExchangeContext>> = joeyCold
+    ? emptyLeyna
+    : await getLeynaExchangeContext({
+        recipientEmails,
+        brandName,
+        agencyName: null,
+        talentNames: [talentName],
+      });
+
+  if (!joeyCold && recipientEmails.length === 0) {
     recipientEmails = Array.from(
       new Set(
         (leyna.contacts || [])
@@ -347,8 +373,10 @@ async function processOneMissionItem(itemId: string): Promise<{
       )
     );
   }
-  if (leyna.scanStatus === "failed") {
-    const detail = String(leyna.scanError || "").trim();
+  if (!joeyCold && leyna.scanStatus === "failed") {
+    const detail = String(
+      (leyna as { scanError?: string | null }).scanError || ""
+    ).trim();
     return {
       ok: false,
       brandName,
@@ -443,7 +471,9 @@ async function processOneMissionItem(itemId: string): Promise<{
       },
     ],
     recipientEmails,
-    requireLeynaScan: true,
+    fromEmail: fromEmail || undefined,
+    requireLeynaScan: !joeyCold,
+    skipLeynaScan: joeyCold || undefined,
     talentResearch,
     draftPrepBrief: prepBrief,
     leynaExchangeCache: leyna,

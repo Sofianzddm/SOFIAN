@@ -15,6 +15,53 @@ const OPENAI_MODEL = "gpt-4o-mini";
 /** gpt-4o-mini ~128k : on envoie quasi tout le research pour ne pas perdre les tableaux. */
 const MAX_ANSWER_CHARS = 90_000;
 
+/**
+ * OpenAI refuse le body si JSON.stringify émet un surrogate UTF-16 orphelin
+ * (`\ud83d` seul) — typique d’un `.slice()` qui coupe un emoji.
+ * → 400 "Invalid body: failed to parse JSON value".
+ */
+function stripLoneSurrogates(s: string): string {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = s.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += s[i]! + s[i + 1]!;
+        i++;
+      }
+      continue;
+    }
+    if (c >= 0xdc00 && c <= 0xdfff) continue;
+    out += s[i]!;
+  }
+  return out;
+}
+
+/** Troncature UTF-16 sûre (ne coupe pas au milieu d’une paire). */
+function safeSlice(s: string, start: number, end?: number): string {
+  let a = Math.max(0, start);
+  let b = end === undefined ? s.length : Math.min(end, s.length);
+  if (a > 0 && a < s.length) {
+    const c = s.charCodeAt(a);
+    if (c >= 0xdc00 && c <= 0xdfff) a += 1;
+  }
+  if (b > 0 && b <= s.length) {
+    const c = s.charCodeAt(b - 1);
+    if (c >= 0xd800 && c <= 0xdbff) b -= 1;
+  }
+  if (b < a) b = a;
+  return s.slice(a, b);
+}
+
+function sanitizeOpenAiText(raw: string): string {
+  return stripLoneSurrogates(
+    String(raw || "")
+      // contrôles sauf \n \r \t
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, " ")
+  );
+}
+
 function stripJsonFence(raw: string): string {
   return raw
     .replace(/```json\n?/gi, "")
@@ -286,8 +333,12 @@ function personKey(c: CartoAiContactCandidate): string {
 }
 
 function clipAnswer(full: string): string {
-  if (full.length <= MAX_ANSWER_CHARS) return full;
-  return `${full.slice(0, 70_000)}\n\n…\n\n${full.slice(-20_000)}`;
+  const clean = sanitizeOpenAiText(full);
+  if (clean.length <= MAX_ANSWER_CHARS) return clean;
+  const head = safeSlice(clean, 0, 70_000);
+  const tailStart = Math.max(0, clean.length - 20_000);
+  const tail = safeSlice(clean, tailStart);
+  return `${head}\n\n…\n\n${tail}`;
 }
 
 function parseAgencies(raw: unknown[]): StructuredAgency[] {
@@ -342,6 +393,9 @@ async function callStructureModel(opts: {
   system: string;
   user: string;
 }): Promise<{ contacts: CartoAiContactCandidate[]; agencies: StructuredAgency[] }> {
+  // Sanitize AVANT stringify : réponses Chat longues / emoji / DOM scrapé.
+  const system = sanitizeOpenAiText(opts.system);
+  const user = sanitizeOpenAiText(opts.user);
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -353,8 +407,8 @@ async function callStructureModel(opts: {
       temperature: 0.1,
       response_format: { type: "json_object" },
       messages: [
-        { role: "system", content: opts.system },
-        { role: "user", content: opts.user },
+        { role: "system", content: system },
+        { role: "user", content: user },
       ],
     }),
   });

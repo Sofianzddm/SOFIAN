@@ -2461,6 +2461,8 @@ export function ProspectingPipelineClient() {
                             : "fr",
                         draftSubject: m.draftEmailSubject || null,
                         draftBodyHtml: m.draftEmailBody || null,
+                        /** Portefeuille marque → Joey skip scan Leyna (intro + pitch). */
+                        fromEmail: missionFromEmail(m),
                       },
                     ],
                   };
