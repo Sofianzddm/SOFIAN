@@ -101,6 +101,7 @@ export function ContactRecordDrawer({
   marqueId,
   contact,
   readOnly,
+  activitiesReadOnly,
   linkedAgencies,
   onClose,
   onSaved,
@@ -110,12 +111,15 @@ export function ContactRecordDrawer({
   marqueId: string;
   contact: DrawerContact | null;
   readOnly?: boolean;
+  /** Si fourni, contrôle l’écriture notes/appels indépendamment de la fiche contact. */
+  activitiesReadOnly?: boolean;
   /** Partners déjà liés à la marque (pour afficher le bon lien fiche agence). */
   linkedAgencies?: LinkedAgency[];
   onClose: () => void;
   onSaved: (contact: DrawerContact) => void;
   onActivityCountChange?: (contactId: string, n: number) => void;
 }) {
+  const notesReadOnly = activitiesReadOnly ?? readOnly;
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -578,7 +582,7 @@ export function ContactRecordDrawer({
               marqueId={marqueId}
               contactId={contact.id}
               contactName={displayName}
-              readOnly={readOnly}
+              readOnly={notesReadOnly}
               onCountChange={(n) => onActivityCountChange?.(contact.id, n)}
             />
           )}

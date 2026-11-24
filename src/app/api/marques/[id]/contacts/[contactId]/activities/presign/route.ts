@@ -3,7 +3,7 @@ import { v2 as cloudinary } from "cloudinary";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { canWriteMarqueCrm } from "@/lib/marque-crm-access";
+import { canWriteMarqueContactActivities } from "@/lib/marque-crm-access";
 import {
   buildKey,
   createPresignedUpload,
@@ -45,10 +45,6 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!canWriteMarqueCrm(session.user.role)) {
-      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
-    }
-
     const s3Ok = isS3Configured();
     const cloudinaryOk = isCloudinaryConfigured();
     if (!s3Ok && !cloudinaryOk) {
@@ -64,10 +60,19 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     const { id: marqueId, contactId } = await params;
     const contact = await prisma.marqueContact.findFirst({
       where: { id: contactId, marqueId },
-      select: { id: true },
+      select: { id: true, marque: { select: { assignedToId: true } } },
     });
     if (!contact) {
       return NextResponse.json({ error: "Contact introuvable" }, { status: 404 });
+    }
+    if (
+      !canWriteMarqueContactActivities({
+        role: session.user.role,
+        userId: session.user.id,
+        assignedToId: contact.marque.assignedToId,
+      })
+    ) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     const body = await request.json().catch(() => ({}));

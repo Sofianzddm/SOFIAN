@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { canWriteMarqueCrm } from "@/lib/marque-crm-access";
+import { canWriteMarqueContactActivities } from "@/lib/marque-crm-access";
 import { MarqueContactActivityType } from "@prisma/client";
 import { deleteFromS3, isS3Url } from "@/lib/s3";
 
@@ -19,7 +19,19 @@ async function assertContactOnMarque(marqueId: string, contactId: string) {
       prenom: true,
       nom: true,
       marqueId: true,
+      marque: { select: { assignedToId: true } },
     },
+  });
+}
+
+function canMutateActivities(
+  session: { user: { id?: string | null; role?: string | null } },
+  assignedToId: string | null | undefined
+) {
+  return canWriteMarqueContactActivities({
+    role: session.user.role,
+    userId: session.user.id,
+    assignedToId,
   });
 }
 
@@ -94,14 +106,13 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!canWriteMarqueCrm(session.user.role)) {
-      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
-    }
-
     const { id: marqueId, contactId } = await params;
     const contact = await assertContactOnMarque(marqueId, contactId);
     if (!contact) {
       return NextResponse.json({ error: "Contact introuvable" }, { status: 404 });
+    }
+    if (!canMutateActivities(session, contact.marque.assignedToId)) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     const body = (await request.json().catch(() => ({}))) as {
@@ -214,14 +225,13 @@ export async function DELETE(request: NextRequest, { params }: RouteContext) {
     if (!session?.user) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
-    if (!canWriteMarqueCrm(session.user.role)) {
-      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
-    }
-
     const { id: marqueId, contactId } = await params;
     const contact = await assertContactOnMarque(marqueId, contactId);
     if (!contact) {
       return NextResponse.json({ error: "Contact introuvable" }, { status: 404 });
+    }
+    if (!canMutateActivities(session, contact.marque.assignedToId)) {
+      return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
     const activityId =

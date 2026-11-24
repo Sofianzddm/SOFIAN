@@ -61,6 +61,7 @@ import {
 import {
   canAccessFullMarqueCrm,
   canManageDiffusionOptOut,
+  canWriteMarqueContactActivities,
   canWriteMarqueCrm,
   isMarqueCrmReadOnly,
 } from "@/lib/marque-crm-access";
@@ -4284,6 +4285,13 @@ export default function MarqueRecordPage({
               : null
           }
           readOnly={readOnly}
+          activitiesReadOnly={
+            !canWriteMarqueContactActivities({
+              role: session?.user?.role,
+              userId: session?.user?.id,
+              assignedToId: marque.assignedToId,
+            })
+          }
           linkedAgencies={(marque.partners || []).map((l) => ({
             id: l.partner.id,
             name: l.partner.name,

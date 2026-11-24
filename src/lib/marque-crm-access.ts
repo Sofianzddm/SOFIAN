@@ -6,6 +6,7 @@
  * - Couche « complète » (Achats-AO, fichiers AO, sync) : ADMIN + HEAD_OF_SALES (Leyna).
  * - Business Developer : pas le CRM complet — uniquement les marques
  *   explicitement assignées (`Marque.assignedToId`).
+ *   Exception : notes & appels contact sur son portefeuille (logger un appel, etc.).
  * - Facturation collab (adresse / SIRET / TVA) : TM, CM, HEAD_OF_INFLUENCE
  *   en plus des rôles d’écriture CRM — nécessaire pour compléter une marque
  *   avant devis / facture sans ouvrir tout le CRM.
@@ -94,6 +95,20 @@ export function isMarqueCrmReadOnly(role: string | undefined | null): boolean {
     !!role &&
     (MARQUE_CRM_READ_ONLY_ROLES as readonly string[]).includes(role)
   );
+}
+
+/**
+ * Notes & appels contact : CRM write, ou BD sur marque assignée (portefeuille).
+ * Le BD reste en lecture seule ailleurs sur la fiche.
+ */
+export function canWriteMarqueContactActivities(opts: {
+  role: string | undefined | null;
+  userId: string | undefined | null;
+  assignedToId: string | null | undefined;
+}): boolean {
+  if (canWriteMarqueCrm(opts.role)) return true;
+  if (!isBusinessDeveloper(opts.role) || !opts.userId) return false;
+  return Boolean(opts.assignedToId && opts.assignedToId === opts.userId);
 }
 
 /** Filtre Prisma : portefeuille marques du Business Developer. */
