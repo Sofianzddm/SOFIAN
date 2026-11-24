@@ -5,9 +5,11 @@ import prisma from "@/lib/prisma";
 import { findOrCreateMarque } from "@/lib/marque-resolver";
 import { setMarqueContactDiffusionOptOut } from "@/lib/diffusion-opt-out";
 import {
+  canBusinessDeveloperAccessMarque,
   canManageDiffusionOptOut,
   canWriteMarqueCrm,
 } from "@/lib/marque-crm-access";
+import { isBusinessDeveloper } from "@/lib/business-developer";
 import { syncMarqueAgenciesFromCartoContacts } from "@/lib/agency-partner";
 
 /**
@@ -177,10 +179,26 @@ export async function PATCH(
       return NextResponse.json({ error: "contactId requis." }, { status: 400 });
     }
 
-    // Opt-out liste de diffusion : casting manager inclus, sans le reste du CRM.
+    // Opt-out liste de diffusion : casting manager + BD portefeuille, sans le reste du CRM.
     if (typeof body.diffusionOptOut === "boolean") {
       if (!canManageDiffusionOptOut(session.user.role)) {
         return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
+      }
+      if (isBusinessDeveloper(session.user.role)) {
+        const marque = await prisma.marque.findUnique({
+          where: { id },
+          select: { assignedToId: true },
+        });
+        if (
+          !marque ||
+          !canBusinessDeveloperAccessMarque(
+            session.user.role,
+            session.user.id,
+            marque.assignedToId
+          )
+        ) {
+          return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
+        }
       }
       try {
         const result = await setMarqueContactDiffusionOptOut({

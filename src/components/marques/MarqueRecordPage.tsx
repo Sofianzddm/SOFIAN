@@ -522,7 +522,7 @@ export default function MarqueRecordPage({
   // Lancer un contact dans le cycle Outreach est réservé aux rôles qui y ont
   // accès côté API (ADMIN / CASTING_MANAGER).
   const canOutreach = ["ADMIN", "CASTING_MANAGER"].includes(session?.user?.role || "");
-  // Retrait liste de diffusion : écriture CRM, ou casting manager (fiche seule).
+  // Retrait liste de diffusion : CRM write, casting manager, ou BD (portefeuille).
   const canOptOutDiffusion =
     canManageDiffusionOptOut(session?.user?.role) || isBenelux;
   // CRM complet (onglet Achats-AO, fichiers AO, sync) : ADMIN + HEAD_OF_SALES (Leyna)

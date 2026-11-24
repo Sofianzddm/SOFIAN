@@ -66,13 +66,17 @@ export function canWriteMarqueCrm(role: string | undefined | null): boolean {
 
 /**
  * Retirer / réinscrire un contact de la liste de diffusion.
- * Le casting manager le fait depuis la fiche marque (projets outreach),
+ * Casting manager (fiche outreach) + BD sur son portefeuille,
  * sans accès à l’écriture CRM complète.
  */
 export function canManageDiffusionOptOut(
   role: string | undefined | null
 ): boolean {
-  return canWriteMarqueCrm(role) || role === "CASTING_MANAGER";
+  return (
+    canWriteMarqueCrm(role) ||
+    role === "CASTING_MANAGER" ||
+    isBusinessDeveloper(role)
+  );
 }
 
 /**
