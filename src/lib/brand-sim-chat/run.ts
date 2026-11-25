@@ -1,5 +1,5 @@
 /**
- * Orchestration Simulateur marque ↔ Chat VPS (kind carto).
+ * Orchestration Simulateur marque (kind carto).
  */
 
 import prisma from "@/lib/prisma";
@@ -72,9 +72,7 @@ export async function startBrandSimChat(opts: {
   momentContext: string | null;
 }> {
   if (!isCartoChatVpsConfigured()) {
-    throw new Error(
-      "CARTO_CHAT_VPS_URL manquant — tunnel SSH vers le worker VPS (port 3847)"
-    );
+    throw new Error("Service d’analyse non configuré");
   }
   const talent = await loadCrmTalent(opts.talentId);
   if (!talent) {
@@ -112,8 +110,7 @@ export async function brandSimChatHealth(): Promise<Record<string, unknown>> {
     return {
       configured: false,
       ok: false,
-      error:
-        "CARTO_CHAT_VPS_URL manquant — ex: http://127.0.0.1:3847 via tunnel SSH",
+      error: "Service d’analyse non configuré",
     };
   }
   const health = await cartoChatVpsHealth({ kind: "carto" });

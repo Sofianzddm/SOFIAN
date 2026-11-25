@@ -137,7 +137,7 @@ async function resolveBrandsAgainstCrm(
       secteur: true,
       aliases: { select: { label: true }, take: 8 },
     },
-    take: 80,
+    take: 120,
   });
 
   const byKey = new Map<
@@ -182,7 +182,7 @@ export async function structureBrandSimAnswer(opts: {
   const apiKey = process.env.OPENAI_API_KEY?.trim()?.replace(/^["']|["']$/g, "");
   if (!apiKey) throw new Error("OPENAI_API_KEY manquante");
 
-  const limit = Math.min(Math.max(opts.limit ?? 25, 8), 40);
+  const limit = Math.min(Math.max(opts.limit ?? 50, 8), 50);
   const answerForModel = clipAnswer(opts.chatAnswer);
   const pastKeys = new Set(
     opts.pastBrands.map((n) => n.trim().toLowerCase()).filter(Boolean)
@@ -210,7 +210,7 @@ export async function structureBrandSimAnswer(opts: {
   );
 
   const system = sanitizeOpenAiText(
-    "Tu structures une analyse strategy influence en JSON strict. Extraction EXHAUSTIVE des marques citées."
+    "Tu structures une analyse strategy influence en JSON strict. Extraction EXHAUSTIVE des marques citées. Conserve l’ordre de pertinence."
   );
   const user = sanitizeOpenAiText(`Tu structures la réponse d'analyse suivante pour Glow-up (simulateur marque).
 
@@ -232,17 +232,18 @@ Extrais UNIQUEMENT un JSON:
   "profileSummary": "résumé 2–4 phrases",
   "brands": [{
     "nom": "Nom marque exact",
-    "secteur": "Mode|Beauté|Sport|Food|Tech|Luxe|Retail|Autre|null",
+    "secteur": "Mode|Beauté|Sport|Food|Tech|Luxe|Retail|Maison|Voyage|Autre|null",
     "fitScore": 0-100,
-    "whyFit": "pourquoi ça match",
+    "whyFit": "pourquoi ça match CE talent (spécifique)",
     "suggestedAngle": "angle / pitch"
   }]
 }
 
 Règles:
-- Extrais TOUTES les marques nommées dans la liste Chat (objectif ${limit}, max ${limit}).
-- fitScore: si /10 dans le texte → ×10 ; sinon estime 50–95.
+- Extrais TOUTES les marques nommées (objectif ${limit}, max ${limit}).
+- Conserve l’ordre du texte (meilleur fit d’abord) ; fitScore: si /10 → ×10 ; sinon estime 50–95 sans aplatir tout le monde à 70.
 - Ne invente PAS de marques absentes du texte.
+- whyFit / suggestedAngle : garde le détail spécifique du texte, pas de phrases génériques.
 - detectedMoments: moments de vie / projets cités (sinon "").
 - Réponds JSON pur.`);
 

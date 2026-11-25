@@ -1,5 +1,5 @@
 /**
- * Simulateur marque — analyse via VPS (plus d’Apify / xAI).
+ * Simulateur marque — analyse marques (plus d’Apify / xAI).
  * Modes : vps_start | health | read_screen
  */
 
@@ -59,8 +59,8 @@ export async function POST(request: NextRequest) {
     const momentContext = normalizeMomentContext(body.momentContext) || null;
     const limit =
       typeof body.limit === "number" && body.limit > 0
-        ? Math.min(40, Math.floor(body.limit))
-        : 25;
+        ? Math.min(50, Math.floor(body.limit))
+        : 50;
 
     if (mode === "vps_start") {
       const started = await startBrandSimChat({
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          e instanceof Error ? e.message : "Erreur simulateur marque (Chat VPS)",
+          e instanceof Error ? e.message : "Erreur simulateur marque",
       },
       { status: status >= 400 && status < 600 ? status : 500 }
     );

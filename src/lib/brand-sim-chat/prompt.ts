@@ -1,5 +1,5 @@
 /**
- * Prompt analyse web (VPS) — Simulateur marque / brands à viser pour un talent.
+ * Prompt analyse — Simulateur marque / brands à viser pour un talent.
  * Préfixe BRAND_SIM : isole ces jobs du lab carto-pipeline2.
  */
 
@@ -69,23 +69,27 @@ ${past}
 
 ### OBJECTIF
 Réponds en **français**, en prose claire et actionnable :
-1) **Analyse profil** — qui c’est, ce qu’il/elle fait, univers, preuves, moments détectés.
-2) **Univers marques** — catégories adjacentes crédibles (pas des micro-marques inconnues).
-3) **Marques à viser** — liste de **12 à 25 marques** concrètes (FR / EU de préférence), classées du meilleur fit au plus faible.
+1) **Analyse profil** — qui c’est, ce qu’il/elle fait, univers, audience, preuves, moments détectés.
+2) **Univers marques** — catégories **ultra adjacentes** au profil (pas de listes génériques).
+3) **Marques à viser** — liste de **exactement 50 marques** concrètes (FR / EU de préférence, OK international si fit évident), classées du **meilleur fit au plus faible**.
 
-Pour **chaque marque** de la liste, indique sur une ligne claire :
+Pour **chaque marque** (1 → 50), indique sur une ligne claire :
 - Nom exact de la marque
-- Secteur (Mode, Beauté, Sport, Food, Tech, Luxe, Retail, Autre…)
-- Fit /10 ou score 0–100
-- Pourquoi ça matche (1–2 phrases)
-- Angle / pitch suggéré (1 phrase)
+- Secteur (Mode, Beauté, Sport, Food, Tech, Luxe, Retail, Maison, Voyage, Autre…)
+- Fit /10 (sois strict : 9–10 = match évident, 7–8 = très bon, 5–6 = opportuniste crédible)
+- Pourquoi ça matche (1–2 phrases **spécifiques à CE talent**, pas génériques)
+- Angle / pitch suggéré (1 phrase actionnable)
 
-### RÈGLES
-- PRIVILÉGIE des marques **connues / actives en influence** FR-EU.
-- Si le talent est **fondateur** d’une catégorie (ex. swimwear) → propose des **adjacents**, pas des concurrents directs.
+### PERTINENCE (NON NÉGOCIABLE)
+- Chaque marque doit être **justifiable** par le profil, l’audience, le contenu, le moment de vie ou l’historique collab.
+- **Zéro filler** : interdiction de bourrer avec des mastodontes hors-sujet (ex. banque / assurance / B2B si le talent est lifestyle/beauté).
+- Varie les **paliers** : ~15 must-have (fit ≥8), ~20 strong (fit 6–8), ~15 opportunistes crédibles (fit 5–6) — toujours pertinents.
+- Couvre plusieurs **sous-univers** adjacents au talent (ex. core + lifestyle + retail + travel + tech lifestyle), sans sortir de son ADN.
+- PRIVILÉGIE des marques **connues / actives en influence** FR-EU, qui collab’ déjà des créateurs du même segment.
+- Si le talent est **fondateur** d’une catégorie (ex. swimwear) → propose des **adjacents / partenaires**, pas des concurrents directs.
 - Évite de re-pitcher les collabs déjà listées sauf angle vraiment nouveau.
-- Utilise la recherche web pour valider que les marques existent et collab’ influenceurs.
-- Pas de JSON. Pas de tableau markdown obligatoire — une liste numérotée claire suffit.
+- Utilise la recherche web pour valider existence + activité influence des marques.
+- Pas de JSON. Liste numérotée 1–50 claire.
 - Termine par le CODE DE FIN exact (ligne seule).
 `;
 

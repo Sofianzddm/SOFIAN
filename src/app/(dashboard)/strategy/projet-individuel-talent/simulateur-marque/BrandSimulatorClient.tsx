@@ -197,7 +197,7 @@ export function BrandSimulatorClient() {
         mode: "read_screen",
         talentId,
         endMarker,
-        limit: 25,
+        limit: 50,
         momentContext: momentContext.trim() || undefined,
       }),
     });
@@ -209,8 +209,8 @@ export function BrandSimulatorClient() {
           err
         )
       ) {
-        pushLog("wait", "En attente du bon fil Chat", err.slice(0, 160));
-        setLoadingHint("Analyse Chat en cours");
+        pushLog("wait", "En attente de l’analyse", err.slice(0, 160));
+        setLoadingHint("Analyse en cours");
         setPhase("chat");
         return null;
       }
@@ -238,9 +238,9 @@ export function BrandSimulatorClient() {
     setPipelineError(null);
     setLastEndMarker(null);
     setPhase("queued");
-    setLoadingHint("Lancement Chat VPS");
+    setLoadingHint("Lancement de l’analyse");
     try {
-      pushLog("start", "Lancement Chat VPS", "Fiche CRM → prompt → file Contabo");
+      pushLog("start", "Lancement analyse", "Fiche CRM → prompt");
       const startRes = await fetch("/api/strategy/brand-simulator", {
         method: "POST",
         credentials: "include",
@@ -259,7 +259,7 @@ export function BrandSimulatorClient() {
         promptPreview?: string;
       };
       if (!startRes.ok && startRes.status !== 202) {
-        throw new Error(startData.error || "Impossible de lancer Chat");
+        throw new Error(startData.error || "Impossible de lancer l’analyse");
       }
       const ourEndMarker = String(startData.endMarker || "").trim();
       if (!ourEndMarker) {
@@ -268,7 +268,7 @@ export function BrandSimulatorClient() {
       setLastEndMarker(ourEndMarker);
       pushLog(
         "queued",
-        `Chat lancé · ${startData.talentName || "talent"}`,
+        `Analyse lancée · ${startData.talentName || "talent"}`,
         ourEndMarker.slice(-12)
       );
       setPhase("chat");
@@ -304,7 +304,7 @@ export function BrandSimulatorClient() {
           }>;
         };
         if (!hRes.ok && h.error) {
-          pushLog("health", "Health VPS", h.error.slice(0, 120));
+          pushLog("health", "Statut", h.error.slice(0, 120));
         }
 
         const jobs = Array.isArray(h.jobs) ? h.jobs : [];
@@ -317,7 +317,7 @@ export function BrandSimulatorClient() {
 
         if (state === "queued") {
           setPhase("queued");
-          setLoadingHint("En file d’attente VPS…");
+          setLoadingHint("En file d’attente…");
         } else if (state === "running") {
           sawRunning = true;
           setPhase("chat");
@@ -333,7 +333,7 @@ export function BrandSimulatorClient() {
           }
         } else if (state === "done" || state === "error") {
           if (state === "error") {
-            throw new Error(ourJob?.error || "Erreur Chat VPS");
+            throw new Error(ourJob?.error || "Erreur analyse");
           }
           // Marker done → structure
           if (chars > (baselineChars >= 0 ? baselineChars : 0) + 400) {
@@ -347,7 +347,7 @@ export function BrandSimulatorClient() {
             pushLog(
               "done",
               "Terminé",
-              `${structured.brands.length} marques · Chat VPS`
+              `${structured.brands.length} marques`
             );
             return;
           }
@@ -369,7 +369,7 @@ export function BrandSimulatorClient() {
             }
           }
           throw new Error(
-            "Chat terminé mais classement marques impossible — Relire l’écran"
+            "Analyse terminée mais classement marques impossible — Relire l’écran"
           );
         } else if (!ourJob && sawRunning) {
           // Job disparu du health → tenter read
@@ -404,7 +404,7 @@ export function BrandSimulatorClient() {
     try {
       const structured = await tryStructure(lastEndMarker);
       if (!structured?.brands?.length) {
-        throw new Error("Toujours pas de marques — attends que Chat finisse");
+        throw new Error("Toujours pas de marques — attends que l’analyse finisse");
       }
       setResult(structured);
       pushLog("done", "Relu & classé", `${structured.brands.length} marques`);
@@ -555,8 +555,8 @@ export function BrandSimulatorClient() {
           Simulateur marque
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-stone-500">
-          Analyse du profil, propositions de marques à viser, puis classement
-          en cartes pour la prospection indiv.
+          Analyse du profil, jusqu’à 50 marques ultra pertinentes à viser,
+          puis classement en cartes pour la prospection indiv.
         </p>
       </div>
 
@@ -607,9 +607,9 @@ export function BrandSimulatorClient() {
                 (phase === "structure"
                   ? "Classement…"
                   : phase === "queued"
-                    ? "File VPS…"
-                    : "Chat en cours…")
-              : "Analyser via Chat"}
+                    ? "En file…"
+                    : "Analyse en cours…")
+              : "Analyser"}
           </button>
           {lastEndMarker && (
             <button
@@ -696,7 +696,7 @@ export function BrandSimulatorClient() {
                 }`}
               />
               <p className="text-xs font-semibold uppercase tracking-wide text-stone-400">
-                Journal Chat VPS
+                Journal d’analyse
               </p>
             </div>
             {running && (
