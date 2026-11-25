@@ -306,6 +306,11 @@ export function BrandEnrichPanel({
   const [agencyAssign, setAgencyAssign] = useState<
     Record<string, AgencyAssign>
   >({});
+  const [cannesFichePath, setCannesFichePath] = useState<string | null>(
+    isCannes && fichePath?.startsWith("/cannes-partenaires")
+      ? fichePath
+      : null
+  );
 
   useEffect(() => {
     fetch("/api/partners/options")
@@ -315,6 +320,13 @@ export function BrandEnrichPanel({
       )
       .catch(() => setAgencyOptions([]));
   }, []);
+
+  useEffect(() => {
+    if (!isCannes) return;
+    if (fichePath?.startsWith("/cannes-partenaires")) {
+      setCannesFichePath(fichePath);
+    }
+  }, [isCannes, fichePath]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -701,6 +713,13 @@ export function BrandEnrichPanel({
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Échec de l'enregistrement");
+        const path =
+          typeof data.fichePath === "string"
+            ? data.fichePath
+            : data.cannesOpportunite?.opportuniteId
+              ? `/cannes-partenaires/crm/${data.cannesOpportunite.opportuniteId}`
+              : null;
+        if (path) setCannesFichePath(path);
       } else {
         for (const g of groups.values()) {
           const res = await fetch("/api/outreach/email-lookup/ready", {
@@ -887,9 +906,15 @@ export function BrandEnrichPanel({
       (p) => notFound[p.key] || isValidEmail(drafts[p.key] || "")
     );
 
-  const ficheHref =
-    fichePath ||
-    (market === "BENELUX" ? `/marques/benelux/${marqueId}` : `/marques/${marqueId}`);
+  const ficheHref = isCannes
+    ? cannesFichePath ||
+      (fichePath?.startsWith("/cannes-partenaires")
+        ? fichePath
+        : "/cannes-partenaires?tab=crm")
+    : fichePath ||
+      (market === "BENELUX"
+        ? `/marques/benelux/${marqueId}`
+        : `/marques/${marqueId}`);
 
   if (loading) {
     return (
@@ -982,7 +1007,7 @@ export function BrandEnrichPanel({
           Aucun contact en file d&apos;enrichissement pour cette fiche.
           <div className="mt-3">
             <Link href={ficheHref} className="underline">
-              Ouvrir la fiche
+              {isCannes ? "Ouvrir la fiche CRM Cannes" : "Ouvrir la fiche"}
             </Link>
           </div>
         </div>
@@ -1484,14 +1509,14 @@ export function BrandEnrichPanel({
 
       <div className="flex gap-4 text-sm">
         <Link href={ficheHref} className="underline" style={{ color: INK }}>
-          Ouvrir la fiche client
+          {isCannes ? "Ouvrir la fiche CRM Cannes" : "Ouvrir la fiche client"}
         </Link>
         {isCannes ? (
           <Link
-            href="/cannes-partenaires"
+            href="/cannes-partenaires?tab=crm"
             className="text-amber-800 underline"
           >
-            Pipeline Cannes Partenaires
+            CRM Cannes Partenaires
           </Link>
         ) : (
           <Link href="/enrichissement" className="text-gray-500 underline">

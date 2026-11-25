@@ -114,7 +114,11 @@ export function applyProjetVars(
   return text
     .replace(/\{\{\s*pr[eé]nom\s*\}\}/gi, vars.prenom)
     .replace(/\{\{\s*nom\s*\}\}/gi, vars.nom)
-    .replace(/\{\{\s*marque\s*\}\}/gi, vars.marque);
+    .replace(/\{\{\s*marque\s*\}\}/gi, vars.marque)
+    // Variables CastingComposer / pipeline indiv (même envoi, sans analyse)
+    .replace(/\{\{\s*contact\.firstname\s*\}\}/gi, vars.prenom)
+    .replace(/\{\{\s*contact\.lastname\s*\}\}/gi, vars.nom)
+    .replace(/\{\{\s*contact\.company\s*\}\}/gi, vars.marque);
 }
 
 /** [{ email, firstName, lastName, threadId, repliedAt }] sur OpportuniteMarque. */

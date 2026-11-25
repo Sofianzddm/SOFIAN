@@ -21,6 +21,7 @@ import {
 import { CARTO_AI_MAX_CONTACTS } from "@/lib/carto-ai/constants";
 import type { CartoAiContactCandidate } from "@/lib/carto-ai/types";
 import { syncMarqueAgenciesFromCartoContacts } from "@/lib/agency-partner";
+import { CANNES_CONTACT_SOURCE } from "@/lib/cannes-partenaires/contacts";
 
 function clean(v: unknown): string | null {
   const s = typeof v === "string" ? v.trim() : "";
@@ -70,6 +71,11 @@ async function commitFrance(opts: {
   selectedRows: CartoAiContactCandidate[];
   userId: string;
   skipAutoEnrich?: boolean;
+  /**
+   * Cannes Partenaires : contacts hors cycle outreach FR + hors file
+   * /enrichissement globale. Enrichissement via module Cannes uniquement.
+   */
+  cannesIsolated?: boolean;
 }): Promise<CartoAiCommitResult> {
   const company = opts.company.trim();
   const rows = opts.selectedRows.slice(0, CARTO_AI_MAX_CONTACTS);
@@ -96,6 +102,7 @@ async function commitFrance(opts: {
     marqueId = resolved.marqueId;
   }
 
+  const cartoSource = opts.cannesIsolated ? CANNES_CONTACT_SOURCE : "CARTO";
   const marque = await prisma.marque.findUnique({
     where: { id: marqueId },
     select: {
@@ -103,7 +110,8 @@ async function commitFrance(opts: {
       nom: true,
       siteWeb: true,
       contacts: {
-        where: { source: "CARTO" },
+        // Cannes : dédup uniquement parmi les contacts isolés (jamais le CRM outreach).
+        where: { source: cartoSource },
         select: { prenom: true, nom: true, email: true, linkedinUrl: true },
       },
     },
@@ -152,7 +160,7 @@ async function commitFrance(opts: {
       const existing = await prisma.marqueContact.findFirst({
         where: {
           marqueId,
-          source: "CARTO",
+          source: cartoSource,
           OR: [
             ...(li
               ? [{ linkedinUrl: { equals: li, mode: "insensitive" as const } }]
@@ -172,10 +180,22 @@ async function commitFrance(opts: {
         // Re-commit carto avec EN/FR : mettre à jour la langue même si le contact existe déjà
         // (sinon l'UI « EN » n'a aucun effet et l'envoi Joey reste en FR).
         const wantLang = opts.language === "en" ? "en" : "fr";
+        const patch: {
+          language?: string;
+          outreachExcluded?: boolean;
+          emailLookupStatus?: string | null;
+        } = {};
         if (String(existing.language || "").toLowerCase() !== wantLang) {
+          patch.language = wantLang;
+        }
+        if (opts.cannesIsolated) {
+          patch.outreachExcluded = true;
+          // Pas de QUEUED global : la file /enrichissement filtre outreachExcluded=false
+        }
+        if (Object.keys(patch).length > 0) {
           await prisma.marqueContact.update({
             where: { id: existing.id },
-            data: { language: wantLang },
+            data: patch,
           });
         }
       }
@@ -196,8 +216,11 @@ async function commitFrance(opts: {
         priorite: fields.priorite,
         linkedinUrl: clean(row.linkedinUrl),
         language: opts.language,
-        source: "CARTO",
-        outreachExcluded: false,
+        // CANNES_CARTO = isolé : invisible outreach / file enrichissement / CRM marques
+        source: cartoSource,
+        outreachExcluded: Boolean(opts.cannesIsolated),
+        // Cannes : pas de QUEUED → invisible dans /enrichissement global
+        emailLookupStatus: opts.cannesIsolated ? null : undefined,
       },
     });
     contactIds.push(contact.id);
@@ -206,13 +229,16 @@ async function commitFrance(opts: {
     created += 1;
   }
 
-  const queue = await queueMarqueEnrichissement({ marqueId });
+  // Isolation Cannes : jamais de file enrichissement outreach / enrollment FR
+  const queue = opts.cannesIsolated
+    ? { ok: true as const, queued: 0 }
+    : await queueMarqueEnrichissement({ marqueId });
   const queued = queue.ok ? queue.queued : 0;
 
   let emailsAuto = 0;
   let enrolled = 0;
 
-  if (!opts.skipAutoEnrich) {
+  if (!opts.skipAutoEnrich && !opts.cannesIsolated) {
     const domain =
       opts.domain?.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0] ||
       domainFromWebsite(marque.siteWeb);
@@ -259,29 +285,32 @@ async function commitFrance(opts: {
     enrolled = enroll.enrolled;
   }
 
-  try {
-    await syncMarqueAgenciesFromCartoContacts({
-      marqueId,
-      createdById: opts.userId,
-    });
-  } catch (e) {
-    console.warn("[carto-ai] sync agences:", e);
-  }
-
-  // Contacts déjà emailés (carto / auto-enrich) → prospection agence si domaine.
-  try {
-    const { routeMarqueContactToAgencyProspecting } = await import(
-      "@/lib/agency-partner"
-    );
-    for (const cid of contactIds) {
-      await routeMarqueContactToAgencyProspecting({
+  // Cannes : jamais de sync agences / prospection — hors CRM outreach.
+  if (!opts.cannesIsolated) {
+    try {
+      await syncMarqueAgenciesFromCartoContacts({
         marqueId,
-        marqueContactId: cid,
-        userId: opts.userId,
+        createdById: opts.userId,
       });
+    } catch (e) {
+      console.warn("[carto-ai] sync agences:", e);
     }
-  } catch (e) {
-    console.warn("[carto-ai] route agences:", e);
+
+    // Contacts déjà emailés (carto / auto-enrich) → prospection agence si domaine.
+    try {
+      const { routeMarqueContactToAgencyProspecting } = await import(
+        "@/lib/agency-partner"
+      );
+      for (const cid of contactIds) {
+        await routeMarqueContactToAgencyProspecting({
+          marqueId,
+          marqueContactId: cid,
+          userId: opts.userId,
+        });
+      }
+    } catch (e) {
+      console.warn("[carto-ai] route agences:", e);
+    }
   }
 
   console.log(
@@ -526,6 +555,8 @@ export async function commitCartoAiPipeline(opts: {
    * - false → contacts FR + coquille BE vide (parcours « FR → puis BE »)
    */
   mirrorBeContacts?: boolean;
+  /** Cannes Partenaires — hors outreach FR / file enrichissement globale. */
+  cannesIsolated?: boolean;
 }): Promise<CartoAiCommitResult> {
   const company = opts.company.trim();
   if (!company && !opts.marqueId) throw new Error("Fiche requise");
@@ -540,6 +571,7 @@ export async function commitCartoAiPipeline(opts: {
       selectedRows: opts.selectedRows,
       userId: opts.userId,
       skipAutoEnrich: opts.skipAutoEnrich,
+      cannesIsolated: opts.cannesIsolated,
     });
     const beName = fr.company || company || "Entreprise";
     const mirror = opts.mirrorBeContacts !== false;
@@ -625,5 +657,6 @@ export async function commitCartoAiPipeline(opts: {
     selectedRows: opts.selectedRows,
     userId: opts.userId,
     skipAutoEnrich: opts.skipAutoEnrich,
+    cannesIsolated: opts.cannesIsolated,
   });
 }

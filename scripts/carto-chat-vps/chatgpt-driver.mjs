@@ -1263,12 +1263,22 @@ export class ChatGptDriver {
 
   /**
    * Annule un job en attente de jeton (zombie). Libère le slot au prochain poll.
+   * Important : le wait tourne souvent sur un marker de STEP pipeline, pas le
+   * marker job parent — le caller (/cancel worker) doit aussi passer les steps.
    */
   async cancelMarker(marker) {
     const m = String(marker || "").trim();
     if (!m) return false;
     this.cancelledMarkers.add(m);
-    const slot = this.findSlotByMarker?.(m) || null;
+    let slot = this.findSlotByMarker?.(m) || null;
+    // Parent job marker ≠ slot.endMarker (step) → chercher un slot busy
+    // dont on vient d’annuler le marker, sinon laisser le worker lister les steps.
+    if (!slot) {
+      slot =
+        (this.slots || []).find(
+          (s) => s?.busy && this.cancelledMarkers.has(String(s.endMarker || "").trim())
+        ) || null;
+    }
     const page = slot?.page || null;
     if (page) {
       try {

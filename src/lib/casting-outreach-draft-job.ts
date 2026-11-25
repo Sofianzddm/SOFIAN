@@ -1489,6 +1489,7 @@ export async function requestCancelOutreachDraftJob(jobId: string, userId: strin
   if (!job) return null;
   // Coupe Contabo marqueur par marqueur — Annuler DB ne doit plus laisser
   // Chat tourner en silence (sinon le prochain Analyser passe le verrou).
+  // Puis sweep TOUS les outreach actifs (zombies d’un job déjà cancelled).
   try {
     const { cartoChatVpsCancel, cancelOrphanOutreachContaboJobs } = await import(
       "@/lib/carto-chat-vps/vps-client"
@@ -1501,12 +1502,33 @@ export async function requestCancelOutreachDraftJob(jobId: string, userId: strin
       const br = (it.brandResearch || {}) as { _vps?: { endMarker?: string } };
       const marker = String(br._vps?.endMarker || "").trim();
       if (!marker) continue;
-      await cartoChatVpsCancel({ endMarker: marker, kind: "outreach" });
+      const res = await cartoChatVpsCancel({ endMarker: marker, kind: "outreach" });
+      if (!res.ok) {
+        console.warn(
+          `[outreach-draft-job] cancel Contabo ${marker.slice(-12)}:`,
+          res.error
+        );
+      }
     }
+    const swept = await cancelOrphanOutreachContaboJobs();
+    if (swept.cancelled > 0 || swept.errors.length > 0) {
+      console.info(
+        `[outreach-draft-job] Contabo sweep cancel=${swept.cancelled} err=${swept.errors.length}`
+      );
+    }
+    // 2e passe : un zombie step peut mettre 1–2s à remonter dans /health.
+    await new Promise((r) => setTimeout(r, 800));
     await cancelOrphanOutreachContaboJobs();
-  } catch {
-    /* soft */
+  } catch (e) {
+    console.warn(
+      "[outreach-draft-job] cancel Contabo soft:",
+      e instanceof Error ? e.message : e
+    );
   }
+  await prisma.castingOutreachDraftItem.updateMany({
+    where: { jobId, status: { in: ["pending", "running"] } },
+    data: { status: "skipped", error: "Annulé" },
+  });
   return prisma.castingOutreachDraftJob.update({
     where: { id: jobId },
     data: {
@@ -1516,6 +1538,44 @@ export async function requestCancelOutreachDraftJob(jobId: string, userId: strin
       currentBrandName: null,
     },
   });
+}
+
+/**
+ * Arrêt global rédaction outreach : tous les jobs DB actifs de l’user +
+ * TOUS les Contabo outreach (zombies inclus). Pour le bouton Arrêter.
+ */
+export async function forceStopAllOutreachDraftJobs(userId: string): Promise<{
+  jobsCancelled: number;
+  contaboCancelled: number;
+  errors: string[];
+}> {
+  const out = { jobsCancelled: 0, contaboCancelled: 0, errors: [] as string[] };
+  const jobs = await prisma.castingOutreachDraftJob.findMany({
+    where: {
+      userId,
+      status: { in: ["pending", "running"] },
+    },
+    select: { id: true },
+  });
+  for (const j of jobs) {
+    const cancelled = await requestCancelOutreachDraftJob(j.id, userId);
+    if (cancelled) out.jobsCancelled += 1;
+  }
+  try {
+    const { cancelOrphanOutreachContaboJobs } = await import(
+      "@/lib/carto-chat-vps/vps-client"
+    );
+    const swept = await cancelOrphanOutreachContaboJobs();
+    out.contaboCancelled += swept.cancelled;
+    out.errors.push(...swept.errors);
+    await new Promise((r) => setTimeout(r, 800));
+    const swept2 = await cancelOrphanOutreachContaboJobs();
+    out.contaboCancelled += swept2.cancelled;
+    out.errors.push(...swept2.errors);
+  } catch (e) {
+    out.errors.push(e instanceof Error ? e.message : "sweep Contabo impossible");
+  }
+  return out;
 }
 
 export async function getOutreachDraftJobForUser(jobId: string, userId: string) {

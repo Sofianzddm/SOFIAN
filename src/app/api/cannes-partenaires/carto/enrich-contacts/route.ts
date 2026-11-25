@@ -7,10 +7,11 @@ import {
   suggestEmailsForContact,
 } from "@/lib/email-pattern";
 import { canAccessCannesPartenaires } from "@/lib/cannes-partenaires/constants";
+import { cannesContactWhere } from "@/lib/cannes-partenaires/contacts";
 
 /**
  * Contacts à enrichir pour Cannes Partenaires uniquement.
- * Filtre : outreachExcluded + source CARTO + sans email valide.
+ * Filtre : source CANNES_CARTO (ou legacy CARTO exclu) + sans email valide.
  * N'apparaît PAS dans /enrichissement (qui exige outreachExcluded=false + QUEUED).
  */
 export async function GET(request: NextRequest) {
@@ -41,10 +42,11 @@ export async function GET(request: NextRequest) {
     const rows = await prisma.marqueContact.findMany({
       where: {
         marqueId,
-        source: "CARTO",
-        outreachExcluded: true,
-        emailLookupStatus: { not: "NOT_FOUND" },
-        OR: [{ email: null }, { email: "" }],
+        AND: [
+          cannesContactWhere,
+          { emailLookupStatus: { not: "NOT_FOUND" } },
+          { OR: [{ email: null }, { email: "" }] },
+        ],
       },
       orderBy: [{ priorite: "asc" }, { nom: "asc" }],
       select: {

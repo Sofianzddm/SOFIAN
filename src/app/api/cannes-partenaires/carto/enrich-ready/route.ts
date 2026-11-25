@@ -3,6 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import { writeMarqueContactEmail } from "@/lib/marque-contact-email";
 import { canAccessCannesPartenaires } from "@/lib/cannes-partenaires/constants";
+import {
+  CANNES_CONTACT_SOURCE,
+  cannesContactWhere,
+} from "@/lib/cannes-partenaires/contacts";
 import { enrollMarqueInCannesPartenaires } from "@/lib/cannes-partenaires/enroll";
 
 const isValidEmail = (value: string) =>
@@ -47,7 +51,7 @@ export async function POST(request: NextRequest) {
       }
 
       const contact = await prisma.marqueContact.findFirst({
-        where: { id, marqueId, outreachExcluded: true },
+        where: { id, marqueId, ...cannesContactWhere },
         select: { id: true },
       });
       if (!contact) {
@@ -64,6 +68,7 @@ export async function POST(request: NextRequest) {
             emailLookupStatus: "NOT_FOUND",
             emailSuggested: null,
             outreachExcluded: true,
+            source: CANNES_CONTACT_SOURCE,
           },
         });
         notFoundCount += 1;
@@ -83,6 +88,14 @@ export async function POST(request: NextRequest) {
       await writeMarqueContactEmail(id, marqueId, email, {
         keepOutreachExcluded: true,
       });
+      // Garantit le source isolé même pour les contacts legacy CARTO.
+      await prisma.marqueContact.update({
+        where: { id },
+        data: {
+          source: CANNES_CONTACT_SOURCE,
+          outreachExcluded: true,
+        },
+      });
       saved += 1;
     }
 
@@ -97,6 +110,7 @@ export async function POST(request: NextRequest) {
       saved,
       notFound: notFoundCount,
       enrolled: 0, // jamais outreach
+      fichePath: `/cannes-partenaires/crm/${enroll.opportuniteId}`,
       cannesOpportunite: enroll,
     });
   } catch (e) {

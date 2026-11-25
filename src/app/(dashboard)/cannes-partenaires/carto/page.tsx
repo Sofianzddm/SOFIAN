@@ -136,6 +136,17 @@ export default function CannesPartenairesCartoPage() {
   }, []);
 
   useEffect(() => {
+    try {
+      const fromUrl = new URLSearchParams(window.location.search)
+        .get("company")
+        ?.trim();
+      if (fromUrl) setCompany(fromUrl);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
     const q = ficheQuery.trim();
     if (q.length < 2 || marqueId) {
       if (q.length < 2) setMarqueHits([]);
@@ -944,7 +955,7 @@ export default function CannesPartenairesCartoPage() {
                   href={commitResult.fichePath}
                   className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white"
                 >
-                  Ouvrir fiche FR
+                  Ouvrir fiche CRM Cannes
                 </Link>
               ) : null}
               {commitResult.fichePathBe ? (
@@ -1100,7 +1111,7 @@ export default function CannesPartenairesCartoPage() {
                   {enrichIsBe ||
                   (enrichSource.market || ficheMarket) === "BENELUX"
                     ? "ouvrir Benelux"
-                    : "ouvrir FR"}
+                    : "ouvrir CRM Cannes"}
                 </Link>
               </>
             ) : null}
@@ -1162,8 +1173,13 @@ export default function CannesPartenairesCartoPage() {
           destination="cannes"
           onBack={() => setPipelinePhase("carto_fr")}
           onCannesComplete={() => {
-            // Pas d'attribution Leyna/Joey ni cycle outreach — retour board
-            window.location.href = "/cannes-partenaires";
+            const path =
+              enrichSource.fichePath?.startsWith("/cannes-partenaires/crm/")
+                ? enrichSource.fichePath
+                : enrichSource.cannesOpportunite?.opportuniteId
+                  ? `/cannes-partenaires/crm/${enrichSource.cannesOpportunite.opportuniteId}`
+                  : "/cannes-partenaires?tab=crm";
+            window.location.href = path;
           }}
         />
         <div className="pt-2">

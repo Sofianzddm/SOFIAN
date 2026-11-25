@@ -11,9 +11,9 @@ export const maxDuration = 300;
  * Commit carto Cannes : import contacts sur la fiche marque (même pipeline
  * que le lab) + enrôlement OpportuniteMarque cannes-partenaires.
  * skipAutoEnrich par défaut true (enrich panel côté UI).
- * N'utilise PAS l'enrollment outreach FR 45j comme destination métier —
- * commitCartoAiPipeline peut encore tenter l'enroll FR si emails prêts ;
- * l'opportunité Cannes est créée en plus via enrollMarqueInCannesPartenaires.
+ * Isolation stricte : cannesIsolated=true → contacts source CANNES_CARTO,
+ * outreachExcluded, pas de file enrichissement, pas d'agences, pas d'enroll FR.
+ * Destination métier = OpportuniteMarque cannes-partenaires uniquement.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -81,6 +81,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       ...result,
+      // Jamais /marques/[id] — fiche isolée Cannes Partenaires
+      fichePath: `/cannes-partenaires/crm/${enroll.opportuniteId}`,
       cannesOpportunite: enroll,
     });
   } catch (e) {

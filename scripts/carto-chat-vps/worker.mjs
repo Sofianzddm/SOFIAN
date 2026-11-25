@@ -672,8 +672,30 @@ const server = http.createServer(async (req, res) => {
         return send(res, 400, { error: "endMarker requis" });
       }
       const job = jobs.get(marker);
+      /**
+       * Pipeline : waitGenerationDone tourne sur le marker du STEP, pas le
+       * marker job parent. Annuler seulement le parent laissait un zombie
+       * (slot busy, jeton step jamais « cancelled »).
+       */
+      const markersToCancel = new Set([marker]);
+      if (job && Array.isArray(job.steps)) {
+        for (const s of job.steps) {
+          const sm = String(s?.endMarker || "").trim();
+          if (sm) markersToCancel.add(sm);
+        }
+      }
+      // Filet : slot busy outreach (max 1) si steps désync.
+      if (job?.state === "running" && job?.kind === "outreach") {
+        for (const slot of driver.slots || []) {
+          const sm = String(slot?.endMarker || "").trim();
+          if (slot?.busy && sm) markersToCancel.add(sm);
+        }
+      }
+      for (const m of markersToCancel) {
+        await driver.cancelMarker(m);
+      }
+
       if (!job) {
-        await driver.cancelMarker(marker);
         return send(res, 404, { error: "job introuvable", endMarker: marker });
       }
       if (job.state === "queued") {
@@ -685,16 +707,21 @@ const server = http.createServer(async (req, res) => {
           finishedAt: Date.now(),
           error: "Annulé",
         });
-        return send(res, 200, { ok: true, cancelled: true, state: "queued" });
+        return send(res, 200, {
+          ok: true,
+          cancelled: true,
+          state: "queued",
+          cancelledMarkers: [...markersToCancel],
+        });
       }
       if (job.state === "running") {
-        await driver.cancelMarker(marker);
         // Le .catch/.finally de startJobOnSlot finalisera + libérera le slot.
         return send(res, 200, {
           ok: true,
           cancelled: true,
           state: "running",
           endMarker: marker,
+          cancelledMarkers: [...markersToCancel],
         });
       }
       return send(res, 200, {
@@ -702,6 +729,7 @@ const server = http.createServer(async (req, res) => {
         cancelled: false,
         state: job.state,
         message: "déjà terminé",
+        cancelledMarkers: [...markersToCancel],
       });
     } catch (e) {
       return send(res, 500, {

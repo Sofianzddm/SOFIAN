@@ -5,6 +5,7 @@ import {
   CANNES_PARTENAIRES_SLUG,
   canAccessCannesPartenaires,
 } from "@/lib/cannes-partenaires/constants";
+import { cannesContactWhere } from "@/lib/cannes-partenaires/contacts";
 import { projetOppMailContacts } from "@/lib/projet-prospection";
 
 /**
@@ -46,8 +47,7 @@ export async function GET(
       const crm = await prisma.marqueContact.findMany({
         where: {
           marqueId: opp.marqueId,
-          outreachExcluded: true,
-          source: "CARTO",
+          ...cannesContactWhere,
           email: { not: null },
         },
         select: { id: true, prenom: true, nom: true, email: true, poste: true },

@@ -8,6 +8,7 @@ import { getOrCreateVillaProject } from "@/app/api/strategy/_utils";
 import {
   CANNES_PARTENAIRES_SLUG,
 } from "@/lib/cannes-partenaires/constants";
+import { cannesContactWhere } from "@/lib/cannes-partenaires/contacts";
 
 export type EnrollCannesPartenairesResult = {
   opportuniteId: string;
@@ -30,6 +31,8 @@ export async function enrollMarqueInCannesPartenaires(opts: {
       nom: true,
       secteur: true,
       contacts: {
+        // Uniquement contacts isolés Cannes — jamais les contacts CRM outreach.
+        where: cannesContactWhere,
         select: { prenom: true, nom: true, email: true, poste: true },
       },
     },

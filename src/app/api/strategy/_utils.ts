@@ -55,11 +55,18 @@ const PROJECT_DEFAULTS: Record<
     dateFin: "2026-10-06T23:59:59.999Z",
     senderEmail: "ines@glowupagence.fr",
   },
+  "cannes-partenaires": {
+    nom: "Cannes Partenaires 2026",
+    dateDebut: "2026-05-12T00:00:00.000Z",
+    dateFin: "2026-05-25T23:59:59.999Z",
+    // Inès — même défaut que Ski Trip / Fashion Week
+    senderEmail: "ines@glowupagence.fr",
+  },
 };
 
 export async function getOrCreateVillaProject(projetSlug: string) {
   const defaults = PROJECT_DEFAULTS[projetSlug] ?? PROJECT_DEFAULTS["villa-cannes"];
-  return prisma.projetEvenement.upsert({
+  const projet = await prisma.projetEvenement.upsert({
     where: { slug: projetSlug },
     update: {},
     create: {
@@ -71,4 +78,16 @@ export async function getOrCreateVillaProject(projetSlug: string) {
       statut: "ACTIF",
     },
   });
+  // Projet déjà créé avant le défaut Inès : backfill si sender encore vide.
+  if (
+    projetSlug === "cannes-partenaires" &&
+    !projet.senderEmail &&
+    defaults.senderEmail
+  ) {
+    return prisma.projetEvenement.update({
+      where: { id: projet.id },
+      data: { senderEmail: defaults.senderEmail },
+    });
+  }
+  return projet;
 }

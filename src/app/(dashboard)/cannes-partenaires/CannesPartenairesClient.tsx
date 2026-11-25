@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   CANNES_OPP_STATUTS,
   type CannesOppStatut,
@@ -98,11 +99,25 @@ type CrmMarque = {
 };
 
 export function CannesPartenairesClient() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabFromUrl = searchParams.get("tab");
+  const initialTab =
+    tabFromUrl === "crm" ||
+    tabFromUrl === "contactes" ||
+    tabFromUrl === "envoyer" ||
+    tabFromUrl === "board"
+      ? tabFromUrl
+      : "board";
   const [tab, setTab] = useState<"board" | "crm" | "contactes" | "envoyer">(
-    "board"
+    initialTab
   );
   const [opportunites, setOpportunites] = useState<Opp[]>([]);
   const [projetSender, setProjetSender] = useState<string | null>(null);
+  const [senderAccounts, setSenderAccounts] = useState<
+    Array<{ email: string; label: string }>
+  >([]);
+  const [savingSender, setSavingSender] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
@@ -115,7 +130,6 @@ export function CannesPartenairesClient() {
   });
   const [crmLoading, setCrmLoading] = useState(false);
   const [crmQuery, setCrmQuery] = useState("");
-  const [crmOpenId, setCrmOpenId] = useState<string | null>(null);
 
   const [newMarque, setNewMarque] = useState("");
   const [adding, setAdding] = useState(false);
@@ -157,6 +171,65 @@ export function CannesPartenairesClient() {
     void load();
   }, [load]);
 
+  const loadSender = useCallback(async () => {
+    try {
+      const res = await fetch("/api/cannes-partenaires/sender");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      setProjetSender(
+        typeof data.senderEmail === "string" ? data.senderEmail : null
+      );
+      setSenderAccounts(
+        Array.isArray(data.accounts)
+          ? data.accounts.map(
+              (a: { email: string; label?: string }) => ({
+                email: a.email,
+                label: a.label || a.email,
+              })
+            )
+          : []
+      );
+    } catch {
+      /* non bloquant */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSender();
+  }, [loadSender]);
+
+  async function updateSender(senderEmail: string | null) {
+    setSavingSender(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/cannes-partenaires/sender", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ senderEmail }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          (data as { error?: string }).error || "Changement de boîte impossible"
+        );
+      }
+      setProjetSender(
+        (data as { projet?: { senderEmail?: string | null } }).projet
+          ?.senderEmail ?? null
+      );
+      setFlash(
+        senderEmail
+          ? `Boîte d'envoi : ${senderEmail}`
+          : "Boîte d'envoi réinitialisée"
+      );
+      setTimeout(() => setFlash(null), 4000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setSavingSender(false);
+    }
+  }
+
   const loadCrm = useCallback(async (q?: string) => {
     setCrmLoading(true);
     try {
@@ -180,6 +253,22 @@ export function CannesPartenairesClient() {
   useEffect(() => {
     if (tab === "crm") void loadCrm(crmQuery);
   }, [tab, loadCrm]); // eslint-disable-line react-hooks/exhaustive-deps -- reload on tab open; search via bouton
+
+  useEffect(() => {
+    if (
+      tabFromUrl === "crm" ||
+      tabFromUrl === "contactes" ||
+      tabFromUrl === "envoyer" ||
+      tabFromUrl === "board"
+    ) {
+      setTab(tabFromUrl);
+    }
+  }, [tabFromUrl]);
+
+  function selectTab(next: "board" | "crm" | "contactes" | "envoyer") {
+    setTab(next);
+    router.replace(`/cannes-partenaires?tab=${next}`, { scroll: false });
+  }
 
   const byStatut = useMemo(() => {
     const map: Record<string, Opp[]> = {};
@@ -254,7 +343,7 @@ export function CannesPartenairesClient() {
 <p>Bien à vous,</p>`,
       });
       setComposerOpen(true);
-      setTab("envoyer");
+      selectTab("envoyer");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -312,17 +401,61 @@ export function CannesPartenairesClient() {
           <h1 className="mt-1 text-2xl font-semibold text-gray-900">
             Cannes Partenaires
           </h1>
-          <p className="mt-1 max-w-2xl text-sm text-gray-500">
-            Carto contacts, séquences d’envoi, relances J+3 et suivi de qui a
-            été contacté. Distinct de Villa Cannes et des ops festival.
-          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/cannes-partenaires/marques"
+            className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-950 hover:bg-amber-50"
+          >
+            Analyse marque
+          </Link>
+          <Link
+            href="/cannes-partenaires/carto"
+            className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          >
+            Lancer une carto Cannes
+          </Link>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3">
+        <div className="min-w-[220px] flex-1">
+          <label className="text-xs font-medium text-amber-950">
+            Boîte d’envoi (Inès / Gmail connectée)
+          </label>
+          <select
+            className="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2 text-sm text-gray-900"
+            value={projetSender || ""}
+            disabled={savingSender}
+            onChange={(e) =>
+              void updateSender(e.target.value.trim() || null)
+            }
+          >
+            <option value="">— Choisir une boîte connectée —</option>
+            {senderAccounts.map((a) => (
+              <option key={a.email} value={a.email}>
+                {a.label} ({a.email})
+              </option>
+            ))}
+          </select>
         </div>
         <Link
-          href="/cannes-partenaires/carto"
-          className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          href="/settings/gmail"
+          className="rounded-md border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-950 hover:bg-amber-100"
         >
-          Lancer une carto Cannes
+          Brancher / gérer Gmail
         </Link>
+        {projetSender ? (
+          <p className="w-full text-xs text-amber-900/80">
+            Les envois et relances Cannes partiront de{" "}
+            <span className="font-medium">{projetSender}</span>.
+          </p>
+        ) : (
+          <p className="w-full text-xs text-amber-900/80">
+            Branche la boîte d’Inès (ines@glowupagence.fr) puis sélectionne-la
+            ici.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-2">
@@ -337,7 +470,7 @@ export function CannesPartenairesClient() {
           <button
             key={id}
             type="button"
-            onClick={() => setTab(id)}
+            onClick={() => selectTab(id)}
             className={`rounded-md px-3 py-1.5 text-sm font-medium ${
               tab === id
                 ? "bg-amber-100 text-amber-950"
@@ -490,146 +623,37 @@ export function CannesPartenairesClient() {
             </div>
           ) : (
             <div className="space-y-2">
-              {crmRows.map((m) => {
-                const open = crmOpenId === m.opportuniteId;
-                return (
-                  <div
-                    key={m.opportuniteId}
-                    className="overflow-hidden rounded-lg border border-gray-200 bg-white"
-                  >
-                    <button
-                      type="button"
-                      className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left hover:bg-gray-50"
-                      onClick={() =>
-                        setCrmOpenId(open ? null : m.opportuniteId)
-                      }
-                    >
-                      <div>
-                        <div className="font-medium text-gray-900">
-                          {m.nomMarque}
-                          <span className="ml-2 text-xs font-normal text-gray-400">
-                            {STATUT_LABELS[m.statut as CannesOppStatut] ||
-                              m.statut}
-                          </span>
-                        </div>
-                        <div className="mt-0.5 text-xs text-gray-500">
-                          {[m.secteur, m.ville].filter(Boolean).join(" · ") ||
-                            "—"}
-                          {" · "}
-                          {m.contactsCount} contact(s) · {m.emailsCount} email(s)
-                          {m.lastEmailSentAt
-                            ? ` · contacté ${formatDate(m.lastEmailSentAt)}`
-                            : ""}
-                          {m.emailRepliedAt ? " · a répondu" : ""}
-                        </div>
-                      </div>
-                      <span className="shrink-0 text-xs text-gray-400">
-                        {open ? "▲" : "▼"}
+              {crmRows.map((m) => (
+                <button
+                  key={m.opportuniteId}
+                  type="button"
+                  onClick={() =>
+                    router.push(`/cannes-partenaires/crm/${m.opportuniteId}`)
+                  }
+                  className="flex w-full items-start justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 text-left hover:border-amber-300 hover:bg-amber-50/40"
+                >
+                  <div>
+                    <div className="font-medium text-gray-900">
+                      {m.nomMarque}
+                      <span className="ml-2 text-xs font-normal text-gray-400">
+                        {STATUT_LABELS[m.statut as CannesOppStatut] || m.statut}
                       </span>
-                    </button>
-                    {open ? (
-                      <div className="border-t border-gray-100 bg-gray-50 px-4 py-3">
-                        <div className="mb-2 flex flex-wrap gap-3 text-xs">
-                          {m.marqueId ? (
-                            <Link
-                              href={`/marques/${m.marqueId}`}
-                              className="text-amber-800 underline"
-                            >
-                              Fiche marque
-                            </Link>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="text-amber-800 underline"
-                            disabled={composerLoading}
-                            onClick={() => void openComposer(m.opportuniteId)}
-                          >
-                            Rédiger / envoyer
-                          </button>
-                          {m.siteWeb ? (
-                            <a
-                              href={
-                                m.siteWeb.startsWith("http")
-                                  ? m.siteWeb
-                                  : `https://${m.siteWeb}`
-                              }
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-gray-600 underline"
-                            >
-                              Site
-                            </a>
-                          ) : null}
-                        </div>
-                        {m.contacts.length === 0 ? (
-                          <p className="text-xs text-gray-500">
-                            Pas encore de contacts carto Cannes sur cette fiche.
-                          </p>
-                        ) : (
-                          <table className="min-w-full text-left text-xs">
-                            <thead className="text-gray-500">
-                              <tr>
-                                <th className="py-1 pr-2">Prio</th>
-                                <th className="py-1 pr-2">Nom</th>
-                                <th className="py-1 pr-2">Poste</th>
-                                <th className="py-1 pr-2">Email</th>
-                                <th className="py-1">LinkedIn</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-200">
-                              {m.contacts.map((c) => (
-                                <tr key={c.id}>
-                                  <td className="py-1.5 pr-2 text-gray-500">
-                                    {c.priorite || "—"}
-                                  </td>
-                                  <td className="py-1.5 pr-2 font-medium text-gray-900">
-                                    {[c.prenom, c.nom].filter(Boolean).join(" ")}
-                                  </td>
-                                  <td className="py-1.5 pr-2 text-gray-600">
-                                    {c.poste || c.perimetre || "—"}
-                                  </td>
-                                  <td className="py-1.5 pr-2">
-                                    {c.email && c.email !== "[masqué]" ? (
-                                      <a
-                                        href={`mailto:${c.email}`}
-                                        className="text-amber-900 underline"
-                                      >
-                                        {c.email}
-                                      </a>
-                                    ) : c.email === "[masqué]" ? (
-                                      <span className="text-gray-400">masqué</span>
-                                    ) : (
-                                      <span className="text-gray-400">
-                                        {c.emailLookupStatus === "NOT_FOUND"
-                                          ? "introuvable"
-                                          : "à enrichir"}
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="py-1.5">
-                                    {c.linkedinUrl ? (
-                                      <a
-                                        href={c.linkedinUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="underline"
-                                      >
-                                        Profil
-                                      </a>
-                                    ) : (
-                                      "—"
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
-                    ) : null}
+                    </div>
+                    <div className="mt-0.5 text-xs text-gray-500">
+                      {[m.secteur, m.ville].filter(Boolean).join(" · ") || "—"}
+                      {" · "}
+                      {m.contactsCount} contact(s) · {m.emailsCount} email(s)
+                      {m.lastEmailSentAt
+                        ? ` · contacté ${formatDate(m.lastEmailSentAt)}`
+                        : ""}
+                      {m.emailRepliedAt ? " · a répondu" : ""}
+                    </div>
                   </div>
-                );
-              })}
+                  <span className="shrink-0 text-xs text-amber-800">
+                    Fiche CRM Cannes →
+                  </span>
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -660,7 +684,12 @@ export function CannesPartenairesClient() {
                 contactes.map((o) => (
                   <tr key={o.id}>
                     <td className="px-3 py-2 font-medium text-gray-900">
-                      {o.nomMarque}
+                      <Link
+                        href={`/cannes-partenaires/crm/${o.id}`}
+                        className="hover:underline"
+                      >
+                        {o.nomMarque}
+                      </Link>
                       {o.emailSubject ? (
                         <div className="text-xs font-normal text-gray-400">
                           {o.emailSubject}
@@ -704,14 +733,6 @@ export function CannesPartenairesClient() {
         </div>
       ) : (
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Même composer que le pipeline individuel —{" "}
-            <strong>sans analyse IA</strong>. Choisis une marque, rédige, coche
-            les destinataires, envoie.
-            {projetSender
-              ? ` Boîte : ${projetSender}.`
-              : " Boîte : Leyna (défaut projet)."}
-          </p>
           {composerLoading ? (
             <p className="text-sm text-gray-500">Ouverture du composer…</p>
           ) : null}
@@ -761,6 +782,7 @@ export function CannesPartenairesClient() {
         readyMode="send"
         readyLabel="Envoyer"
         enableTalentResearch={false}
+        fromEmail={projetSender}
         onClose={() => {
           setComposerOpen(false);
           setComposerContact(null);
@@ -782,6 +804,7 @@ export function CannesPartenairesClient() {
                 subject: draft.subject,
                 bodyHtml: draft.bodyHtml,
                 recipients: draft.selectedContacts || [],
+                fromEmail: projetSender,
               }),
             }
           );
@@ -803,7 +826,7 @@ export function CannesPartenairesClient() {
           setComposerOpen(false);
           setComposerContact(null);
           setComposerOppId(null);
-          setTab("contactes");
+          selectTab("contactes");
           await load();
         }}
       />

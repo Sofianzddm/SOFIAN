@@ -2992,6 +2992,18 @@ export default function OutreachCastingWizard({
         /* ignore */
       }
     }
+    // Filet zombies Contabo : cancel job-by-job ne coupe pas toujours le
+    // marker de STEP pipeline. Sweep global outreach (DB + Contabo).
+    if (!isProjectMode && !lockedTalentId) {
+      try {
+        await fetch(
+          `/api/casting/outreach-draft-jobs?market=${encodeURIComponent(fitMarketKey)}`,
+          { method: "DELETE", credentials: "include" }
+        );
+      } catch {
+        /* ignore */
+      }
+    }
     setServerDraftJobId(null);
     serverDraftJobIdRef.current = null;
     setServerDraftCurrent("");
@@ -3004,7 +3016,7 @@ export default function OutreachCastingWizard({
 
     onFlash?.(
       "error",
-      "Casting arrêté — fit + rédaction coupés."
+      "Casting arrêté — fit + rédaction + Contabo coupés."
     );
   }, [
     fitJobId,
@@ -4019,16 +4031,18 @@ export default function OutreachCastingWizard({
                   : fromOui
             ).slice(0, fromOverride.length > 0 ? 30 : 8);
             // Mail prêt → hors wizard sauf Relancer (forceRewrite).
-            // WAITING / STOPPED / déjà envoyé → jamais réécrit.
+            // WAITING / STOPPED → jamais réécrit.
+            // TO_RECONTACT : toujours éligible (a forcément un lastSentAt).
             const targetIds = brand.targets
               .filter((t) => {
                 const st = String(t.status || "TO_CONTACT").toUpperCase();
                 if (st === "WAITING" || st === "STOPPED") return false;
+                if (st === "TO_RECONTACT") return true;
+                if (forceRewrite) return true;
+                // Cycle encore non envoyé : lastSentAt = déjà parti → skip.
                 if ((t as { lastSentAt?: string | null }).lastSentAt) {
                   return false;
                 }
-                if (st === "TO_RECONTACT") return true;
-                if (forceRewrite) return true;
                 const hasDraft =
                   Boolean((t.draftSubject || "").trim()) &&
                   Boolean((t.draftBodyHtml || "").trim());

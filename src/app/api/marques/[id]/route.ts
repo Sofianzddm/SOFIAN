@@ -37,9 +37,15 @@ export async function GET(
         },
         contacts: {
           // NOT source=AO excluait aussi source null (bug Nuxe = 0 contacts).
+          // CANNES_CARTO = module Cannes Partenaires — hors CRM marques / outreach.
           where: canFullCrm
-            ? undefined
-            : { OR: [{ source: { not: "AO" } }, { source: null }] },
+            ? { source: { not: "CANNES_CARTO" } }
+            : {
+                AND: [
+                  { OR: [{ source: { not: "AO" } }, { source: null }] },
+                  { source: { not: "CANNES_CARTO" } },
+                ],
+              },
           orderBy: [{ principal: "desc" }, { priorite: "asc" }, { createdAt: "asc" }],
           include: {
             outreachTargets: {

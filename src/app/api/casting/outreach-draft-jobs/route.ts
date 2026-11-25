@@ -3,6 +3,7 @@ import { getAppSession } from "@/lib/getAppSession";
 import {
   createOutreachDraftJob,
   kickOutreachDraftJobProcess,
+  forceStopAllOutreachDraftJobs,
   type CreateOutreachDraftItemInput,
 } from "@/lib/casting-outreach-draft-job";
 import {
@@ -222,5 +223,34 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     );
+  }
+}
+
+/**
+ * DELETE → stop force : tous les jobs rédaction de l’user + Contabo zombies.
+ * Utilisé par « Arrêter » pour ne plus laisser Chat tourner après cancel DB.
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getAppSession(request);
+    if (!session?.user) {
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
+    }
+    if (!isAllowed(session.user.role)) {
+      return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+    }
+
+    const result = await forceStopAllOutreachDraftJobs(session.user.id);
+    const wizardBusy = await getCastingWizardBusyState(
+      request.nextUrl.searchParams.get("market")?.trim() || "FR"
+    );
+    return NextResponse.json({
+      ok: true,
+      ...result,
+      wizardBusy,
+    });
+  } catch (e) {
+    console.error("DELETE /api/casting/outreach-draft-jobs:", e);
+    return NextResponse.json({ error: "Erreur serveur." }, { status: 500 });
   }
 }

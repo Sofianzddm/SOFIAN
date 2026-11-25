@@ -17,6 +17,8 @@ import {
   CANNES_PARTENAIRES_SLUG,
   canAccessCannesPartenaires,
 } from "@/lib/cannes-partenaires/constants";
+import { cannesContactWhere } from "@/lib/cannes-partenaires/contacts";
+import { resolveGiftSenderMailbox } from "@/lib/gifts/gift-sender-mailbox";
 
 /**
  * Envoi prospection Cannes Partenaires — même mécanique que strategy/send-email,
@@ -40,6 +42,8 @@ export async function POST(
       subject?: string;
       bodyHtml?: string;
       bodyText?: string;
+      /** Boîte choisie dans l'UI Cannes (Inès, etc.). */
+      fromEmail?: string | null;
       /** Sous-ensemble cochés dans CastingComposer (emails). */
       recipients?: Array<{
         email?: string;
@@ -90,8 +94,7 @@ export async function POST(
       const crm = await prisma.marqueContact.findMany({
         where: {
           marqueId: opportunite.marqueId,
-          outreachExcluded: true,
-          source: "CARTO",
+          ...cannesContactWhere,
           email: { not: null },
         },
         select: { prenom: true, nom: true, email: true },
@@ -115,17 +118,37 @@ export async function POST(
       );
     }
 
-    const fromEmail =
-      (opportunite.projet?.senderEmail || "").trim().toLowerCase() ||
-      LEYNA_FROM_EMAIL;
-    const token = await prisma.gmailToken.findUnique({
-      where: { email: fromEmail },
-      select: { id: true },
-    });
-    if (!token) {
+    const requestedFrom = (body.fromEmail || "").trim().toLowerCase();
+    const projetFrom = (opportunite.projet?.senderEmail || "")
+      .trim()
+      .toLowerCase();
+    const userMailbox = session.user.id
+      ? await resolveGiftSenderMailbox(session.user.id)
+      : null;
+    const userFrom = (userMailbox?.email || "").trim().toLowerCase();
+
+    // Priorité : override UI → boîte projet (Inès) → boîte user connecté → Leyna
+    const candidates = [requestedFrom, projetFrom, userFrom, LEYNA_FROM_EMAIL]
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e.includes("@"));
+
+    let fromEmail: string | null = null;
+    for (const email of candidates) {
+      const token = await prisma.gmailToken.findUnique({
+        where: { email },
+        select: { id: true },
+      });
+      if (token) {
+        fromEmail = email;
+        break;
+      }
+    }
+
+    if (!fromEmail) {
       return NextResponse.json(
         {
-          error: `La boîte d'envoi du projet (${fromEmail}) n'est pas connectée.`,
+          error:
+            "Aucune boîte d'envoi connectée. Branche ta Gmail dans Réglages → Gmail (ex. ines@glowupagence.fr), puis choisis-la ici.",
         },
         { status: 400 }
       );

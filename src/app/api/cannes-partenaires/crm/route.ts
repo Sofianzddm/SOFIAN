@@ -5,6 +5,7 @@ import {
   CANNES_PARTENAIRES_SLUG,
   canAccessCannesPartenaires,
 } from "@/lib/cannes-partenaires/constants";
+import { cannesContactWhere } from "@/lib/cannes-partenaires/contacts";
 import { getOrCreateVillaProject } from "@/app/api/strategy/_utils";
 
 /**
@@ -50,10 +51,7 @@ export async function GET(request: NextRequest) {
             siteWeb: true,
             ville: true,
             contacts: {
-              where: {
-                source: "CARTO",
-                outreachExcluded: true,
-              },
+              where: cannesContactWhere,
               orderBy: [{ priorite: "asc" }, { nom: "asc" }],
               select: {
                 id: true,

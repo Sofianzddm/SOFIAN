@@ -15,7 +15,11 @@ import {
 export async function writeMarqueContactEmail(
   id: string,
   marqueId: string,
-  email: string
+  email: string,
+  opts?: {
+    /** Cannes / hors cycle : ne jamais remettre outreachExcluded=false. */
+    keepOutreachExcluded?: boolean;
+  }
 ): Promise<{ deduped: boolean; blockedAsTalent?: boolean }> {
   const normalized = String(email || "")
     .trim()
@@ -78,6 +82,9 @@ export async function writeMarqueContactEmail(
     return { deduped: true };
   }
 
+  const forceExcluded =
+    opts?.keepOutreachExcluded === true || Boolean(contact?.diffusionOptOut);
+
   await prisma.marqueContact.update({
     where: { id },
     data: {
@@ -86,8 +93,8 @@ export async function writeMarqueContactEmail(
       emailSuggested: null,
       emailLookupQueuedAt: null,
       // Réouvre le contact si un save précédent l'avait exclus à tort
-      // (ex. hard-block L’Oréal avant exception Margiela).
-      ...(contact?.diffusionOptOut ? {} : { outreachExcluded: false }),
+      // (ex. hard-block L’Oréal avant exception Margiela) — sauf Cannes / opt-out.
+      ...(forceExcluded ? { outreachExcluded: true } : { outreachExcluded: false }),
     },
   });
   return { deduped: false };

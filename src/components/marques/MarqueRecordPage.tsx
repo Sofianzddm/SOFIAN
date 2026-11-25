@@ -7,7 +7,7 @@
  * BENELUX : mêmes endpoints adaptés ; pas de groupe / AO / création collab.
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -499,16 +499,28 @@ export type CrmMarket = "FR" | "BENELUX";
 
 export default function MarqueRecordPage({
   market = "FR",
+  /** Override de l’id URL (ex. fiche CRM Cannes embarquée). */
+  recordId: recordIdProp,
+  /** Bandeau / retour au-dessus de la fiche (ex. Cannes Partenaires). */
+  headerSlot,
+  /** Lien retour (défaut : /marques). */
+  backHref,
+  backLabel,
 }: {
   market?: CrmMarket;
+  recordId?: string;
+  headerSlot?: ReactNode;
+  backHref?: string;
+  backLabel?: string;
 }) {
   const params = useParams();
   const router = useRouter();
   const { data: session } = useSession();
+  const recordId = String(recordIdProp || params.id || "");
   const isBenelux = market === "BENELUX";
   const recordApi = isBenelux
-    ? `/api/benelux-outreach/companies/${params.id}`
-    : `/api/marques/${params.id}`;
+    ? `/api/benelux-outreach/companies/${recordId}`
+    : `/api/marques/${recordId}`;
   const contactsApi = `${recordApi}/contacts`;
   const outreachTargetsApi = isBenelux
     ? "/api/benelux-outreach/targets"
@@ -669,8 +681,8 @@ export default function MarqueRecordPage({
 
   useEffect(() => {
     aoSyncTriedRef.current = false;
-    if (params.id) fetchMarque();
-  }, [params.id, fetchMarque]);
+    if (recordId) fetchMarque();
+  }, [recordId, fetchMarque]);
 
   useEffect(() => {
     if (isBenelux) {
@@ -754,7 +766,7 @@ export default function MarqueRecordPage({
 
   // Détecte les fiches doublons / proches pour proposer une fusion sur place.
   useEffect(() => {
-    if (!canMerge || !params.id) {
+    if (!canMerge || !recordId) {
       setSimilarMatches([]);
       setSimilarChecked(false);
       setSimilarPanelOpen(false);
@@ -788,7 +800,7 @@ export default function MarqueRecordPage({
     return () => {
       cancelled = true;
     };
-  }, [canMerge, params.id]);
+  }, [canMerge, recordId]);
 
   // Charge la liste des marques (pour le sélecteur de rattachement) à la demande.
   const loadAllMarques = useCallback(async () => {
@@ -841,7 +853,7 @@ export default function MarqueRecordPage({
     setHierarchyError(null);
     try {
       const res = await fetch(
-        `/api/marques/${params.id}/children?childId=${encodeURIComponent(childId)}`,
+        `/api/marques/${recordId}/children?childId=${encodeURIComponent(childId)}`,
         { method: "DELETE" }
       );
       if (res.ok) await fetchMarque();
@@ -858,7 +870,7 @@ export default function MarqueRecordPage({
       const res = await fetch(`/api/marques/${parentId}/children`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ childId: String(params.id) }),
+        body: JSON.stringify({ childId: String(recordId) }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -879,7 +891,7 @@ export default function MarqueRecordPage({
     setHierarchyError(null);
     try {
       const res = await fetch(
-        `/api/marques/${marque.parent.id}/children?childId=${encodeURIComponent(String(params.id))}`,
+        `/api/marques/${marque.parent.id}/children?childId=${encodeURIComponent(String(recordId))}`,
         { method: "DELETE" }
       );
       if (res.ok) await fetchMarque();
@@ -1036,7 +1048,7 @@ export default function MarqueRecordPage({
         alert(data.message || data.error || "Erreur lors de la suppression");
         return;
       }
-      router.push("/marques");
+      router.push(backHref || "/marques");
     } catch {
       alert("Erreur lors de la suppression");
     }
@@ -1063,6 +1075,10 @@ export default function MarqueRecordPage({
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Transfert impossible.");
+      if (backHref) {
+        router.push(backHref);
+        return;
+      }
       router.push(
         data.targetPath ||
           (isBenelux ? `/marques/${data.targetId}` : `/marques/benelux/${data.targetId}`)
@@ -1109,6 +1125,10 @@ export default function MarqueRecordPage({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Bascule impossible.");
+      if (backHref) {
+        router.push(backHref);
+        return;
+      }
       router.push(data.targetPath || (isBenelux ? `/marques/${data.marqueId}` : `/marques/benelux/${data.companyId}`));
     } catch (e) {
       alert(e instanceof Error ? e.message : "Erreur lors de la bascule.");
@@ -1485,7 +1505,11 @@ export default function MarqueRecordPage({
     return (
       <div className="text-center py-12">
         <p className="text-gray-500">Marque non trouvée</p>
-        <Link href="/marques" className="hover:underline mt-2 inline-block" style={{ color: ROSE }}>
+        <Link
+          href={backHref || "/marques"}
+          className="hover:underline mt-2 inline-block"
+          style={{ color: ROSE }}
+        >
           Retour à la liste
         </Link>
       </div>
@@ -1841,9 +1865,19 @@ export default function MarqueRecordPage({
     { id: "collabs" as const, label: "Collaborations", icon: Handshake, badge: marque._count.collaborations || null },
   ];
 
+  const resolvedBackHref =
+    backHref ||
+    (isBenelux ? "/marques?market=BENELUX" : "/marques");
+  const resolvedBackLabel = backLabel || "Marques";
+  /** Embarqué hors /marques (ex. Cannes) : ne pas renvoyer vers /marques/[id]. */
+  const embedded = Boolean(backHref);
+  const marqueRecordHref = (id: string) =>
+    embedded ? resolvedBackHref : `/marques/${id}`;
+
   return (
     <div className="min-h-full" style={{ backgroundColor: "#FAF9F7" }}>
       <div className="max-w-7xl mx-auto px-4 md:px-6 py-5 space-y-5">
+        {headerSlot}
         {actionSuccess && (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 flex items-start justify-between gap-3">
             <p className="min-w-0 leading-relaxed">{actionSuccess}</p>
@@ -1860,7 +1894,7 @@ export default function MarqueRecordPage({
         {/* ====================== Topbar ====================== */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2 text-sm min-w-0 flex-wrap">
-            {readOnly ? (
+            {readOnly && !backHref ? (
               <button
                 type="button"
                 onClick={() => router.back()}
@@ -1871,22 +1905,23 @@ export default function MarqueRecordPage({
               </button>
             ) : (
               <Link
-                href={isBenelux ? "/marques?market=BENELUX" : "/marques"}
+                href={resolvedBackHref}
                 className="flex items-center gap-1.5 text-gray-400 hover:text-gray-700 transition-colors shrink-0"
               >
                 <ArrowLeft className="w-4 h-4" />
-                {isBenelux ? "Annuaire BENELUX" : "Marques"}
+                {backLabel
+                  ? resolvedBackLabel
+                  : isBenelux
+                    ? "Annuaire BENELUX"
+                    : "Marques"}
               </Link>
             )}
             <span className="text-gray-300">/</span>
             {marque.parent && (
               <>
-                <Link
-                  href={`/marques/${marque.parent.id}`}
-                  className="text-gray-400 hover:text-gray-700 transition-colors truncate max-w-[140px]"
-                >
+                <span className="text-gray-400 truncate max-w-[140px]">
                   {marque.parent.nom}
-                </Link>
+                </span>
                 <span className="text-gray-300">/</span>
               </>
             )}
@@ -1920,7 +1955,7 @@ export default function MarqueRecordPage({
         )}
 
         {/* ====================== Lien croisé FR ↔ BENELUX ====================== */}
-        {(() => {
+        {!embedded && (() => {
           const beLink = !isBenelux ? marque.beneluxLinks?.[0] : null;
           const frLink =
             isBenelux && (marque.linkedMarque || marque.linkedMarqueId)
@@ -2056,7 +2091,7 @@ export default function MarqueRecordPage({
                     Collab
                   </Link>
                 )}
-                {!readOnly && (
+                {!readOnly && !embedded && (
                   <Link
                     href={isBenelux ? `/marques/benelux/${marque.id}/edit` : `/marques/${marque.id}/edit`}
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-[13px] font-semibold rounded-lg text-white hover:opacity-90"
@@ -2249,13 +2284,22 @@ export default function MarqueRecordPage({
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <Link
-                            href={`/marques/${m.id}`}
-                            className="text-[13.5px] font-semibold hover:underline"
-                            style={{ color: INK }}
-                          >
-                            {m.nom}
-                          </Link>
+                          {embedded ? (
+                            <span
+                              className="text-[13.5px] font-semibold"
+                              style={{ color: INK }}
+                            >
+                              {m.nom}
+                            </span>
+                          ) : (
+                            <Link
+                              href={marqueRecordHref(m.id)}
+                              className="text-[13.5px] font-semibold hover:underline"
+                              style={{ color: INK }}
+                            >
+                              {m.nom}
+                            </Link>
+                          )}
                           <span
                             className={`text-[10px] font-bold px-1.5 py-[2px] rounded-md ${
                               m.reason === "EXACT"
@@ -2335,13 +2379,22 @@ export default function MarqueRecordPage({
                         className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5"
                       >
                         <div className="min-w-0">
-                          <Link
-                            href={`/marques/${m.id}`}
-                            className="text-[13px] font-semibold hover:underline"
-                            style={{ color: INK }}
-                          >
-                            {m.nom}
-                          </Link>
+                          {embedded ? (
+                            <span
+                              className="text-[13px] font-semibold"
+                              style={{ color: INK }}
+                            >
+                              {m.nom}
+                            </span>
+                          ) : (
+                            <Link
+                              href={marqueRecordHref(m.id)}
+                              className="text-[13px] font-semibold hover:underline"
+                              style={{ color: INK }}
+                            >
+                              {m.nom}
+                            </Link>
+                          )}
                           <p className="text-[11px] text-gray-400 mt-0.5">
                             {m.contactCount} contact{m.contactCount > 1 ? "s" : ""}
                             {m.ville ? ` · ${m.ville}` : ""}
@@ -3099,12 +3152,18 @@ export default function MarqueRecordPage({
                               <span className="text-[13.5px] font-semibold" style={{ color: INK }}>
                                 {[sc.contact.prenom, sc.contact.nom].filter(Boolean).join(" ")}
                               </span>
-                              <Link
-                                href={`/marques/${sc.contact.marque.id}`}
-                                className="text-[11px] text-gray-400 hover:underline"
-                              >
-                                via {sc.contact.marque.nom}
-                              </Link>
+                              {embedded ? (
+                                <span className="text-[11px] text-gray-400">
+                                  via {sc.contact.marque.nom}
+                                </span>
+                              ) : (
+                                <Link
+                                  href={marqueRecordHref(sc.contact.marque.id)}
+                                  className="text-[11px] text-gray-400 hover:underline"
+                                >
+                                  via {sc.contact.marque.nom}
+                                </Link>
+                              )}
                             </div>
                             {sc.contact.poste && (
                               <p className="text-[12px] text-gray-500 mt-0.5">{sc.contact.poste}</p>
@@ -4080,9 +4139,15 @@ export default function MarqueRecordPage({
                       Groupe
                     </p>
                     {marque.parent ? (
-                      <Link href={`/marques/${marque.parent.id}`} className="text-[12.5px] font-medium hover:underline block truncate" style={{ color: INK }}>
-                        Mère · {marque.parent.nom}
-                      </Link>
+                      embedded ? (
+                        <span className="text-[12.5px] font-medium block truncate" style={{ color: INK }}>
+                          Mère · {marque.parent.nom}
+                        </span>
+                      ) : (
+                        <Link href={marqueRecordHref(marque.parent.id)} className="text-[12.5px] font-medium hover:underline block truncate" style={{ color: INK }}>
+                          Mère · {marque.parent.nom}
+                        </Link>
+                      )
                     ) : (
                       !readOnly && (
                         <button
@@ -4126,9 +4191,15 @@ export default function MarqueRecordPage({
                       <ul className="mt-1 space-y-1">
                         {(marque.children || []).slice(0, 4).map((c) => (
                           <li key={c.id}>
-                            <Link href={`/marques/${c.id}`} className="text-[12px] hover:underline truncate block" style={{ color: INK }}>
-                              {c.nom}
-                            </Link>
+                            {embedded ? (
+                              <span className="text-[12px] truncate block" style={{ color: INK }}>
+                                {c.nom}
+                              </span>
+                            ) : (
+                              <Link href={marqueRecordHref(c.id)} className="text-[12px] hover:underline truncate block" style={{ color: INK }}>
+                                {c.nom}
+                              </Link>
+                            )}
                           </li>
                         ))}
                       </ul>
