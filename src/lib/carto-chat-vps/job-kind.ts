@@ -1,9 +1,11 @@
 /**
- * Distingue les jobs Chat VPS carto vs outreach (mail / roster) vs brand-sim.
- * Même worker / mêmes slots — le lab carto ne doit lister que la carto.
+ * Distingue les jobs Chat VPS carto vs outreach (mail / roster) vs brand-sim
+ * vs cannes-carto. Même worker / mêmes slots — le lab carto ne doit lister
+ * que la carto générique.
  */
 
 import { brandSimPromptLooksLike } from "@/lib/brand-sim-chat/tag";
+import { cannesCartoPromptLooksLike } from "@/lib/cannes-partenaires/tag";
 
 export function isOutreachChatVpsJob(previewOrHint: string): boolean {
   const t = String(previewOrHint || "");
@@ -27,14 +29,27 @@ export function isBrandSimChatVpsJob(job: {
   return brandSimPromptLooksLike(`${preview} ${hint}`);
 }
 
+/** Carto Cannes Partenaires (CANNES_CARTO) — exclu du lab carto-pipeline2. */
+export function isCannesCartoChatVpsJob(job: {
+  promptPreview?: string | null;
+  companyHint?: string | null;
+  kind?: string | null;
+}): boolean {
+  if (job.kind === "outreach") return false;
+  const preview = String(job.promptPreview || "");
+  const hint = String(job.companyHint || "");
+  return cannesCartoPromptLooksLike(`${preview} ${hint}`);
+}
+
 export function isCartoChatVpsJob(job: {
   promptPreview?: string | null;
   companyHint?: string | null;
   kind?: string | null;
 }): boolean {
   if (job.kind === "outreach") return false;
-  // Brand-sim tourne en kind=carto mais ne doit pas polluer le lab carto.
+  // Brand-sim / Cannes-carto tournent en kind=carto mais ne doivent pas polluer le lab.
   if (isBrandSimChatVpsJob(job)) return false;
+  if (isCannesCartoChatVpsJob(job)) return false;
   if (job.kind === "carto") return true;
   const preview = String(job.promptPreview || "");
   const hint = String(job.companyHint || "");
