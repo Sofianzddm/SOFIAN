@@ -229,12 +229,12 @@ Extrais UNIQUEMENT un JSON:
   "contentThemes": "…",
   "brandUniverseHints": "…",
   "detectedMoments": "…",
-  "profileSummary": "résumé 2–4 phrases",
+  "profileSummary": "résumé 2–4 phrases (inclure la veille collabs 3 mois si présente)",
   "brands": [{
     "nom": "Nom marque exact",
-    "secteur": "Mode|Beauté|Sport|Food|Tech|Luxe|Retail|Maison|Voyage|Autre|null",
+    "secteur": "Mode|Beauté|Sport|Food|Tech|Luxe|Retail|Maison|Voyage|Institution/Cause|Autre|null",
     "fitScore": 0-100,
-    "whyFit": "pourquoi ça match CE talent (spécifique)",
+    "whyFit": "pourquoi ça match CE talent + preuve collab récente/peer si citée",
     "suggestedAngle": "angle / pitch"
   }]
 }
@@ -243,8 +243,9 @@ Règles:
 - Extrais TOUTES les marques nommées (objectif ${limit}, max ${limit}).
 - Conserve l’ordre du texte (meilleur fit d’abord) ; fitScore: si /10 → ×10 ; sinon estime 50–95 sans aplatir tout le monde à 70.
 - Ne invente PAS de marques absentes du texte.
-- whyFit / suggestedAngle : garde le détail spécifique du texte, pas de phrases génériques.
+- whyFit / suggestedAngle : garde le détail spécifique du texte (preuves peers / campagnes 3 mois), pas de phrases génériques.
 - detectedMoments: moments de vie / projets cités (sinon "").
+- brandUniverseHints: peut résumer la veille 3 mois (marques actives / peers).
 - Réponds JSON pur.`);
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
