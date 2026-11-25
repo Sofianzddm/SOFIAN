@@ -1,5 +1,5 @@
 /**
- * Prompt ChatGPT web (VPS carto) — Simulateur marque / brands à viser pour un talent.
+ * Prompt analyse web (VPS) — Simulateur marque / brands à viser pour un talent.
  * Préfixe BRAND_SIM : isole ces jobs du lab carto-pipeline2.
  */
 

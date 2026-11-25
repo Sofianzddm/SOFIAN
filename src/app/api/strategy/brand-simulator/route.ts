@@ -1,5 +1,5 @@
 /**
- * Simulateur marque — ChatGPT via VPS carto (plus d’Apify / xAI).
+ * Simulateur marque — analyse via VPS (plus d’Apify / xAI).
  * Modes : vps_start | health | read_screen
  */
 
@@ -13,7 +13,7 @@ import {
 } from "@/lib/brand-sim-chat/run";
 import { normalizeMomentContext } from "@/lib/brand-sim-chat/prompt";
 
-/** read_screen = structure OpenAI après Chat long */
+/** read_screen = structure JSON après analyse longue */
 export const maxDuration = 600;
 
 export async function POST(request: NextRequest) {

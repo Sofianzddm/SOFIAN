@@ -212,11 +212,11 @@ export async function structureBrandSimAnswer(opts: {
   const system = sanitizeOpenAiText(
     "Tu structures une analyse strategy influence en JSON strict. Extraction EXHAUSTIVE des marques citées."
   );
-  const user = sanitizeOpenAiText(`Tu structures la réponse ChatGPT suivante pour Glow-up (simulateur marque).
+  const user = sanitizeOpenAiText(`Tu structures la réponse d'analyse suivante pour Glow-up (simulateur marque).
 
 Talent: ${opts.talentName}
 
-Réponse Chat (${opts.chatAnswer.length} caractères):
+Réponse analyse (${opts.chatAnswer.length} caractères):
 """
 ${answerForModel}
 """
@@ -268,7 +268,7 @@ Règles:
     choices?: Array<{ message?: { content?: string } }>;
   };
   if (!res.ok) {
-    throw new Error(data.error?.message || `OpenAI HTTP ${res.status}`);
+    throw new Error(data.error?.message || `Erreur classement HTTP ${res.status}`);
   }
 
   const text = data.choices?.[0]?.message?.content || "";

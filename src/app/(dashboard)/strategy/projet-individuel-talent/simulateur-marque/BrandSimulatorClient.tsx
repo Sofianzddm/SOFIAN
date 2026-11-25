@@ -188,7 +188,7 @@ export function BrandSimulatorClient() {
   async function tryStructure(endMarker: string): Promise<SimResult | null> {
     setPhase("structure");
     setLoadingHint("Classement des marques");
-    pushLog("structure", "Classement OpenAI", "Extraction cartes marques…");
+    pushLog("structure", "Classement", "Extraction cartes marques…");
     const rescue = await fetch("/api/strategy/brand-simulator", {
       method: "POST",
       credentials: "include",
@@ -272,7 +272,7 @@ export function BrandSimulatorClient() {
         ourEndMarker.slice(-12)
       );
       setPhase("chat");
-      setLoadingHint("ChatGPT analyse le profil…");
+      setLoadingHint("Analyse du profil…");
 
       let idleDeadline = Date.now() + 30 * 60_000;
       let sawRunning = false;
@@ -323,8 +323,8 @@ export function BrandSimulatorClient() {
           setPhase("chat");
           setLoadingHint(
             chars > 0
-              ? `Chat en cours · ${chars.toLocaleString("fr-FR")} car.`
-              : "ChatGPT tape…"
+              ? `Analyse en cours · ${chars.toLocaleString("fr-FR")} car.`
+              : "Rédaction en cours…"
           );
           if (chars !== lastChars && chars > 0) {
             lastChars = chars;
@@ -555,8 +555,8 @@ export function BrandSimulatorClient() {
           Simulateur marque
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-stone-500">
-          ChatGPT (VPS carto) analyse le profil, propose des marques à viser en
-          prose, puis on classe en cartes pour la prospection indiv.
+          Analyse du profil, propositions de marques à viser, puis classement
+          en cartes pour la prospection indiv.
         </p>
       </div>
 
