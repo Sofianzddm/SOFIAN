@@ -197,7 +197,7 @@ export function BrandSimulatorClient() {
         mode: "read_screen",
         talentId,
         endMarker,
-        limit: 50,
+        limit: 60,
         momentContext: momentContext.trim() || undefined,
       }),
     });
@@ -555,8 +555,8 @@ export function BrandSimulatorClient() {
           Simulateur marque
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-stone-500">
-          Analyse du profil, jusqu’à 50 marques ultra pertinentes à viser,
-          puis classement en cartes pour la prospection indiv.
+          Veille collabs influence FR (3 mois) + profil → minimum 50 marques
+          ultra pertinentes, classées pour la prospection indiv.
         </p>
       </div>
 

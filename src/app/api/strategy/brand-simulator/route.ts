@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     const momentContext = normalizeMomentContext(body.momentContext) || null;
     const limit =
       typeof body.limit === "number" && body.limit > 0
-        ? Math.min(50, Math.floor(body.limit))
+        ? Math.min(60, Math.max(50, Math.floor(body.limit)))
         : 50;
 
     if (mode === "vps_start") {

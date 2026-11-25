@@ -55,8 +55,9 @@ Ne invente PAS de moments absents des sources.
 
   const body = `${BRAND_SIM_PROMPT_TAG} | Quelles marques viser pour ${name} ?
 
-Tu es un **Head of Brand Strategy Influence** senior chez Glow Up Agency (talent management FR / EU).
-Ta valeur = **veille marché en temps réel**, pas une liste générique de marques « qui collent au vibe ».
+Tu es un **Head of Brand Strategy + Veille Influence France** chez Glow Up Agency.
+**80% de ton job = cartographier qui collabore EN CE MOMENT en influence FR** sur le segment du talent.
+**20% = fit profil.** Une liste « marques qui matchent le vibe » sans preuves collabs récentes = ÉCHEC.
 
 **TALENT À ANALYSER : ${name}**
 
@@ -68,41 +69,72 @@ ${fiche}
 ### COLLABS / CLIENTS DÉJÀ CONNUS EN CRM (ne pas re-proposer en priorité)
 ${past}
 
-### MÉTHODE OBLIGATOIRE — VEILLE COLLABS (3 DERNIERS MOIS)
-Avant de lister les 50 marques, **recherche web en profondeur** (Instagram / TikTok / YouTube / articles / communiqués / sites agences) :
+### RÈGLE ABSOLUE — VEILLE INFLUENCE FRANCE D’ABORD
+Tu n’as **PAS le droit** de commencer la liste des marques tant que tu n’as pas fait une **veille collabs FR poussée** (focus **3 derniers mois**, élargi à 6 mois si peu de preuves).
 
-1) **Collabs récentes DU talent** — posts / stories / partenariats / #ad / #partenariat des ~90 derniers jours. Note les marques déjà en cours.
-2) **Créateurs comparables** — 5 à 10 profils FR/EU du **même segment** (taille, ton, niches proches). Pour chacun, liste les marques avec qui ils ont collab’ **ces 3 derniers mois** (ou récemment si peu de preuves).
-3) **Marques actives maintenant** — qui caste / active de l’influence **en ce moment** dans cet univers (campagnes en cours, callouts casting, bilans « collab influenceurs », agences influence qui postent des cases).
-4) **Institutions / causes / éco-organismes / retail / médias** qui activent des créateurs du même ADN (ex. Citeo, ADEME, enseignes, apps, services publics… si le profil matche) — **ne les ignore pas** sous prétexte que ce n’est « pas une marque lifestyle classique ».
-5) Croise : marques vues chez les peers + marques actives + fit profil talent → priorise celles où le pitch est **crédible aujourd’hui**.
+**Sources à fouiller (plusieurs recherches, pas une seule) :**
+- Instagram / TikTok / YouTube / Shorts du talent + des peers (posts #ad #partenariat #sponsored #collab, stories highlight marques)
+- Google / actualités : « collaboration influenceur », « campagne influence », « casting créateurs », case studies agences
+- Sites / LinkedIn d’agences influence FR (WOO, Reech, Ambission, Kolsquare cases, Hivency, Influence4You, Traackr FR, etc.) + blogs marques
+- Communiqués, bilans campagnes, « X créateurs activés », « défi », « ambassadeur »
+- Institutions / causes actives en influence FR (Citeo, ADEME, enseignes, apps, médias, sport…)
 
-Si une marque collab’ déjà des créateurs très proches de ${name} en ce moment → elle doit être **haut dans la liste** avec la preuve (ex. « collab X avec [créateur comparable] en [mois] »).
+**Requêtes types à lancer (adapte au segment du talent) :**
+- "${name}" collaboration OR partenariat OR campagne OR #ad
+- "[peer comparable]" collaboration marque OR partenariat influence 2025 OR 2026
+- "[niche du talent]" "campagne influence" OR "créateurs" OR casting France
+- "[secteur]" influenceurs France collab OR activation OR ambassadeur
+- marque + "influence" + mois récents / "2025" / "2026"
 
-### OBJECTIF
-Réponds en **français**, en prose claire et actionnable :
-1) **Analyse profil** — qui c’est, univers, audience, preuves, moments détectés.
-2) **Veille 3 mois** — résumé court : marques vues chez le talent + chez les peers + marques actives maintenant (avec 1 preuve concrète chacune quand possible).
-3) **Univers marques** — sous-univers **ultra adjacents** (pas de listes génériques).
-4) **Marques à viser** — liste de **exactement 50 marques** concrètes (FR / EU de préférence), classées du **meilleur fit / timing au plus faible**.
+### ÉTAPES OBLIGATOIRES (dans cet ordre)
 
-Pour **chaque marque** (1 → 50), indique sur une ligne claire :
-- Nom exact de la marque
+**A — Collabs récentes DU talent (~90j)**  
+Liste concrète des marques vues sur ses contenus / presse. Si rien de récent : dis-le clairement.
+
+**B — Peers FR du même segment (minimum 8 créateurs)**  
+Pour chaque peer : nom + 2–5 marques collab’ **récentes** (idéalement datées : mois / campagne).  
+Choisis des profils **vraiment comparables** (audience, ton, niches, formats) — pas des mega stars hors segment.
+
+**C — Marques / institutions ACTIVES maintenant en influence FR**  
+Qui caste / active **en ce moment** dans cet univers (campagnes en cours, castings ouverts, bilans « collab influenceurs », séries de posts créateurs). Inclus institutions/causes/retail/apps si le profil matche (ex. Citeo pour un profil lifestyle/pédagogue/éco).
+
+**D — Synthèse timing**  
+Quelles marques reviennent le plus chez les peers + sont actives maintenant → **priorité #1** pour ${name}.
+
+**Interdit :**
+- Inventer des collabs / dates
+- Remplir avec Nike / Sephora / Amazon « parce que tout le monde » sans preuve d’activité récente sur CE segment
+- Sauter l’étape peers parce que « trop long »
+- Ignorer les marques institutionnelles / cause / retail qui activent massivement des créateurs FR
+
+### OBJECTIF DE RÉPONSE
+Réponds en **français** :
+
+1) **Analyse profil** (court) — univers, audience, ADN, moments.
+2) **VEILLE INFLUENCE FR — 3 mois** (**section longue et détaillée**, c’est le cœur) :
+   - Collabs récentes du talent
+   - Tableau / liste peers → marques récentes (preuves)
+   - Marques / castings actifs maintenant
+   - Insights : « qui achète de l’influence sur ce segment en ce moment »
+3) **Univers marques** — sous-univers adjacents dérivés de la veille (pas génériques).
+4) **Marques à viser — MINIMUM 50** (idéal 50–60, **jamais moins de 50**) — classées du **meilleur fit + timing marché** au plus faible.
+   Si tu n’as pas 50 noms crédibles : creuse encore peers / castings / institutions FR jusqu’à atteindre 50. Ne coupe pas à 20–30.
+
+Pour **chaque marque** (1 → N, N ≥ 50) :
+- Nom exact
 - Secteur (Mode, Beauté, Sport, Food, Tech, Luxe, Retail, Maison, Voyage, Institution/Cause, Autre…)
-- Fit /10 (sois strict : 9–10 = match + timing évident, 7–8 = très bon, 5–6 = opportuniste crédible)
-- Pourquoi ça matche (1–2 phrases **spécifiques à CE talent**, idéalement avec preuve collab récente / peer)
-- Angle / pitch suggéré (1 phrase actionnable)
+- Fit /10 (9–10 = match + preuve collab récente peers/marché ; 7–8 = très bon ; 5–6 = opportuniste crédible)
+- Pourquoi (1–2 phrases) — **cite la preuve** quand possible (« collab [peer] [mois] », « campagne FR en cours »)
+- Angle / pitch (1 phrase)
 
-### PERTINENCE (NON NÉGOCIABLE)
-- Chaque marque doit être **justifiable** par le profil **ET** idéalement par une activité influence récente (talent, peer, ou casting en cours).
-- **Zéro filler** : interdiction de bourrer avec des mastodontes hors-sujet.
-- Au moins **~15 marques** doivent venir clairement de la **veille 3 mois** (peers / campagnes actives), pas seulement du « fit théorique ».
-- Varie les **paliers** : ~15 must-have (fit ≥8), ~20 strong (fit 6–8), ~15 opportunistes crédibles (fit 5–6).
-- Couvre plusieurs **sous-univers** adjacents sans sortir de l’ADN du talent.
-- PRIVILÉGIE marques **actives en influence** FR-EU sur le segment du talent.
-- Si le talent est **fondateur** d’une catégorie → propose des **adjacents / partenaires**, pas des concurrents directs.
-- Évite de re-pitcher les collabs CRM déjà listées sauf angle vraiment nouveau.
-- Pas de JSON. Liste numérotée 1–50 claire.
+### QUOTA PERTINENCE
+- **MINIMUM 50 marques** dans la liste numérotée — obligation dure.
+- **≥ 30** doivent venir de la **veille collabs FR récente** (peers / campagnes actives / castings), pas du seul fit théorique.
+- Top 15 = presque uniquement des marques **prouvées actives** sur le segment.
+- Zéro filler hors-ADN (mais 50 lignes quand même — élargis les sous-univers adjacents crédibles).
+- Si fondateur d’une catégorie → adjacents / partenaires, pas concurrents directs.
+- Ne re-pitch pas les collabs CRM sauf angle vraiment nouveau.
+- Pas de JSON. Liste numérotée claire (1…≥50).
 - Termine par le CODE DE FIN exact (ligne seule).
 `;
 

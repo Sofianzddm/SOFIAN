@@ -182,7 +182,7 @@ export async function structureBrandSimAnswer(opts: {
   const apiKey = process.env.OPENAI_API_KEY?.trim()?.replace(/^["']|["']$/g, "");
   if (!apiKey) throw new Error("OPENAI_API_KEY manquante");
 
-  const limit = Math.min(Math.max(opts.limit ?? 50, 8), 50);
+  const limit = Math.min(Math.max(opts.limit ?? 50, 50), 60);
   const answerForModel = clipAnswer(opts.chatAnswer);
   const pastKeys = new Set(
     opts.pastBrands.map((n) => n.trim().toLowerCase()).filter(Boolean)
@@ -210,7 +210,7 @@ export async function structureBrandSimAnswer(opts: {
   );
 
   const system = sanitizeOpenAiText(
-    "Tu structures une analyse strategy influence en JSON strict. Extraction EXHAUSTIVE des marques citées. Conserve l’ordre de pertinence."
+    "Tu structures une analyse strategy influence FR en JSON strict. Extraction EXHAUSTIVE des marques. Conserve l’ordre. Priorise les preuves collabs récentes dans whyFit."
   );
   const user = sanitizeOpenAiText(`Tu structures la réponse d'analyse suivante pour Glow-up (simulateur marque).
 
@@ -229,23 +229,23 @@ Extrais UNIQUEMENT un JSON:
   "contentThemes": "…",
   "brandUniverseHints": "…",
   "detectedMoments": "…",
-  "profileSummary": "résumé 2–4 phrases (inclure la veille collabs 3 mois si présente)",
+  "profileSummary": "résumé 3–6 phrases : profil + qui achète de l’influence FR sur ce segment en ce moment",
   "brands": [{
     "nom": "Nom marque exact",
     "secteur": "Mode|Beauté|Sport|Food|Tech|Luxe|Retail|Maison|Voyage|Institution/Cause|Autre|null",
     "fitScore": 0-100,
-    "whyFit": "pourquoi ça match CE talent + preuve collab récente/peer si citée",
+    "whyFit": "fit talent + preuve collab récente FR (peer / campagne / casting) si citée",
     "suggestedAngle": "angle / pitch"
   }]
 }
 
 Règles:
-- Extrais TOUTES les marques nommées (objectif ${limit}, max ${limit}).
-- Conserve l’ordre du texte (meilleur fit d’abord) ; fitScore: si /10 → ×10 ; sinon estime 50–95 sans aplatir tout le monde à 70.
+- Extrais TOUTES les marques de la liste (MINIMUM 50, objectif ${limit}, max ${limit}) — y compris celles citées dans la veille peers. Ne t’arrête pas avant 50 si le texte en a assez.
+- Conserve l’ordre du texte ; fitScore: si /10 → ×10 ; sinon estime 50–95 sans aplatir.
 - Ne invente PAS de marques absentes du texte.
-- whyFit / suggestedAngle : garde le détail spécifique du texte (preuves peers / campagnes 3 mois), pas de phrases génériques.
+- whyFit : garde les preuves (noms de peers, mois, campagnes) — JAMAIS de phrase générique type « bon fit lifestyle ».
 - detectedMoments: moments de vie / projets cités (sinon "").
-- brandUniverseHints: peut résumer la veille 3 mois (marques actives / peers).
+- brandUniverseHints: synthétise la veille FR 3 mois (peers → marques, castings actifs).
 - Réponds JSON pur.`);
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
