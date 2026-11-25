@@ -57,6 +57,8 @@ export async function GET(request: NextRequest) {
   // à chaque passage du cron (toutes les 5 min), y compris le week-end si
   // l'utilisateur a choisi une échéance qui y tombe — avant le garde-fou
   // week-end des relances auto.
+  // Anti-double relance = claim atomique dans executeOutreachRelance (pas de
+  // advisory lock session ici : incompatible pool Prisma).
   const scheduled = await processOutreachScheduledSends(now);
 
   if (!isBusinessDay(now)) {

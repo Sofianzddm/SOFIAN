@@ -442,14 +442,18 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // STRATEGY_PLANNER : accès limité à /strategy/* + /cannes-2026* + /talents*
-  // + simulateur cessions + annuaire marques (/marques) + fiche détail en lecture
-  // (/marques/{id}, pas new/duplicates/edit) pour ouvrir les marques liées
-  // depuis les projets.
+  // STRATEGY_PLANNER : accès limité à /strategy/* + /cannes-2026* + /cannes-partenaires*
+  // + /talents* + simulateur cessions + annuaire marques (/marques) + fiche détail
+  // en lecture (/marques/{id}, pas new/duplicates/edit) pour ouvrir les marques
+  // liées depuis les projets.
   // + collaborations talents en lecture seule (liste + fiche, pas new/edit/facturer)
   //   pour Inès (allowlist email — voir collab-viewer-access).
   // + espace RH salarié (/rh, /api/rh).
   const isCannes2026Path = pathname === "/cannes-2026" || pathname.startsWith("/cannes-2026/");
+  const isCannesPartenairesPath =
+    pathname === "/cannes-partenaires" ||
+    pathname.startsWith("/cannes-partenaires/") ||
+    pathname.startsWith("/api/cannes-partenaires");
   const isTalentsPath = pathname === "/talents" || pathname.startsWith("/talents/");
   const isSimulateurCessionsPath =
     pathname === "/simulateur-cessions" || pathname.startsWith("/simulateur-cessions/");
@@ -483,6 +487,7 @@ export async function proxy(request: NextRequest) {
     effectiveRole === "STRATEGY_PLANNER" &&
     !pathname.startsWith("/strategy") &&
     !isCannes2026Path &&
+    !isCannesPartenairesPath &&
     !isTalentsPath &&
     !isSimulateurCessionsPath &&
     !isRhPath &&
@@ -651,6 +656,9 @@ export const config = {
     "/demandes-entrantes/:path*",
     "/cannes-2026",
     "/cannes-2026/:path*",
+    "/cannes-partenaires",
+    "/cannes-partenaires/:path*",
+    "/api/cannes-partenaires/:path*",
     // Prospection (fichiers leads) — même session que le reste du dashboard
     "/prospection",
     "/prospection/:path*",

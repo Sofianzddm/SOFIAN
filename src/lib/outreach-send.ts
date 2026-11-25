@@ -769,8 +769,109 @@ export type OutreachRelanceResult =
  * Relance dans le thread Gmail du touch.
  * - round 1 : J+3 ouvrés après le mail initial
  * - round 2 : J+10 ouvrés après la relance 1 (comme casting / projets)
- * Corps = IA (même genre que projets-outreach) avec fallback template.
+ * Corps = IA style casting/indiv (lettre + chiffres CRM + IG) avec fallback template.
  */
+/** Préfixe stocké dans relance(2)Error pendant l’envoi — anti double-cron. */
+const RELANCE_CLAIM_R1 = "__sending_r1__:";
+const RELANCE_CLAIM_R2 = "__sending_r2__:";
+const RELANCE_CLAIM_TTL_MS = 15 * 60 * 1000;
+
+function parseRelanceClaimTs(error: string | null | undefined, prefix: string): number | null {
+  if (!error?.startsWith(prefix)) return null;
+  const ts = Number(error.slice(prefix.length));
+  return Number.isFinite(ts) ? ts : null;
+}
+
+/**
+ * Verrou atomique anti course (cron ×2 / cron + manuel).
+ * Pose un claim sur relanceError AVANT l’IA + Gmail ; le 2ᵉ worker voit count=0.
+ */
+async function claimOutreachRelanceSlot(
+  touchId: string,
+  round: 1 | 2
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const prefix = round === 1 ? RELANCE_CLAIM_R1 : RELANCE_CLAIM_R2;
+  const touch = await prisma.outreachTouch.findUnique({
+    where: { id: touchId },
+    select: {
+      relanceSentAt: true,
+      relance2SentAt: true,
+      relanceCancelledAt: true,
+      relanceError: true,
+      relance2Error: true,
+    },
+  });
+  if (!touch) return { ok: false, error: "Touch introuvable." };
+  if (touch.relanceCancelledAt) {
+    return { ok: false, error: "Les relances sont en pause sur ce mail." };
+  }
+  if (round === 1 && touch.relanceSentAt) {
+    return { ok: false, error: "La relance 1 a déjà été envoyée pour ce mail." };
+  }
+  if (round === 2) {
+    if (!touch.relanceSentAt) {
+      return { ok: false, error: "La relance 1 doit partir avant la relance 2." };
+    }
+    if (touch.relance2SentAt) {
+      return { ok: false, error: "La relance 2 a déjà été envoyée pour ce mail." };
+    }
+  }
+
+  const currentError = round === 1 ? touch.relanceError : touch.relance2Error;
+  const claimTs = parseRelanceClaimTs(currentError, prefix);
+  if (claimTs != null && Date.now() - claimTs < RELANCE_CLAIM_TTL_MS) {
+    return { ok: false, error: "Relance déjà en cours d’envoi." };
+  }
+
+  // Claim expiré (crash) → on libère pour retenter.
+  if (claimTs != null && Date.now() - claimTs >= RELANCE_CLAIM_TTL_MS) {
+    await prisma.outreachTouch.update({
+      where: { id: touchId },
+      data: round === 1 ? { relanceError: null } : { relance2Error: null },
+    });
+  }
+
+  const claimToken = `${prefix}${Date.now()}`;
+  const claimed = await prisma.outreachTouch.updateMany({
+    where:
+      round === 1
+        ? {
+            id: touchId,
+            relanceSentAt: null,
+            relanceCancelledAt: null,
+            OR: [
+              { relanceError: null },
+              { NOT: { relanceError: { startsWith: RELANCE_CLAIM_R1 } } },
+            ],
+          }
+        : {
+            id: touchId,
+            relanceSentAt: { not: null },
+            relance2SentAt: null,
+            relanceCancelledAt: null,
+            OR: [
+              { relance2Error: null },
+              { NOT: { relance2Error: { startsWith: RELANCE_CLAIM_R2 } } },
+            ],
+          },
+    data:
+      round === 1
+        ? { relanceError: claimToken }
+        : { relance2Error: claimToken },
+  });
+
+  if (claimed.count === 0) {
+    return {
+      ok: false,
+      error:
+        round === 1
+          ? "La relance 1 a déjà été envoyée ou est en cours."
+          : "La relance 2 a déjà été envoyée ou est en cours.",
+    };
+  }
+  return { ok: true };
+}
+
 export async function executeOutreachRelance(
   touchId: string,
   options: {
@@ -812,102 +913,128 @@ export async function executeOutreachRelance(
     }
   }
 
-  const target = touch.target;
-  const subjectSrc = touch.subject.trim();
-  const relanceSubject =
-    options.subjectOverride?.trim() ||
-    (subjectSrc.toLowerCase().startsWith("re:") ? subjectSrc : `Re: ${subjectSrc}`);
+  // Claim AVANT l’IA (5–15 s) : sinon 2 crons chevauchés envoient tous les deux (Dior, Embryolisse).
+  const claim = await claimOutreachRelanceSlot(touchId, round);
+  if (!claim.ok) return claim;
 
-  const lang: "fr" | "en" = target.language === "en" ? "en" : "fr";
-  let bodyTemplate = options.bodyOverride?.trim() || "";
-  if (!bodyTemplate) {
-    try {
-      const { generateOutreachRelanceBody } = await import(
-        "@/lib/outreach-relance-ai"
+  const releaseClaim = async (errorMsg: string) => {
+    await prisma.outreachTouch
+      .update({
+        where: { id: touch.id },
+        data:
+          round === 1
+            ? { relanceError: errorMsg }
+            : { relance2Error: errorMsg },
+      })
+      .catch((e) =>
+        console.warn(`[outreach] release claim R${round} KO:`, e)
       );
-      const ai = await generateOutreachRelanceBody({
-        touchId: touch.id,
-        round,
-        language: lang,
-        company: target.company,
-        previousSubject: touch.subject,
-        previousBodyHtml: touch.bodyHtml || "",
-        firstSentAt: touch.sentAt,
-      });
-      if (ai?.bodyHtml?.trim()) bodyTemplate = ai.bodyHtml.trim();
-    } catch (e) {
-      console.warn(
-        `[outreach] relance R${round} IA soft-fail:`,
-        e instanceof Error ? e.message : e
-      );
-    }
-  }
-  if (!bodyTemplate) {
-    bodyTemplate = buildOutreachRelanceTemplate(
-      target.company,
-      lang,
-      touch.sentAt
-    );
-  }
-
-  const { ensureTalentExtralinksInHtml } = await import(
-    "@/lib/talent-email-links"
-  );
-  bodyTemplate = ensureTalentExtralinksInHtml(
-    bodyTemplate,
-    null,
-    touch.bodyHtml || ""
-  );
-
-  // Portefeuille marque > fromEmail figé du touch (bug Pampers/Ikea : Joey assigné,
-  // relance repartait en Leyna parce que touch.fromEmail était l’ancien envoi).
-  const fromEmail = await resolveOutreachFromEmail(target);
-  const touchFrom = (touch.fromEmail || "").trim().toLowerCase();
-  const sameMailbox = Boolean(touchFrom && touchFrom === fromEmail);
-
-  const vars = {
-    firstname: target.firstname || "",
-    lastname: target.lastname || "",
-    company: target.company || "",
-    marques: await coveredBrandsLabel(target.marqueContactId, target.company || ""),
-    ownerFirstname: ownerFirstnameFromEmail(fromEmail),
   };
-  const bodyWithVars = applyCastingTemplateVars(bodyTemplate, vars);
-  const body = normalizeEditorHtmlForEmail(bodyWithVars);
-  const trackedBody = injectOutreachTracking(body, touch.id);
-
-  const fromName = await getGmailFromName(fromEmail);
-  // Citation : afficher l’expéditeur RÉEL du mail initial (pas la boîte actuelle).
-  const originalSenderLabel = sameMailbox
-    ? `${fromName} <${fromEmail}>`
-    : `${await getGmailFromName(touchFrom || fromEmail)} <${touchFrom || fromEmail}>`;
-  const originalPersonalized = applyCastingTemplateVars(touch.bodyHtml || "", vars);
-  const quotedOriginal = buildQuotedOriginal(originalPersonalized, {
-    dateLabel: touch.sentAt ? formatFrDateTime(touch.sentAt) : "",
-    senderLabel: originalSenderLabel,
-  });
-  const finalHtml = `${trackedBody}${quotedOriginal}`;
-
-  // In-Reply-To : message le plus récent du thread. Le RFC Message-ID se lit
-  // depuis la boîte qui possède le mail (touch.fromEmail), même si on envoie
-  // depuis le portefeuille (destinataire thread toujours via In-Reply-To).
-  const replyToGmailId =
-    round === 2 && touch.relanceMessageId
-      ? touch.relanceMessageId
-      : touch.messageId;
-  const rfcLookupBox = touchFrom || fromEmail;
-  let inReplyTo: string | undefined;
-  if (replyToGmailId) {
-    inReplyTo =
-      (await getMessageRfcId(rfcLookupBox, replyToGmailId)) || undefined;
-  }
-  if (!sameMailbox) {
-    console.warn(
-      `[outreach] relance portefeuille ${fromEmail} ≠ touch ${touchFrom || "∅"} — envoi sans threadId Gmail (In-Reply-To conservé)`
-    );
-  }
 
   try {
+    const target = touch.target;
+    const subjectSrc = touch.subject.trim();
+    const relanceSubject =
+      options.subjectOverride?.trim() ||
+      (subjectSrc.toLowerCase().startsWith("re:")
+        ? subjectSrc
+        : `Re: ${subjectSrc}`);
+
+    const lang: "fr" | "en" = target.language === "en" ? "en" : "fr";
+    let bodyTemplate = options.bodyOverride?.trim() || "";
+    if (!bodyTemplate) {
+      try {
+        const { generateOutreachRelanceBody } = await import(
+          "@/lib/outreach-relance-ai"
+        );
+        const ai = await generateOutreachRelanceBody({
+          touchId: touch.id,
+          round,
+          language: lang,
+          company: target.company,
+          previousSubject: touch.subject,
+          previousBodyHtml: touch.bodyHtml || "",
+          firstSentAt: touch.sentAt,
+        });
+        if (ai?.bodyHtml?.trim()) bodyTemplate = ai.bodyHtml.trim();
+      } catch (e) {
+        console.warn(
+          `[outreach] relance R${round} IA soft-fail:`,
+          e instanceof Error ? e.message : e
+        );
+      }
+    }
+    if (!bodyTemplate) {
+      bodyTemplate = buildOutreachRelanceTemplate(
+        target.company,
+        lang,
+        touch.sentAt
+      );
+    }
+
+    const { ensureTalentExtralinksInHtml } = await import(
+      "@/lib/talent-email-links"
+    );
+    bodyTemplate = ensureTalentExtralinksInHtml(
+      bodyTemplate,
+      null,
+      touch.bodyHtml || ""
+    );
+
+    // Portefeuille marque > fromEmail figé du touch (bug Pampers/Ikea : Joey assigné,
+    // relance repartait en Leyna parce que touch.fromEmail était l’ancien envoi).
+    const fromEmail = await resolveOutreachFromEmail(target);
+    const touchFrom = (touch.fromEmail || "").trim().toLowerCase();
+    const sameMailbox = Boolean(touchFrom && touchFrom === fromEmail);
+
+    const vars = {
+      firstname: target.firstname || "",
+      lastname: target.lastname || "",
+      company: target.company || "",
+      marques: await coveredBrandsLabel(
+        target.marqueContactId,
+        target.company || ""
+      ),
+      ownerFirstname: ownerFirstnameFromEmail(fromEmail),
+    };
+    const bodyWithVars = applyCastingTemplateVars(bodyTemplate, vars);
+    const body = normalizeEditorHtmlForEmail(bodyWithVars);
+    const trackedBody = injectOutreachTracking(body, touch.id);
+
+    const fromName = await getGmailFromName(fromEmail);
+    // Citation : afficher l’expéditeur RÉEL du mail initial (pas la boîte actuelle).
+    const originalSenderLabel = sameMailbox
+      ? `${fromName} <${fromEmail}>`
+      : `${await getGmailFromName(touchFrom || fromEmail)} <${touchFrom || fromEmail}>`;
+    const originalPersonalized = applyCastingTemplateVars(
+      touch.bodyHtml || "",
+      vars
+    );
+    const quotedOriginal = buildQuotedOriginal(originalPersonalized, {
+      dateLabel: touch.sentAt ? formatFrDateTime(touch.sentAt) : "",
+      senderLabel: originalSenderLabel,
+    });
+    const finalHtml = `${trackedBody}${quotedOriginal}`;
+
+    // In-Reply-To : message le plus récent du thread. Le RFC Message-ID se lit
+    // depuis la boîte qui possède le mail (touch.fromEmail), même si on envoie
+    // depuis le portefeuille (destinataire thread toujours via In-Reply-To).
+    const replyToGmailId =
+      round === 2 && touch.relanceMessageId
+        ? touch.relanceMessageId
+        : touch.messageId;
+    const rfcLookupBox = touchFrom || fromEmail;
+    let inReplyTo: string | undefined;
+    if (replyToGmailId) {
+      inReplyTo =
+        (await getMessageRfcId(rfcLookupBox, replyToGmailId)) || undefined;
+    }
+    if (!sameMailbox) {
+      console.warn(
+        `[outreach] relance portefeuille ${fromEmail} ≠ touch ${touchFrom || "∅"} — envoi sans threadId Gmail (In-Reply-To conservé)`
+      );
+    }
+
     const messageId = await sendGmail({
       fromEmail,
       to: target.email.toLowerCase(),
@@ -927,7 +1054,9 @@ export async function executeOutreachRelance(
           relanceError: null,
         },
       });
-      console.info(`[outreach] relance R1 J+3 → ${target.email} (touch=${touch.id})`);
+      console.info(
+        `[outreach] relance R1 J+3 → ${target.email} (touch=${touch.id})`
+      );
     } else {
       await prisma.outreachTouch.update({
         where: { id: touch.id },
@@ -937,18 +1066,14 @@ export async function executeOutreachRelance(
           relance2Error: null,
         },
       });
-      console.info(`[outreach] relance R2 J+10 → ${target.email} (touch=${touch.id})`);
+      console.info(
+        `[outreach] relance R2 J+10 → ${target.email} (touch=${touch.id})`
+      );
     }
     return { ok: true, messageId };
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Erreur Gmail inconnue";
-    await prisma.outreachTouch.update({
-      where: { id: touch.id },
-      data:
-        round === 1
-          ? { relanceError: msg }
-          : { relance2Error: msg },
-    });
+    await releaseClaim(msg);
     return { ok: false, error: `Échec Gmail : ${msg}` };
   }
 }

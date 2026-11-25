@@ -115,6 +115,12 @@ const menuItems = [
     icon: Briefcase,
     roles: ["ADMIN", "STRATEGY_PLANNER", "HEAD_OF_INFLUENCE", "HEAD_OF_SALES", "COIFFEUR"],
   },
+  {
+    label: "Cannes Partenaires",
+    href: "/cannes-partenaires",
+    icon: Target,
+    roles: ["ADMIN", "STRATEGY_PLANNER"],
+  },
   // Deux produits distincts — ne pas mélanger :
   // 1) Pipeline Casting = kanban missions / cartes prospection (existant)
   // 2) Projets outreach talent = brief projet → marques → rédaction → Leyna (nouveau)
@@ -840,6 +846,12 @@ export function Sidebar({
             label: "Cannes 2026",
             href: "/cannes-2026",
             icon: Briefcase,
+            roles: ["STRATEGY_PLANNER", "ADMIN"],
+          } as (typeof menuItems)[number],
+          {
+            label: "Cannes Partenaires",
+            href: "/cannes-partenaires",
+            icon: Target,
             roles: ["STRATEGY_PLANNER", "ADMIN"],
           } as (typeof menuItems)[number],
           {
