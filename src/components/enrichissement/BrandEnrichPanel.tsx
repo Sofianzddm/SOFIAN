@@ -261,6 +261,12 @@ export type BrandEnrichPanelProps = {
   company: string;
   fichePath?: string;
   onBack?: () => void;
+  /**
+   * outreach (défaut) = file /enrichissement + cycle outreach FR.
+   * cannes = module Cannes Partenaires uniquement (pas d'enrôlement outreach).
+   */
+  destination?: "outreach" | "cannes";
+  onCannesComplete?: () => void;
 };
 
 export function BrandEnrichPanel({
@@ -269,7 +275,10 @@ export function BrandEnrichPanel({
   company,
   fichePath,
   onBack,
+  destination = "outreach",
+  onCannesComplete,
 }: BrandEnrichPanelProps) {
+  const isCannes = destination === "cannes";
   const [contacts, setContacts] = useState<LookupContact[]>([]);
   const [loading, setLoading] = useState(true);
   const [flash, setFlash] = useState<string | null>(null);
@@ -310,24 +319,33 @@ export function BrandEnrichPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/outreach/email-lookup");
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Erreur de chargement");
-      const all = (data.contacts || []) as LookupContact[];
-      setContacts(
-        all.filter(
-          (c) =>
-            c.marqueId === marqueId &&
-            (c.market === "FR" || c.market === "BENELUX")
-        )
-      );
+      if (isCannes) {
+        const res = await fetch(
+          `/api/cannes-partenaires/carto/enrich-contacts?marqueId=${encodeURIComponent(marqueId)}`
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Erreur de chargement");
+        setContacts((data.contacts || []) as LookupContact[]);
+      } else {
+        const res = await fetch("/api/outreach/email-lookup");
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Erreur de chargement");
+        const all = (data.contacts || []) as LookupContact[];
+        setContacts(
+          all.filter(
+            (c) =>
+              c.marqueId === marqueId &&
+              (c.market === "FR" || c.market === "BENELUX")
+          )
+        );
+      }
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Erreur");
       setContacts([]);
     } finally {
       setLoading(false);
     }
-  }, [marqueId]);
+  }, [marqueId, isCannes]);
 
   useEffect(() => {
     void load();
@@ -505,7 +523,11 @@ export function BrandEnrichPanel({
     p: Person,
     companyName: string
   ): Promise<EnrichCompareResponse> => {
-    const res = await fetch("/api/outreach/email-lookup/enrich", {
+    const res = await fetch(
+      isCannes
+        ? "/api/cannes-partenaires/carto/enrich"
+        : "/api/outreach/email-lookup/enrich",
+      {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -664,20 +686,37 @@ export function BrandEnrichPanel({
 
       let totalEnrolled = 0;
       let agencyRouted = 0;
-      for (const g of groups.values()) {
-        const res = await fetch("/api/outreach/email-lookup/ready", {
+
+      if (isCannes) {
+        const allContacts = Array.from(groups.values()).flatMap((g) =>
+          g.contacts.map((c) => c)
+        );
+        const res = await fetch("/api/cannes-partenaires/carto/enrich-ready", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            market: g.market,
-            marqueId: g.marqueId,
-            contacts: g.contacts,
+            marqueId,
+            contacts: allContacts,
           }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Échec de l'enregistrement");
-        totalEnrolled += data.enrolled || 0;
-        agencyRouted += data.routedToAgency || 0;
+      } else {
+        for (const g of groups.values()) {
+          const res = await fetch("/api/outreach/email-lookup/ready", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              market: g.market,
+              marqueId: g.marqueId,
+              contacts: g.contacts,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || "Échec de l'enregistrement");
+          totalEnrolled += data.enrolled || 0;
+          agencyRouted += data.routedToAgency || 0;
+        }
       }
 
       setContacts((prev) =>
@@ -703,7 +742,7 @@ export function BrandEnrichPanel({
         delete next[p.key];
         return next;
       });
-      if (agencyRouted > 0) {
+      if (!isCannes && agencyRouted > 0) {
         fetch("/api/partners/options")
           .then((r) => (r.ok ? r.json() : { partners: [] }))
           .then((d) =>
@@ -713,13 +752,17 @@ export function BrandEnrichPanel({
       }
 
       setFlash(
-        agencyRouted > 0
-          ? `${name} → prospection agence${agencyName ? ` (${agencyName})` : ""}.`
-          : totalEnrolled > 0
-            ? `${name} enregistré — ${totalEnrolled} en outreach.`
-            : isNf
-              ? `${name} marqué sans email.`
-              : `${name} enregistré.`
+        isCannes
+          ? isNf
+            ? `${name} marqué sans email (Cannes).`
+            : `${name} enregistré dans Cannes Partenaires.`
+          : agencyRouted > 0
+            ? `${name} → prospection agence${agencyName ? ` (${agencyName})` : ""}.`
+            : totalEnrolled > 0
+              ? `${name} enregistré — ${totalEnrolled} en outreach.`
+              : isNf
+                ? `${name} marqué sans email.`
+                : `${name} enregistré.`
       );
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Erreur");
@@ -827,7 +870,12 @@ export function BrandEnrichPanel({
       for (const p of ready) {
         await savePerson(p);
       }
-      setFlash("Fiche traitée — contacts enregistrés.");
+      setFlash(
+        isCannes
+          ? "Fiche traitée — contacts dans Cannes Partenaires (hors outreach)."
+          : "Fiche traitée — contacts enregistrés."
+      );
+      if (isCannes) onCannesComplete?.();
     } finally {
       setBusy(false);
     }
@@ -1428,7 +1476,9 @@ export function BrandEnrichPanel({
           ) : (
             <Check className="h-4 w-4" />
           )}
-          Prêt — enregistrer tous ({resolvedCount}/{people.length})
+          {isCannes
+            ? `Prêt — enregistrer dans Cannes (${resolvedCount}/${people.length})`
+            : `Prêt — enregistrer tous (${resolvedCount}/${people.length})`}
         </button>
       ) : null}
 
@@ -1436,9 +1486,18 @@ export function BrandEnrichPanel({
         <Link href={ficheHref} className="underline" style={{ color: INK }}>
           Ouvrir la fiche client
         </Link>
-        <Link href="/enrichissement" className="text-gray-500 underline">
-          File enrichissement globale
-        </Link>
+        {isCannes ? (
+          <Link
+            href="/cannes-partenaires"
+            className="text-amber-800 underline"
+          >
+            Pipeline Cannes Partenaires
+          </Link>
+        ) : (
+          <Link href="/enrichissement" className="text-gray-500 underline">
+            File enrichissement globale
+          </Link>
+        )}
       </div>
     </div>
   );
