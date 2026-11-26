@@ -60,9 +60,9 @@ const CTA_R1_FR = [
   "Je t’envoie les media kits ?",
 ] as const;
 const CTA_R2_FR = [
-  "Tu as pu regarder leur profil ?",
+  "Ces créatrices te parleraient ?",
   "Je t’envoie les media kits ?",
-  "On en discute autour de leurs media kits ?",
+  "On en discute ?",
 ] as const;
 const CTA_R1_EN = [
   "Would these creators be of interest?",
@@ -70,7 +70,7 @@ const CTA_R1_EN = [
   "Could you share what your next campaigns would be?",
 ] as const;
 const CTA_R2_EN = [
-  "Did you get a chance to look at their profiles?",
+  "Would these creators be of interest?",
   "Shall I send over the media kits?",
   "What would your next campaigns be — we could build around that?",
 ] as const;
@@ -527,6 +527,45 @@ function stripAgencySignature(html: string): string {
     .trim();
 }
 
+/** Retire les invites « va voir son profil » (trop IA). */
+function scrubAiProfileInvites(html: string): string {
+  return String(html || "")
+    .replace(
+      /(?:<br\s*\/?>|\s)*[^.?<]*\b(?:rends?-toi|rendez[- ]vous|va|allez|n['’]hésite(?:z)?\s+pas\s+à)\s+(?:sur|voir|checker|consulter|jeter\s+un\s+[œoe]il\s+(?:à|sur))\s+(?:son|leur|ses|vos)?\s*(?:profil|instagram|compte)[^.?<]*[!.?]?(?:\s*<br\s*\/?>)*/gi,
+      " "
+    )
+    .replace(
+      /(?:<br\s*\/?>|\s)*[^.?<]*\b(?:check(?:\s+out)?|have\s+a\s+look\s+at|take\s+a\s+look\s+at|go\s+(?:to|check)|visit)\s+(?:his|her|their|the)\s+(?:profile|instagram|page)[^.?<]*[!.?]?(?:\s*<br\s*\/?>)*/gi,
+      " "
+    )
+    .replace(
+      /\bTu as pu regarder (?:son|leur|leurs) profils?\s*\?/gi,
+      "Ces créatrices te parleraient ?"
+    )
+    .replace(
+      /\bDid you get a chance to look at (?:his|her|their) profiles?\s*\?/gi,
+      "Would these creators be of interest?"
+    )
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+/** Retire labels orientation / identité (filet post-IA). */
+function scrubIdentityLabels(html: string): string {
+  return String(html || "")
+    .replace(/\bcouple\s+lesbien(?:ne)?s?\b/gi, "couple")
+    .replace(/\blesbiennes?\b/gi, "")
+    .replace(/\bgays?\b/gi, "")
+    .replace(/\bLGBTQ\+?\b/gi, "")
+    .replace(/\bqueers?\b/gi, "")
+    .replace(/\borientation\s+sexuelle\b/gi, "")
+    .replace(/\blesbian\s+couples?\b/gi, "couple")
+    .replace(/\blesbians?\b/gi, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([,.;])/g, "$1")
+    .trim();
+}
+
 function ensureGreeting(html: string): string {
   if (/\{\{\s*contact\.firstname\s*\}\}/i.test(html)) {
     return html.replace(
@@ -599,10 +638,10 @@ function forceLetterHtmlStructure(raw: string, language: "fr" | "en"): string {
   } else {
     s = s.replace(/(Hope you(?:'re| are) well\s*\?)\s*/gi, "$1\n\n");
   }
-  s = s.replace(
-    /\s*((?:Ces créatrices|Ces créateurs|On en discute|Je t['’]envoie|Tu as pu|Would these|Shall I|Did you get|Could you share)[^?\n]{0,80}\?)\s*/gi,
-    "\n\n$1\n\n"
-  );
+  s = s    .replace(
+      /\s*((?:Ces créatrices|Ces créateurs|On en discute|Je t['’]envoie|Would these|Shall I|Could you share)[^?\n]{0,80}\?)\s*/gi,
+      "\n\n$1\n\n"
+    );
   s = s.replace(
     /\s*((?:Belle journ[eé]e|Have a great day)\s*,?)\s*$/i,
     "\n\n$1"
@@ -673,6 +712,8 @@ function postProcess(
     out = plainTextToEmailHtml(out);
   }
   out = stripAgencySignature(out);
+  out = scrubAiProfileInvites(out);
+  out = scrubIdentityLabels(out);
   out = ensureGreeting(out);
   out = ensureHope(out, language);
   out = ensureCta(out, cta);
@@ -743,10 +784,11 @@ STRUCTURE:
 RULES:
 - Keep the SAME creators as in the original / TALENT PROFILES — do not invent new ones or other brands.
 - Every performance claim = a number from TALENT PROFILES (otherwise skip).
-- For each creator with Instagram: mandatory pink bold underlined HTML link.
+- For each creator with Instagram: mandatory pink bold underlined HTML link (name/handle only — NEVER "check out their profile" / "go to their profile" / "have a look at their Instagram").
 - Keep {{contact.firstname}} literal. Write brand name plainly (« ${brand} »).
 - Letter paragraphs with <br /><br /> — never one pasted block.
 - Forbidden: competitor brands, telegraphic dash-stats, "still interested", ranking creators.
+- ABSOLUTE BAN — privacy / identity labels: NEVER write "lesbian couple", "lesbian", "gay", "LGBTQ", "queer", or any sexual-orientation / gender-identity label. Neutral couple/family wording only ("with her wife/partner", "couple humour") WITHOUT labeling.
 
 PREVIOUS SUBJECT: ${args.previousSubject || "—"}
 PREVIOUS EMAIL (truncated):
@@ -783,7 +825,10 @@ STRUCTURE :
 RÈGLES :
 - Garder les MÊMES créateurs que le mail initial / TALENT PROFILES — n’en invente pas, ni d’autres marques.
 - Chaque affirmation de perf = un chiffre issu de TALENT PROFILES (sinon ne pas inventer).
-- Pour CHAQUE créateur avec Instagram : lien HTML rose souligné gras obligatoire.
+- Pour CHAQUE créateur avec Instagram : lien HTML rose souligné gras obligatoire (nom / @handle seulement).
+- INTERDIT ABSOLU — trop IA : jamais « rends-toi sur son profil », « rendez-vous sur son profil »,
+  « va sur son Instagram », « jette un œil à son profil », « n’hésite pas à checker son profil »,
+  ni aucune invite à « aller voir le profil ». Le lien IG suffit, sans consigne méta.
 - Conserve {{contact.firstname}}. Écrire la marque en clair (« ${brand} »).
 - Vrais paragraphes séparés (<br /><br />). INTERDIT un pavé collé.
 - Ouverture type : « Suite à mon mail sur … » — pas « Je reviens vers toi ».
@@ -791,6 +836,10 @@ RÈGLES :
 - INTERDIT ABSOLU de classer / enchaîner les talents : jamais « Ensuite », « Enfin »,
   « se distingue », « de son côté », « quant à elle », « à ses côtés », « complète ce trio »,
   « talent principal », « HERO ». Chaque personne = paragraphe indépendant.
+- INTERDIT ABSOLU — étiquettes vie privée / identité : jamais « couple lesbien », « lesbienne »,
+  « gay », « LGBTQ », « queer », ni aucun label d’orientation sexuelle / identité de genre.
+  Couple / famille / parentalité OK en neutre (« avec sa femme / son compagnon », « humour de couple »)
+  SANS labelliser.
 
 OBJET INITIAL : ${args.previousSubject || "—"}
 MAIL INITIAL (extrait) :
@@ -857,8 +906,8 @@ export async function generateOutreachRelanceBody(
           role: "system",
           content:
             input.language === "en"
-              ? `You write COMPLETE BD follow-ups in ENGLISH ONLY for a talent agency client cycle (round ${round}). Full letter: Hello + hope you're well + one developed paragraph per creator with CRM numbers + pink IG link + media kits + CTA. Never French. Never telegraphic. Never sign Leyna. JSON {"body":"..."}.`
-              : `Tu rédiges des relances BD COMPLÈTES en FRANÇAIS (tutoiement) pour le cycle Outreach Clients (round ${round}). Lettre complète style casting indiv : Hello + J'espère que tu vas bien ? + un paragraphe développé PAR créateur (chiffres CRM + lien IG rose) + media kits + CTA. Jamais télégraphique. Jamais signer Leyna. JSON {"body":"..."}.`,
+              ? `You write COMPLETE BD follow-ups in ENGLISH ONLY for a talent agency client cycle (round ${round}). Full letter: Hello + hope you're well + one developed paragraph per creator with CRM numbers + pink IG link + media kits + CTA. Never French. Never telegraphic. Never "check out their profile". Never orientation/identity labels (lesbian/gay/LGBTQ). Never sign Leyna. JSON {"body":"..."}.`
+              : `Tu rédiges des relances BD COMPLÈTES en FRANÇAIS (tutoiement) pour le cycle Outreach Clients (round ${round}). Lettre complète : Hello + J'espère que tu vas bien ? + un paragraphe développé PAR créateur (chiffres CRM + lien IG rose) + media kits + CTA. Jamais télégraphique. Jamais « rends-toi sur son profil ». Jamais « couple lesbien » / labels d'orientation. Jamais signer Leyna. JSON {"body":"..."}.`,
         },
         { role: "user", content: safePrompt },
       ],

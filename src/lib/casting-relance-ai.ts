@@ -755,6 +755,8 @@ RÈGLES MÉTIER :
 - INTERDIT ABSOLU — ne JAMAIS se projeter sans retour client : « Tu veux qu’on avance », « On avance sur ce projet/sujet », « on peut avancer », « next steps », « on lance ». Pas de projection / closing. CTA = intérêt seulement : « Ce projet te parlerait ? », « Est-ce que ce projet pourrait t’intéresser ? », « On en discute ? ».
 - INTERDIT ABSOLU écriture inclusive / IA : jamais « intéressé(e) », « ouvert(e) », « prêt(e) », « motivé(e) », ni AUCUNE parenthèse de genre « (e) », « (ne) », « (se) ».
 - Pour CHAQUE talent (1, 2 ou 3) avec Instagram : OBLIGATOIRE d’inclure SON lien @handle dans SON paragraphe, HTML rose surligné/gras : <a href="https://instagram.com/HANDLE" style="color:#E1306C;text-decoration:underline;font-weight:bold">@HANDLE</a>. Jamais un talent sans lien si le handle est fourni. Pas de @ brut sans balise <a>.
+- INTERDIT ABSOLU — trop IA : jamais « rends-toi sur son profil », « rendez-vous sur son profil », « va sur son Instagram », « jette un œil à son profil », « check out their profile », ni aucune invite à aller voir le profil. Le lien IG suffit.
+- INTERDIT ABSOLU — étiquettes vie privée / identité : jamais « couple lesbien », « lesbienne », « gay », « LGBTQ », « queer », ni aucun label d’orientation sexuelle / identité de genre. Couple / famille OK en neutre (« avec sa femme / son compagnon », « humour de couple ») SANS labelliser.
 - Garder EXACTEMENT {{contact.firstname}} dans le salut.
 - Écrire le nom de marque en clair (« ${opts.brand} ») — JAMAIS {{contact.company}} ni un trou « avec , » / « pour  ».
 - INTERDIT : « pour lequel nous n’avons pas encore eu de retour », « je souhaitais partager quelques détails sur les talents », « talents que nous avons identifiés », « se démarque », « engagement impressionnant », « influence notable », « potentiel viral ».
@@ -1465,8 +1467,8 @@ export async function generateCastingRelanceBody(
           role: "system",
           content:
             input.language === "en"
-              ? 'You write COMPLETE BD follow-ups in ENGLISH ONLY: Hello + "Hope you\'re well?" + talent profile + proof points + project reminder + CTA. Never French. Never Salut/Bonjour. Never competitor brands. Never telegraphic style. Pink bold underlined IG link required. Close with "Have a great day," ONLY — NEVER sign Leyna / Glow Up Agence. JSON {"body":"..."}.'
-              : 'Tu rédiges des relances BD COMPLÈTES en FRANÇAIS : Hello + « J\'espère que tu vas bien ? » + tutoiement, profil + preuves, rappel projet, CTA. Jamais Salut/Bonjour, jamais autre marque/concurrent, jamais vouvoiement, jamais « (e) », jamais style télégraphique. Lien IG rose souligné gras obligatoire. Termine UNIQUEMENT par « Belle journée, » — JAMAIS signer Leyna / Glow Up Agence. JSON {"body":"..."}.',
+              ? 'You write COMPLETE BD follow-ups in ENGLISH ONLY: Hello + "Hope you\'re well?" + talent + proof points + project reminder + CTA. Never French. Never Salut/Bonjour. Never competitor brands. Never telegraphic style. Never "check out their profile". Never orientation/identity labels (lesbian/gay/LGBTQ). Pink bold underlined IG link required. Close with "Have a great day," ONLY — NEVER sign Leyna / Glow Up Agence. JSON {"body":"..."}.'
+              : 'Tu rédiges des relances BD COMPLÈTES en FRANÇAIS : Hello + « J\'espère que tu vas bien ? » + tutoiement, preuves, rappel projet, CTA. Jamais Salut/Bonjour, jamais autre marque/concurrent, jamais vouvoiement, jamais « (e) », jamais style télégraphique. Jamais « rends-toi sur son profil ». Jamais « couple lesbien » / labels d\'orientation. Lien IG rose souligné gras obligatoire. Termine UNIQUEMENT par « Belle journée, » — JAMAIS signer Leyna / Glow Up Agence. JSON {"body":"..."}.',
         },
         { role: "user", content: safePrompt },
       ],
