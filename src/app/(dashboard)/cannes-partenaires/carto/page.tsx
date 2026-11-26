@@ -49,10 +49,15 @@ type CommitResult = {
 };
 
 type MarqueHit = {
+  /** marqueId CRM si lié, sinon id opportunité Cannes */
   id: string;
   nom: string;
   ville?: string;
   contactCount?: number;
+  /** true = déjà dans le pipeline Cannes (seul réservoir autorisé ici) */
+  fromCannes?: boolean;
+  marqueId?: string | null;
+  opportuniteId?: string;
 };
 
 type PortfolioOwner = {
@@ -147,54 +152,54 @@ export default function CannesPartenairesCartoPage() {
   }, []);
 
   useEffect(() => {
-    const q = ficheQuery.trim();
-    if (q.length < 2 || marqueId) {
+    const q = ficheQuery.trim().toLowerCase();
+    if (q.length < 2 || marqueId || creatingFiche) {
       if (q.length < 2) setMarqueHits([]);
       return;
     }
     const t = window.setTimeout(async () => {
       try {
-        // FR+BE : on cherche la fiche France (Benelux find-or-create au commit)
-    if (ficheMarket === "BENELUX") {
-          const res = await fetch(
-            `/api/benelux-outreach/companies?q=${encodeURIComponent(q)}`
-          );
-          const data = await res.json();
-          if (!res.ok) return;
-          const companies = Array.isArray(data.companies)
-            ? data.companies
-            : [];
-          setMarqueHits(
-            companies.map(
-              (c: {
-                id: string;
-                nom: string;
-                ville?: string;
-                _count?: { contacts?: number };
-              }) => ({
-                id: c.id,
-                nom: c.nom,
-                ville: c.ville,
-                contactCount: c._count?.contacts,
-              })
-            )
-          );
+        // Isolation Cannes : uniquement le pipeline Cannes Partenaires
+        // (jamais /api/marques/search ni Benelux outreach).
+        const res = await fetch("/api/cannes-partenaires/opportunites", {
+          credentials: "include",
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setMarqueHits([]);
           return;
         }
-        const res = await fetch(
-          `/api/marques/search?q=${encodeURIComponent(q)}`
-        );
-        const data = await res.json();
-        if (!res.ok) return;
-        setMarqueHits(
-          Array.isArray(data.marques) ? (data.marques as MarqueHit[]) : []
-        );
+        const opps = Array.isArray(data.opportunites) ? data.opportunites : [];
+        const hits: MarqueHit[] = opps
+          .map(
+            (o: {
+              id?: string;
+              nomMarque?: string;
+              marqueId?: string | null;
+              contacts?: unknown[];
+            }) => {
+              const nom = String(o.nomMarque || "").trim();
+              if (!nom || !nom.toLowerCase().includes(q)) return null;
+              return {
+                id: String(o.marqueId || o.id || ""),
+                nom,
+                contactCount: Array.isArray(o.contacts)
+                  ? o.contacts.length
+                  : undefined,
+                fromCannes: true,
+                marqueId: o.marqueId || null,
+                opportuniteId: String(o.id || ""),
+              } as MarqueHit;
+            }
+          )
+          .filter((h: MarqueHit | null): h is MarqueHit => Boolean(h?.id));
+        setMarqueHits(hits.slice(0, 8));
       } catch {
         setMarqueHits([]);
       }
     }, 250);
     return () => window.clearTimeout(t);
-  }, [ficheQuery, marqueId, ficheMarket]);
+  }, [ficheQuery, marqueId, creatingFiche]);
 
   const rows = preview?.contacts || [];
   const primaryAgency =
@@ -270,6 +275,15 @@ export default function CannesPartenairesCartoPage() {
       next[String(i)] = true;
     });
     setSelected(next);
+    // Cannes isolé : pas de fiche CRM — destination = pipeline Cannes (création / rattachement par nom).
+    const nom = (result.company || company).trim();
+    if (nom) {
+      setMarqueId(null);
+      setMarqueNom(nom);
+      setFicheQuery(nom);
+      setCreatingFiche(true);
+      setMarqueHits([]);
+    }
   }
 
   async function runPreview() {
@@ -668,7 +682,7 @@ export default function CannesPartenairesCartoPage() {
       setError(
         frBeContinuation
           ? "Étape 3 : fiche Benelux manquante — reviens à l’enrichissement FR"
-          : "Étape 1 : sélectionne une fiche, ou crée-en une"
+          : "Étape 1 : confirme la marque pour le pipeline Cannes"
       );
       return;
     }
@@ -842,10 +856,16 @@ export default function CannesPartenairesCartoPage() {
   }
 
   function pickMarque(m: MarqueHit) {
-    setMarqueId(m.id);
+    // Uniquement pipeline Cannes — si pas de marqueId lié, on crée/rattache par nom.
+    if (m.marqueId) {
+      setMarqueId(m.marqueId);
+      setCreatingFiche(false);
+    } else {
+      setMarqueId(null);
+      setCreatingFiche(true);
+    }
     setMarqueNom(m.nom);
     setFicheQuery(m.nom);
-    setCreatingFiche(false);
     setMarqueHits([]);
   }
 
@@ -1470,12 +1490,12 @@ export default function CannesPartenairesCartoPage() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                   {isFrBeBeneluxPass
                     ? "Étape 3 · Fiche Benelux"
-                    : "Étape 1 · Fiche client"}
+                    : "Étape 1 · Destination Cannes"}
                 </p>
                 <p className="mt-0.5 text-sm text-gray-900">
                   {isFrBeBeneluxPass
                     ? `Enregistre ${selectedRows.length} contact${selectedRows.length > 1 ? "s" : ""} sur la fiche Benelux`
-                    : `Choisis la fiche ${selectedRows.length} contact${selectedRows.length > 1 ? "s" : ""} sélectionné${selectedRows.length > 1 ? "s" : ""}`}
+                    : `${selectedRows.length} contact${selectedRows.length > 1 ? "s" : ""} → pipeline Cannes (hors CRM Marques)`}
                 </p>
               </div>
               {isFrBeBeneluxPass ? (
@@ -1497,9 +1517,7 @@ export default function CannesPartenairesCartoPage() {
                 <>
                   <label className="relative block max-w-md text-sm">
                     <span className="mb-1 block text-gray-700">
-                      {ficheMarket === "BENELUX"
-                        ? "Rechercher une fiche Benelux"
-                        : "Rechercher une fiche France (Benelux lié auto)"}
+                      Marque Cannes (pipeline uniquement)
                     </span>
                     <input
                       value={ficheQuery}
@@ -1509,7 +1527,7 @@ export default function CannesPartenairesCartoPage() {
                         setMarqueNom(null);
                         setCreatingFiche(false);
                       }}
-                      placeholder={preview.company || "Rechercher ou créer…"}
+                      placeholder={preview.company || "Nom marque…"}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2"
                       autoComplete="off"
                     />
@@ -1525,8 +1543,8 @@ export default function CannesPartenairesCartoPage() {
                               <span className="font-medium text-gray-900">
                                 {m.nom}
                               </span>
-                              <span className="text-xs text-gray-400">
-                                {ficheMarket === "BENELUX" ? "Benelux" : "FR"}
+                              <span className="text-xs text-amber-700">
+                                Pipeline Cannes
                                 {typeof m.contactCount === "number"
                                   ? ` · ${m.contactCount}`
                                   : ""}
@@ -1540,14 +1558,14 @@ export default function CannesPartenairesCartoPage() {
                             onClick={draftCreateFiche}
                             className="w-full px-3 py-2 text-left text-sm font-medium text-emerald-800 hover:bg-emerald-50"
                           >
-                            Créer «{" "}
+                            Nouvelle dans Cannes «{" "}
                             {(
                               ficheQuery.trim() ||
                               preview.company ||
                               company ||
                               "…"
                             ).trim()}{" "}
-                            » ({ficheMarketLabel()})
+                            »
                           </button>
                         </li>
                       </ul>
@@ -1560,18 +1578,15 @@ export default function CannesPartenairesCartoPage() {
                           onClick={draftCreateFiche}
                           className="mt-2 text-xs font-medium text-emerald-800 underline"
                         >
-                          Créer « {ficheQuery.trim()} » · {ficheMarketLabel()}
+                          Nouvelle dans Cannes « {ficheQuery.trim()} »
                         </button>
                       )}
                     {(marqueId || creatingFiche) && marqueNom ? (
                       <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-emerald-700">
-                        {creatingFiche ? "Création" : "Fiche"}{" "}
-                        {ficheMarketLabel()} : {marqueNom}
-                        {ficheMarket === "BOTH" && creatingFiche
-                          ? " (FR + Benelux)"
-                          : ficheMarket === "BOTH" && !creatingFiche
-                            ? " (+ Benelux lié auto)"
-                            : ""}
+                        {creatingFiche
+                          ? "Nouvelle opportunité Cannes"
+                          : "Déjà dans le pipeline Cannes"}{" "}
+                        : {marqueNom}
                         <button
                           type="button"
                           onClick={clearMarque}
@@ -1582,8 +1597,8 @@ export default function CannesPartenairesCartoPage() {
                       </p>
                     ) : (
                       <p className="mt-1 text-xs text-gray-500">
-                        Sélectionne une fiche existante, ou crée-en une si elle
-                        n&apos;existe pas
+                        Pas de recherche CRM Marques — uniquement le pipeline
+                        Cannes, ou une nouvelle marque Cannes
                       </p>
                     )}
                   </label>
@@ -1641,8 +1656,8 @@ export default function CannesPartenairesCartoPage() {
                   {isFrBeBeneluxPass
                     ? `→ ${marqueNom || commitResult?.company || "Benelux"}`
                     : marqueId || creatingFiche
-                      ? `→ ${marqueNom} · ${ficheMarketLabel()}${creatingFiche ? " · création" : ""}`
-                      : "Sélectionne ou crée une fiche (étape 1)"}
+                      ? `→ ${marqueNom} · pipeline Cannes${creatingFiche ? " · nouvelle" : ""}`
+                      : "Confirme la marque Cannes (étape 1)"}
                 </span>
               </div>
             </div>
