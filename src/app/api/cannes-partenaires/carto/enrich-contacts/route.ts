@@ -44,7 +44,13 @@ export async function GET(request: NextRequest) {
         marqueId,
         AND: [
           cannesContactWhere,
-          { emailLookupStatus: { not: "NOT_FOUND" } },
+          // Inclure null : `{ not: "NOT_FOUND" }` exclut les NULL en SQL.
+          {
+            OR: [
+              { emailLookupStatus: null },
+              { emailLookupStatus: { not: "NOT_FOUND" } },
+            ],
+          },
           { OR: [{ email: null }, { email: "" }] },
         ],
       },
