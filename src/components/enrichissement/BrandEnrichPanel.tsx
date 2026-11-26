@@ -266,6 +266,8 @@ export type BrandEnrichPanelProps = {
    * cannes = module Cannes Partenaires uniquement (pas d'enrôlement outreach).
    */
   destination?: "outreach" | "cannes";
+  /** Requis en mode cannes (table cannes_contacts). */
+  opportuniteId?: string | null;
   onCannesComplete?: () => void;
 };
 
@@ -276,6 +278,7 @@ export function BrandEnrichPanel({
   fichePath,
   onBack,
   destination = "outreach",
+  opportuniteId = null,
   onCannesComplete,
 }: BrandEnrichPanelProps) {
   const isCannes = destination === "cannes";
@@ -332,8 +335,11 @@ export function BrandEnrichPanel({
     setLoading(true);
     try {
       if (isCannes) {
+        const qs = opportuniteId
+          ? `opportuniteId=${encodeURIComponent(opportuniteId)}`
+          : `marqueId=${encodeURIComponent(marqueId)}`;
         const res = await fetch(
-          `/api/cannes-partenaires/carto/enrich-contacts?marqueId=${encodeURIComponent(marqueId)}`
+          `/api/cannes-partenaires/carto/enrich-contacts?${qs}`
         );
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Erreur de chargement");
@@ -357,7 +363,7 @@ export function BrandEnrichPanel({
     } finally {
       setLoading(false);
     }
-  }, [marqueId, isCannes]);
+  }, [marqueId, isCannes, opportuniteId]);
 
   useEffect(() => {
     void load();
@@ -707,6 +713,7 @@ export function BrandEnrichPanel({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            opportuniteId: opportuniteId || undefined,
             marqueId,
             contacts: allContacts,
           }),
@@ -816,6 +823,7 @@ export function BrandEnrichPanel({
   };
 
   const updatePersonMarkets = async (p: Person, next: PersonMarket) => {
+    if (isCannes) return;
     if (savingMarketKey || busy) return;
     const current = personMarketSelection(p);
     if (current === next) return;
@@ -853,6 +861,7 @@ export function BrandEnrichPanel({
   };
 
   const deletePerson = async (p: Person) => {
+    if (isCannes) return;
     if (busy || deletingKey || savingPersonKey || enrichingKey) return;
     if (!window.confirm("Supprimer ce contact de l'enrichissement ?")) return;
     setDeletingKey(p.key);
@@ -1038,41 +1047,50 @@ export function BrandEnrichPanel({
                       >
                         Influence
                       </span>
-                      <span
-                        className="inline-flex shrink-0 overflow-hidden rounded-md border"
-                        style={{ borderColor: "#E5E0DA" }}
-                      >
-                        {(["FR", "BENELUX", "BOTH"] as const).map((m) => {
-                          const selected = personMarketSelection(p) === m;
-                          return (
-                            <button
-                              key={m}
-                              type="button"
-                              disabled={
-                                savingMarketKey === p.key ||
-                                busy ||
-                                deletingKey === p.key
-                              }
-                              onClick={() => void updatePersonMarkets(p, m)}
-                              className="px-1.5 py-0.5 text-[10px] font-bold uppercase transition disabled:opacity-40"
-                              style={
-                                selected
-                                  ? { backgroundColor: INK, color: "#fff" }
-                                  : {
-                                      backgroundColor: "#fff",
-                                      color: "#9CA3AF",
-                                    }
-                              }
-                            >
-                              {m === "FR"
-                                ? "🇫🇷 FR"
-                                : m === "BENELUX"
-                                  ? "🇧🇪 BE"
-                                  : "FR+BE"}
-                            </button>
-                          );
-                        })}
-                      </span>
+                      {!isCannes ? (
+                        <span
+                          className="inline-flex shrink-0 overflow-hidden rounded-md border"
+                          style={{ borderColor: "#E5E0DA" }}
+                        >
+                          {(["FR", "BENELUX", "BOTH"] as const).map((m) => {
+                            const selected = personMarketSelection(p) === m;
+                            return (
+                              <button
+                                key={m}
+                                type="button"
+                                disabled={
+                                  savingMarketKey === p.key ||
+                                  busy ||
+                                  deletingKey === p.key
+                                }
+                                onClick={() => void updatePersonMarkets(p, m)}
+                                className="px-1.5 py-0.5 text-[10px] font-bold uppercase transition disabled:opacity-40"
+                                style={
+                                  selected
+                                    ? { backgroundColor: INK, color: "#fff" }
+                                    : {
+                                        backgroundColor: "#fff",
+                                        color: "#9CA3AF",
+                                      }
+                                }
+                              >
+                                {m === "FR"
+                                  ? "🇫🇷 FR"
+                                  : m === "BENELUX"
+                                    ? "🇧🇪 BE"
+                                    : "FR+BE"}
+                              </button>
+                            );
+                          })}
+                        </span>
+                      ) : (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[10px] font-bold"
+                          style={{ backgroundColor: "#FEF3C7", color: "#92400E" }}
+                        >
+                          Cannes
+                        </span>
+                      )}
                       {p.priorite ? (
                         <span className="text-[10px] font-bold text-gray-400">
                           {p.priorite}
@@ -1293,23 +1311,25 @@ export function BrandEnrichPanel({
                         LinkedIn
                       </a>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => void deletePerson(p)}
-                      disabled={
-                        deletingKey === p.key ||
-                        busy ||
-                        savingPersonKey === p.key ||
-                        enrichingKey === p.key
-                      }
-                      className="inline-flex items-center justify-center rounded-lg p-2 text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
-                    >
-                      {deletingKey === p.key ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                    </button>
+                    {!isCannes ? (
+                      <button
+                        type="button"
+                        onClick={() => void deletePerson(p)}
+                        disabled={
+                          deletingKey === p.key ||
+                          busy ||
+                          savingPersonKey === p.key ||
+                          enrichingKey === p.key
+                        }
+                        className="inline-flex items-center justify-center rounded-lg p-2 text-gray-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                      >
+                        {deletingKey === p.key ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 

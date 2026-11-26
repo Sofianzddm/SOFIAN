@@ -5,12 +5,10 @@ import {
   CANNES_PARTENAIRES_SLUG,
   canAccessCannesPartenaires,
 } from "@/lib/cannes-partenaires/constants";
-import { cannesContactWhere } from "@/lib/cannes-partenaires/contacts";
 import { projetOppMailContacts } from "@/lib/projet-prospection";
 
 /**
- * Contacts email pour le composer Cannes (ADMIN + STRATEGY_PLANNER).
- * Nécessaire car GET opportunités masque les emails au STRATEGY_PLANNER.
+ * Contacts email pour le composer Cannes — table cannes_contacts (+ JSON).
  */
 export async function GET(
   request: NextRequest,
@@ -42,15 +40,13 @@ export async function GET(
 
     let contacts = projetOppMailContacts(opp.contacts);
 
-    // Complète depuis la fiche marque (contacts carto Cannes) si l'opp est vide
-    if (contacts.length === 0 && opp.marqueId) {
-      const crm = await prisma.marqueContact.findMany({
+    if (contacts.length === 0) {
+      const crm = await prisma.cannesPartenairesContact.findMany({
         where: {
-          marqueId: opp.marqueId,
-          ...cannesContactWhere,
+          opportuniteId: opp.id,
           email: { not: null },
         },
-        select: { id: true, prenom: true, nom: true, email: true, poste: true },
+        select: { prenom: true, nom: true, email: true, poste: true },
       });
       contacts = crm
         .filter((c) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((c.email || "").trim()))

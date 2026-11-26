@@ -3292,8 +3292,40 @@ model OpportuniteMarque {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  partenairesContacts CannesPartenairesContact[]
+
   @@index([projetId])
   @@index([marqueId])
+}
+
+/// Contacts prospection Cannes Partenaires — isolés du CRM Marques
+/// (distinct du modèle CannesContact = carnet événements villa).
+model CannesPartenairesContact {
+  id            String            @id @default(cuid())
+  opportuniteId String
+  opportunite   OpportuniteMarque @relation(fields: [opportuniteId], references: [id], onDelete: Cascade)
+
+  prenom       String?
+  nom          String
+  email        String?
+  poste        String?
+  perimetre    String?
+  localisation String?
+  priorite     String?
+  linkedinUrl  String?
+  language     String  @default("fr")
+
+  emailLookupStatus   String?
+  emailSuggested      String?
+  emailLookupQueuedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([opportuniteId])
+  @@index([opportuniteId, email])
+  @@index([emailLookupStatus])
+  @@map("cannes_partenaires_contacts")
 }
 
 /// Base Fashion Week isolée du CRM Marques : Inès pose nom + date de défilé,

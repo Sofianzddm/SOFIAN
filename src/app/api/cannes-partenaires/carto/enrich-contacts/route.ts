@@ -6,13 +6,15 @@ import {
   domainFromWebsite,
   suggestEmailsForContact,
 } from "@/lib/email-pattern";
-import { canAccessCannesPartenaires } from "@/lib/cannes-partenaires/constants";
-import { cannesContactWhere } from "@/lib/cannes-partenaires/contacts";
+import {
+  CANNES_PARTENAIRES_SLUG,
+  canAccessCannesPartenaires,
+} from "@/lib/cannes-partenaires/constants";
+import { CANNES_CONTACT_SOURCE } from "@/lib/cannes-partenaires/contacts";
 
 /**
- * Contacts à enrichir pour Cannes Partenaires uniquement.
- * Filtre : source CANNES_CARTO (ou legacy CARTO exclu) + sans email valide.
- * N'apparaît PAS dans /enrichissement (qui exige outreachExcluded=false + QUEUED).
+ * Contacts à enrichir — table cannes_contacts uniquement.
+ * Query : opportuniteId (préféré) ou marqueId (résout l’opportunité Cannes).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -24,27 +26,71 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Accès refusé" }, { status: 403 });
     }
 
+    const opportuniteIdParam = String(
+      request.nextUrl.searchParams.get("opportuniteId") || ""
+    ).trim();
     const marqueId = String(
       request.nextUrl.searchParams.get("marqueId") || ""
     ).trim();
-    if (!marqueId) {
-      return NextResponse.json({ error: "marqueId requis" }, { status: 400 });
+
+    let opportuniteId = opportuniteIdParam;
+    let company = "";
+    let siteWeb: string | null = null;
+
+    if (opportuniteId) {
+      const opp = await prisma.opportuniteMarque.findFirst({
+        where: {
+          id: opportuniteId,
+          projet: { slug: CANNES_PARTENAIRES_SLUG },
+        },
+        select: {
+          id: true,
+          nomMarque: true,
+          marque: { select: { siteWeb: true } },
+        },
+      });
+      if (!opp) {
+        return NextResponse.json({ error: "Opportunité introuvable" }, { status: 404 });
+      }
+      company = opp.nomMarque;
+      siteWeb = opp.marque?.siteWeb || null;
+    } else if (marqueId) {
+      const opp = await prisma.opportuniteMarque.findFirst({
+        where: {
+          marqueId,
+          projet: { slug: CANNES_PARTENAIRES_SLUG },
+        },
+        select: {
+          id: true,
+          nomMarque: true,
+          marque: { select: { siteWeb: true } },
+        },
+        orderBy: { updatedAt: "desc" },
+      });
+      if (!opp) {
+        return NextResponse.json({
+          contacts: [],
+          company: "",
+          opportuniteId: null,
+        });
+      }
+      opportuniteId = opp.id;
+      company = opp.nomMarque;
+      siteWeb = opp.marque?.siteWeb || null;
+
+      // Migration one-shot : MarqueContact CANNES_CARTO → cannes_contacts
+      await migrateLegacyCannesContacts(marqueId, opportuniteId);
+    } else {
+      return NextResponse.json(
+        { error: "opportuniteId ou marqueId requis" },
+        { status: 400 }
+      );
     }
 
-    const marque = await prisma.marque.findUnique({
-      where: { id: marqueId },
-      select: { id: true, nom: true, siteWeb: true },
-    });
-    if (!marque) {
-      return NextResponse.json({ error: "Marque introuvable" }, { status: 404 });
-    }
-
-    const rows = await prisma.marqueContact.findMany({
+    const rows = await prisma.cannesPartenairesContact.findMany({
       where: {
-        marqueId,
+        opportuniteId,
         AND: [
-          cannesContactWhere,
-          // Inclure null : `{ not: "NOT_FOUND" }` exclut les NULL en SQL.
           {
             OR: [
               { emailLookupStatus: null },
@@ -55,26 +101,10 @@ export async function GET(request: NextRequest) {
         ],
       },
       orderBy: [{ priorite: "asc" }, { nom: "asc" }],
-      select: {
-        id: true,
-        prenom: true,
-        nom: true,
-        poste: true,
-        perimetre: true,
-        localisation: true,
-        priorite: true,
-        linkedinUrl: true,
-        language: true,
-        emailSuggested: true,
-        source: true,
-      },
     });
 
-    const known = await prisma.marqueContact.findMany({
-      where: {
-        marqueId,
-        email: { not: null },
-      },
+    const known = await prisma.cannesPartenairesContact.findMany({
+      where: { opportuniteId, email: { not: null } },
       take: 40,
       select: { email: true, prenom: true, nom: true },
     });
@@ -85,7 +115,7 @@ export async function GET(request: NextRequest) {
         nom: k.nom,
       }))
       .filter((k) => k.email);
-    const fallbackDomain = domainFromWebsite(marque.siteWeb);
+    const fallbackDomain = domainFromWebsite(siteWeb);
     const pattern = detectEmailPattern(knownEmails);
     const patternObj = pattern
       ? {
@@ -107,10 +137,11 @@ export async function GET(request: NextRequest) {
       linkedinUrl: c.linkedinUrl,
       language: c.language || "fr",
       emailSuggested: c.emailSuggested,
-      marqueId: marque.id,
-      company: marque.nom,
+      marqueId: marqueId || null,
+      opportuniteId,
+      company,
       market: "FR" as const,
-      source: (c.source === "AO" ? "AO" : "CARTO") as "CARTO" | "AO",
+      source: "CARTO" as const,
       pattern: patternObj,
       suggestions: suggestEmailsForContact({
         prenom: c.prenom,
@@ -120,9 +151,66 @@ export async function GET(request: NextRequest) {
       }),
     }));
 
-    return NextResponse.json({ contacts, company: marque.nom });
+    return NextResponse.json({ contacts, company, opportuniteId });
   } catch (e) {
     console.error("[cannes] enrich-contacts:", e);
     return NextResponse.json({ error: "Erreur chargement" }, { status: 500 });
+  }
+}
+
+async function migrateLegacyCannesContacts(
+  marqueId: string,
+  opportuniteId: string
+) {
+  const legacy = await prisma.marqueContact.findMany({
+    where: { marqueId, source: CANNES_CONTACT_SOURCE },
+    select: {
+      id: true,
+      prenom: true,
+      nom: true,
+      email: true,
+      poste: true,
+      perimetre: true,
+      localisation: true,
+      priorite: true,
+      linkedinUrl: true,
+      language: true,
+      emailLookupStatus: true,
+      emailSuggested: true,
+    },
+  });
+  if (legacy.length === 0) return;
+
+  const existing = await prisma.cannesPartenairesContact.findMany({
+    where: { opportuniteId },
+    select: { prenom: true, nom: true, linkedinUrl: true },
+  });
+  const keys = new Set(
+    existing.map(
+      (c) =>
+        `${(c.prenom || "").toLowerCase()}|${(c.nom || "").toLowerCase()}|${(c.linkedinUrl || "").toLowerCase()}`
+    )
+  );
+
+  for (const c of legacy) {
+    const key = `${(c.prenom || "").toLowerCase()}|${(c.nom || "").toLowerCase()}|${(c.linkedinUrl || "").toLowerCase()}`;
+    if (keys.has(key)) continue;
+    await prisma.cannesPartenairesContact.create({
+      data: {
+        opportuniteId,
+        prenom: c.prenom,
+        nom: c.nom,
+        email: c.email,
+        poste: c.poste,
+        perimetre: c.perimetre,
+        localisation: c.localisation,
+        priorite: c.priorite,
+        linkedinUrl: c.linkedinUrl,
+        language: c.language === "en" ? "en" : "fr",
+        emailLookupStatus: c.emailLookupStatus,
+        emailSuggested: c.emailSuggested,
+      },
+    });
+    keys.add(key);
   }
 }

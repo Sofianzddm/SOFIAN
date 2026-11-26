@@ -4,11 +4,9 @@ import { getAppSession } from "@/lib/getAppSession";
 import { domainFromWebsite } from "@/lib/email-pattern";
 import { compareEnrichmentProviders } from "@/lib/enrichment/compare";
 import { canAccessCannesPartenaires } from "@/lib/cannes-partenaires/constants";
-import { cannesContactWhere } from "@/lib/cannes-partenaires/contacts";
 
 /**
- * Enrich Apollo/Lusha pour Cannes — accessible STRATEGY_PLANNER.
- * Ne touche pas aux routes /api/outreach/email-lookup/*.
+ * Enrich Apollo/Lusha pour Cannes — lit cannes_contacts (pas marque_contacts).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -37,15 +35,20 @@ export async function POST(request: NextRequest) {
     let domain: string | null = null;
     const refId = body.refs?.[0]?.id;
     if (refId) {
-      const c = await prisma.marqueContact.findFirst({
-        where: { id: String(refId), ...cannesContactWhere },
+      const c = await prisma.cannesPartenairesContact.findFirst({
+        where: { id: String(refId) },
         select: {
-          marque: { select: { nom: true, siteWeb: true } },
+          opportunite: {
+            select: {
+              nomMarque: true,
+              marque: { select: { siteWeb: true } },
+            },
+          },
         },
       });
       if (c) {
-        company = company || c.marque.nom;
-        domain = domainFromWebsite(c.marque.siteWeb);
+        company = company || c.opportunite.nomMarque;
+        domain = domainFromWebsite(c.opportunite.marque?.siteWeb || null);
       }
     }
 

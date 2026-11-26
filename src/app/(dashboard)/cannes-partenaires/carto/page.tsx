@@ -1083,6 +1083,10 @@ export default function CannesPartenairesCartoPage() {
           company={enrichSource.company}
           fichePath={enrichSource.fichePath}
           destination="cannes"
+          opportuniteId={
+            enrichSource.cannesOpportunite?.opportuniteId ||
+            (enrichSource.fichePath?.match(/\/crm\/([^/?#]+)/)?.[1] ?? null)
+          }
           onBack={() => setPipelinePhase("carto_fr")}
           onCannesComplete={() => {
             const path =

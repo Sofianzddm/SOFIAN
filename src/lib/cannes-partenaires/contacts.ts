@@ -1,29 +1,28 @@
 /**
  * Contacts pipeline Cannes Partenaires — isolés du CRM marques / outreach.
- * source CANNES_CARTO (nouveau) ou legacy CARTO + outreachExcluded.
+ *
+ * Isolation par tag (historique) : source CANNES_CARTO sur marque_contacts.
+ * Isolation vraie : table CannesContact rattachée à OpportuniteMarque.
  */
 
 import type { Prisma } from "@prisma/client";
 
 export const CANNES_CONTACT_SOURCE = "CANNES_CARTO";
 
-/** Filtre Prisma : contacts appartenant au module Cannes uniquement. */
+/** Filtre Prisma : contacts tag Cannes uniquement (pas le legacy CARTO+exclu). */
 export const cannesContactWhere: Prisma.MarqueContactWhereInput = {
-  OR: [
-    { source: CANNES_CONTACT_SOURCE },
-    { source: "CARTO", outreachExcluded: true },
-  ],
+  source: CANNES_CONTACT_SOURCE,
 };
 
 /**
- * Filtre Prisma pour le CRM Marques : exclut tout contact Cannes.
- * Utilise NOT + OR (pas `source: { not }` qui exclut aussi les NULL).
+ * Filtre CRM Marques : exclut CANNES_CARTO sans masquer source NULL.
+ * Forme vérifiée Prisma : `source IS NULL OR source <> 'CANNES_CARTO'`.
  */
 export const notCannesContactWhere: Prisma.MarqueContactWhereInput = {
-  NOT: {
-    OR: [
-      { source: CANNES_CONTACT_SOURCE },
-      { source: "CARTO", outreachExcluded: true },
-    ],
-  },
+  OR: [{ source: null }, { source: { not: CANNES_CONTACT_SOURCE } }],
+};
+
+/** Clause AND à ajouter pour ne jamais toucher aux contacts Cannes. */
+export const excludeCannesContactAnd: Prisma.MarqueContactWhereInput = {
+  OR: [{ source: null }, { source: { not: CANNES_CONTACT_SOURCE } }],
 };

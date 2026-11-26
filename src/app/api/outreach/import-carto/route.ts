@@ -154,6 +154,8 @@ export async function POST(request: NextRequest) {
             marqueId: id,
             outreachExcluded: true,
             diffusionOptOut: false,
+            // Ne jamais réintégrer les contacts Cannes Partenaires.
+            OR: [{ source: null }, { source: { not: "CANNES_CARTO" } }],
           },
           data: { outreachExcluded: false },
         });

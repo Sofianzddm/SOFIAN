@@ -17,7 +17,6 @@ import {
   CANNES_PARTENAIRES_SLUG,
   canAccessCannesPartenaires,
 } from "@/lib/cannes-partenaires/constants";
-import { cannesContactWhere } from "@/lib/cannes-partenaires/contacts";
 import { resolveGiftSenderMailbox } from "@/lib/gifts/gift-sender-mailbox";
 
 /**
@@ -89,12 +88,11 @@ export async function POST(
       if (picked.length > 0) mailContacts = picked;
     }
 
-    // Fallback fiche marque carto Cannes
-    if (mailContacts.length === 0 && opportunite.marqueId) {
-      const crm = await prisma.marqueContact.findMany({
+    // Fallback table cannes_contacts
+    if (mailContacts.length === 0) {
+      const crm = await prisma.cannesPartenairesContact.findMany({
         where: {
-          marqueId: opportunite.marqueId,
-          ...cannesContactWhere,
+          opportuniteId: opportunite.id,
           email: { not: null },
         },
         select: { prenom: true, nom: true, email: true },

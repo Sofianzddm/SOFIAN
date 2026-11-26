@@ -399,9 +399,12 @@ export async function PUT(
 
     // Si des contacts sont fournis, les mettre à jour
     if (data.contacts) {
-      // Supprimer les anciens contacts
+      // Ne jamais supprimer les contacts Cannes Partenaires (source CANNES_CARTO).
       await prisma.marqueContact.deleteMany({
-        where: { marqueId: id },
+        where: {
+          marqueId: id,
+          OR: [{ source: null }, { source: { not: "CANNES_CARTO" } }],
+        },
       });
 
       // Créer les nouveaux contacts

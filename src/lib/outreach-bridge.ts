@@ -1861,8 +1861,12 @@ export async function runCrmDormantEnrollSweep(): Promise<CrmEnrollSweepResult> 
       diffusionOptOut: false,
       email: { not: null },
       createdAt: { lt: graceCutoff },
-      // Achats / AO : jamais dans le cycle (Prisma `not: "AO"` exclut aussi null).
-      OR: [{ source: { not: "AO" } }, { source: null }],
+      // Achats / AO / Cannes Partenaires : jamais dans le cycle outreach.
+      // Prisma `not: "AO"` exclut aussi null → OR explicite.
+      AND: [
+        { OR: [{ source: { not: "AO" } }, { source: null }] },
+        { OR: [{ source: { not: "CANNES_CARTO" } }, { source: null }] },
+      ],
       marque: {
         // Flux actif ou échange récent (< 45j) sur la marque → on n'enrôle pas
         // maintenant ; le contact sera repris à un prochain passage (non marqué).

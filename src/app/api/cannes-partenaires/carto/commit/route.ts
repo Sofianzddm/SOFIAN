@@ -1,19 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAppSession } from "@/lib/getAppSession";
-import { commitCartoAiPipeline } from "@/lib/carto-ai/run-pipeline";
 import type { CartoAiContactCandidate } from "@/lib/carto-ai/types";
 import { canAccessCannesPartenaires } from "@/lib/cannes-partenaires/constants";
-import { enrollMarqueInCannesPartenaires } from "@/lib/cannes-partenaires/enroll";
+import { commitCannesCartoContacts } from "@/lib/cannes-partenaires/commit-contacts";
 
 export const maxDuration = 300;
 
 /**
- * Commit carto Cannes : import contacts sur la fiche marque (même pipeline
- * que le lab) + enrôlement OpportuniteMarque cannes-partenaires.
- * skipAutoEnrich par défaut true (enrich panel côté UI).
- * Isolation stricte : cannesIsolated=true → contacts source CANNES_CARTO,
- * outreachExcluded, pas de file enrichissement, pas d'agences, pas d'enroll FR.
- * Destination métier = OpportuniteMarque cannes-partenaires uniquement.
+ * Commit carto Cannes → table cannes_contacts (isolée).
+ * Ne crée plus de MarqueContact sur le CRM Marques.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -27,19 +22,15 @@ export async function POST(request: NextRequest) {
 
     const body = (await request.json().catch(() => ({}))) as {
       company?: string;
-      marqueId?: string;
       domain?: string;
       language?: string;
-      market?: string;
       selectedRows?: CartoAiContactCandidate[];
-      skipAutoEnrich?: boolean;
     };
 
     const company = String(body.company || "").trim();
-    const marqueId = String(body.marqueId || "").trim() || null;
-    if (!company && !marqueId) {
+    if (!company) {
       return NextResponse.json(
-        { error: "Sélectionne une fiche client" },
+        { error: "Nom de marque requis" },
         { status: 400 }
       );
     }
@@ -50,41 +41,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const language = body.language === "en" ? "en" : "fr";
-    const domain = String(body.domain || "").trim() || null;
-    const marketRaw = String(body.market || "FR").toUpperCase();
-    const market =
-      marketRaw === "BENELUX" || marketRaw === "BE"
-        ? "BENELUX"
-        : marketRaw === "BOTH" || marketRaw === "FR+BE" || marketRaw === "FR_BE"
-          ? "BOTH"
-          : "FR";
-
-    const result = await commitCartoAiPipeline({
-      company: company || "Marque",
-      marqueId,
-      domain,
-      language,
-      market: "FR", // Cannes = France only
+    const result = await commitCannesCartoContacts({
+      company,
+      domain: String(body.domain || "").trim() || null,
+      language: body.language === "en" ? "en" : "fr",
       selectedRows: body.selectedRows,
-      userId: session.user.id,
-      skipAutoEnrich: true,
-      // Isolation totale : hors file /enrichissement + hors cycle outreach FR
-      cannesIsolated: true,
-    });
-
-    const enroll = await enrollMarqueInCannesPartenaires({
-      marqueId: result.marqueId,
       createdById: session.user.id,
-      angleNote: "Import carto Cannes Partenaires",
     });
 
-    return NextResponse.json({
-      ...result,
-      // Jamais /marques/[id] — fiche isolée Cannes Partenaires
-      fichePath: `/cannes-partenaires/crm/${enroll.opportuniteId}`,
-      cannesOpportunite: enroll,
-    });
+    return NextResponse.json(result);
   } catch (e) {
     console.error("[cannes-partenaires/carto] commit:", e);
     return NextResponse.json(

@@ -53,6 +53,8 @@ export async function POST(
           marqueId: marque.id,
           outreachExcluded: true,
           diffusionOptOut: false,
+          // Ne jamais réintégrer les contacts Cannes Partenaires dans l’outreach.
+          OR: [{ source: null }, { source: { not: "CANNES_CARTO" } }],
         },
         data: { outreachExcluded: false },
       });

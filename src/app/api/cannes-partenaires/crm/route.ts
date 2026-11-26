@@ -5,12 +5,10 @@ import {
   CANNES_PARTENAIRES_SLUG,
   canAccessCannesPartenaires,
 } from "@/lib/cannes-partenaires/constants";
-import { cannesContactWhere } from "@/lib/cannes-partenaires/contacts";
 import { getOrCreateVillaProject } from "@/app/api/strategy/_utils";
 
 /**
- * CRM isolé Cannes Partenaires :
- * marques du pipeline + contacts CARTO outreachExcluded (hors outreach FR).
+ * CRM isolé Cannes Partenaires — contacts depuis cannes_contacts.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -22,7 +20,6 @@ export async function GET(request: NextRequest) {
     if (!canAccessCannesPartenaires(role)) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
-    // Aligné strategy : emails contacts masqués pour STRATEGY_PLANNER
     const hideEmails = role === "STRATEGY_PLANNER";
 
     const projet = await getOrCreateVillaProject(CANNES_PARTENAIRES_SLUG);
@@ -43,6 +40,20 @@ export async function GET(request: NextRequest) {
         lastEmailSentAt: true,
         emailRepliedAt: true,
         updatedAt: true,
+        partenairesContacts: {
+          orderBy: [{ priorite: "asc" }, { nom: "asc" }],
+          select: {
+            id: true,
+            prenom: true,
+            nom: true,
+            email: true,
+            poste: true,
+            priorite: true,
+            perimetre: true,
+            linkedinUrl: true,
+            emailLookupStatus: true,
+          },
+        },
         marque: {
           select: {
             id: true,
@@ -50,28 +61,13 @@ export async function GET(request: NextRequest) {
             secteur: true,
             siteWeb: true,
             ville: true,
-            contacts: {
-              where: cannesContactWhere,
-              orderBy: [{ priorite: "asc" }, { nom: "asc" }],
-              select: {
-                id: true,
-                prenom: true,
-                nom: true,
-                email: true,
-                poste: true,
-                priorite: true,
-                perimetre: true,
-                linkedinUrl: true,
-                emailLookupStatus: true,
-              },
-            },
           },
         },
       },
     });
 
     let rows = opportunites.map((o) => {
-      const rawContacts = o.marque?.contacts || [];
+      const rawContacts = o.partenairesContacts || [];
       const withEmail = rawContacts.filter((c) =>
         Boolean((c.email || "").trim())
       ).length;

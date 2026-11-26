@@ -6,8 +6,6 @@ import {
   CANNES_PARTENAIRES_SLUG,
   canAccessCannesPartenaires,
 } from "@/lib/cannes-partenaires/constants";
-import { cannesContactWhere } from "@/lib/cannes-partenaires/contacts";
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ opportuniteId: string }> }
@@ -47,6 +45,21 @@ export async function GET(
         updatedAt: true,
         createdAt: true,
         contacts: true,
+        partenairesContacts: {
+          orderBy: [{ priorite: "asc" }, { nom: "asc" }],
+          select: {
+            id: true,
+            prenom: true,
+            nom: true,
+            email: true,
+            poste: true,
+            priorite: true,
+            perimetre: true,
+            localisation: true,
+            linkedinUrl: true,
+            emailLookupStatus: true,
+          },
+        },
         marque: {
           select: {
             id: true,
@@ -54,22 +67,6 @@ export async function GET(
             secteur: true,
             siteWeb: true,
             ville: true,
-            contacts: {
-              where: cannesContactWhere,
-              orderBy: [{ priorite: "asc" }, { nom: "asc" }],
-              select: {
-                id: true,
-                prenom: true,
-                nom: true,
-                email: true,
-                poste: true,
-                priorite: true,
-                perimetre: true,
-                localisation: true,
-                linkedinUrl: true,
-                emailLookupStatus: true,
-              },
-            },
           },
         },
       },
@@ -79,8 +76,7 @@ export async function GET(
       return NextResponse.json({ error: "Fiche introuvable" }, { status: 404 });
     }
 
-    // Contacts isolés Cannes (marque) + stubs JSON opportunité (sans email).
-    const fromMarque = (opp.marque?.contacts || []).map((c) => ({
+    const fromTable = (opp.partenairesContacts || []).map((c) => ({
       id: c.id,
       prenom: c.prenom,
       nom: c.nom,
@@ -103,12 +99,12 @@ export async function GET(
       : [];
 
     const seen = new Set(
-      fromMarque.map(
+      fromTable.map(
         (c) =>
           `${(c.email && c.email !== "[masqué]" ? c.email : "").toLowerCase()}|${(c.prenom || "").toLowerCase()}|${(c.nom || "").toLowerCase()}`
       )
     );
-    const merged = [...fromMarque];
+    const merged = [...fromTable];
     for (const j of jsonContacts) {
       const email = String(j.email || "").trim().toLowerCase();
       const prenom = String(j.firstName || "").trim();
