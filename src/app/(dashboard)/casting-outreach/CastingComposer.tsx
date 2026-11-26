@@ -1696,16 +1696,15 @@ export default function CastingComposer({
     setPrepBriefConfirmed(false);
   }, [selectedTalentKey, effectiveTalentResearch, talentResearch]);
 
-  /** Brouillon déjà prêt (ex. Chat VPS / wizard) → mode contrôle, pas re-pipeline. */
+  /** Brouillon déjà prêt (ex. Chat VPS / wizard) — on peut quand même re-rédiger. */
   const hasIncomingDraft = Boolean(
     (contact?.initialSubject || "").trim() &&
       (contact?.initialBodyHtml || "").trim()
   );
 
-  /** Synthèse pré-rédaction (pipeline talent×marque + projets). */
+  /** Synthèse pré-rédaction (aussi en re-rédaction : sinon bouton mort). */
   const showPrepBrief =
-    !hasIncomingDraft &&
-    (Boolean(contact?.missionBrief) || Boolean(effectiveTalentResearch));
+    Boolean(contact?.missionBrief) || Boolean(effectiveTalentResearch);
 
   const draftPrepBrief: DraftPrepBrief | null = useMemo(() => {
     if (!showPrepBrief || !contact) return null;
@@ -1785,6 +1784,14 @@ export default function CastingComposer({
     setPrepBriefConfirmed(false);
   }, [draftPrepBrief?.summaryText]);
 
+  // Joey / re-rédiger : pas de friction « Valider la synthèse » — sinon bouton mort.
+  useEffect(() => {
+    if (!draftPrepBrief) return;
+    if (joeyCold || hasIncomingDraft) {
+      setPrepBriefConfirmed(true);
+    }
+  }, [draftPrepBrief, joeyCold, hasIncomingDraft]);
+
   const runGenerateEmail = useCallback(async () => {
     if (!contact) return;
     if (needsPitchBrandChoice || !researchBrandName.trim()) {
@@ -1813,9 +1820,12 @@ export default function CastingComposer({
       onError("Analyse ensuite l’historique Leyna, puis rédige.");
       return;
     }
-    // Pipeline talent×marque : confirmer la synthèse avant rédaction.
+    // Synthèse : obligatoire seulement si affichée et pas Joey / re-rédaction.
     if (
-      (Boolean(contact.missionBrief) || effectiveTalentResearch) &&
+      showPrepBrief &&
+      draftPrepBrief &&
+      !joeyCold &&
+      !hasIncomingDraft &&
       !prepBriefConfirmed
     ) {
       onError("Valide d’abord la synthèse (destinataire, marque, historique, angle).");
@@ -2018,6 +2028,8 @@ export default function CastingComposer({
     leynaExchangeChecked,
     prepBriefConfirmed,
     draftPrepBrief,
+    showPrepBrief,
+    hasIncomingDraft,
     leynaExchange,
     selectedTalents,
     selectedRecipientIds,
