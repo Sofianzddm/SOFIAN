@@ -774,6 +774,53 @@ export function buildAgencyRelanceTemplate(
  * Relance rapprochée J+3 : répond dans le thread Gmail du touch. Une seule
  * relance par touch ; sautée par le cron si réponse (relance manuelle possible).
  */
+const AGENCY_RELANCE_CLAIM = "__sending_r1__:";
+const AGENCY_RELANCE_CLAIM_TTL_MS = 15 * 60 * 1000;
+
+async function claimAgencyRelanceSlot(
+  touchId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const touch = await prisma.agencyOutreachTouch.findUnique({
+    where: { id: touchId },
+    select: { relanceSentAt: true, relanceError: true },
+  });
+  if (!touch) return { ok: false, error: "Touch introuvable." };
+  if (touch.relanceSentAt) {
+    return { ok: false, error: "Une relance a déjà été envoyée pour ce mail." };
+  }
+  if (touch.relanceError?.startsWith(AGENCY_RELANCE_CLAIM)) {
+    const ts = Number(touch.relanceError.slice(AGENCY_RELANCE_CLAIM.length));
+    if (
+      Number.isFinite(ts) &&
+      Date.now() - ts < AGENCY_RELANCE_CLAIM_TTL_MS
+    ) {
+      return { ok: false, error: "Relance déjà en cours d’envoi." };
+    }
+    await prisma.agencyOutreachTouch.update({
+      where: { id: touchId },
+      data: { relanceError: null },
+    });
+  }
+  const claimed = await prisma.agencyOutreachTouch.updateMany({
+    where: {
+      id: touchId,
+      relanceSentAt: null,
+      OR: [
+        { relanceError: null },
+        { NOT: { relanceError: { startsWith: AGENCY_RELANCE_CLAIM } } },
+      ],
+    },
+    data: { relanceError: `${AGENCY_RELANCE_CLAIM}${Date.now()}` },
+  });
+  if (claimed.count === 0) {
+    return {
+      ok: false,
+      error: "Une relance a déjà été envoyée ou est en cours.",
+    };
+  }
+  return { ok: true };
+}
+
 export async function executeAgencyOutreachRelance(
   touchId: string,
   options: { subjectOverride?: string; bodyOverride?: string } = {}
@@ -789,6 +836,9 @@ export async function executeAgencyOutreachRelance(
   if (touch.relanceSentAt) {
     return { ok: false, error: "Une relance a déjà été envoyée pour ce mail." };
   }
+
+  const claim = await claimAgencyRelanceSlot(touchId);
+  if (!claim.ok) return claim;
 
   const target = touch.target;
   if (target.bouncedAt) {
@@ -861,3 +911,4 @@ export async function executeAgencyOutreachRelance(
     return { ok: false, error: `Échec Gmail : ${msg}` };
   }
 }
+

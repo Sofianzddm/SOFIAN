@@ -1719,6 +1719,115 @@ export type CastingRelanceSendOptions = {
   skipQuotedOriginal?: boolean;
 };
 
+/** Préfixe stocké dans relance(2)Error pendant l’envoi — anti double-cron casting. */
+const CASTING_RELANCE_CLAIM_R1 = "__sending_r1__:";
+const CASTING_RELANCE_CLAIM_R2 = "__sending_r2__:";
+const CASTING_RELANCE_CLAIM_TTL_MS = 15 * 60 * 1000;
+
+function parseCastingRelanceClaimTs(
+  error: string | null | undefined,
+  prefix: string
+): number | null {
+  if (!error?.startsWith(prefix)) return null;
+  const ts = Number(error.slice(prefix.length));
+  return Number.isFinite(ts) ? ts : null;
+}
+
+/**
+ * Verrou atomique anti course (cron casting ×2). Sans ça, Joey (et Leyna)
+ * renvoient la même R1 à 5–15 s d’écart (Pinko / Eurostar / Levi’s / Loavies).
+ */
+async function claimCastingRelanceSlot(
+  missionId: string,
+  round: 1 | 2
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const contactMissionModel = (prisma as unknown as { contactMission: any })
+    .contactMission;
+  const prefix =
+    round === 1 ? CASTING_RELANCE_CLAIM_R1 : CASTING_RELANCE_CLAIM_R2;
+  const touch = await contactMissionModel.findUnique({
+    where: { id: missionId },
+    select: {
+      relanceSentAt: true,
+      relance2SentAt: true,
+      relanceCancelledAt: true,
+      relanceError: true,
+      relance2Error: true,
+    },
+  });
+  if (!touch) return { ok: false, error: "Mission introuvable" };
+  if (touch.relanceCancelledAt) {
+    return { ok: false, error: "Relances annulées pour cette mission." };
+  }
+  if (round === 1 && touch.relanceSentAt) {
+    return { ok: false, error: "La relance 1 a déjà été envoyée." };
+  }
+  if (round === 2) {
+    if (!touch.relanceSentAt) {
+      return { ok: false, error: "La relance 1 doit partir avant la relance 2." };
+    }
+    if (touch.relance2SentAt) {
+      return { ok: false, error: "La relance 2 a déjà été envoyée." };
+    }
+  }
+
+  const currentError = round === 1 ? touch.relanceError : touch.relance2Error;
+  const claimTs = parseCastingRelanceClaimTs(currentError, prefix);
+  if (claimTs != null && Date.now() - claimTs < CASTING_RELANCE_CLAIM_TTL_MS) {
+    return { ok: false, error: "Relance déjà en cours d’envoi." };
+  }
+  if (claimTs != null && Date.now() - claimTs >= CASTING_RELANCE_CLAIM_TTL_MS) {
+    await contactMissionModel.update({
+      where: { id: missionId },
+      data: round === 1 ? { relanceError: null } : { relance2Error: null },
+    });
+  }
+
+  const claimToken = `${prefix}${Date.now()}`;
+  const claimed = await contactMissionModel.updateMany({
+    where:
+      round === 1
+        ? {
+            id: missionId,
+            relanceSentAt: null,
+            relanceCancelledAt: null,
+            OR: [
+              { relanceError: null },
+              { NOT: { relanceError: { startsWith: CASTING_RELANCE_CLAIM_R1 } } },
+            ],
+          }
+        : {
+            id: missionId,
+            relanceSentAt: { not: null },
+            relance2SentAt: null,
+            relanceCancelledAt: null,
+            OR: [
+              { relance2Error: null },
+              {
+                NOT: {
+                  relance2Error: { startsWith: CASTING_RELANCE_CLAIM_R2 },
+                },
+              },
+            ],
+          },
+    data:
+      round === 1
+        ? { relanceError: claimToken }
+        : { relance2Error: claimToken },
+  });
+
+  if (claimed.count === 0) {
+    return {
+      ok: false,
+      error:
+        round === 1
+          ? "La relance 1 a déjà été envoyée ou est en cours."
+          : "La relance 2 a déjà été envoyée ou est en cours.",
+    };
+  }
+  return { ok: true };
+}
+
 /**
  * Relance J+3 : envoie une relance courte en repondant au thread Gmail
  * d'origine. Une seule fois (relanceSentAt non null = skip).
@@ -1764,6 +1873,76 @@ export async function executeCastingRelance(
   }
 
   const round: 1 | 2 = options.round === 2 ? 2 : 1;
+
+  // Claim AVANT l’IA + multi-envois Gmail — sinon 2 crons chevauchés
+  // renvoient toute la vague (Pinko / Eurostar / Levi’s / Loavies côté Joey).
+  const claim = await claimCastingRelanceSlot(missionId, round);
+  if (!claim.ok) {
+    return {
+      attempted: 0,
+      succeeded: 0,
+      failed: 0,
+      skippedReplied: 0,
+      skippedBounced: 0,
+      errors: [claim.error],
+    };
+  }
+
+  const releaseClaim = async (errorMsg: string) => {
+    await contactMissionModel
+      .update({
+        where: { id: missionId },
+        data:
+          round === 1
+            ? { relanceError: errorMsg }
+            : { relance2Error: errorMsg },
+      })
+      .catch((e: unknown) =>
+        console.warn(`[executeCastingRelance] release claim R${round}:`, e)
+      );
+  };
+
+  try {
+    return await executeCastingRelanceAfterClaim({
+      missionId,
+      mission,
+      contactMissionModel,
+      round,
+      options,
+      releaseClaim,
+    });
+  } catch (error) {
+    // Ne libère PAS le claim si des mails sont déjà partis (évite un 2e envoi).
+    // Les sorties contrôlées (condensation, etc.) appellent releaseClaim elles-mêmes.
+    const msg = error instanceof Error ? error.message : "Erreur inconnue";
+    console.error(`[executeCastingRelance] abort R${round} ${missionId}:`, msg);
+    throw error;
+  }
+}
+
+async function executeCastingRelanceAfterClaim(args: {
+  missionId: string;
+  mission: any;
+  contactMissionModel: any;
+  round: 1 | 2;
+  options: CastingRelanceSendOptions;
+  releaseClaim: (errorMsg: string) => Promise<void>;
+}): Promise<{
+  attempted: number;
+  succeeded: number;
+  failed: number;
+  skippedReplied: number;
+  skippedBounced: number;
+  errors: string[];
+}> {
+  const {
+    missionId,
+    mission,
+    contactMissionModel,
+    round,
+    options,
+    releaseClaim,
+  } = args;
 
   const sentByEmail =
     mission.sentMessageIds && typeof mission.sentMessageIds === "object"
@@ -1823,15 +2002,16 @@ export async function executeCastingRelance(
     // Legacy multi-projets sans groupId : seule la carte anchor envoie,
     // sinon on retombait en solo et on ne citait qu'UN talent/projet.
     if (ctx && ctx.creators.length >= 2 && !ctx.isAnchor) {
+      const errMsg =
+        "Carte membre d'un envoi condensé — relance portée par la carte principale (tous les talents).";
+      await releaseClaim(errMsg);
       return {
         attempted: 0,
         succeeded: 0,
         failed: 0,
         skippedReplied: 0,
         skippedBounced: 0,
-        errors: [
-          "Carte membre d'un envoi condensé — relance portée par la carte principale (tous les talents).",
-        ],
+        errors: [errMsg],
       };
     }
     condensationNames = ctx?.creators ?? null;
@@ -2267,6 +2447,40 @@ export async function executeCastingRelance(
       `[executeCastingRelance] ❌ DB UPDATE FAILED for ${missionId} (succeeded=${succeeded})`,
       err
     );
+    // Si au moins un mail est parti : figer relanceSentAt pour bloquer un 2e cron.
+    if (succeeded > 0) {
+      const stamp = new Date();
+      await contactMissionModel
+        .update({
+          where: { id: missionId },
+          data:
+            round === 2
+              ? {
+                  relance2SentAt: stamp,
+                  relance2MessageIds: relanceMessages,
+                  relance2Error: `DB update failed after send: ${
+                    err instanceof Error ? err.message : String(err)
+                  }`,
+                }
+              : {
+                  relanceSentAt: stamp,
+                  relanceMessageIds: relanceMessages,
+                  relanceError: `DB update failed after send: ${
+                    err instanceof Error ? err.message : String(err)
+                  }`,
+                },
+        })
+        .catch((e: unknown) =>
+          console.error(
+            `[executeCastingRelance] ❌ claim/sentAt salvage KO ${missionId}:`,
+            e
+          )
+        );
+    } else {
+      await releaseClaim(
+        err instanceof Error ? err.message : "DB update failed"
+      );
+    }
     throw err;
   }
 

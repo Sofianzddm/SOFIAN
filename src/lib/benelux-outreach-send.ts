@@ -538,6 +538,96 @@ export type BeneluxOutreachRelanceResult =
   | { ok: true; messageId: string }
   | { ok: false; error: string };
 
+const BENELUX_RELANCE_CLAIM_R1 = "__sending_r1__:";
+const BENELUX_RELANCE_CLAIM_R2 = "__sending_r2__:";
+const BENELUX_RELANCE_CLAIM_TTL_MS = 15 * 60 * 1000;
+
+async function claimBeneluxRelanceSlot(
+  touchId: string,
+  round: 1 | 2
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const prefix =
+    round === 1 ? BENELUX_RELANCE_CLAIM_R1 : BENELUX_RELANCE_CLAIM_R2;
+  const touch = await prisma.beneluxOutreachTouch.findUnique({
+    where: { id: touchId },
+    select: {
+      relanceSentAt: true,
+      relance2SentAt: true,
+      relanceCancelledAt: true,
+      relanceError: true,
+      relance2Error: true,
+    },
+  });
+  if (!touch) return { ok: false, error: "Touch introuvable." };
+  if (touch.relanceCancelledAt) {
+    return { ok: false, error: "Les relances sont en pause sur ce mail." };
+  }
+  if (round === 1 && touch.relanceSentAt) {
+    return { ok: false, error: "La relance 1 a déjà été envoyée pour ce mail." };
+  }
+  if (round === 2) {
+    if (!touch.relanceSentAt) {
+      return { ok: false, error: "La relance 1 doit partir avant la relance 2." };
+    }
+    if (touch.relance2SentAt) {
+      return { ok: false, error: "La relance 2 a déjà été envoyée pour ce mail." };
+    }
+  }
+  const current = round === 1 ? touch.relanceError : touch.relance2Error;
+  if (current?.startsWith(prefix)) {
+    const ts = Number(current.slice(prefix.length));
+    if (Number.isFinite(ts) && Date.now() - ts < BENELUX_RELANCE_CLAIM_TTL_MS) {
+      return { ok: false, error: "Relance déjà en cours d’envoi." };
+    }
+    await prisma.beneluxOutreachTouch.update({
+      where: { id: touchId },
+      data: round === 1 ? { relanceError: null } : { relance2Error: null },
+    });
+  }
+  const claimToken = `${prefix}${Date.now()}`;
+  const claimed = await prisma.beneluxOutreachTouch.updateMany({
+    where:
+      round === 1
+        ? {
+            id: touchId,
+            relanceSentAt: null,
+            relanceCancelledAt: null,
+            OR: [
+              { relanceError: null },
+              { NOT: { relanceError: { startsWith: BENELUX_RELANCE_CLAIM_R1 } } },
+            ],
+          }
+        : {
+            id: touchId,
+            relanceSentAt: { not: null },
+            relance2SentAt: null,
+            relanceCancelledAt: null,
+            OR: [
+              { relance2Error: null },
+              {
+                NOT: {
+                  relance2Error: { startsWith: BENELUX_RELANCE_CLAIM_R2 },
+                },
+              },
+            ],
+          },
+    data:
+      round === 1
+        ? { relanceError: claimToken }
+        : { relance2Error: claimToken },
+  });
+  if (claimed.count === 0) {
+    return {
+      ok: false,
+      error:
+        round === 1
+          ? "La relance 1 a déjà été envoyée ou est en cours."
+          : "La relance 2 a déjà été envoyée ou est en cours.",
+    };
+  }
+  return { ok: true };
+}
+
 /**
  * Relance thread Gmail — round 1 (J+3) ou round 2 (J+10 après R1).
  * Corps = IA avec fallback template.
@@ -582,6 +672,23 @@ export async function executeBeneluxOutreachRelance(
       };
     }
   }
+
+  const claim = await claimBeneluxRelanceSlot(touchId, round);
+  if (!claim.ok) return claim;
+
+  const releaseClaim = async (errorMsg: string) => {
+    await prisma.beneluxOutreachTouch
+      .update({
+        where: { id: touch.id },
+        data:
+          round === 1
+            ? { relanceError: errorMsg }
+            : { relance2Error: errorMsg },
+      })
+      .catch((e) =>
+        console.warn(`[benelux-outreach] release claim R${round} KO:`, e)
+      );
+  };
 
   const target = touch.target;
   const subjectSrc = touch.subject.trim();
@@ -696,13 +803,7 @@ export async function executeBeneluxOutreachRelance(
     return { ok: true, messageId };
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Erreur Gmail inconnue";
-    await prisma.beneluxOutreachTouch.update({
-      where: { id: touch.id },
-      data:
-        round === 1
-          ? { relanceError: msg }
-          : { relance2Error: msg },
-    });
+    await releaseClaim(msg);
     return { ok: false, error: `Échec Gmail : ${msg}` };
   }
 }

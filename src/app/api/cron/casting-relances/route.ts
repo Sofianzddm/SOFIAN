@@ -56,16 +56,23 @@ async function processRelanceRound(
   try {
     const messagesByEmail =
       row.sentMessageIds && typeof row.sentMessageIds === "object"
-        ? (row.sentMessageIds as Record<string, { threadId?: string; error?: string }>)
+        ? (row.sentMessageIds as Record<
+            string,
+            { threadId?: string; error?: string; fromEmail?: string }
+          >)
         : {};
 
     // Detection PAR CONTACT : chaque destinataire a son propre thread Gmail.
+    // IMPORTANT : la boîte = fromEmail du thread (Joey vs Leyna). Un check
+    // toujours sur Leyna ne voit pas les réponses / bounces des mails Joey.
     const repliedEmails: string[] = [];
     const bouncedEmails: string[] = [];
     let pendingCount = 0;
     for (const [email, record] of Object.entries(messagesByEmail)) {
       if (!record?.threadId || record.error) continue;
-      const activity = await checkThreadActivity(LEYNA_FROM_EMAIL, record.threadId);
+      const box =
+        (record.fromEmail || "").trim().toLowerCase() || LEYNA_FROM_EMAIL;
+      const activity = await checkThreadActivity(box, record.threadId);
       if (activity.replied) {
         repliedEmails.push(email);
       } else if (activity.bounced) {
