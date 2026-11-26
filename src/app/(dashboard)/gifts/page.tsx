@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { Loader2, AlertTriangle, Gift, Plus } from "lucide-react";
+import { Loader2, AlertTriangle, Gift, Plus, ArrowUpDown } from "lucide-react";
 
 const FILTERS = [
   { value: "TOUS", label: "Tous" },
@@ -14,6 +14,28 @@ const FILTERS = [
   { value: "ENVOYE", label: "Envoyé" },
   { value: "ARCHIVES", label: "Archivés" },
 ] as const;
+
+const PRIORITE_FILTERS = [
+  { value: "TOUTES", label: "Toutes" },
+  { value: "URGENCES", label: "Urgences" },
+  { value: "URGENTE", label: "Urgente" },
+  { value: "HAUTE", label: "Haute" },
+  { value: "NORMALE", label: "Normale" },
+  { value: "BASSE", label: "Basse" },
+] as const;
+
+const SORT_OPTIONS = [
+  { value: "recent", label: "Dernière demande" },
+  { value: "ancienne", label: "Plus anciennes" },
+  { value: "priorite", label: "Priorité" },
+] as const;
+
+const PRIORITE_RANK: Record<string, number> = {
+  URGENTE: 0,
+  HAUTE: 1,
+  NORMALE: 2,
+  BASSE: 3,
+};
 
 const TYPE_LABELS: Record<string, string> = {
   PRODUIT: "Produit",
@@ -55,6 +77,10 @@ export default function GiftsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filtreStatut, setFiltreStatut] = useState("TOUS");
+  const [filtrePriorite, setFiltrePriorite] = useState("TOUTES");
+  const [sortBy, setSortBy] = useState<"recent" | "ancienne" | "priorite">(
+    "recent"
+  );
   const [searchTerm, setSearchTerm] = useState("");
 
   const user = session?.user as { role?: string };
@@ -91,21 +117,81 @@ export default function GiftsPage() {
     }
   };
 
-  const demandesFiltrees = demandes.filter((d) => {
-    const searchLower = searchTerm.toLowerCase();
-    return (
-      d.reference.toLowerCase().includes(searchLower) ||
-      `${d.talent.prenom} ${d.talent.nom}`.toLowerCase().includes(searchLower) ||
-      d.description.toLowerCase().includes(searchLower)
-    );
-  });
+  const demandesFiltrees = useMemo(() => {
+    const searchLower = searchTerm.toLowerCase().trim();
+    let list = demandes;
 
-  const stats = [
+    if (filtrePriorite === "URGENCES") {
+      list = list.filter(
+        (d) => d.priorite === "URGENTE" || d.priorite === "HAUTE"
+      );
+    } else if (filtrePriorite !== "TOUTES") {
+      list = list.filter((d) => d.priorite === filtrePriorite);
+    }
+
+    if (searchLower) {
+      list = list.filter(
+        (d) =>
+          d.reference.toLowerCase().includes(searchLower) ||
+          `${d.talent.prenom} ${d.talent.nom}`
+            .toLowerCase()
+            .includes(searchLower) ||
+          d.description.toLowerCase().includes(searchLower)
+      );
+    }
+
+    const sorted = [...list];
+    if (sortBy === "priorite") {
+      sorted.sort((a, b) => {
+        const ra = PRIORITE_RANK[a.priorite] ?? 9;
+        const rb = PRIORITE_RANK[b.priorite] ?? 9;
+        if (ra !== rb) return ra - rb;
+        return (
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      });
+    } else if (sortBy === "ancienne") {
+      sorted.sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+    } else {
+      sorted.sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+    }
+    return sorted;
+  }, [demandes, searchTerm, sortBy, filtrePriorite]);
+
+  const urgencesCount = demandes.filter(
+    (d) => d.priorite === "URGENTE" || d.priorite === "HAUTE"
+  ).length;
+
+  const stats: {
+    label: string;
+    value: number;
+    dot: string;
+    onClick?: () => void;
+    active?: boolean;
+  }[] = [
     { label: "Total", value: demandes.length, dot: "#71717a" },
+    {
+      label: "Urgences",
+      value: urgencesCount,
+      dot: "#ef4444",
+      onClick: () => {
+        setFiltrePriorite("URGENCES");
+        setSortBy("priorite");
+      },
+      active: filtrePriorite === "URGENCES",
+    },
     {
       label: "En attente",
       value: demandes.filter((d) => d.statut === "EN_ATTENTE").length,
       dot: "#eab308",
+      onClick: () => setFiltreStatut("EN_ATTENTE"),
+      active: filtreStatut === "EN_ATTENTE",
     },
     {
       label: "En cours",
@@ -120,11 +206,6 @@ export default function GiftsPage() {
         (d) => d.statut === "ACCEPTE" || d.statut === "ENVOYE"
       ).length,
       dot: "#10b981",
-    },
-    {
-      label: "Reçu",
-      value: demandes.filter((d) => d.statut === "RECU").length,
-      dot: "#8b5cf6",
     },
   ];
 
@@ -163,54 +244,129 @@ export default function GiftsPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm sm:grid-cols-3 lg:grid-cols-5">
-        {stats.map((s, i) => (
-          <div
-            key={s.label}
-            className={`flex flex-col gap-2 px-6 py-5 ${
-              i < stats.length - 1 ? "border-r border-zinc-100" : ""
-            }`}
-          >
-            <div className="flex items-center gap-2 text-[13px] text-zinc-500">
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ background: s.dot }}
-              />
-              {s.label}
+        {stats.map((s, i) => {
+          const className = `flex flex-col gap-2 px-6 py-5 text-left transition-colors ${
+            i < stats.length - 1 ? "border-r border-zinc-100" : ""
+          } ${
+            s.onClick
+              ? "cursor-pointer hover:bg-zinc-50 focus:outline-none focus-visible:bg-zinc-50"
+              : ""
+          } ${s.active ? "bg-zinc-50" : ""}`;
+          const inner = (
+            <>
+              <div className="flex items-center gap-2 text-[13px] text-zinc-500">
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ background: s.dot }}
+                />
+                {s.label}
+              </div>
+              <div className="text-[28px] font-semibold tracking-tight text-zinc-900">
+                {s.value}
+              </div>
+            </>
+          );
+          return s.onClick ? (
+            <button
+              key={s.label}
+              type="button"
+              onClick={s.onClick}
+              className={className}
+            >
+              {inner}
+            </button>
+          ) : (
+            <div key={s.label} className={className}>
+              {inner}
             </div>
-            <div className="text-[28px] font-semibold tracking-tight text-zinc-900">
-              {s.value}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Search + filters */}
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          type="text"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          placeholder="Rechercher par référence, talent ou description…"
-          className="h-[38px] min-w-[240px] flex-1 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-violet-600 focus:ring-[3px] focus:ring-violet-600/15"
-        />
-        <div className="inline-flex flex-wrap gap-0.5 rounded-lg bg-zinc-100 p-[3px]">
-          {FILTERS.map((f) => {
-            const on = filtreStatut === f.value;
-            return (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => setFiltreStatut(f.value)}
-                className={`h-8 rounded-md px-3 text-[13px] font-medium transition-colors ${
-                  on
-                    ? "bg-white text-zinc-900 shadow-sm"
-                    : "bg-transparent text-zinc-500 hover:text-zinc-700"
-                }`}
-              >
-                {f.label}
-              </button>
-            );
-          })}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Rechercher par référence, talent ou description…"
+            className="h-[38px] min-w-[240px] flex-1 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-violet-600 focus:ring-[3px] focus:ring-violet-600/15"
+          />
+          <label className="inline-flex h-[38px] items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-600">
+            <ArrowUpDown className="h-3.5 w-3.5 text-zinc-400" />
+            <span className="sr-only">Trier par</span>
+            <select
+              value={sortBy}
+              onChange={(e) =>
+                setSortBy(e.target.value as "recent" | "ancienne" | "priorite")
+              }
+              className="cursor-pointer bg-transparent text-sm font-medium text-zinc-900 outline-none"
+            >
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+              Statut
+            </span>
+            <div className="inline-flex flex-wrap gap-0.5 rounded-lg bg-zinc-100 p-[3px]">
+              {FILTERS.map((f) => {
+                const on = filtreStatut === f.value;
+                return (
+                  <button
+                    key={f.value}
+                    type="button"
+                    onClick={() => setFiltreStatut(f.value)}
+                    className={`h-8 rounded-md px-3 text-[13px] font-medium transition-colors ${
+                      on
+                        ? "bg-white text-zinc-900 shadow-sm"
+                        : "bg-transparent text-zinc-500 hover:text-zinc-700"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+              Priorité
+            </span>
+            <div className="inline-flex flex-wrap gap-0.5 rounded-lg bg-zinc-100 p-[3px]">
+              {PRIORITE_FILTERS.map((f) => {
+                const on = filtrePriorite === f.value;
+                const isUrgences = f.value === "URGENCES";
+                return (
+                  <button
+                    key={f.value}
+                    type="button"
+                    onClick={() => setFiltrePriorite(f.value)}
+                    className={`h-8 rounded-md px-3 text-[13px] font-medium transition-colors ${
+                      on
+                        ? isUrgences
+                          ? "bg-white text-red-700 shadow-sm"
+                          : "bg-white text-zinc-900 shadow-sm"
+                        : isUrgences
+                          ? "bg-transparent text-red-600/70 hover:text-red-700"
+                          : "bg-transparent text-zinc-500 hover:text-zinc-700"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -226,13 +382,18 @@ export default function GiftsPage() {
             <Gift className="h-6 w-6 text-violet-700" />
           </div>
           <p className="text-sm text-zinc-500">
-            {searchTerm
-              ? "Aucune demande ne correspond."
+            {searchTerm ||
+            filtreStatut !== "TOUS" ||
+            filtrePriorite !== "TOUTES"
+              ? "Aucune demande ne correspond à ces filtres."
               : isTM
               ? "Créez votre première demande de gift pour vos talents."
               : "Aucune demande de gift pour le moment."}
           </p>
-          {canCreate && !searchTerm && (
+          {canCreate &&
+            !searchTerm &&
+            filtreStatut === "TOUS" &&
+            filtrePriorite === "TOUTES" && (
             <Link
               href="/gifts/new"
               className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-lg bg-violet-700 px-4 text-sm font-medium text-white hover:bg-violet-800"

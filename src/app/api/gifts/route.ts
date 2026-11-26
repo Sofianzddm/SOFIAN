@@ -22,6 +22,8 @@ export async function GET(req: NextRequest) {
     const user = session.user as { id: string; role: string };
     const { searchParams } = new URL(req.url);
     const statut = searchParams.get("statut");
+    const priorite = searchParams.get("priorite");
+    const sort = searchParams.get("sort") || "recent";
     const talentId = searchParams.get("talentId");
     const mode = searchParams.get("mode");
 
@@ -117,6 +119,20 @@ export async function GET(req: NextRequest) {
       where.talentId = talentId;
     }
 
+    // priorite=URGENCES → HAUTE + URGENTE ; sinon valeur exacte (URGENTE, HAUTE…)
+    if (priorite === "URGENCES") {
+      where.priorite = { in: ["URGENTE", "HAUTE"] };
+    } else if (priorite && priorite !== "TOUTES") {
+      where.priorite = priorite;
+    }
+
+    const orderBy =
+      sort === "ancienne"
+        ? [{ createdAt: "asc" as const }]
+        : sort === "priorite"
+          ? [{ priorite: "desc" as const }, { createdAt: "desc" as const }]
+          : [{ createdAt: "desc" as const }];
+
     const demandes = await prisma.demandeGift.findMany({
       where,
       include: {
@@ -177,11 +193,26 @@ export async function GET(req: NextRequest) {
           },
         },
       },
-      orderBy: [
-        { priorite: "desc" },
-        { createdAt: "desc" },
-      ],
+      orderBy,
     });
+
+    // Tri priorité métier (URGENTE > HAUTE > NORMALE > BASSE) — Prisma trie alphabétiquement
+    if (sort === "priorite") {
+      const rank: Record<string, number> = {
+        URGENTE: 0,
+        HAUTE: 1,
+        NORMALE: 2,
+        BASSE: 3,
+      };
+      demandes.sort((a, b) => {
+        const ra = rank[a.priorite] ?? 9;
+        const rb = rank[b.priorite] ?? 9;
+        if (ra !== rb) return ra - rb;
+        return (
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      });
+    }
 
     return NextResponse.json(demandes);
   } catch (error) {
