@@ -14,3 +14,16 @@ export const cannesContactWhere: Prisma.MarqueContactWhereInput = {
     { source: "CARTO", outreachExcluded: true },
   ],
 };
+
+/**
+ * Filtre Prisma pour le CRM Marques : exclut tout contact Cannes.
+ * Utilise NOT + OR (pas `source: { not }` qui exclut aussi les NULL).
+ */
+export const notCannesContactWhere: Prisma.MarqueContactWhereInput = {
+  NOT: {
+    OR: [
+      { source: CANNES_CONTACT_SOURCE },
+      { source: "CARTO", outreachExcluded: true },
+    ],
+  },
+};

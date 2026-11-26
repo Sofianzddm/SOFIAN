@@ -46,6 +46,7 @@ export async function GET(
         emailOpenCount: true,
         updatedAt: true,
         createdAt: true,
+        contacts: true,
         marque: {
           select: {
             id: true,
@@ -78,10 +79,56 @@ export async function GET(
       return NextResponse.json({ error: "Fiche introuvable" }, { status: 404 });
     }
 
-    const contacts = (opp.marque?.contacts || []).map((c) => ({
-      ...c,
+    // Contacts isolés Cannes (marque) + stubs JSON opportunité (sans email).
+    const fromMarque = (opp.marque?.contacts || []).map((c) => ({
+      id: c.id,
+      prenom: c.prenom,
+      nom: c.nom,
       email: hideEmails && c.email ? "[masqué]" : c.email,
+      poste: c.poste,
+      priorite: c.priorite,
+      perimetre: c.perimetre,
+      localisation: c.localisation,
+      linkedinUrl: c.linkedinUrl,
+      emailLookupStatus: c.emailLookupStatus,
     }));
+
+    const jsonContacts = Array.isArray(opp.contacts)
+      ? (opp.contacts as Array<{
+          firstName?: string;
+          lastName?: string;
+          email?: string;
+          role?: string;
+        }>)
+      : [];
+
+    const seen = new Set(
+      fromMarque.map(
+        (c) =>
+          `${(c.email && c.email !== "[masqué]" ? c.email : "").toLowerCase()}|${(c.prenom || "").toLowerCase()}|${(c.nom || "").toLowerCase()}`
+      )
+    );
+    const merged = [...fromMarque];
+    for (const j of jsonContacts) {
+      const email = String(j.email || "").trim().toLowerCase();
+      const prenom = String(j.firstName || "").trim();
+      const nom = String(j.lastName || "").trim();
+      const key = `${email}|${prenom.toLowerCase()}|${nom.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push({
+        id: `json-${merged.length}`,
+        prenom: prenom || null,
+        nom: nom || "—",
+        email: hideEmails && email ? "[masqué]" : email || null,
+        poste: String(j.role || "").trim() || null,
+        priorite: null,
+        perimetre: null,
+        localisation: null,
+        linkedinUrl: null,
+        emailLookupStatus: null,
+      });
+    }
 
     return NextResponse.json({
       opportunite: {
@@ -103,10 +150,10 @@ export async function GET(
         emailOpenCount: opp.emailOpenCount,
         updatedAt: opp.updatedAt,
         createdAt: opp.createdAt,
-        contactsCount: contacts.length,
-        emailsCount: contacts.filter((c) => c.email && c.email !== "[masqué]")
+        contactsCount: merged.length,
+        emailsCount: merged.filter((c) => c.email && c.email !== "[masqué]")
           .length,
-        contacts,
+        contacts: merged,
       },
     });
   } catch (e) {

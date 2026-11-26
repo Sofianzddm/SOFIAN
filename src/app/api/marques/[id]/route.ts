@@ -9,6 +9,7 @@ import {
   canWriteMarqueCrm,
 } from "@/lib/marque-crm-access";
 import { syncMarqueAgenciesFromCartoContacts } from "@/lib/agency-partner";
+import { notCannesContactWhere } from "@/lib/cannes-partenaires/contacts";
 
 // GET - Détail d'une marque
 export async function GET(
@@ -36,14 +37,14 @@ export async function GET(
           },
         },
         contacts: {
+          // Cannes Partenaires hors CRM Marques (CANNES_CARTO / CARTO exclu).
           // NOT source=AO excluait aussi source null (bug Nuxe = 0 contacts).
-          // CANNES_CARTO = module Cannes Partenaires — hors CRM marques / outreach.
           where: canFullCrm
-            ? { source: { not: "CANNES_CARTO" } }
+            ? notCannesContactWhere
             : {
                 AND: [
                   { OR: [{ source: { not: "AO" } }, { source: null }] },
-                  { source: { not: "CANNES_CARTO" } },
+                  notCannesContactWhere,
                 ],
               },
           orderBy: [{ principal: "desc" }, { priorite: "asc" }, { createdAt: "asc" }],

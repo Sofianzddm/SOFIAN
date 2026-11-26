@@ -1,6 +1,9 @@
 /**
  * Après commit carto Cannes : crée / met à jour une OpportuniteMarque
  * sur le projet cannes-partenaires (pas d'enrôlement outreach FR 45j).
+ *
+ * Copie TOUS les contacts isolés Cannes dans opportunite.contacts
+ * (même sans email) pour que le CRM Cannes les affiche immédiatement.
  */
 
 import { prisma } from "@/lib/prisma";
@@ -16,6 +19,19 @@ export type EnrollCannesPartenairesResult = {
   nomMarque: string;
   contactsCopied: number;
 };
+
+type OppContact = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: string;
+};
+
+function contactKey(c: OppContact): string {
+  const email = c.email.trim().toLowerCase();
+  if (email) return `e:${email}`;
+  return `n:${c.firstName.trim().toLowerCase()}|${c.lastName.trim().toLowerCase()}`;
+}
 
 export async function enrollMarqueInCannesPartenaires(opts: {
   marqueId: string;
@@ -41,14 +57,16 @@ export async function enrollMarqueInCannesPartenaires(opts: {
     throw new Error("Marque introuvable pour enrôlement Cannes Partenaires");
   }
 
-  const contactsOpportunite = marque.contacts
-    .filter((c) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((c.email || "").trim()))
-    .map((c) => ({
-      firstName: (c.prenom || "").trim(),
-      lastName: (c.nom || "").trim(),
-      email: (c.email as string).trim().toLowerCase(),
-      role: (c.poste || "").trim(),
-    }));
+  const contactsOpportunite: OppContact[] = marque.contacts.map((c) => ({
+    firstName: (c.prenom || "").trim(),
+    lastName: (c.nom || "").trim(),
+    email: (c.email || "").trim().toLowerCase(),
+    role: (c.poste || "").trim(),
+  }));
+
+  const withEmail = contactsOpportunite.filter((c) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email)
+  );
 
   const existing = await prisma.opportuniteMarque.findFirst({
     where: { projetId: projet.id, marqueId: marque.id },
@@ -56,22 +74,35 @@ export async function enrollMarqueInCannesPartenaires(opts: {
   });
 
   if (existing) {
-    // Enrichit les contacts si on en a de nouveaux avec email
-    const prev = Array.isArray(existing.contacts) ? existing.contacts : [];
-    const prevEmails = new Set(
-      (prev as Array<{ email?: string }>)
-        .map((c) => String(c.email || "").toLowerCase())
-        .filter(Boolean)
-    );
-    const merged = [
-      ...(prev as object[]),
-      ...contactsOpportunite.filter((c) => !prevEmails.has(c.email)),
-    ];
+    const prev = Array.isArray(existing.contacts)
+      ? (existing.contacts as OppContact[])
+      : [];
+    const seen = new Set(prev.map(contactKey));
+    const merged = [...prev];
+    for (const c of contactsOpportunite) {
+      const key = contactKey(c);
+      if (seen.has(key)) {
+        // Met à jour l’email / rôle si on enrichit un stub existant
+        const idx = merged.findIndex((m) => contactKey(m) === key);
+        if (idx >= 0) {
+          merged[idx] = {
+            ...merged[idx],
+            email: c.email || merged[idx].email,
+            role: c.role || merged[idx].role,
+            firstName: c.firstName || merged[idx].firstName,
+            lastName: c.lastName || merged[idx].lastName,
+          };
+        }
+        continue;
+      }
+      seen.add(key);
+      merged.push(c);
+    }
     const updated = await prisma.opportuniteMarque.update({
       where: { id: existing.id },
       data: {
         contacts: merged,
-        contactQualifie: merged.length > 0 || existing.contactQualifie,
+        contactQualifie: withEmail.length > 0 || existing.contactQualifie,
         angleNote: opts.angleNote?.trim() || undefined,
       },
       select: { id: true, nomMarque: true },
@@ -95,9 +126,9 @@ export async function enrollMarqueInCannesPartenaires(opts: {
         "Import carto Cannes Partenaires — Festival de Cannes",
       typeActivation: "CANNES_PARTENARIAT",
       createdById: opts.createdById ?? null,
-      statut: contactsOpportunite.length > 0 ? "IDENTIFIEE" : "A_QUALIFIER",
+      statut: withEmail.length > 0 ? "IDENTIFIEE" : "A_QUALIFIER",
       contacts: contactsOpportunite,
-      contactQualifie: contactsOpportunite.length > 0,
+      contactQualifie: withEmail.length > 0,
       talents: [],
     },
     select: { id: true, nomMarque: true },
