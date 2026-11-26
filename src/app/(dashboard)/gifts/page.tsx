@@ -15,6 +15,12 @@ const FILTERS = [
   { value: "ARCHIVES", label: "Archivés" },
 ] as const;
 
+const TYPE_FILTERS = [
+  { value: "TOUS", label: "Tous" },
+  { value: "GIFTS", label: "Gifts" },
+  { value: "HOTEL", label: "Hôtels" },
+] as const;
+
 const PRIORITE_FILTERS = [
   { value: "TOUTES", label: "Toutes" },
   { value: "URGENCES", label: "Urgences" },
@@ -77,6 +83,9 @@ export default function GiftsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filtreStatut, setFiltreStatut] = useState("TOUS");
+  const [filtreType, setFiltreType] = useState<"TOUS" | "GIFTS" | "HOTEL">(
+    "TOUS"
+  );
   const [filtrePriorite, setFiltrePriorite] = useState("TOUTES");
   const [sortBy, setSortBy] = useState<"recent" | "ancienne" | "priorite">(
     "recent"
@@ -121,6 +130,12 @@ export default function GiftsPage() {
     const searchLower = searchTerm.toLowerCase().trim();
     let list = demandes;
 
+    if (filtreType === "HOTEL") {
+      list = list.filter((d) => d.typeGift === "HOTEL");
+    } else if (filtreType === "GIFTS") {
+      list = list.filter((d) => d.typeGift !== "HOTEL");
+    }
+
     if (filtrePriorite === "URGENCES") {
       list = list.filter(
         (d) => d.priorite === "URGENTE" || d.priorite === "HAUTE"
@@ -162,7 +177,7 @@ export default function GiftsPage() {
       );
     }
     return sorted;
-  }, [demandes, searchTerm, sortBy, filtrePriorite]);
+  }, [demandes, searchTerm, sortBy, filtrePriorite, filtreType]);
 
   const urgencesCount = demandes.filter(
     (d) => d.priorite === "URGENTE" || d.priorite === "HAUTE"
@@ -315,6 +330,31 @@ export default function GiftsPage() {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+              Type
+            </span>
+            <div className="inline-flex flex-wrap gap-0.5 rounded-lg bg-zinc-100 p-[3px]">
+              {TYPE_FILTERS.map((f) => {
+                const on = filtreType === f.value;
+                return (
+                  <button
+                    key={f.value}
+                    type="button"
+                    onClick={() => setFiltreType(f.value)}
+                    className={`h-8 rounded-md px-3 text-[13px] font-medium transition-colors ${
+                      on
+                        ? "bg-white text-zinc-900 shadow-sm"
+                        : "bg-transparent text-zinc-500 hover:text-zinc-700"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-zinc-400">
               Statut
             </span>
             <div className="inline-flex flex-wrap gap-0.5 rounded-lg bg-zinc-100 p-[3px]">
@@ -384,6 +424,7 @@ export default function GiftsPage() {
           <p className="text-sm text-zinc-500">
             {searchTerm ||
             filtreStatut !== "TOUS" ||
+            filtreType !== "TOUS" ||
             filtrePriorite !== "TOUTES"
               ? "Aucune demande ne correspond à ces filtres."
               : isTM
@@ -393,6 +434,7 @@ export default function GiftsPage() {
           {canCreate &&
             !searchTerm &&
             filtreStatut === "TOUS" &&
+            filtreType === "TOUS" &&
             filtrePriorite === "TOUTES" && (
             <Link
               href="/gifts/new"

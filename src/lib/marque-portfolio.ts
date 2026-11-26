@@ -48,6 +48,12 @@ export function ownerFirstnameFromEmail(email: string | null | undefined): strin
   return local.charAt(0).toUpperCase() + local.slice(1).toLowerCase();
 }
 
+/** True si l’envoi partira de la boîte Joey (pas de scan historique Leyna). */
+export function isJoeyPortfolioEmail(email: string | null | undefined): boolean {
+  const e = (email || "").trim().toLowerCase();
+  return e.startsWith("joey@") || e.includes("joey@");
+}
+
 export function applyOwnerPlaceholders(
   text: string,
   ownerFirstname: string

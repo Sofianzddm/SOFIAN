@@ -47,6 +47,7 @@ import {
   type PrestataireCategorie,
 } from "@/lib/projets-outreach";
 import { businessDaysAfter } from "@/lib/business-days";
+import { isJoeyPortfolioEmail } from "@/lib/marque-portfolio";
 import { MesPrestatairesPanel } from "../MesPrestatairesPanel";
 import "../po.css";
 import {
@@ -312,6 +313,13 @@ type CachedLeynaExchange = {
     notes?: string;
     lastExchangeAt?: string | null;
   }>;
+};
+
+const JOEY_EMPTY_MAILBOX_CACHE: CachedLeynaExchange = {
+  hasExchange: false,
+  tone: null,
+  bannerLabel: "Compte Joey — pas de scan Leyna (intro BD)",
+  contacts: [],
 };
 
 /** v2 : ignore anciens faux « aucun échange » (fils Glow Up internes comptés à tort). */
@@ -3706,6 +3714,11 @@ function RedactionTab({
 
     const analyzeOne = async (m: Mission) => {
       const brandName = (m.marqueNom || m.targetBrand || "").trim();
+      // Portefeuille Joey → pas de scan boîte Leyna (intro BD Joey à la rédaction).
+      if (isJoeyPortfolioEmail(missionFromEmail(m))) {
+        cacheLeynaExchange(brandName, JOEY_EMPTY_MAILBOX_CACHE);
+        return;
+      }
       const emails = effectiveMissionContacts(m)
         .map((c) => String(c.email || "").trim())
         .filter((e) => e.includes("@"));
@@ -4100,6 +4113,8 @@ function RedactionTab({
       const genMarket =
         hasBe && hasFr ? "BOTH" : hasBe ? "BENELUX" : "FR";
 
+      const fromEmail = missionFromEmail(m);
+      const joeyCold = isJoeyPortfolioEmail(fromEmail);
       // Même endpoint + mêmes champs que le bouton « Rédiger » du composer.
       const res = await fetch("/api/casting/generate-email", {
         method: "POST",
@@ -4114,7 +4129,9 @@ function RedactionTab({
           brandResearch,
           talents: talentsPayload,
           recipientEmails,
-          requireLeynaScan: true,
+          requireLeynaScan: !joeyCold,
+          skipLeynaScan: joeyCold || undefined,
+          fromEmail,
           talentResearch,
           ...projectPart,
         }),
@@ -4259,7 +4276,11 @@ function RedactionTab({
       const talentsOk = await runBatchTalentResearch({ quiet: true });
       if (!batchPipelineActiveRef.current || !talentsOk) return;
 
-      setBatchPipeline({ running: true, step: 3, label: "Boîte mail Leyna" });
+      setBatchPipeline({
+        running: true,
+        step: 3,
+        label: "Boîte mail (Leyna / skip Joey)",
+      });
       await runBatchLeynaExchange({ quiet: true });
       if (!batchPipelineActiveRef.current) return;
 
@@ -4268,7 +4289,7 @@ function RedactionTab({
       if (!batchPipelineActiveRef.current) return;
 
       setSuccess(
-        "Pipeline terminé (marque → talents → Leyna → mails). Casting peut relire et corriger."
+        "Pipeline terminé (marque → talents → historique → mails). Casting peut relire et corriger."
       );
     } finally {
       batchPipelineActiveRef.current = false;
@@ -4442,6 +4463,8 @@ function RedactionTab({
               m.clientLanguage === "EN" || first?.language === "en"
                 ? "en"
                 : "fr",
+            /** Portefeuille marque → Joey skip scan Leyna + intro BD. */
+            fromEmail: missionFromEmail(m),
             draftSubject: m.draftEmailSubject,
             draftBodyHtml: m.draftEmailBody,
           },
@@ -4754,8 +4777,12 @@ function RedactionTab({
           throw new Error(scheduleData.error || "Planification impossible.");
         }
 
+        const sendMission = campaign.missions.find((m) => m.id === missionId);
+        const sendOwner = sendMission
+          ? missionOwnerName(sendMission)
+          : "portefeuille";
         setProgress?.({
-          label: `Envoi en cours via Leyna (${selected.length} contact${selected.length > 1 ? "s" : ""})…`,
+          label: `Envoi en cours via ${sendOwner} (${selected.length} contact${selected.length > 1 ? "s" : ""})…`,
           percent: 72,
         });
         const sendRes = await fetch(
@@ -4776,7 +4803,7 @@ function RedactionTab({
           percent: 100,
         });
         setSuccess(
-          `Envoyé depuis Leyna (${sendData.succeeded ?? 0} destinataire(s)).`
+          `Envoyé depuis ${sendOwner} (${sendData.succeeded ?? 0} destinataire(s)).`
         );
         setComposerOpen(false);
         await onChanged();
@@ -4890,7 +4917,20 @@ function RedactionTab({
                 : campaign.talent.id
             }
             lockedTalentIds={composerLockedTalentIds}
-            readyLabel="Envoyer depuis Leyna"
+            fromEmail={(() => {
+              const m = campaign.missions.find(
+                (x) => x.id === composerContact?.missionBrief?.id
+              );
+              return m ? missionFromEmail(m) : null;
+            })()}
+            readyLabel={(() => {
+              const m = campaign.missions.find(
+                (x) => x.id === composerContact?.missionBrief?.id
+              );
+              return m
+                ? `Envoyer depuis ${missionOwnerName(m)}`
+                : "Envoyer";
+            })()}
             onClose={() => {
               setComposerOpen(false);
               setComposerContact(null);
@@ -5304,9 +5344,11 @@ function RedactionTab({
                     {hasLeynaAnalysis ? (
                       <span
                         title={
-                          leynaHit?.hasExchange
-                            ? leynaHit.bannerLabel || "Échange Leyna trouvé"
-                            : "Boîte Leyna scannée — aucun échange"
+                          isJoeyPortfolioEmail(missionFromEmail(m))
+                            ? "Compte Joey — pas de scan Leyna"
+                            : leynaHit?.hasExchange
+                              ? leynaHit.bannerLabel || "Échange Leyna trouvé"
+                              : "Boîte Leyna scannée — aucun échange"
                         }
                         style={{
                           fontSize: 10,
@@ -5811,11 +5853,19 @@ function EnvoisTab({
       if (!sendRes.ok) throw new Error(sendData.error || "Envoi impossible.");
 
       setSendPicker(null);
-      setSuccess(
-        force
-          ? `Envoyé (forcé) depuis Leyna (${sendData.succeeded ?? 0} destinataire(s)).`
-          : `Envoyé depuis Leyna (${sendData.succeeded ?? 0} destinataire(s)).`
-      );
+      {
+        const sendOwner = missionOwnerName(
+          queue.find((m) => m.id === missionId) || {
+            portfolioFromEmail: null,
+            portfolioOwnerName: null,
+          }
+        );
+        setSuccess(
+          force
+            ? `Envoyé (forcé) depuis ${sendOwner} (${sendData.succeeded ?? 0} destinataire(s)).`
+            : `Envoyé depuis ${sendOwner} (${sendData.succeeded ?? 0} destinataire(s)).`
+        );
+      }
       await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur");
@@ -6007,7 +6057,7 @@ function EnvoisTab({
               </h3>
               <p className="mt-1 text-xs text-gray-500">
                 {pickerMission.marqueNom || pickerMission.targetBrand} — coche
-                avant d’envoyer depuis Leyna.
+                avant d’envoyer depuis {missionOwnerName(pickerMission)}.
               </p>
             </div>
             <div className="flex-1 space-y-2 overflow-y-auto p-4">

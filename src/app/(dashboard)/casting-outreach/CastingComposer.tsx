@@ -38,6 +38,33 @@ import {
   buildDraftPrepBrief,
   type DraftPrepBrief,
 } from "@/lib/draft-prep-brief";
+import {
+  isJoeyPortfolioEmail,
+  ownerFirstnameFromEmail,
+} from "@/lib/marque-portfolio";
+
+const JOEY_EMPTY_LEYNA_EXCHANGE = {
+  hasExchange: false,
+  hasSentNoReplyOnly: false,
+  tone: null as "tu" | "vous" | null,
+  bannerLabel: "Compte Joey — pas de scan Leyna (intro BD)",
+  alerts: [] as string[],
+  promptBlockFr: "",
+  promptBlockEn: "",
+  scanStatus: "empty" as const,
+  fetchedAt: new Date().toISOString(),
+  contacts: [] as Array<{
+    email: string;
+    subject?: string | null;
+    tone?: "tu" | "vous" | null;
+    notes?: string;
+    alerts?: string[];
+    lastExchangeAt?: string | null;
+    clientSnippet?: string | null;
+    status?: "exchange" | "sent_no_reply";
+    messageCount?: number;
+  }>,
+};
 
 const LICORICE = "#1A1110";
 const OLD_ROSE = "#C08B8B";
@@ -505,6 +532,7 @@ export default function CastingComposer({
   onError,
   onSuccess,
 }: CastingComposerProps) {
+  const joeyCold = isJoeyPortfolioEmail(fromEmail);
   const condensationBriefs = contact?.missionBrief?.condensationBriefs ?? null;
 
   // Clé stable (contenu) — évite qu'un nouveau tableau `lockedTalentIds` à chaque
@@ -1049,8 +1077,9 @@ export default function CastingComposer({
     const missionId = contact.missionBrief?.id
       ? String(contact.missionBrief.id)
       : "";
-    return `${company}::${ids}::${missionId}::${lockedTalentIdsKey}`;
-  }, [open, contact, lockedTalentIdsKey]);
+    const sender = String(fromEmail || "").trim().toLowerCase();
+    return `${company}::${ids}::${missionId}::${lockedTalentIdsKey}::${sender}`;
+  }, [open, contact, lockedTalentIdsKey, fromEmail]);
 
   useEffect(() => {
     if (!composerSessionKey || !contact || !editor) return;
@@ -1118,7 +1147,10 @@ export default function CastingComposer({
       // Clé déjà posée → évite que l’effet « changement talent » wipe l’analyse.
       prevSelectedTalentKeyRef.current = [...restoreIds].sort().join(",");
     }
-    if (!multiCovered && initialLeynaExchange) {
+    if (joeyCold) {
+      setLeynaExchange(JOEY_EMPTY_LEYNA_EXCHANGE);
+      setLeynaExchangeChecked(true);
+    } else if (!multiCovered && initialLeynaExchange) {
       setLeynaExchange(initialLeynaExchange);
       setLeynaExchangeChecked(true);
     } else {
@@ -1288,6 +1320,12 @@ export default function CastingComposer({
   }, [contact, selectedRecipientIds]);
 
   const fetchLeynaExchange = useCallback(async () => {
+    if (joeyCold) {
+      setLeynaExchange(JOEY_EMPTY_LEYNA_EXCHANGE);
+      setLeynaExchangeChecked(true);
+      setLeynaExchangeLoading(false);
+      return;
+    }
     if (needsPitchBrandChoice || !researchBrandName.trim()) {
       onError("Choisis d’abord la marque pitchée (distincte de l’agence).");
       return;
@@ -1366,6 +1404,7 @@ export default function CastingComposer({
       setLeynaExchangeLoading(false);
     }
   }, [
+    joeyCold,
     needsPitchBrandChoice,
     selectedRecipientEmails,
     researchBrandName,
@@ -1799,8 +1838,9 @@ export default function CastingComposer({
           brandResearch,
           talents: talentsPayload,
           recipientEmails: selectedRecipientEmails,
-          requireLeynaScan: true,
+          requireLeynaScan: !joeyCold,
           fromEmail: fromEmail || undefined,
+          skipLeynaScan: joeyCold || undefined,
           outreachStatus: outreachStatus || undefined,
           missionStage: contact.missionBrief?.stage || null,
           draftPrepBrief: draftPrepBrief || undefined,
@@ -3467,7 +3507,9 @@ export default function CastingComposer({
                       isResearchingTalent={isResearchingTalent}
                       talentResearch={talentResearch}
                       enableLeynaExchange={
-                        Boolean(contact?.missionBrief) || effectiveTalentResearch
+                        !joeyCold &&
+                        (Boolean(contact?.missionBrief) ||
+                          effectiveTalentResearch)
                       }
                       onLeynaExchangeResearch={() => void fetchLeynaExchange()}
                       isResearchingLeynaExchange={leynaExchangeLoading}
@@ -3786,7 +3828,12 @@ export default function CastingComposer({
                           )}
                           <p className="text-xs" style={{ color: LICORICE }}>
                             <span className="opacity-60">De :</span>{" "}
-                            <span className="font-medium">Leyna &lt;{sendPreview.fromEmail}&gt;</span>
+                            <span className="font-medium">
+                              {ownerFirstnameFromEmail(
+                                sendPreview.fromEmail || fromEmail
+                              )}{" "}
+                              &lt;{sendPreview.fromEmail}&gt;
+                            </span>
                           </p>
                           <p className="text-xs" style={{ color: LICORICE }}>
                             <span className="opacity-60">À :</span>{" "}

@@ -723,13 +723,38 @@ async function processOneProjectItem(itemId: string): Promise<{
 
   let recipientEmails = contacts.map((c) => c.email);
   const talentNames = talents.map((t) => t.name);
-  const leyna = await getLeynaExchangeContext({
-    recipientEmails,
-    brandName,
-    agencyName: null,
-    talentNames,
-  });
-  if (recipientEmails.length === 0) {
+
+  // Portefeuille marque → Joey = cold intro BD, pas de scan boîte Leyna.
+  const { resolvePortfolioSender } = await import(
+    "@/lib/marque-portfolio-server"
+  );
+  const { isJoeySender } = await import("@/lib/outreach-mail-vps/prompt");
+  const portfolio = await resolvePortfolioSender(marqueId || null);
+  const fromEmail = (portfolio.fromEmail || "").trim().toLowerCase();
+  const joeyCold = isJoeySender(fromEmail);
+
+  const emptyLeyna: Awaited<ReturnType<typeof getLeynaExchangeContext>> = {
+    hasExchange: false,
+    hasSentNoReplyOnly: false,
+    tone: null,
+    bannerLabel: "Compte Joey — pas de scan Leyna",
+    alerts: [],
+    promptBlockFr: "",
+    promptBlockEn: "",
+    scanStatus: "empty",
+    fetchedAt: new Date().toISOString(),
+    contacts: [],
+  };
+
+  const leyna: Awaited<ReturnType<typeof getLeynaExchangeContext>> = joeyCold
+    ? emptyLeyna
+    : await getLeynaExchangeContext({
+        recipientEmails,
+        brandName,
+        agencyName: null,
+        talentNames,
+      });
+  if (!joeyCold && recipientEmails.length === 0) {
     recipientEmails = Array.from(
       new Set(
         (leyna.contacts || [])
@@ -738,7 +763,7 @@ async function processOneProjectItem(itemId: string): Promise<{
       )
     );
   }
-  if (leyna.scanStatus === "failed") {
+  if (!joeyCold && leyna.scanStatus === "failed") {
     const detail = String(leyna.scanError || "").trim();
     return {
       ok: false,
@@ -822,7 +847,9 @@ async function processOneProjectItem(itemId: string): Promise<{
       instagram: t.instagram || null,
     })),
     recipientEmails,
-    requireLeynaScan: true,
+    requireLeynaScan: !joeyCold,
+    skipLeynaScan: joeyCold || undefined,
+    fromEmail: fromEmail || undefined,
     talentResearch: talentResearch.filter((r) =>
       talentIds.includes(String(r.talentId || ""))
     ),

@@ -2522,7 +2522,9 @@ export default function OutreachCastingWizard({
       const outreachStatus =
         brand.targets.map((t) => String(t.status || "").trim()).find(Boolean) ||
         null;
-      const isJoeySender = Boolean(fromEmail?.startsWith("joey@"));
+      const isJoeySender =
+        Boolean(fromEmail?.startsWith("joey@")) ||
+        Boolean(fromEmail && fromEmail.includes("joey@"));
 
       const genOnce = async (ackNego: boolean) => {
         const res = await fetch("/api/casting/generate-email", {
@@ -2541,7 +2543,8 @@ export default function OutreachCastingWizard({
             recipientEmails,
             fromEmail,
             outreachStatus,
-            requireLeynaScan: !isJoeySender && !isProjectMode,
+            // Leyna → scan historique obligatoire ; Joey → cold intro BD, pas de scan.
+            requireLeynaScan: !isJoeySender,
             skipLeynaScan: isJoeySender || undefined,
             talentResearch:
               talentResearchWithAngles.length > 0
@@ -2635,6 +2638,46 @@ export default function OutreachCastingWizard({
 
   const analyzeCurrentLeyna = useCallback(async () => {
     if (!current || !currentPitch || leynaScanLoading) return;
+    const currentFromEmail =
+      current.targets
+        .map((t) => String(t.fromEmail || "").trim().toLowerCase())
+        .find((e) => e.includes("@")) || null;
+    const currentIsJoey =
+      Boolean(currentFromEmail?.startsWith("joey@")) ||
+      Boolean(currentFromEmail && currentFromEmail.includes("joey@"));
+    if (currentIsJoey) {
+      const payload: OutreachCachedLeynaExchange = {
+        hasExchange: false,
+        hasSentNoReplyOnly: false,
+        tone: null,
+        bannerLabel: "Compte Joey — pas de scan Leyna",
+        alerts: [],
+        promptBlockFr: "",
+        promptBlockEn: "",
+        scanStatus: "empty",
+        fetchedAt: new Date().toISOString(),
+        contacts: [],
+      };
+      if (isProjectMode && campaignId) {
+        cacheProjectLeynaExchange(campaignId, currentPitch, payload);
+      } else if (lockedTalentId) {
+        cacheIndivLeynaExchange(lockedTalentId, currentPitch, payload);
+      } else {
+        const markets = outreachCacheMarketsForContact({
+          pipeline: current.pipeline || market,
+          alsoInSiblingMarket:
+            current.alsoInSiblingMarket || readBothMarkets,
+        });
+        cacheOutreachLeynaExchangeMarkets(markets, currentPitch, payload);
+      }
+      setProjectCacheTick((n) => n + 1);
+      setLeynaScanOpen(true);
+      onFlash?.(
+        "success",
+        `Compte Joey — pas de scan Leyna · ${currentPitch}`
+      );
+      return;
+    }
     setLeynaScanLoading(true);
     try {
       const recipientEmails = (current.emails || [])
