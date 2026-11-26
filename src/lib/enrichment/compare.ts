@@ -4,6 +4,7 @@
 
 import { enrichWithApollo } from "@/lib/enrichment/apollo";
 import { enrichWithLusha } from "@/lib/enrichment/lusha";
+import { normalizePersonLinkedin } from "@/lib/carto-ai/linkedin-verify";
 import type {
   EnrichCompareResponse,
   EnrichPersonInput,
@@ -29,12 +30,28 @@ function mergeEmails(
   );
 }
 
+/** LinkedIn stocké parfois en %C3%A9 / sales-nav — normalise avant match API. */
+function normalizeEnrichInput(input: EnrichPersonInput): EnrichPersonInput {
+  const linkedinUrl =
+    normalizePersonLinkedin(input.linkedinUrl) ||
+    (input.linkedinUrl?.trim() || null);
+  return {
+    ...input,
+    prenom: input.prenom?.trim() || null,
+    nom: input.nom?.trim() || "",
+    company: input.company?.trim() || null,
+    domain: input.domain?.trim()?.toLowerCase().replace(/^www\./, "") || null,
+    linkedinUrl,
+  };
+}
+
 export async function compareEnrichmentProviders(
   input: EnrichPersonInput
 ): Promise<EnrichCompareResponse> {
+  const normalized = normalizeEnrichInput(input);
   const [apollo, lusha] = await Promise.all([
-    enrichWithApollo(input),
-    enrichWithLusha(input),
+    enrichWithApollo(normalized),
+    enrichWithLusha(normalized),
   ]);
 
   const apolloSet = new Set(apollo.emails.map((e) => e.email.toLowerCase()));
@@ -42,7 +59,7 @@ export async function compareEnrichmentProviders(
   const agreement = [...apolloSet].filter((e) => lushaSet.has(e)).sort();
 
   return {
-    input,
+    input: normalized,
     apollo,
     lusha,
     agreement,

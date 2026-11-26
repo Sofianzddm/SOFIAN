@@ -581,6 +581,20 @@ export function BrandEnrichPanel({
         );
       } else if (best) {
         setFlash(`Email prérempli (${best}) — vérifie puis Enregistrer.`);
+      } else if (!result.apollo.configured && !result.lusha.configured) {
+        setFlash(
+          "Clés API Apollo et Lusha absentes côté serveur — l’extension LinkedIn ne suffit pas. Ajoute APOLLO_API_KEY et LUSHA_API_KEY."
+        );
+      } else if (!result.apollo.configured || !result.lusha.configured) {
+        const missing = [
+          !result.apollo.configured ? "Apollo" : null,
+          !result.lusha.configured ? "Lusha" : null,
+        ]
+          .filter(Boolean)
+          .join(" + ");
+        setFlash(
+          `Clé API manquante (${missing}). Les emails visibles dans l’extension LinkedIn ne sont pas accessibles sans clé serveur.`
+        );
       } else {
         setFlash("Aucun email trouvé chez Apollo ni Lusha.");
       }
