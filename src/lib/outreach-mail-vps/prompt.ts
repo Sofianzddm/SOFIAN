@@ -3,6 +3,11 @@
  * Tour 1 : Gmail Leyna (alertes + tu/vous). Tour 2 : web marque + mail 10/10.
  */
 
+import {
+  IDENTITY_LABEL_BAN_FR,
+  scrubIdentityLabels,
+} from "@/lib/identity-label-ban";
+
 export type OutreachMailVpsTalent = {
   name: string;
   instagram?: string | null;
@@ -99,9 +104,9 @@ function talentsBlock(talents: OutreachMailVpsTalent[], brand: string): string {
       ]
         .filter(Boolean)
         .join(" · ");
-      const presentation = String(t.presentation || "").trim();
-      const who = String(t.whoTheyAre || "").trim();
-      const what = String(t.whatTheyDo || "").trim();
+      const presentation = scrubIdentityLabels(String(t.presentation || "").trim());
+      const who = scrubIdentityLabels(String(t.whoTheyAre || "").trim());
+      const what = scrubIdentityLabels(String(t.whatTheyDo || "").trim());
       return [
         `### Talent ${i + 1} — ${t.name}`,
         t.instagram ? `- Instagram: ${t.instagram}` : null,
@@ -118,22 +123,22 @@ function talentsBlock(talents: OutreachMailVpsTalent[], brand: string): string {
           : null,
         stats ? `- Stats Glow Up (CRM): ${stats}` : null,
         t.profileAnalysis
-          ? `- Analyse profil (data Glow Up): ${t.profileAnalysis}`
+          ? `- Analyse profil (data Glow Up): ${scrubIdentityLabels(t.profileAnalysis)}`
           : null,
         t.contentThemes
-          ? `- Thèmes contenu (data Glow Up): ${t.contentThemes}`
+          ? `- Thèmes contenu (data Glow Up): ${scrubIdentityLabels(t.contentThemes)}`
           : null,
         t.whyRelevant
-          ? `- Pourquoi pertinent pour ${brand} (data Glow Up): ${t.whyRelevant}`
+          ? `- Pourquoi pertinent pour ${brand} (data Glow Up): ${scrubIdentityLabels(t.whyRelevant)}`
           : null,
         t.castingWhyFit
-          ? `- Why-fit casting (data Glow Up): ${t.castingWhyFit}`
+          ? `- Why-fit casting (data Glow Up): ${scrubIdentityLabels(t.castingWhyFit)}`
           : null,
         t.proofPoints
-          ? `- Preuves / pics (data Glow Up): ${t.proofPoints}`
+          ? `- Preuves / pics (data Glow Up): ${scrubIdentityLabels(t.proofPoints)}`
           : null,
         t.suggestedAngle
-          ? `- Angle casting (fil conducteur — data Glow Up): ${t.suggestedAngle}`
+          ? `- Angle casting (fil conducteur — data Glow Up): ${scrubIdentityLabels(t.suggestedAngle)}`
           : null,
       ]
         .filter(Boolean)
@@ -327,7 +332,9 @@ function humanToneBlock(): string {
 - « Nous serions ravis d'envisager une collaboration »
 - Dump d’abonnés / « X millions de vues » dans les puces talents
 - CTA « Seriez-vous intéressé… prochaines campagnes » / « Je peux vous transmettre rapidement leurs media kits »
-→ Ces formulations = ANCIEN générateur. Utilise UNIQUEMENT la structure gold (Joey ou Leyna) de ce prompt.`;
+→ Ces formulations = ANCIEN générateur. Utilise UNIQUEMENT la structure gold (Joey ou Leyna) de ce prompt.
+
+### ${IDENTITY_LABEL_BAN_FR}`;
 }
 
 /**

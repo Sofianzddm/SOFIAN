@@ -21,6 +21,11 @@ import {
   tokenizeGiftPrenomGreeting,
 } from "@/lib/gifts/contact-marque-ai-scrub";
 import { normalizeContactLanguage } from "@/lib/gifts/contact-language";
+import {
+  IDENTITY_LABEL_BAN_EN,
+  IDENTITY_LABEL_BAN_FR,
+  scrubIdentityLabels,
+} from "@/lib/identity-label-ban";
 
 const AI_MODEL = "gpt-4o";
 const INSTAGRAM_LINK_STYLE =
@@ -191,7 +196,9 @@ function formatGiftTalentBlock(t: GiftTalentSnap): string {
     `- ${t.name}${t.niche ? ` (${t.niche})` : ""}`,
   ];
   if (t.presentation) {
-    lines.push(`  Presentation: ${t.presentation.slice(0, 280)}`);
+    lines.push(
+      `  Presentation: ${scrubIdentityLabels(t.presentation.slice(0, 280))}`
+    );
   }
   const handle = normalizeInstagramHandle(t.instagram);
   const igUrl = getInstagramProfileUrl(t.instagram);
@@ -262,6 +269,7 @@ RULES:
 - Do NOT invent prior conversations beyond the previous email below.
 - No marketing fluff: showcase, scenography, immersive, statement…
 - Include the Instagram @handle in the talent paragraph when provided in TALENT PROFILE.
+- ${IDENTITY_LABEL_BAN_EN}
 
 CTA SUGGESTED (use it or a VERY close variant, same meaning):
 ${opts.suggestedCta}
@@ -307,6 +315,7 @@ RÈGLES:
 - INTERDIT jargon : scénographie, showcase, statement, immersif…
 - Inclure le @handle Instagram dans le paragraphe talent quand fourni dans TALENT PROFILE.
 - INTERDIT écriture inclusive / (e).
+- ${IDENTITY_LABEL_BAN_FR}
 
 CTA SUGGÉRÉ (utilise-le ou une variante TRÈS proche, même sens) :
 ${opts.suggestedCta}
@@ -393,6 +402,7 @@ function postProcessGiftRelanceBody(
   out = scrubCringeCtas(out);
   out = scrubMarketingFluff(out);
   if (opts.language !== "en") out = scrubVouvoiementLeaks(out);
+  out = scrubIdentityLabels(out);
   out = ensureGiftParagraphs(out);
   return out.trim();
 }
@@ -691,7 +701,10 @@ export async function generateGiftRelanceBody(opts: {
     body = ensureGiftParagraphs(body);
   }
 
-  return { subject, bodyText: body };
+  return {
+    subject: scrubIdentityLabels(subject),
+    bodyText: scrubIdentityLabels(body),
+  };
 }
 
 /** Fallback lettre structurée si l'IA échoue / qualité insuffisante. */

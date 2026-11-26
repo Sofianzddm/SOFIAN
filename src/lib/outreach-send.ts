@@ -35,6 +35,7 @@ import {
 } from "@/lib/casting-auto-send";
 import { ownerFirstnameFromEmail } from "@/lib/marque-portfolio";
 import { resolvePortfolioSender } from "@/lib/marque-portfolio-server";
+import { scrubIdentityLabels } from "@/lib/identity-label-ban";
 import {
   collectCastingGmailIdsForEmail,
   evaluateEmailSendGuard,
@@ -399,8 +400,10 @@ export async function executeOutreachSend(
   } catch {
     /* soft */
   }
-  const bodyTpl = normalizeEditorHtmlForEmail(
-    ensureTalentExtralinksInHtml(trimEmailHtmlEdges(bodyRaw), talentLinkInputs)
+  const bodyTpl = scrubIdentityLabels(
+    normalizeEditorHtmlForEmail(
+      ensureTalentExtralinksInHtml(trimEmailHtmlEdges(bodyRaw), talentLinkInputs)
+    )
   );
   const personalizedBody = applyCastingTemplateVars(bodyTpl, vars);
 
@@ -997,8 +1000,13 @@ export async function executeOutreachRelance(
       ),
       ownerFirstname: ownerFirstnameFromEmail(fromEmail),
     };
-    const bodyWithVars = applyCastingTemplateVars(bodyTemplate, vars);
-    const body = normalizeEditorHtmlForEmail(bodyWithVars);
+    const bodyWithVars = applyCastingTemplateVars(
+      scrubIdentityLabels(bodyTemplate),
+      vars
+    );
+    const body = scrubIdentityLabels(
+      normalizeEditorHtmlForEmail(bodyWithVars)
+    );
     const trackedBody = injectOutreachTracking(body, touch.id);
 
     const fromName = await getGmailFromName(fromEmail);

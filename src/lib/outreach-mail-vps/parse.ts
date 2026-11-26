@@ -4,6 +4,7 @@
 
 import { plainTextToEmailHtml } from "@/lib/email-body-html";
 import { stripEndMarker } from "@/lib/carto-chat-vps/end-marker";
+import { scrubIdentityLabels } from "@/lib/identity-label-ban";
 import { ensureContactFirstnameToken } from "@/lib/outreach-mail-vps/ensure-contact-firstname-token";
 import { getInstagramProfileUrl } from "@/lib/social-links";
 import { trimEmailHtmlEdges } from "@/lib/talent-email-links";
@@ -1052,5 +1053,11 @@ export function parseOutreachMailVpsAnswer(
   assertOutreachVpsMailQuality(bodyHtml);
   const recap = parseNotesBlock(notes);
 
-  return { subject, bodyHtml, notes, recap, raw };
+  return {
+    subject: scrubIdentityLabels(subject),
+    bodyHtml: scrubIdentityLabels(bodyHtml),
+    notes,
+    recap,
+    raw,
+  };
 }

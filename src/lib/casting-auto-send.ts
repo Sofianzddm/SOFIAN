@@ -43,6 +43,7 @@ import {
   loadCastingRecipientBlocklist,
 } from "@/lib/casting-recipient-guard";
 import { enrollIfMissingAfterPipelineSend } from "@/lib/outreach-bridge";
+import { scrubIdentityLabels } from "@/lib/identity-label-ban";
 import {
   filterEmailsBySendGuard,
   resolveMissionSendLine,
@@ -1000,7 +1001,11 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
       company: String(mission.targetBrand || ""),
       ownerFirstname,
     });
-    const trackedBody = injectCastingTracking(personalizedBody, missionId, email);
+    const trackedBody = injectCastingTracking(
+      scrubIdentityLabels(personalizedBody),
+      missionId,
+      email
+    );
     try {
       const messageId = await sendGmail({
         fromEmail,
@@ -2321,7 +2326,7 @@ async function executeCastingRelanceAfterClaim(args: {
         fromEmail,
         to: email,
         subject: personalizedSubject,
-        htmlBody: finalHtml,
+        htmlBody: scrubIdentityLabels(finalHtml),
         threadId: sameMailbox ? record.threadId : undefined,
         inReplyTo,
         includeSignature: false,

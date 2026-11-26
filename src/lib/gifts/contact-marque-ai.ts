@@ -21,6 +21,11 @@ import {
   tokenizeGiftPrenomGreeting,
 } from "@/lib/gifts/contact-marque-ai-scrub";
 import { normalizeContactLanguage } from "@/lib/gifts/contact-language";
+import {
+  IDENTITY_LABEL_BAN_EN,
+  IDENTITY_LABEL_BAN_FR,
+  scrubIdentityLabels,
+} from "@/lib/identity-label-ban";
 
 const BRAND_RESEARCH_TOOLS = [{ type: "web_search" }, { type: "x_search" }] as const;
 
@@ -261,7 +266,7 @@ export async function generateGiftContactEmailForMarque(
       ? `Clients passés (sélection): ${input.talent.selectedClients.slice(0, 8).join(", ")}`
       : null,
     input.talent.presentation?.trim()
-      ? `Présentation: ${input.talent.presentation.trim().slice(0, 500)}`
+      ? `Présentation: ${scrubIdentityLabels(input.talent.presentation.trim().slice(0, 500))}`
       : input.talent.bio?.trim()
         ? `Bio: ${input.talent.bio.trim().slice(0, 500)}`
         : null,
@@ -297,6 +302,7 @@ LANGUE OBLIGATOIRE : ${isEn ? "ENGLISH ONLY" : "FRANÇAIS (tutoiement)"}.
 
 RÈGLES DURES (comme le pipeline casting, mais SANS historique Leyna) :
 ${langRules}
+- ${isEn ? IDENTITY_LABEL_BAN_EN : IDENTITY_LABEL_BAN_FR}
 - PERSONNALISATION FORTE : parle clairement de "${input.marque.nom}" et croise CONCEPT × recherche.
 - ADAPTER LA DEMANDE AU CATALOGUE (critique) :
   • Le brief talent est l'INTENTION (ex. ambiance Noël boutique), PAS le wording exact à coller partout.
@@ -410,6 +416,8 @@ Réponds UNIQUEMENT en JSON (dans "body", utilise \\n\\n entre chaque paragraphe
   if (!isEn) body = scrubVouvoiementLeaks(body);
   body = scrubHeyOpeners(body, language);
   body = scrubMarketingFluff(body);
+  body = scrubIdentityLabels(body);
+  subject = scrubIdentityLabels(subject);
   body = ensureGiftParagraphs(body);
   body = tokenizeGiftPrenomGreeting(body, language);
 

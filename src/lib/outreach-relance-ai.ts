@@ -12,6 +12,11 @@ import {
   getInstagramProfileUrl,
   normalizeInstagramHandle,
 } from "@/lib/social-links";
+import {
+  IDENTITY_LABEL_BAN_EN,
+  IDENTITY_LABEL_BAN_FR,
+  scrubIdentityLabels,
+} from "@/lib/identity-label-ban";
 
 const AI_MODEL = "gpt-4o";
 const MAX_BODY_CHARS = 4500;
@@ -461,7 +466,9 @@ function formatTalentBlock(t: TalentSnap, index: number): string {
     }`,
   ];
   if (t.presentation) {
-    lines.push(`  Presentation: ${t.presentation.slice(0, 280)}`);
+    lines.push(
+      `  Presentation: ${scrubIdentityLabels(t.presentation.slice(0, 280))}`
+    );
   }
   const handle = normalizeInstagramHandle(t.instagram);
   const igUrl = getInstagramProfileUrl(t.instagram);
@@ -550,21 +557,6 @@ function scrubAiProfileInvites(html: string): string {
     .trim();
 }
 
-/** Retire labels orientation / identité (filet post-IA). */
-function scrubIdentityLabels(html: string): string {
-  return String(html || "")
-    .replace(/\bcouple\s+lesbien(?:ne)?s?\b/gi, "couple")
-    .replace(/\blesbiennes?\b/gi, "")
-    .replace(/\bgays?\b/gi, "")
-    .replace(/\bLGBTQ\+?\b/gi, "")
-    .replace(/\bqueers?\b/gi, "")
-    .replace(/\borientation\s+sexuelle\b/gi, "")
-    .replace(/\blesbian\s+couples?\b/gi, "couple")
-    .replace(/\blesbians?\b/gi, "")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/\s+([,.;])/g, "$1")
-    .trim();
-}
 
 function ensureGreeting(html: string): string {
   if (/\{\{\s*contact\.firstname\s*\}\}/i.test(html)) {
@@ -788,7 +780,7 @@ RULES:
 - Keep {{contact.firstname}} literal. Write brand name plainly (« ${brand} »).
 - Letter paragraphs with <br /><br /> — never one pasted block.
 - Forbidden: competitor brands, telegraphic dash-stats, "still interested", ranking creators.
-- ABSOLUTE BAN — privacy / identity labels: NEVER write "lesbian couple", "lesbian", "gay", "LGBTQ", "queer", or any sexual-orientation / gender-identity label. Neutral couple/family wording only ("with her wife/partner", "couple humour") WITHOUT labeling.
+- ${IDENTITY_LABEL_BAN_EN}
 
 PREVIOUS SUBJECT: ${args.previousSubject || "—"}
 PREVIOUS EMAIL (truncated):
@@ -836,10 +828,7 @@ RÈGLES :
 - INTERDIT ABSOLU de classer / enchaîner les talents : jamais « Ensuite », « Enfin »,
   « se distingue », « de son côté », « quant à elle », « à ses côtés », « complète ce trio »,
   « talent principal », « HERO ». Chaque personne = paragraphe indépendant.
-- INTERDIT ABSOLU — étiquettes vie privée / identité : jamais « couple lesbien », « lesbienne »,
-  « gay », « LGBTQ », « queer », ni aucun label d’orientation sexuelle / identité de genre.
-  Couple / famille / parentalité OK en neutre (« avec sa femme / son compagnon », « humour de couple »)
-  SANS labelliser.
+- ${IDENTITY_LABEL_BAN_FR}
 
 OBJET INITIAL : ${args.previousSubject || "—"}
 MAIL INITIAL (extrait) :

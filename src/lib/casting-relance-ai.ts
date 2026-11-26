@@ -12,6 +12,11 @@ import {
   getInstagramProfileUrl,
   normalizeInstagramHandle,
 } from "@/lib/social-links";
+import {
+  IDENTITY_LABEL_BAN_EN,
+  IDENTITY_LABEL_BAN_FR,
+  scrubIdentityLabels,
+} from "@/lib/identity-label-ban";
 
 /** Style lien IG (surligné / gras) — même rendu que presskit. */
 const INSTAGRAM_LINK_STYLE =
@@ -495,7 +500,9 @@ function formatTalentBlock(t: TalentSnap, role: "hero" | "secondary"): string {
     }`,
   ];
   if (t.presentation) {
-    lines.push(`  Presentation: ${t.presentation.slice(0, 280)}`);
+    lines.push(
+      `  Presentation: ${scrubIdentityLabels(t.presentation.slice(0, 280))}`
+    );
   }
   const handle = normalizeInstagramHandle(t.instagram);
   const igUrl = getInstagramProfileUrl(t.instagram);
@@ -756,7 +763,8 @@ RÈGLES MÉTIER :
 - INTERDIT ABSOLU écriture inclusive / IA : jamais « intéressé(e) », « ouvert(e) », « prêt(e) », « motivé(e) », ni AUCUNE parenthèse de genre « (e) », « (ne) », « (se) ».
 - Pour CHAQUE talent (1, 2 ou 3) avec Instagram : OBLIGATOIRE d’inclure SON lien @handle dans SON paragraphe, HTML rose surligné/gras : <a href="https://instagram.com/HANDLE" style="color:#E1306C;text-decoration:underline;font-weight:bold">@HANDLE</a>. Jamais un talent sans lien si le handle est fourni. Pas de @ brut sans balise <a>.
 - INTERDIT ABSOLU — trop IA : jamais « rends-toi sur son profil », « rendez-vous sur son profil », « va sur son Instagram », « jette un œil à son profil », « check out their profile », ni aucune invite à aller voir le profil. Le lien IG suffit.
-- INTERDIT ABSOLU — étiquettes vie privée / identité : jamais « couple lesbien », « lesbienne », « gay », « LGBTQ », « queer », ni aucun label d’orientation sexuelle / identité de genre. Couple / famille OK en neutre (« avec sa femme / son compagnon », « humour de couple ») SANS labelliser.
+- ${IDENTITY_LABEL_BAN_FR}
+- ${IDENTITY_LABEL_BAN_EN}
 - Garder EXACTEMENT {{contact.firstname}} dans le salut.
 - Écrire le nom de marque en clair (« ${opts.brand} ») — JAMAIS {{contact.company}} ni un trou « avec , » / « pour  ».
 - INTERDIT : « pour lequel nous n’avons pas encore eu de retour », « je souhaitais partager quelques détails sur les talents », « talents que nous avons identifiés », « se démarque », « engagement impressionnant », « influence notable », « potentiel viral ».
@@ -1189,6 +1197,7 @@ function postProcessBody(
   let html = forceLetterHtmlStructure(out, language);
   // Re-force les liens IG après reformatage (multi : 1 lien par talent)
   html = ensureTalentIgLinks(html, talents);
+  html = scrubIdentityLabels(html);
   if (!html || html.length < 40) return null;
   if (html.length > MAX_BODY_CHARS) return null;
   // Rejette les mini-mails télégraphiques (force retry / fallback plutôt qu’envoyer un blurb)

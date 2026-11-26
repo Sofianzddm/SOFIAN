@@ -35,6 +35,12 @@ import {
   ensureOutreachMailClosingHtml,
   rewriteFactoryOutreachSubject,
 } from "@/lib/outreach-mail-vps/parse";
+import {
+  IDENTITY_LABEL_BAN_EN,
+  IDENTITY_LABEL_BAN_FR,
+  scrubIdentityLabels,
+  scrubIdentityLabelsDeep,
+} from "@/lib/identity-label-ban";
 
 export const maxDuration = 180;
 
@@ -681,7 +687,7 @@ INTERDITS :
 - Salut (Bonjour + J'espère…) une seule fois ; clôture Cordialement, (sans prénom / sans variable owner).
 - INTERDIT absolu : talentbook, roster, catalogue, book de talents, lien app.glowupagence.fr/talentbook.
 - INTERDIT absolu : « paid », « payé », « rémunéré », « collaboration paid ». Parle d’une collaboration / d’un projet.
-- INTERDIT ABSOLU : « couple lesbien », « lesbienne », « gay », « LGBTQ », ou tout label d'orientation / identité.
+- ${IDENTITY_LABEL_BAN_FR}
 - INTERDIT ABSOLU : prix / tarifs / budgets.
 - INTERDIT ABSOLU : citer une autre marque / concurrent / collab passée du talent. Seule marque = ${brandName}.
 `
@@ -709,7 +715,7 @@ INTERDITS :
 - Salut (Bonjour + J'espère…) une seule fois ; clôture Cordialement, (sans prénom / sans variable owner).
 - INTERDIT absolu : talentbook, roster, catalogue, book de talents, lien app.glowupagence.fr/talentbook, « découvrir nos autres talents ».
 - INTERDIT absolu : les mots « paid », « payé », « rémunéré », « collaboration paid », « collab paid ». Parle d’une collaboration / d’un projet, sans qualifier le modèle économique.
-- INTERDIT ABSOLU : « couple lesbien », « lesbienne », « gay », « LGBTQ », ou tout label d'orientation / identité.
+- ${IDENTITY_LABEL_BAN_FR}
 - INTERDIT ABSOLU : prix / tarifs / budgets.
 - INTERDIT ABSOLU : citer une autre marque / concurrent / collab passée du talent. Seule marque = ${brandName}.
 `
@@ -739,6 +745,7 @@ PROHIBITIONS:
 - Greeting (Hi + I hope…) once only; close with Best regards, (no first name / no owner variable).
 - Absolute ban: talentbook / roster / catalog links.
 - Absolute ban: "paid", "paid collab". Speak of a collaboration / project.
+- ${IDENTITY_LABEL_BAN_EN}
 `
         : `
 MULTI-PROJECT CONDENSATION BRIEF (MANDATORY) :
@@ -764,6 +771,7 @@ PROHIBITIONS:
 - Greeting (Hi + I hope…) once only; close with Best regards, (no first name / no owner variable).
 - Absolute ban: talentbook, roster, catalog, talent book link, app.glowupagence.fr/talentbook, "discover our other talents".
 - Absolute ban: the words "paid", "paid collab", "paid collaboration". Speak of a collaboration / project without naming the commercial model.
+- ${IDENTITY_LABEL_BAN_EN}
 `
       : "";
 
@@ -808,7 +816,7 @@ INTERDITS PROSPECTION TALENT (absolus) :
 - INTERDIT : « paid », « collaboration paid », « collab paid », « payé », « rémunéré » — écris « collaboration » / « opportunité ».
 - INTERDIT : répéter le salut — une seule fois en tête.
 - INTERDIT : clôturer par « Belle journée, » — utiliser exactement la clôture indiquée plus bas (Cordialement, sans prénom).
-- INTERDIT ABSOLU : « couple lesbien », « lesbienne », « gay », « LGBTQ », ou tout label d'orientation / identité — couple & famille OK en neutre, sans étiquette.
+- ${IDENTITY_LABEL_BAN_FR}
 - INTERDIT ABSOLU : prix / tarifs / budgets / « X € ».
 - INTERDIT ABSOLU : citer une autre marque / concurrent / collab passée du talent (ex. Biotherm, Sephora). Seule marque = ${brandName}.
 `
@@ -859,7 +867,7 @@ INTERDITS PROJET (absolus) :
 - INTERDIT : « paid », « collaboration paid », « collab paid », « payé », « rémunéré ». Même si l'objectif du brief dit Paid, écris seulement « collaboration » / « projet » / « opportunité » — jamais le modèle économique.
 - INTERDIT : répéter le salut (« Bonjour… » / « J'espère que vous allez bien ? ») — une seule fois en tête.
 - INTERDIT : clôturer par « Belle journée, » — utiliser exactement la clôture indiquée plus bas (Cordialement, sans prénom).
-- INTERDIT ABSOLU : « couple lesbien », « lesbienne », « gay », « LGBTQ », ou tout label d'orientation / identité — couple & famille OK en neutre, sans étiquette.
+- ${IDENTITY_LABEL_BAN_FR}
 - INTERDIT ABSOLU : prix / tarifs / budgets / « X € ».
 - INTERDIT ABSOLU — fiche e-commerce / brochure IA : fabriqué en France (ou pays), « disponible sur …com », livraison gratuite / délais / seuils (€), stock, codes promo, URL boutique. DROP ces détails même s'ils sont dans la recherche marque.
 - INTERDIT ABSOLU : citer une autre marque / concurrent / collab passée du talent. Seule marque = ${brandName}.
@@ -901,7 +909,7 @@ TALENT PROSPECTING PROHIBITIONS (absolute):
 - FORBIDDEN: "paid" / "paid collaboration" — write "collaboration" / "opportunity".
 - FORBIDDEN: repeating the greeting — once at the top only.
 - FORBIDDEN: closing with "Have a nice day," — use the exact closing below (Best regards, no first name).
-- ABSOLUTE BAN: "lesbian couple", "lesbian", "gay", "LGBTQ", or any orientation/identity label — neutral couple/family wording only, no labels.
+- ${IDENTITY_LABEL_BAN_EN}
 - ABSOLUTE BAN: prices / rates / budgets / "€X".
 - ABSOLUTE BAN: naming another brand / competitor / past collab of the talent. Only brand = ${brandName}.
 `
@@ -952,6 +960,7 @@ PROJECT PROHIBITIONS (absolute):
 - FORBIDDEN: "paid", "paid collab", "paid collaboration". Even if the brief objective says Paid, write only "collaboration" / "project" / "opportunity" — never the commercial model.
 - FORBIDDEN: repeating the greeting ("Hi…" / "I hope you are doing well?") — exactly once at the top.
 - FORBIDDEN: closing with a casual "Have a nice day," — use exactly the closing specified below (Best regards, no first name).
+- ${IDENTITY_LABEL_BAN_EN}
 - ABSOLUTE BAN: prices / rates / budgets / "€X".
 - ABSOLUTE BAN: naming another brand / competitor / past collab of the talent. Only brand = ${brandName}.
 `
@@ -1233,17 +1242,19 @@ PDF ATTACHMENT (mandatory): the project presentation PDF will be attached to thi
 - La croissance d'abonnés est secondaire. Varie ; n'invente rien ; ne vends pas des vues médiocres.\n`
       : `\nPERF CONTENU / MOMENTUM : si CONTENU CRM / RECHERCHE CRÉATEUR montre du contenu qui cartonne (TikToks / Reels / posts / stories), tu peux ajouter une courte proposition naturelle. Préfère la perf contenu à la croissance d'abonnés. N'invente rien.\n`;
 
-    const talentResearchList = Array.isArray(body.talentResearch)
-      ? body.talentResearch.filter(
-          (r) =>
-            r &&
-            (String(r.whoTheyAre || "").trim() ||
-              String(r.whatTheyDo || "").trim() ||
-              String(r.profileAnalysis || "").trim() ||
-              String(r.whyRelevant || "").trim() ||
-              String(r.contentThemes || "").trim())
-        )
-      : [];
+    const talentResearchList = scrubIdentityLabelsDeep(
+      Array.isArray(body.talentResearch)
+        ? body.talentResearch.filter(
+            (r) =>
+              r &&
+              (String(r.whoTheyAre || "").trim() ||
+                String(r.whatTheyDo || "").trim() ||
+                String(r.profileAnalysis || "").trim() ||
+                String(r.whyRelevant || "").trim() ||
+                String(r.contentThemes || "").trim())
+          )
+        : []
+    );
     const hasTalentResearch = talentResearchList.length > 0;
     const hasCastingAngles = talentResearchList.some(
       (r) =>
@@ -1890,7 +1901,7 @@ STRICT PROHIBITIONS:
 - Never invent facts, campaigns, or details.
 - Never use Markdown other than the allowed bold text.
 - Never use a disparaging comparison like "rather than mega influencers", "instead of big accounts", "unlike macro-influencers". Never compare our talents to other profiles.
-- ABSOLUTE BAN — privacy / identity labels: NEVER write "lesbian couple", "lesbian", "gay", "LGBTQ", "queer", or any sexual-orientation / gender-identity label. Neutral couple/family wording is OK ("with her wife/partner", "couple humour", "young mum") WITHOUT labeling. No intimate medical sensationalism unless the ops context explicitly asks for it.
+- ${IDENTITY_LABEL_BAN_EN}
 - ABSOLUTE BAN — pricing: NEVER mention a price, rate, budget, "€X", product value, free-shipping threshold, or any paid/fee figure.
 - ABSOLUTE BAN — e-commerce / brochure filler (sounds AI): NEVER paste catalog FAQ lines — "made in France/EU", "available on brand.com", free shipping / delivery terms / thresholds, stock, promo codes, shop URLs. You're pitching a collab, not reciting the e-shop. If brand research includes those details, DROP them.
 - ABSOLUTE BAN — competitors / past collabs: NEVER name another brand the talent has already worked with (e.g. "with Biotherm", "Petit Bateau collab", "for Sephora"). The only brand name allowed in the email is ${brandNameToken}. If research cites other brands, DROP the names; keep only content type / proof (views, format) without naming the competitor.
@@ -2037,7 +2048,7 @@ INTERDITS STRICTS :
 - Jamais inventer de faits, de campagnes ou de détails.
 - Jamais d’autres Markdown que les gras autorisés.
 - Jamais d'opposition/comparaison dévalorisante du type "plutôt que des méga influenceuses", "au lieu des gros comptes", "à l'inverse des macro-influenceurs". Ne compare jamais nos talents à d'autres profils.
-- INTERDIT ABSOLU — étiquettes vie privée / identité : ne JAMAIS écrire « couple lesbien », « lesbienne », « gay », « LGBTQ », « queer », ni aucun label d'orientation sexuelle ou d'identité de genre. Tu peux parler de couple / famille / parentalité de façon neutre (« avec sa femme / son compagnon », « humour de couple », « jeune maman ») SANS labelliser. Pas de sensationalisme intime (PMA, parcours médical) sauf si le contexte ops le demande explicitement.
+- ${IDENTITY_LABEL_BAN_FR}
 - INTERDIT ABSOLU — prix : ne JAMAIS mentionner un prix, tarif, budget, « à X € », fourchette, valeur produit, seuil de livraison, « collab paid » / rémunération chiffrée.
 - INTERDIT ABSOLU — fiche e-commerce / brochure IA : ne JAMAIS coller des infos catalogue du type « fabriqué en France », « disponible sur marque.com », « livraison gratuite dès … », délais / zones de livraison, stock, codes promo, URL boutique. Tu pitches une collab, tu ne récites pas la FAQ e-shop. Si la recherche marque contient ces détails, DROP-les.
 - INTERDIT ABSOLU — concurrents / collabs passées : ne JAMAIS citer une autre marque avec laquelle le talent a déjà collaboré (ex. « avec Biotherm », « collab Petit Bateau », « pour Typology », « déjà travaillé avec Sephora »). Seule marque nommable dans le mail = ${brandNameToken}. Si la recherche cite d'autres marques, DROP les noms ; garde seulement le type de contenu / la preuve (vues, format) sans nommer le concurrent.
@@ -2237,6 +2248,8 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
 
       parsed.body = stripDuplicateGreeting(asHtml);
       parsed.body = stripOwnerFirstnameToken(parsed.body);
+      parsed.body = scrubIdentityLabels(parsed.body);
+      parsed.subject = scrubIdentityLabels(parsed.subject);
 
       if (!useGoldCasting) {
         parsed.subject = ensureBrandInSubject(parsed.subject, brandNameToken);
