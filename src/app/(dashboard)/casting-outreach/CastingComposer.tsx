@@ -835,11 +835,17 @@ export default function CastingComposer({
       setPitchBrandOverride(next);
       setBrandResearch(null);
       setTalentResearch(null);
-      setLeynaExchange(null);
-      setLeynaExchangeChecked(false);
+      // Joey : pas de scan Leyna — garder le skip actif après changement de marque.
+      if (joeyCold) {
+        setLeynaExchange(JOEY_EMPTY_LEYNA_EXCHANGE);
+        setLeynaExchangeChecked(true);
+      } else {
+        setLeynaExchange(null);
+        setLeynaExchangeChecked(false);
+      }
       setPrepBriefConfirmed(false);
     },
-    [pitchBrandOverride]
+    [pitchBrandOverride, joeyCold]
   );
 
   const [emailLanguage, setEmailLanguage] = useState<"fr" | "en">("fr");
@@ -1446,10 +1452,16 @@ export default function CastingComposer({
       const research = data as BrandResearchState;
       setBrandResearch(research);
       onBrandResearchCached?.(researchBrandName.trim(), research);
-      // Nouvelle analyse marque → l'ancien fit créateurs / Leyna n'est plus valide.
+      // Nouvelle analyse marque → l'ancien fit créateurs n'est plus valide.
       if (effectiveTalentResearch) setTalentResearch(null);
-      setLeynaExchange(null);
-      setLeynaExchangeChecked(false);
+      // Leyna : invalider le scan précédent — sauf Joey (pas de scan, intro BD).
+      if (joeyCold) {
+        setLeynaExchange(JOEY_EMPTY_LEYNA_EXCHANGE);
+        setLeynaExchangeChecked(true);
+      } else {
+        setLeynaExchange(null);
+        setLeynaExchangeChecked(false);
+      }
       setPrepBriefConfirmed(false);
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : "Erreur réseau.");
@@ -1464,6 +1476,7 @@ export default function CastingComposer({
     effectiveTalentResearch,
     projectResearchPayload,
     onBrandResearchCached,
+    joeyCold,
   ]);
 
   const runTalentResearch = useCallback(async () => {
@@ -1696,7 +1709,8 @@ export default function CastingComposer({
 
   const draftPrepBrief: DraftPrepBrief | null = useMemo(() => {
     if (!showPrepBrief || !contact) return null;
-    if (!brandResearch || !leynaExchangeChecked) return null;
+    // Joey : pas de scan Leyna — la synthèse doit s’afficher dès marque (+ talents) OK.
+    if (!brandResearch || (!joeyCold && !leynaExchangeChecked)) return null;
     if (effectiveTalentResearch && (!talentResearch || talentResearch.length === 0)) {
       return null;
     }
@@ -1709,6 +1723,9 @@ export default function CastingComposer({
       .map((t) => `${t.prenom} ${t.nom}`.trim())
       .filter(Boolean)
       .join(", ");
+    const leynaForBrief = joeyCold
+      ? leynaExchange || JOEY_EMPTY_LEYNA_EXCHANGE
+      : leynaExchange;
     return buildDraftPrepBrief({
       recipients: (contact.contacts || [])
         .filter((c) => selectedRecipientIds.has(c.id))
@@ -1724,10 +1741,11 @@ export default function CastingComposer({
       strategyAngle: contact.missionBrief?.recommendedAngle || null,
       talentWhyRelevant: talentResearch?.[0]?.whyRelevant || null,
       leyna: {
-        scanStatus: leynaExchange?.scanStatus || (leynaExchange ? "ok" : "empty"),
-        hasExchange: Boolean(leynaExchange?.hasExchange),
-        tone: leynaExchange?.tone ?? null,
-        hits: (leynaExchange?.contacts || []).map((c) => ({
+        scanStatus:
+          leynaForBrief?.scanStatus || (leynaForBrief ? "ok" : "empty"),
+        hasExchange: Boolean(leynaForBrief?.hasExchange),
+        tone: leynaForBrief?.tone ?? null,
+        hits: (leynaForBrief?.contacts || []).map((c) => ({
           email: String(c.email || ""),
           subject: c.subject ?? null,
           lastExchangeAt: c.lastExchangeAt ?? null,
@@ -1737,11 +1755,11 @@ export default function CastingComposer({
           messageCount: c.messageCount,
           matchedBrand: pitch,
         })),
-        alerts: leynaExchange?.alerts,
-        promptBlockFr: leynaExchange?.promptBlockFr,
-        promptBlockEn: leynaExchange?.promptBlockEn,
-        fetchedAt: leynaExchange?.fetchedAt,
-        bannerLabel: leynaExchange?.bannerLabel,
+        alerts: leynaForBrief?.alerts,
+        promptBlockFr: leynaForBrief?.promptBlockFr,
+        promptBlockEn: leynaForBrief?.promptBlockEn,
+        fetchedAt: leynaForBrief?.fetchedAt,
+        bannerLabel: leynaForBrief?.bannerLabel,
       },
       brandResearchStatus: brandResearch ? "ok" : "empty",
       talentResearchStatus:
@@ -1752,6 +1770,7 @@ export default function CastingComposer({
     showPrepBrief,
     contact,
     brandResearch,
+    joeyCold,
     leynaExchangeChecked,
     leynaExchange,
     effectiveTalentResearch,
@@ -1784,9 +1803,11 @@ export default function CastingComposer({
       onError("Analyse ensuite les créateurs sélectionnés, puis rédige.");
       return;
     }
-    // Outreach Clients / projets / indiv : historique Leyna obligatoire avant rédaction.
+    // Outreach Clients / projets / indiv : historique Leyna obligatoire avant rédaction
+    // (sauf Joey — cold intro BD, pas de scan).
     if (
       (Boolean(contact.missionBrief) || effectiveTalentResearch) &&
+      !joeyCold &&
       !leynaExchangeChecked
     ) {
       onError("Analyse ensuite l’historique Leyna, puis rédige.");
@@ -1848,29 +1869,31 @@ export default function CastingComposer({
           negotiationReviewAcknowledged:
             Boolean(prepBriefConfirmed) &&
             Boolean(draftPrepBrief?.needsNegotiationReview),
-          leynaExchangeCache: leynaExchange
-            ? {
-                hasExchange: Boolean(leynaExchange.hasExchange),
-                hasSentNoReplyOnly: Boolean(
-                  (leynaExchange as { hasSentNoReplyOnly?: boolean }).hasSentNoReplyOnly
-                ),
-                tone: leynaExchange.tone ?? null,
-                bannerLabel: leynaExchange.bannerLabel ?? null,
-                alerts: leynaExchange.alerts || [],
-                promptBlockFr:
-                  (leynaExchange as { promptBlockFr?: string }).promptBlockFr || "",
-                promptBlockEn:
-                  (leynaExchange as { promptBlockEn?: string }).promptBlockEn || "",
-                scanStatus:
-                  (leynaExchange as { scanStatus?: "ok" | "empty" | "failed" })
-                    .scanStatus ||
-                  (leynaExchange.hasExchange ? "ok" : "empty"),
-                fetchedAt:
-                  (leynaExchange as { fetchedAt?: string | null }).fetchedAt ||
-                  null,
-                contacts: leynaExchange.contacts || [],
-              }
-            : undefined,
+          leynaExchangeCache: (() => {
+            const src = joeyCold
+              ? leynaExchange || JOEY_EMPTY_LEYNA_EXCHANGE
+              : leynaExchange;
+            if (!src) return undefined;
+            return {
+              hasExchange: Boolean(src.hasExchange),
+              hasSentNoReplyOnly: Boolean(
+                (src as { hasSentNoReplyOnly?: boolean }).hasSentNoReplyOnly
+              ),
+              tone: src.tone ?? null,
+              bannerLabel: src.bannerLabel ?? null,
+              alerts: src.alerts || [],
+              promptBlockFr:
+                (src as { promptBlockFr?: string }).promptBlockFr || "",
+              promptBlockEn:
+                (src as { promptBlockEn?: string }).promptBlockEn || "",
+              scanStatus:
+                (src as { scanStatus?: "ok" | "empty" | "failed" }).scanStatus ||
+                (src.hasExchange ? "ok" : "empty"),
+              fetchedAt:
+                (src as { fetchedAt?: string | null }).fetchedAt || null,
+              contacts: src.contacts || [],
+            };
+          })(),
           ...(effectiveTalentResearch && talentResearch
             ? { talentResearch }
             : {}),
@@ -2010,6 +2033,7 @@ export default function CastingComposer({
     orderedCondensationBriefs,
     selectedRecipientEmails,
     fromEmail,
+    joeyCold,
     outreachStatus,
   ]);
 
