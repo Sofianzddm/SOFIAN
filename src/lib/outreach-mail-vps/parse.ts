@@ -103,6 +103,56 @@ export function hasJoeyGoldIntro(html: string): boolean {
 const JOEY_GOLD_INTRO_HTML =
   `<p>Je suis Joey, je viens de rejoindre le pôle Business Development de Glow Up et je serai ravie d'échanger avec vous autour de vos prochaines campagnes d'influence.</p>`;
 
+/** Intro Joey pour mails projet (Ski Trip, etc.) — pas le gold casting clients. */
+export const JOEY_PROJECT_INTRO_FR =
+  "Je suis Joey de l'agence d'influence Glow Up !";
+export const JOEY_PROJECT_INTRO_EN =
+  "I'm Joey from the Glow Up influence agency!";
+
+const JOEY_PROJECT_INTRO_HTML_FR = `<p>${JOEY_PROJECT_INTRO_FR}</p>`;
+const JOEY_PROJECT_INTRO_HTML_EN = `<p>${JOEY_PROJECT_INTRO_EN}</p>`;
+
+/** True si une intro Joey « agence Glow Up » (projet) est déjà présente. */
+export function hasJoeyProjectIntro(html: string): boolean {
+  const t = foldMailTextForIntroCheck(html);
+  if (!/je suis joey|i['’]?m joey|i am joey/i.test(t)) return false;
+  // Gold casting BD compte aussi (évite double intro).
+  if (hasJoeyGoldIntro(html)) return true;
+  return /agence(?: d['’]influence)? glow up|glow up influence agency|business developer(?: de l['’]agence)? glow up/i.test(
+    t
+  );
+}
+
+function insertJoeyIntroAfterHope(html: string, introHtml: string): string {
+  let s = String(html || "").trim();
+  if (!s) return s;
+
+  // Après <p>J'espère…</p> / <p>I hope…</p>
+  const hopePRe =
+    /(<p\b[^>]*>\s*(?:J['’]espère que vous allez bien|I hope you are doing well)\s*[!?.]?\s*<\/p>)/i;
+  if (hopePRe.test(s)) {
+    return s.replace(hopePRe, `$1\n${introHtml}`);
+  }
+
+  // Corps souvent en <br> (projets) : « J'espère… ?<br> »
+  const hopeBrRe =
+    /(J['’]espère que vous allez bien\s*[!?.]?|I hope you are doing well\s*[!?.]?)(\s*(?:<br\s*\/?\s*>)+)/i;
+  if (hopeBrRe.test(s)) {
+    return s.replace(hopeBrRe, `$1$2${introHtml}<br /><br />`);
+  }
+
+  const helloPRe =
+    /(<p\b[^>]*>\s*(?:Bonjour|Hi|Hello)\s*\{\{\s*contact\.firstname\s*\}\}\s*,?\s*<\/p>)/i;
+  if (helloPRe.test(s)) {
+    return s.replace(
+      helloPRe,
+      `$1\n<p>J'espère que vous allez bien !</p>\n${introHtml}`
+    );
+  }
+
+  return `${introHtml}\n${s}`;
+}
+
 /**
  * Filet Joey : si l’intro BD manque (faux négatif parse / HTML échappé),
  * l’insère après « J'espère que vous allez bien ».
@@ -111,24 +161,22 @@ export function ensureJoeyGoldIntroHtml(html: string): string {
   let s = String(html || "").trim();
   if (!s || hasJoeyGoldIntro(s)) return s;
   if (isLegacyCastingOutreachTemplate(s)) return s;
+  return insertJoeyIntroAfterHope(s, JOEY_GOLD_INTRO_HTML);
+}
 
-  // Après le paragraphe d’espoir
-  const hopeRe =
-    /(<p\b[^>]*>\s*J['’]espère que vous allez bien\s*[!.]?\s*<\/p>)/i;
-  if (hopeRe.test(s)) {
-    return s.replace(hopeRe, `$1\n${JOEY_GOLD_INTRO_HTML}`);
-  }
-  // Après Bonjour {{ contact.firstname }}
-  const helloRe =
-    /(<p\b[^>]*>\s*Bonjour\s*\{\{\s*contact\.firstname\s*\}\}\s*,?\s*<\/p>)/i;
-  if (helloRe.test(s)) {
-    return s.replace(
-      helloRe,
-      `$1\n<p>J'espère que vous allez bien !</p>\n${JOEY_GOLD_INTRO_HTML}`
-    );
-  }
-  // En tête de BODY
-  return `${JOEY_GOLD_INTRO_HTML}\n${s}`;
+/**
+ * Filet Joey projets : « Je suis Joey de l'agence d'influence Glow Up ! »
+ * (Land Rover / Picture / Patagonia — pas l’intro casting BD).
+ */
+export function ensureJoeyProjectIntroHtml(
+  html: string,
+  language: "fr" | "en" = "fr"
+): string {
+  let s = String(html || "").trim();
+  if (!s || hasJoeyProjectIntro(s)) return s;
+  const intro =
+    language === "en" ? JOEY_PROJECT_INTRO_HTML_EN : JOEY_PROJECT_INTRO_HTML_FR;
+  return insertJoeyIntroAfterHope(s, intro);
 }
 
 /** Décode entities HTML courantes avant match talents (sinon M&eacute;lissa ≠ Mélissa). */

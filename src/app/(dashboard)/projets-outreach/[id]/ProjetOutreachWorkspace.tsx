@@ -5504,14 +5504,14 @@ function RedactionTab({
                           ? m.brandCooldownReason ||
                             `En attente jusqu’au ${brandCooldownLabel(m)}`
                           : m.draftEmailSubject
-                            ? "Ouvrir le composer"
+                            ? "Ouvrir / re-rédiger le mail"
                             : "Rédiger le mail"
                     }
                   >
                     {awaiting || onCooldown
                       ? "Bloqué"
                       : m.draftEmailSubject
-                        ? "Ouvrir"
+                        ? "Re-rédiger"
                         : "Rédiger"}
                   </button>
                 ) : (

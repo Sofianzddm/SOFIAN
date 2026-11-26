@@ -28,6 +28,9 @@ import {
 import {
   assertOutreachVpsMailQuality,
   ensureJoeyGoldIntroHtml,
+  ensureJoeyProjectIntroHtml,
+  JOEY_PROJECT_INTRO_EN,
+  JOEY_PROJECT_INTRO_FR,
   ensureOutreachCtaBoldHtml,
   ensureOutreachMailClosingHtml,
   rewriteFactoryOutreachSubject,
@@ -1620,6 +1623,25 @@ DYNAMIQUE CONTENU : si TikToks / Reels / posts performent clairement en ce momen
     const hopeLineFr = useTutoiement
       ? "J'espère que tu vas bien ?"
       : "J'espère que vous allez bien ?";
+    /** Joey projets : intro « agence d'influence » juste après J'espère (auto + filet post-gen). */
+    const joeyProjectIntroBlockFr =
+      joeyCold && isProjectMail
+        ? `
+JOEY · PROJET (NON NÉGOCIABLE) :
+- Après « ${hopeLineFr} », OBLIGATOIRE exactement : « ${JOEY_PROJECT_INTRO_FR} »
+- Écris à la 1re personne (Je), jamais « Nous avons pensé » / « Notre agence ».
+- INTERDIT l’intro casting BD « je viens de rejoindre le pôle Business Development… » et le talentbook.
+`
+        : "";
+    const joeyProjectIntroBlockEn =
+      joeyCold && isProjectMail
+        ? `
+JOEY · PROJECT (NON-NEGOTIABLE):
+- Right after "I hope you are doing well?", MANDATORY exactly: "${JOEY_PROJECT_INTRO_EN}"
+- Write in 1st person (I), never "We thought" / "Our agency".
+- FORBIDDEN the casting BD intro "I just joined the Business Development team…" and talentbook.
+`
+        : "";
     const toneIntroFr = useTutoiement
       ? "Ton attendu : professionnel, posé et soigné, mais naturel et incarné — jamais corporate. Le TUTOIEMENT est de rigueur (cohérent avec les échanges déjà en cours dans la boîte Leyna)."
       : "Ton attendu : professionnel, posé et soigné, mais naturel et incarné — jamais corporate, jamais familier. Le vouvoiement est de rigueur.";
@@ -1756,6 +1778,7 @@ ${prepBlockFr}
 ${exchangeBlockEn}
 ${exchangeStructureOverrideEn}
 ${groundingBlockEn}
+${joeyProjectIntroBlockEn}
 ${projectOrCondensationEn}
 ${pdfAttachRuleEn}
 ${
@@ -1773,9 +1796,11 @@ STRUCTURE (a logical flow, not a rigid template — vary the wording on every em
 - MUST add right after, on a new line, this EXACT sentence without modifying it: "I hope you are doing well?"
 - The greeting pair (Hi + I hope…) appears EXACTLY ONCE at the top — never repeat it later in the body.
 -${
-  hasLeynaExchange
-    ? ` After the greeting: FIRST paragraph = prior-exchange anchor (mandatory). Brand product/season may come AFTER that, not instead.`
-    : ` Open with a concrete, professional hook, not flattery: start from something specific and verifiable (a launch, a product, a recent direction ${brandNameToken} is taking). E.g. "I noticed you recently launched [product] / that you've been expanding your collaborations around [profile types]." A composed observation, not a casual remark.`
+  joeyCold && isProjectMail
+    ? ` After the greeting: MANDATORY exactly "${JOEY_PROJECT_INTRO_EN}", then brand hook in 1st person (I).`
+    : hasLeynaExchange
+      ? ` After the greeting: FIRST paragraph = prior-exchange anchor (mandatory). Brand product/season may come AFTER that, not instead.`
+      : ` Open with a concrete, professional hook, not flattery: start from something specific and verifiable (a launch, a product, a recent direction ${brandNameToken} is taking). E.g. "I noticed you recently launched [product] / that you've been expanding your collaborations around [profile types]." A composed observation, not a casual remark.`
 }
 - Mention the strongest new launch ONCE ONLY, in a SHORT, spoken form, never the full commercial name. A human writing fast says "your Baby Rose lip serum" or "the SPF plumper", not "Plumping Lip Serum SPF30 + Peptides tinted 'Baby Rose'". Keep just enough to identify it (1 to 3 words, the line/shade name).
   FORBIDDEN: re-describing features already contained in the product's name ("X with its peptides and sun protection" when "Peptides" and "SPF" are already in X). If an info is in the name, do not repeat it.
@@ -1900,6 +1925,7 @@ ${prepBlockFr}
 ${exchangeBlockFr}
 ${exchangeStructureOverrideFr}
 ${groundingBlockFr}
+${joeyProjectIntroBlockFr}
 ${projectOrCondensationFr}
 ${pdfAttachRuleFr}
 ${
@@ -1917,9 +1943,11 @@ STRUCTURE (un fil logique, pas un gabarit rigide — varie les formulations à c
 - Ajouter OBLIGATOIREMENT juste après, sur une nouvelle ligne, cette phrase EXACTE sans la modifier : "${hopeLineFr}"
 - Le couple de salut (ouverture + J'espère…) apparaît EXACTEMENT UNE FOIS en tête — ne le répète JAMAIS plus bas dans le corps.
 -${
-  hasLeynaExchange
-    ? ` Après le salut : 1er paragraphe = ancrage de l'échange passé (obligatoire). Un élément produit/saison peut venir ENSUITE, pas à la place.`
-    : ` Enchaîner sur une accroche concrète et professionnelle, pas une flatterie : pars d'un élément précis et vérifiable (un lancement, un produit, une orientation récente de ${brandNameToken}). Ex. "J'ai vu que vous aviez lancé [produit] récemment / que vous développiez vos collaborations autour de [type de profils]." Une observation posée, pas une remarque familière.`
+  joeyCold && isProjectMail
+    ? ` Après le salut : OBLIGATOIRE exactement « ${JOEY_PROJECT_INTRO_FR} », puis accroche marque à la 1re personne (Je).`
+    : hasLeynaExchange
+      ? ` Après le salut : 1er paragraphe = ancrage de l'échange passé (obligatoire). Un élément produit/saison peut venir ENSUITE, pas à la place.`
+      : ` Enchaîner sur une accroche concrète et professionnelle, pas une flatterie : pars d'un élément précis et vérifiable (un lancement, un produit, une orientation récente de ${brandNameToken}). Ex. "J'ai vu que vous aviez lancé [produit] récemment / que vous développiez vos collaborations autour de [type de profils]." Une observation posée, pas une remarque familière.`
 }
 - Citer la nouveauté la plus forte UNE SEULE FOIS, en VERSION COURTE et parlée, jamais le nom commercial complet. Un humain qui écrit vite dit "votre sérum lèvres Baby Rose" ou "le repulpant SPF", pas "Sérum Lèvres Repulpant SPF30 + Peptides teinté 'Baby Rose'". Garde juste ce qui permet de l'identifier (1 à 3 mots, le nom de gamme/coloris).
   INTERDIT : re-décrire des caractéristiques déjà contenues dans le nom du produit ("X avec ses peptides et sa protection solaire" alors que "Peptides" et "SPF" sont déjà dans X). Si une info est dans le nom, ne la répète pas.
@@ -2197,6 +2225,10 @@ Réponds UNIQUEMENT avec un JSON valide et rien d’autre :
           brandName
         );
       } else if (isProjectMail) {
+        // Joey projets : intro agence toujours injectée (même si le modèle l’oublie).
+        if (joeyCold) {
+          asHtml = ensureJoeyProjectIntroHtml(asHtml, language);
+        }
         asHtml = stripTalentbookFromHtml(asHtml);
         parsed.subject = ensureBrandInSubject(parsed.subject, brandNameToken);
       } else {

@@ -2928,7 +2928,7 @@ export default function CastingComposer({
             className={`font-semibold ${isInline ? "text-base" : "text-lg"}`}
             style={{ fontFamily: "Spectral, serif", color: LICORICE }}
           >
-            {hasIncomingDraft ? "Contrôler l’email" : "Rédiger l’email"} —{" "}
+            {hasIncomingDraft ? "Re-rédiger / contrôler" : "Rédiger l’email"} —{" "}
             {brandTitle}
           </h2>
           <button

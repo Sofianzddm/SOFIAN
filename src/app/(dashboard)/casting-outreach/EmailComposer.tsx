@@ -1179,7 +1179,7 @@ export default function EmailComposer({
                     Rédaction…
                   </>
                 ) : (
-                  <>Rédiger</>
+                  <>{subject.trim() ? "Re-rédiger" : "Rédiger"}</>
                 )}
               </button>
               {onGenerateChatVps ? (
