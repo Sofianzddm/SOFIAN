@@ -3125,7 +3125,7 @@ function RedactionTab({
   const brandsToBatchResearch = useMemo(() => {
     const byKey = new Map<string, Mission>();
     for (const m of draftable) {
-      if (brandCooldownActive(m)) continue;
+      // Cooldown / attente contacts : on rédige quand même (l’envoi reste gardé).
       const name = (m.marqueNom || m.targetBrand || "").trim();
       if (!name) continue;
       const key = brandResearchKey(name);
@@ -3894,7 +3894,7 @@ function RedactionTab({
     );
 
     const targets = brandsToBatchResearch.filter((m) => {
-      if (m.awaitingContactsCompletion || brandCooldownActive(m)) return false;
+      // Toujours rédigeable — même cooldown / attente contacts.
       if (m.sentAt || m.stage === "SENT") return false;
       // Déjà prêt pour relecture casting → skip
       if (
@@ -4490,18 +4490,17 @@ function RedactionTab({
       );
       return;
     }
+    // Rédaction toujours autorisée (cooldown / attente contacts = info seulement).
+    // L’envoi reste bloqué / force côté onglet Envois.
     if (m.awaitingContactsCompletion) {
-      setError(
-        `« ${m.marqueNom || m.targetBrand} » est en attente de contacts. Impossible de rédiger tant que ce n’est pas débloqué.`
+      setSuccess(
+        `« ${m.marqueNom || m.targetBrand} » : contacts encore en attente CRM — tu peux rédiger, l’envoi attendra.`
       );
-      return;
-    }
-    if (brandCooldownActive(m)) {
-      setError(
+    } else if (brandCooldownActive(m)) {
+      setSuccess(
         m.brandCooldownReason ||
-          `« ${m.marqueNom || m.targetBrand} » est en attente jusqu’au ${brandCooldownLabel(m)} (déjà contactée récemment).`
+          `« ${m.marqueNom || m.targetBrand} » en cooldown jusqu’au ${brandCooldownLabel(m)} — tu peux rédiger, l’envoi restera gardé.`
       );
-      return;
     }
     let localContacts = effectiveMissionContacts(m);
 
@@ -5489,30 +5488,24 @@ function RedactionTab({
                 {canEdit ? (
                   <button
                     type="button"
-                    disabled={busy || awaiting || onCooldown}
+                    disabled={busy}
                     onClick={() => void openComposer(m)}
                     className="po-btn po-btn-primary po-btn-cta-accent"
                     style={{
                       padding: "7px 12px",
                       fontSize: 12,
-                      opacity: awaiting || onCooldown ? 0.45 : 1,
                     }}
                     title={
                       awaiting
-                        ? "Bloqué — contacts en attente"
+                        ? "Contacts en attente — rédaction OK, envoi plus tard"
                         : onCooldown
-                          ? m.brandCooldownReason ||
-                            `En attente jusqu’au ${brandCooldownLabel(m)}`
+                          ? `${m.brandCooldownReason || `Cooldown jusqu’au ${brandCooldownLabel(m)}`} — rédaction OK, envoi gardé`
                           : m.draftEmailSubject
                             ? "Ouvrir / re-rédiger le mail"
                             : "Rédiger le mail"
                     }
                   >
-                    {awaiting || onCooldown
-                      ? "Bloqué"
-                      : m.draftEmailSubject
-                        ? "Re-rédiger"
-                        : "Rédiger"}
+                    {m.draftEmailSubject ? "Re-rédiger" : "Rédiger"}
                   </button>
                 ) : (
                   <span style={{ fontSize: 11, color: "#956A15" }}>Casting</span>
