@@ -355,13 +355,30 @@ export function BrandEnrichPanel({
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "Erreur de chargement");
         const all = (data.contacts || []) as LookupContact[];
-        setContacts(
-          all.filter(
-            (c) =>
-              c.marqueId === marqueId &&
-              (c.market === "FR" || c.market === "BENELUX")
-          )
+        // carto-pipeline2 étape 2 : marqueId = fiche FR (ou BE).
+        // Les jumeaux FR+BE n’ont pas le même id parent → on relie aussi
+        // par nom d’entreprise (prop `company` + contacts directs).
+        const direct = all.filter(
+          (c) =>
+            c.marqueId === marqueId &&
+            (c.market === "FR" || c.market === "BENELUX")
         );
+        const companyKeys = new Set(
+          [
+            ...(company ? [norm(company)] : []),
+            ...direct.map((c) => norm(c.company)),
+          ].filter(Boolean)
+        );
+        const linked =
+          companyKeys.size > 0
+            ? all.filter(
+                (c) =>
+                  (c.market === "FR" || c.market === "BENELUX") &&
+                  companyKeys.has(norm(c.company)) &&
+                  !direct.some((d) => d.id === c.id)
+              )
+            : [];
+        setContacts([...direct, ...linked]);
       }
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Erreur");
@@ -369,7 +386,7 @@ export function BrandEnrichPanel({
     } finally {
       setLoading(false);
     }
-  }, [marqueId, isCannes, opportuniteId]);
+  }, [marqueId, company, isCannes, opportuniteId]);
 
   useEffect(() => {
     void load();
@@ -836,10 +853,17 @@ export function BrandEnrichPanel({
     }
   };
 
-  const updatePersonLanguage = async (p: Person, language: ContactLang) => {
-    if (p.language === language || savingLangKey || busy) return;
-    setSavingLangKey(p.key);
-    setFlash(null);
+  const updatePersonLanguage = async (
+    p: Person,
+    language: ContactLang,
+    opts?: { fromBulk?: boolean }
+  ) => {
+    if (p.language === language) return;
+    if (!opts?.fromBulk && (savingLangKey || busy)) return;
+    if (!opts?.fromBulk) {
+      setSavingLangKey(p.key);
+      setFlash(null);
+    }
     try {
       for (const ref of p.refs) {
         const res = await fetch(`/api/outreach/email-lookup/${ref.id}`, {
@@ -853,6 +877,39 @@ export function BrandEnrichPanel({
       const ids = new Set(p.refs.map((r) => r.id));
       setContacts((prev) =>
         prev.map((c) => (ids.has(c.id) ? { ...c, language } : c))
+      );
+    } catch (e) {
+      if (!opts?.fromBulk) {
+        setFlash(e instanceof Error ? e.message : "Erreur");
+      } else {
+        throw e;
+      }
+    } finally {
+      if (!opts?.fromBulk) setSavingLangKey(null);
+    }
+  };
+
+  const updateAllLanguages = async (language: ContactLang) => {
+    if (isCannes || busy || savingLangKey || people.length === 0) return;
+    const targets = people.filter((p) => p.language !== language);
+    if (targets.length === 0) {
+      setFlash(
+        language === "fr"
+          ? "Tous les contacts sont déjà en français."
+          : "Tous les contacts sont déjà en anglais."
+      );
+      return;
+    }
+    setSavingLangKey("__all__");
+    setFlash(null);
+    try {
+      for (const p of targets) {
+        await updatePersonLanguage(p, language, { fromBulk: true });
+      }
+      setFlash(
+        language === "fr"
+          ? `Tous en français (${targets.length} contact${targets.length > 1 ? "s" : ""}).`
+          : `Tous en anglais (${targets.length} contact${targets.length > 1 ? "s" : ""}).`
       );
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Erreur");
@@ -1003,7 +1060,47 @@ export function BrandEnrichPanel({
             </span>
           </h2>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {!isCannes && people.length > 0 ? (
+            <div
+              className="inline-flex overflow-hidden rounded-lg border"
+              style={{ borderColor: "#E5E0DA" }}
+              title="Appliquer la langue à tous les contacts"
+            >
+              <button
+                type="button"
+                disabled={Boolean(savingLangKey) || busy}
+                onClick={() => void updateAllLanguages("fr")}
+                className="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold transition disabled:opacity-40"
+                style={
+                  people.every((p) => p.language === "fr")
+                    ? { backgroundColor: INK, color: "#fff" }
+                    : { backgroundColor: "#fff", color: INK }
+                }
+              >
+                {savingLangKey === "__all__" ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Globe className="h-3 w-3" />
+                )}
+                Tous FR
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(savingLangKey) || busy}
+                onClick={() => void updateAllLanguages("en")}
+                className="inline-flex items-center gap-1 border-l px-3 py-2 text-xs font-semibold transition disabled:opacity-40"
+                style={{
+                  borderColor: "#E5E0DA",
+                  ...(people.every((p) => p.language === "en")
+                    ? { backgroundColor: INK, color: "#fff" }
+                    : { backgroundColor: "#fff", color: INK }),
+                }}
+              >
+                Tous EN
+              </button>
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={() => void enrichAllPeople()}

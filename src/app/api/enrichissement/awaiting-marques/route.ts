@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import {
+  autoEnsureOpenGiftDemandesNeedingEnrichissement,
   autoPromoteOpenProjetMissionsNeedingEnrichissement,
   formatAwaitingSourcesLabel,
   missionReasonLooksLikeGift,
@@ -67,10 +68,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
 
-    // Remonte auto les projets outreach ouverts avec ≤ 1 email utilisable.
-    await autoPromoteOpenProjetMissionsNeedingEnrichissement().catch((err) => {
-      console.warn("[awaiting-marques] auto-promote soft:", err);
-    });
+    // Remonte auto : projets + gifts (missions ≤ 1 email) + demandes gift ouvertes.
+    await Promise.all([
+      autoPromoteOpenProjetMissionsNeedingEnrichissement().catch((err) => {
+        console.warn("[awaiting-marques] auto-promote soft:", err);
+      }),
+      autoEnsureOpenGiftDemandesNeedingEnrichissement().catch((err) => {
+        console.warn("[awaiting-marques] auto-ensure-gift soft:", err);
+      }),
+    ]);
 
     // Zéro plafond : toute la file awaiting + gifts (merge dédupliqué).
     // Le filtre talent / source se fait côté UI sur la liste complète.

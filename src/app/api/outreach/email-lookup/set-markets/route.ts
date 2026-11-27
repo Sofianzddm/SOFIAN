@@ -261,7 +261,12 @@ function isValidEmail(value: string | null | undefined): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }
 
-/** État email à propager sur le jumeau (copie depuis le snapshot source). */
+/**
+ * État email à propager sur le jumeau (copie depuis le snapshot source).
+ * Si la source est encore en file enrichissement (QUEUED), le jumeau reste
+ * QUEUED aussi — sinon FR+BE disparaît de l’UI après reload (seul QUEUED
+ * est listé par /email-lookup).
+ */
 function twinEmailFields(snapshot: ContactSnapshot): {
   email: string | null;
   emailSuggested: string | null;
@@ -269,12 +274,15 @@ function twinEmailFields(snapshot: ContactSnapshot): {
   emailLookupQueuedAt: Date | null;
 } {
   const email = snapshot.email?.trim().toLowerCase() || null;
+  const keepQueued = snapshot.emailLookupStatus === "QUEUED";
   if (email && isValidEmail(email)) {
     return {
       email,
       emailSuggested: null,
-      emailLookupStatus: "FOUND",
-      emailLookupQueuedAt: null,
+      emailLookupStatus: keepQueued ? "QUEUED" : "FOUND",
+      emailLookupQueuedAt: keepQueued
+        ? snapshot.emailLookupQueuedAt || new Date()
+        : null,
     };
   }
   if (snapshot.emailLookupStatus === "NOT_FOUND") {

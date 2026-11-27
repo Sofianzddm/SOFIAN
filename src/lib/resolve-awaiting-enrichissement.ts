@@ -754,9 +754,27 @@ export async function autoMarkAwaitingContactsIfEmpty(opts: {
   return updated.count > 0;
 }
 
+const GIFT_STRATEGY_REASON_OR = [
+  { strategyReason: { startsWith: "Gift ", mode: "insensitive" as const } },
+  {
+    strategyReason: {
+      contains: "Demande Gift",
+      mode: "insensitive" as const,
+    },
+  },
+  {
+    strategyReason: {
+      contains: "demande gift",
+      mode: "insensitive" as const,
+    },
+  },
+  { strategyReason: { contains: "GIFT-", mode: "insensitive" as const } },
+] as const;
+
 /**
- * Remonte automatiquement en file Enrichissement les missions projet outreach
- * ouvertes dont la fiche a ≤ 1 email utilisable (ou aucune fiche).
+ * Remonte automatiquement en file Enrichissement :
+ * - missions projet outreach ouvertes (≤ 1 email)
+ * - missions gift (campaignId null + reason gift) encore non flaggées
  * Best-effort — appelé au chargement de /enrichissement.
  */
 export async function autoPromoteOpenProjetMissionsNeedingEnrichissement(
@@ -767,8 +785,16 @@ export async function autoPromoteOpenProjetMissionsNeedingEnrichissement(
       where: {
         awaitingContactsCompletion: false,
         status: { not: "CANCELLED" },
-        campaignId: { not: null },
-        campaign: { status: { not: "CLOSED" } },
+        OR: [
+          {
+            campaignId: { not: null },
+            campaign: { status: { not: "CLOSED" } },
+          },
+          {
+            campaignId: null,
+            OR: [...GIFT_STRATEGY_REASON_OR],
+          },
+        ],
       },
       select: {
         id: true,
@@ -820,6 +846,72 @@ export async function autoPromoteOpenProjetMissionsNeedingEnrichissement(
     return autoMarkAwaitingContactsBatch(toMark);
   } catch (error) {
     console.error("autoPromoteOpenProjetMissionsNeedingEnrichissement:", error);
+    return 0;
+  }
+}
+
+/**
+ * Demandes gift ouvertes (ATTENTE_MARQUE / EN_COURS / EN_ATTENTE) dont la
+ * fiche a ≤ 1 email → crée / remonte la mission gift dans /enrichissement.
+ */
+export async function autoEnsureOpenGiftDemandesNeedingEnrichissement(
+  take = 400
+): Promise<number> {
+  try {
+    const demandes = await prisma.demandeGift.findMany({
+      where: {
+        archivedAt: null,
+        statut: { in: ["ATTENTE_MARQUE", "EN_COURS", "EN_ATTENTE"] },
+      },
+      select: {
+        id: true,
+        reference: true,
+        talentId: true,
+        marqueId: true,
+        tmId: true,
+        accountManagerId: true,
+        talent: { select: { prenom: true, nom: true } },
+        marques: { select: { marqueId: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+      take,
+    });
+    if (demandes.length === 0) return 0;
+
+    let promoted = 0;
+    for (const d of demandes) {
+      const marqueIds = Array.from(
+        new Set(
+          [d.marqueId, ...d.marques.map((m) => m.marqueId)].filter(
+            (id): id is string => Boolean(id)
+          )
+        )
+      );
+      if (marqueIds.length === 0) continue;
+      const talentName =
+        `${d.talent?.prenom || ""} ${d.talent?.nom || ""}`.trim() || "Gift";
+      const createdById = d.accountManagerId || d.tmId || undefined;
+      for (const marqueId of marqueIds) {
+        const result = await ensureGiftMarqueInAwaitingEnrichissement({
+          marqueId,
+          giftReference: d.reference,
+          talentId: d.talentId,
+          talentName,
+          createdById,
+          onlyIfNeedsContacts: true,
+        }).catch((e) => {
+          console.warn(
+            "[autoEnsureGift] soft:",
+            e instanceof Error ? e.message : e
+          );
+          return null;
+        });
+        if (result && !result.skipped) promoted += 1;
+      }
+    }
+    return promoted;
+  } catch (error) {
+    console.error("autoEnsureOpenGiftDemandesNeedingEnrichissement:", error);
     return 0;
   }
 }

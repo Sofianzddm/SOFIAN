@@ -7,6 +7,7 @@ import {
   suggestEmailsForContact,
 } from "@/lib/email-pattern";
 import {
+  contactPersonKey,
   dismissBeneluxEnrichissementDuplicatesBatch,
   dismissMarqueEnrichissementDuplicatesBatch,
 } from "@/lib/contact-person-key";
@@ -501,6 +502,147 @@ export async function GET(request: NextRequest) {
           patternCrossMarket: crossMarket,
           pattern: patternObj,
           suggestions,
+        });
+      }
+    }
+
+    // —— Miroirs FR↔BE (non-QUEUED) ——
+    // Un contact QUEUED d’un côté doit exposer son jumeau déjà FOUND / autre
+    // statut de l’autre marché, sinon le toggle FR+BE reste collé sur FR/BE.
+    {
+      const alreadyIds = new Set(enriched.map((e) => e.id));
+      const frQueued = enriched.filter((e) => e.market === "FR");
+      const beQueued = enriched.filter((e) => e.market === "BENELUX");
+      const beCompanyIdsForFr = Array.from(
+        new Set(
+          frQueued
+            .map((e) => beIdByMarqueId.get(e.marqueId))
+            .filter((id): id is string => Boolean(id))
+        )
+      );
+      const frMarqueIdsForBe = Array.from(
+        new Set(
+          beQueued
+            .map((e) => marqueIdByBeCompany.get(e.marqueId))
+            .filter((id): id is string => Boolean(id))
+        )
+      );
+
+      const [beTwins, frTwins] = await Promise.all([
+        beCompanyIdsForFr.length > 0
+          ? prisma.beneluxContact.findMany({
+              where: {
+                companyId: { in: beCompanyIdsForFr },
+                outreachExcluded: false,
+                source: { in: ["CARTO", "AO"] },
+              },
+              select: {
+                id: true,
+                prenom: true,
+                nom: true,
+                poste: true,
+                perimetre: true,
+                localisation: true,
+                priorite: true,
+                linkedinUrl: true,
+                language: true,
+                source: true,
+                companyId: true,
+                company: { select: { nom: true } },
+              },
+            })
+          : Promise.resolve([]),
+        frMarqueIdsForBe.length > 0
+          ? prisma.marqueContact.findMany({
+              where: {
+                marqueId: { in: frMarqueIdsForBe },
+                outreachExcluded: false,
+                diffusionOptOut: false,
+                source: { in: ["CARTO", "AO"] },
+              },
+              select: {
+                id: true,
+                prenom: true,
+                nom: true,
+                poste: true,
+                perimetre: true,
+                localisation: true,
+                priorite: true,
+                linkedinUrl: true,
+                language: true,
+                source: true,
+                marqueId: true,
+                marque: { select: { nom: true } },
+              },
+            })
+          : Promise.resolve([]),
+      ]);
+
+      for (const fr of frQueued) {
+        const beCompanyId = beIdByMarqueId.get(fr.marqueId);
+        if (!beCompanyId) continue;
+        const frKey = contactPersonKey(fr.prenom, fr.nom);
+        const twin = beTwins.find(
+          (c) =>
+            c.companyId === beCompanyId &&
+            contactPersonKey(c.prenom, c.nom) === frKey
+        );
+        if (!twin || alreadyIds.has(twin.id)) continue;
+        alreadyIds.add(twin.id);
+        enriched.push({
+          id: twin.id,
+          prenom: twin.prenom,
+          nom: twin.nom || "",
+          poste: twin.poste,
+          perimetre: twin.perimetre,
+          localisation: twin.localisation,
+          priorite: twin.priorite,
+          linkedinUrl: twin.linkedinUrl,
+          language: twin.language,
+          emailSuggested: null,
+          emailLookupQueuedAt: null,
+          marqueId: twin.companyId,
+          company: twin.company.nom,
+          market: "BENELUX",
+          source: (twin.source as "CARTO" | "AO" | null) ?? null,
+          siblingCompany: true,
+          patternCrossMarket: true,
+          pattern: fr.pattern,
+          suggestions: [],
+        });
+      }
+
+      for (const be of beQueued) {
+        const frMarqueId = marqueIdByBeCompany.get(be.marqueId);
+        if (!frMarqueId) continue;
+        const beKey = contactPersonKey(be.prenom, be.nom);
+        const twin = frTwins.find(
+          (c) =>
+            c.marqueId === frMarqueId &&
+            contactPersonKey(c.prenom, c.nom) === beKey
+        );
+        if (!twin || alreadyIds.has(twin.id)) continue;
+        alreadyIds.add(twin.id);
+        enriched.push({
+          id: twin.id,
+          prenom: twin.prenom,
+          nom: twin.nom,
+          poste: twin.poste,
+          perimetre: twin.perimetre,
+          localisation: twin.localisation,
+          priorite: twin.priorite,
+          linkedinUrl: twin.linkedinUrl,
+          language: twin.language,
+          emailSuggested: null,
+          emailLookupQueuedAt: null,
+          marqueId: twin.marqueId,
+          company: twin.marque.nom,
+          market: "FR",
+          source: (twin.source as "CARTO" | "AO" | null) ?? null,
+          siblingCompany: true,
+          patternCrossMarket: true,
+          pattern: be.pattern,
+          suggestions: [],
         });
       }
     }

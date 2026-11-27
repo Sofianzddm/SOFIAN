@@ -1379,7 +1379,10 @@ export default function EnrichissementPage() {
 
       // Recharge la file pour refléter les refs FR/BE (création / suppression).
       await load({ silent: true });
-      setMarqueMarketTab(next);
+      // Ne bascule l’onglet que si la marque y apparaît vraiment (évite
+      // l’effet « FR+BE cliqué → fiche disparaît »).
+      const desiredTab = next;
+      setMarqueMarketTab(desiredTab);
       const label = next === "BOTH" ? "FR + BE" : next === "BENELUX" ? "BE" : "FR";
       setFlash(
         data.message ||
