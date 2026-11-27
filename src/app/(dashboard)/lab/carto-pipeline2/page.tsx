@@ -2,7 +2,7 @@
 
 /**
  * Même UI que /lab/carto-pipeline.
- * Moteur : Chat VPS Contabo — bandeau statut ChatGPT (connecté / non).
+ * Moteur : session Contabo (statut connexion, sans jargon produit).
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -90,7 +90,7 @@ export default function CartoAiPipelineChatLabPage() {
       error?: string | null;
     }[]
   >([]);
-  /** Santé ChatGPT VPS — visible en prod (plus « invisible »). */
+  /** Santé session Contabo — bandeau connexion (libellés neutres). */
   const [chatStatus, setChatStatus] = useState<{
     configured: boolean;
     ok: boolean;
@@ -265,6 +265,21 @@ export default function CartoAiPipelineChatLabPage() {
     setSelected(next);
   }
 
+  /** Libellés UI sans « ChatGPT » / « IA » / « OpenAI ». */
+  function sanitizeUiError(msg: string): string {
+    const s = String(msg || "").trim();
+    if (!s) return "Erreur";
+    if (/non connecté|login-wall|session expir/i.test(s)) {
+      return "Session d’analyse déconnectée — reconnecte le navigateur Contabo.";
+    }
+    return s
+      .replace(/\bChatGPT\b/gi, "session")
+      .replace(/\bOpenAI\b/gi, "service")
+      .replace(/\bIA\b/g, "analyse")
+      .replace(/\bChat VPS\b/gi, "session d’analyse")
+      .replace(/\bVPS\b/g, "Contabo");
+  }
+
   async function refreshChatStatus() {
     try {
       const hRes = await fetch("/api/lab/carto-pipeline2/health", {
@@ -321,7 +336,7 @@ export default function CartoAiPipelineChatLabPage() {
     const health = await refreshChatStatus();
     if (health && health.loggedIn === false) {
       setError(
-        "ChatGPT déconnecté sur le VPS Contabo — reconnecte la session Chrome CDP, puis relance."
+        "Session d’analyse déconnectée — reconnecte le navigateur Contabo, puis relance."
       );
       return;
     }
@@ -370,7 +385,9 @@ export default function CartoAiPipelineChatLabPage() {
         endMarker?: string;
       };
       if (!startRes.ok && startRes.status !== 202) {
-        throw new Error(startData.error || "Impossible de lancer Chat");
+        throw new Error(
+          sanitizeUiError(startData.error || "Impossible de lancer l’analyse")
+        );
       }
 
       // 2) Poll jusqu’au jeton Chat (pas de timeout tant que le job tourne)
@@ -534,7 +551,9 @@ export default function CartoAiPipelineChatLabPage() {
             (Number(ourJob?.answerChars || 0) >= 8000 &&
               /ancrages livrable/i.test(String(ourJob?.error || "")));
           if (recoverable && (await tryStructure())) return;
-          throw new Error(ourJob?.error || "Erreur Chat VPS");
+          throw new Error(
+            sanitizeUiError(ourJob?.error || "Erreur session d’analyse")
+          );
         }
         if (baselineChars < 0) {
           baselineChars = screenChars;
@@ -586,14 +605,14 @@ export default function CartoAiPipelineChatLabPage() {
       throw new Error(
         lastStructureErr
           ? `Timeout: ${lastStructureErr}`
-          : "Timeout: pas de contacts — réessaie Analyse (ou Analyser l’écran si Chat a fini)"
+          : "Timeout: pas de contacts — réessaie Analyse (ou Analyser l’écran si la réponse est prête)"
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Erreur";
       setError(
         /failed to fetch|networkerror|load failed/i.test(msg)
-          ? "Connexion coupée (Failed to fetch) — souvent 3 lancés d’un coup ou sync VPS en cours. Relance la marque."
-          : msg
+          ? "Connexion coupée — souvent plusieurs analyses d’un coup. Relance la marque."
+          : sanitizeUiError(msg)
       );
     } finally {
       setLoading(false);
@@ -967,7 +986,7 @@ export default function CartoAiPipelineChatLabPage() {
       <div className="mx-auto max-w-5xl space-y-6 p-6">
         <div>
           <p className="text-xs uppercase tracking-wide text-amber-700">
-            Lab caché · carto AI ·{" "}
+            Lab caché · carto ·{" "}
             {beStillTodo
               ? "trop tôt — Benelux pas fait"
               : dualFiche
@@ -1134,7 +1153,7 @@ export default function CartoAiPipelineChatLabPage() {
       <div className="mx-auto max-w-5xl space-y-6 p-6">
         <div>
           <p className="text-xs uppercase tracking-wide text-amber-700">
-            Lab caché · carto AI · étape {enrichIsBe ? "4" : "2"}
+            Lab caché · carto · étape {enrichIsBe ? "4" : "2"}
           </p>
           <h1 className="mt-1 text-2xl font-semibold text-gray-900">
             Enrichissement {enrichIsBe ? "Benelux" : "France"} ·{" "}
@@ -1246,25 +1265,25 @@ export default function CartoAiPipelineChatLabPage() {
   const chatBanner =
     chatStatus == null ? null : !chatStatus.configured ? (
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-        ChatGPT VPS non configuré (`CARTO_CHAT_VPS_URL` manquant).
+        Session d’analyse non configurée.
       </div>
     ) : chatStatus.loggedIn ? (
       <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-900">
-        ChatGPT · connecté
+        Analyse · connectée
         {chatStatus.checkedAt
           ? ` · vérifié ${new Date(chatStatus.checkedAt).toLocaleTimeString("fr-FR")}`
           : ""}
       </div>
     ) : (
       <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-        <p className="font-medium">ChatGPT · déconnecté</p>
+        <p className="font-medium">Analyse · déconnectée</p>
         <p className="mt-0.5 text-red-700/90">
           {chatStatus.error ||
             (chatStatus.reason === "login-wall"
-              ? "Session expirée sur le Contabo — reconnecte Chrome CDP."
+              ? "Session Contabo expirée — reconnecte le navigateur, puis réessaie."
               : chatStatus.reason === "evaluate-failed" ||
                   chatStatus.reason === "unreachable"
-                ? "Chrome/CDP down sur le VPS."
+                ? "Navigateur Contabo indisponible."
                 : `État: ${chatStatus.reason || "inconnu"}`)}
         </p>
       </div>
@@ -1275,7 +1294,7 @@ export default function CartoAiPipelineChatLabPage() {
       {chatBanner}
       <div>
         <p className="text-xs uppercase tracking-wide text-amber-700">
-          Lab caché · carto AI · {cartoStepLabel}
+          Lab caché · carto · {cartoStepLabel}
         </p>
         <h1 className="mt-1 text-2xl font-semibold text-gray-900">
           {isFrBeBeneluxPass
@@ -1397,7 +1416,7 @@ export default function CartoAiPipelineChatLabPage() {
             onClick={runReadScreen}
             disabled={!company.trim()}
             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 disabled:opacity-50"
-            title="Si la réponse est déjà à l’écran sur le VPS"
+            title="Si la réponse est déjà affichée côté Contabo"
           >
             Analyser l’écran
           </button>
