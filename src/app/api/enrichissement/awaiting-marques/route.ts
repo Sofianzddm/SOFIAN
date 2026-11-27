@@ -72,8 +72,8 @@ export async function GET(request: NextRequest) {
       console.warn("[awaiting-marques] auto-promote soft:", err);
     });
 
-    // File générale plafonnée + TOUJOURS les missions gift (sinon elles
-    // disparaissent du filtre Gifting dès que le pipeline dépasse le plafond).
+    // Zéro plafond : toute la file awaiting + gifts (merge dédupliqué).
+    // Le filtre talent / source se fait côté UI sur la liste complète.
     const [recentMissions, giftMissions] = await Promise.all([
       prisma.contactMission.findMany({
         where: AWAITING_BASE_WHERE,
@@ -81,7 +81,6 @@ export async function GET(request: NextRequest) {
           { contactsCompletionRequestedAt: "desc" },
           { updatedAt: "desc" },
         ],
-        take: 300,
         select: AWAITING_MISSION_SELECT,
       }),
       prisma.contactMission.findMany({
@@ -104,7 +103,6 @@ export async function GET(request: NextRequest) {
           { contactsCompletionRequestedAt: "desc" },
           { updatedAt: "desc" },
         ],
-        take: 200,
         select: AWAITING_MISSION_SELECT,
       }),
     ]);

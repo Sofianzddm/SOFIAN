@@ -760,7 +760,7 @@ export async function autoMarkAwaitingContactsIfEmpty(opts: {
  * Best-effort — appelé au chargement de /enrichissement.
  */
 export async function autoPromoteOpenProjetMissionsNeedingEnrichissement(
-  take = 400
+  take = 5000
 ): Promise<number> {
   try {
     const openMissions = await prisma.contactMission.findMany({
