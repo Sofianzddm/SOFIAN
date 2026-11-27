@@ -391,6 +391,29 @@ export async function notifyAssistanteTmGiftReady(opts: {
 }
 
 /**
+ * Après écriture d’un email CRM : tente le déblocage awaiting (best-effort).
+ * Respecte la règle marché (FR → talents non belges ; BE → talents belges).
+ */
+export async function tryResolveAwaitingAfterEmailWrite(
+  marqueId: string | null | undefined,
+  opts?: { actorId?: string | null }
+): Promise<number> {
+  const id = String(marqueId || "").trim();
+  if (!id) return 0;
+  try {
+    const resolved = await resolveAwaitingEnrichissementForMarque({
+      marqueId: id,
+      actorId: opts?.actorId || null,
+      notifyCasting: false,
+    });
+    return resolved.resolvedCount || 0;
+  } catch (e) {
+    console.error("tryResolveAwaitingAfterEmailWrite:", e);
+    return 0;
+  }
+}
+
+/**
  * Débloque les missions en attente d'enrichissement d'une marque.
  *
  * Règle marché :

@@ -20,29 +20,6 @@ const isValidEmail = (value: string): boolean =>
 
 type Market = "FR" | "BENELUX" | "AGENCY" | "FW";
 
-/** Best-effort : débloque les missions awaiting dès qu’assez d’emails CRM. */
-async function tryResolveAwaitingForMarque(
-  marqueId: string | null | undefined,
-  actorId?: string | null
-): Promise<number> {
-  const id = String(marqueId || "").trim();
-  if (!id) return 0;
-  try {
-    const { resolveAwaitingEnrichissementForMarque } = await import(
-      "@/lib/resolve-awaiting-enrichissement"
-    );
-    const resolved = await resolveAwaitingEnrichissementForMarque({
-      marqueId: id,
-      actorId: actorId || null,
-      notifyCasting: false,
-    });
-    return resolved.resolvedCount || 0;
-  } catch (e) {
-    console.error("tryResolveAwaitingForMarque:", e);
-    return 0;
-  }
-}
-
 function parseMarket(raw: string | null | undefined): Market {
   const m = (raw || "FR").toUpperCase();
   if (m === "BENELUX") return "BENELUX";
@@ -322,20 +299,14 @@ export async function PATCH(
         );
       }
 
-      const unlocked = await tryResolveAwaitingForMarque(
-        contact.company.linkedMarqueId,
-        session.user.id
-      );
+      // Déblocage awaiting : déjà déclenché dans writeBeneluxContactEmail
+      // (talents belges seulement si ≥ 2 mails BE).
 
       return NextResponse.json({
         ok: true,
         status: "FOUND",
         email,
-        message: `Email enregistré — ${contact.company.nom} à lancer dans « À contacter » BENELUX.${
-          unlocked > 0
-            ? ` · ${unlocked} demande(s) casting débloquée(s).`
-            : ""
-        }`,
+        message: `Email enregistré — ${contact.company.nom} à lancer dans « À contacter » BENELUX.`,
       });
     }
 
@@ -398,20 +369,14 @@ export async function PATCH(
       );
     }
 
-    const unlocked = await tryResolveAwaitingForMarque(
-      contact.marqueId,
-      session.user.id
-    );
+    // Déblocage awaiting : déjà déclenché dans writeMarqueContactEmail
+    // (talents non belges seulement si ≥ 2 mails FR).
 
     return NextResponse.json({
       ok: true,
       status: "FOUND",
       email,
-      message: `Email enregistré — ${contact.marque.nom} à lancer dans « À contacter ».${
-        unlocked > 0
-          ? ` · ${unlocked} demande(s) casting débloquée(s).`
-          : ""
-      }`,
+      message: `Email enregistré — ${contact.marque.nom} à lancer dans « À contacter ».`,
     });
   } catch (error) {
     console.error("PATCH /api/outreach/email-lookup/[contactId]:", error);

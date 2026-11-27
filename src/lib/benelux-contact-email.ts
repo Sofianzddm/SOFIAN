@@ -88,5 +88,22 @@ export async function writeBeneluxContactEmail(
       emailSuggested: null,
     },
   });
+
+  // Auto-déblocage : talents belges uniquement (≥ 2 emails BE liés).
+  try {
+    const company = await prisma.beneluxCompany.findUnique({
+      where: { id: companyId },
+      select: { linkedMarqueId: true },
+    });
+    if (company?.linkedMarqueId) {
+      const { tryResolveAwaitingAfterEmailWrite } = await import(
+        "@/lib/resolve-awaiting-enrichissement"
+      );
+      await tryResolveAwaitingAfterEmailWrite(company.linkedMarqueId);
+    }
+  } catch (e) {
+    console.error("writeBeneluxContactEmail auto-resolve:", e);
+  }
+
   return { deduped: false };
 }

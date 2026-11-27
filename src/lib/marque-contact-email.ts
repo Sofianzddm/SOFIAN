@@ -97,5 +97,17 @@ export async function writeMarqueContactEmail(
       ...(forceExcluded ? { outreachExcluded: true } : { outreachExcluded: false }),
     },
   });
+
+  // Auto-déblocage : talents non belges uniquement (≥ 2 emails FR).
+  // Les belges ne sont débloqués que via writeBeneluxContactEmail.
+  try {
+    const { tryResolveAwaitingAfterEmailWrite } = await import(
+      "@/lib/resolve-awaiting-enrichissement"
+    );
+    await tryResolveAwaitingAfterEmailWrite(marqueId);
+  } catch (e) {
+    console.error("writeMarqueContactEmail auto-resolve:", e);
+  }
+
   return { deduped: false };
 }
