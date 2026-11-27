@@ -1065,11 +1065,8 @@ export default function CartoAiPipelineChatLabPage() {
       ficheMarket !== "BOTH" &&
       !beCommitResult;
     const canAssignFr = Boolean(frMarqueIdForAssign());
-    const showFinishAssign =
-      canAssignFr &&
-      Boolean(beCommitResult) &&
-      (pipelinePhase === "enrich_be" ||
-        (pipelinePhase === "enrich_fr" && ficheMarket === "BOTH"));
+    // FR seul, FR+BE mirroir, ou après enrich BE — pas pendant « continuer vers BE ».
+    const showFinishAssign = canAssignFr && !showContinueBe;
 
     return (
       <div className="mx-auto max-w-5xl space-y-6 p-6">
@@ -1139,8 +1136,10 @@ export default function CartoAiPipelineChatLabPage() {
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
             <p className="flex-1 text-sm text-emerald-950">
               {ficheMarket === "BOTH"
-                ? "Contacts déjà sur FR + Benelux — attribue Leyna ou Joey."
-                : "Enrichissement Benelux terminé — attribue Leyna ou Joey (FR + Benelux lié)."}
+                ? "Contacts déjà sur FR + Benelux — valide les mails puis attribue Leyna ou Joey."
+                : enrichIsBe
+                  ? "Enrichissement Benelux — valide les mails puis attribue Leyna ou Joey (FR + Benelux lié)."
+                  : "Valide les mails puis attribue Leyna ou Joey (portefeuille FR)."}
             </p>
             <button
               type="button"
@@ -1160,6 +1159,11 @@ export default function CartoAiPipelineChatLabPage() {
           onBack={() =>
             setPipelinePhase(enrichIsBe ? "carto_be" : "carto_fr")
           }
+          onReadyComplete={() => {
+            // Dès validation des mails → écran d’attribution (même en FR seul).
+            if (showContinueBe || !canAssignFr) return;
+            goToAssign();
+          }}
         />
       </div>
     );

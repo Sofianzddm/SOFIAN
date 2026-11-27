@@ -269,6 +269,11 @@ export type BrandEnrichPanelProps = {
   /** Requis en mode cannes (table cannes_contacts). */
   opportuniteId?: string | null;
   onCannesComplete?: () => void;
+  /**
+   * Après validation des mails (bouton « Prêt — enregistrer » ou dernier
+   * contact enregistré un par un) — ex. passer à l’attribution portefeuille.
+   */
+  onReadyComplete?: () => void;
 };
 
 export function BrandEnrichPanel({
@@ -280,6 +285,7 @@ export function BrandEnrichPanel({
   destination = "outreach",
   opportuniteId = null,
   onCannesComplete,
+  onReadyComplete,
 }: BrandEnrichPanelProps) {
   const isCannes = destination === "cannes";
   const [contacts, setContacts] = useState<LookupContact[]>([]);
@@ -640,8 +646,18 @@ export function BrandEnrichPanel({
     }
   };
 
-  const savePerson = async (p: Person) => {
-    if (busy || savingPersonKey || deletingKey || enrichingKey || enrichingAll) {
+  const savePerson = async (
+    p: Person,
+    opts?: { fromBatch?: boolean }
+  ) => {
+    // fromBatch = markReady (busy déjà true) — ne pas short-circuit sur busy.
+    if (
+      (!opts?.fromBatch && busy) ||
+      savingPersonKey ||
+      deletingKey ||
+      enrichingKey ||
+      enrichingAll
+    ) {
       return;
     }
     const isNf = Boolean(notFound[p.key]);
@@ -804,6 +820,15 @@ export function BrandEnrichPanel({
                 ? `${name} marqué sans email.`
                 : `${name} enregistré.`
       );
+
+      // Dernier contact validé un par un → même suite que « Prêt — enregistrer ».
+      if (!opts?.fromBatch) {
+        const left = people.filter((x) => x.key !== p.key);
+        if (left.length === 0) {
+          if (isCannes) onCannesComplete?.();
+          onReadyComplete?.();
+        }
+      }
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -910,7 +935,7 @@ export function BrandEnrichPanel({
     setFlash(null);
     try {
       for (const p of ready) {
-        await savePerson(p);
+        await savePerson(p, { fromBatch: true });
       }
       setFlash(
         isCannes
@@ -918,6 +943,7 @@ export function BrandEnrichPanel({
           : "Fiche traitée — contacts enregistrés."
       );
       if (isCannes) onCannesComplete?.();
+      onReadyComplete?.();
     } finally {
       setBusy(false);
     }
