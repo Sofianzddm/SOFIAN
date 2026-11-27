@@ -667,8 +667,13 @@ export async function ensureGiftMarqueInAwaitingEnrichissement(opts: {
   };
 }
 
+/** True si la fiche n’a pas assez d’emails pour sortir de la file (seuil = 2). */
+export function needsEnrichissementContacts(emailableCount: number): boolean {
+  return emailableCount < MIN_EMAILABLE_CONTACTS_TO_RESOLVE;
+}
+
 /**
- * Auto-file « Marques en attente » si 0 contact emailable (ou pas de fiche).
+ * Auto-file « Marques en attente » si ≤ 1 contact emailable (ou pas de fiche).
  * Silencieux (pas d’email) — évite le clic manuel Enrichir.
  * @returns true si le flag vient d’être posé
  */
@@ -693,10 +698,10 @@ export async function autoMarkAwaitingContactsIfEmpty(opts: {
   });
   if (!mission || mission.awaitingContactsCompletion) return false;
 
-  let empty = Boolean(opts.knownEmpty);
+  let needsQueue = Boolean(opts.knownEmpty);
   if (!opts.knownEmpty) {
     if (!mission.marqueId) {
-      empty = true;
+      needsQueue = true;
     } else {
       const contacts = await prisma.marqueContact.findMany({
         where: {
@@ -713,7 +718,7 @@ export async function autoMarkAwaitingContactsIfEmpty(opts: {
       }).length;
 
       // Talent belge : les contacts Benelux liés comptent aussi (évite faux « à enrichir »).
-      if (emailable === 0) {
+      if (needsEnrichissementContacts(emailable)) {
         const { isBelgianPays } = await import("@/lib/pays");
         if (isBelgianPays(mission.talent?.pays)) {
           const { loadBrandContactsFrAndBe } = await import(
@@ -728,13 +733,16 @@ export async function autoMarkAwaitingContactsIfEmpty(opts: {
             brandNames,
             requireEmail: true,
           });
-          emailable = merged.filter((c) => c.market === "BENELUX").length;
+          emailable = merged.filter((c) => {
+            const email = (c.email || "").trim();
+            return email.includes("@");
+          }).length;
         }
       }
-      empty = emailable === 0;
+      needsQueue = needsEnrichissementContacts(emailable);
     }
   }
-  if (!empty) return false;
+  if (!needsQueue) return false;
 
   const updated = await prisma.contactMission.updateMany({
     where: { id: missionId, awaitingContactsCompletion: false },
@@ -744,6 +752,76 @@ export async function autoMarkAwaitingContactsIfEmpty(opts: {
     },
   });
   return updated.count > 0;
+}
+
+/**
+ * Remonte automatiquement en file Enrichissement les missions projet outreach
+ * ouvertes dont la fiche a ≤ 1 email utilisable (ou aucune fiche).
+ * Best-effort — appelé au chargement de /enrichissement.
+ */
+export async function autoPromoteOpenProjetMissionsNeedingEnrichissement(
+  take = 400
+): Promise<number> {
+  try {
+    const openMissions = await prisma.contactMission.findMany({
+      where: {
+        awaitingContactsCompletion: false,
+        status: { not: "CANCELLED" },
+        campaignId: { not: null },
+        campaign: { status: { not: "CLOSED" } },
+      },
+      select: {
+        id: true,
+        marqueId: true,
+      },
+      orderBy: { updatedAt: "desc" },
+      take,
+    });
+    if (openMissions.length === 0) return 0;
+
+    const marqueIds = Array.from(
+      new Set(
+        openMissions
+          .map((m) => m.marqueId)
+          .filter((id): id is string => Boolean(id))
+      )
+    );
+
+    const emailableByMarque = new Map<string, number>();
+    if (marqueIds.length > 0) {
+      const rows = await prisma.marqueContact.groupBy({
+        by: ["marqueId"],
+        where: {
+          marqueId: { in: marqueIds },
+          outreachExcluded: false,
+          diffusionOptOut: false,
+          OR: [
+            { email: { contains: "@" } },
+            { emailSuggested: { contains: "@" } },
+          ],
+        },
+        _count: { _all: true },
+      });
+      for (const row of rows) {
+        emailableByMarque.set(row.marqueId, row._count._all);
+      }
+    }
+
+    const toMark = openMissions
+      .filter((m) => {
+        if (!m.marqueId) return true;
+        return needsEnrichissementContacts(
+          emailableByMarque.get(m.marqueId) || 0
+        );
+      })
+      .map((m) => m.id);
+
+    if (toMark.length === 0) return 0;
+    return autoMarkAwaitingContactsBatch(toMark);
+  } catch (error) {
+    console.error("autoPromoteOpenProjetMissionsNeedingEnrichissement:", error);
+    return 0;
+  }
 }
 
 /** Batch : pose le flag pour une liste de missions déjà classées « à enrichir ». */

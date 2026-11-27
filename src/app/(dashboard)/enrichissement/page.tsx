@@ -1942,10 +1942,9 @@ export default function EnrichissementPage() {
                     File vide pour le moment
                   </p>
                   <p className="mt-1 text-xs text-sky-900/60 max-w-sm mx-auto">
-                    Les marques arrivent ici via « Enrichir » (pipeline indiv),
-                    « À compléter » (projet outreach) ou une demande gifting.
-                    Dès qu&apos;un email est ajouté sur la fiche, la source se
-                    débloque automatiquement.
+                    Les projets outreach avec ≤ 1 email utilisable remontent
+                    automatiquement. Pipeline indiv et gifting aussi. La source
+                    se débloque dès que 2 emails sont en fiche.
                   </p>
                 </div>
               ) : filteredAwaitingItems.length === 0 ? (

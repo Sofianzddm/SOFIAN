@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAppSession } from "@/lib/getAppSession";
 import {
+  autoPromoteOpenProjetMissionsNeedingEnrichissement,
   formatAwaitingSourcesLabel,
   missionReasonLooksLikeGift,
 } from "@/lib/resolve-awaiting-enrichissement";
@@ -65,6 +66,11 @@ export async function GET(request: NextRequest) {
     if (!ALLOWED.includes((session.user.role || "") as (typeof ALLOWED)[number])) {
       return NextResponse.json({ error: "Permissions insuffisantes" }, { status: 403 });
     }
+
+    // Remonte auto les projets outreach ouverts avec ≤ 1 email utilisable.
+    await autoPromoteOpenProjetMissionsNeedingEnrichissement().catch((err) => {
+      console.warn("[awaiting-marques] auto-promote soft:", err);
+    });
 
     // File générale plafonnée + TOUJOURS les missions gift (sinon elles
     // disparaissent du filtre Gifting dès que le pipeline dépasse le plafond).

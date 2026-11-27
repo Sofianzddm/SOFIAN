@@ -540,14 +540,14 @@ async function processOneMissionItem(itemId: string): Promise<{
     },
   });
 
-  // Brouillon prêt mais 0 contact emailable CRM → file Enrichissement auto
-  if (contacts.length === 0) {
-    const { autoMarkAwaitingContactsIfEmpty } = await import(
-      "@/lib/resolve-awaiting-enrichissement"
-    );
-    await autoMarkAwaitingContactsIfEmpty({ missionId: mission.id }).catch(
-      () => false
-    );
+  // Brouillon prêt mais ≤ 1 contact emailable CRM → file Enrichissement auto
+  const { MIN_EMAILABLE_CONTACTS_TO_RESOLVE, autoMarkAwaitingContactsIfEmpty } =
+    await import("@/lib/resolve-awaiting-enrichissement");
+  if (contacts.length < MIN_EMAILABLE_CONTACTS_TO_RESOLVE) {
+    await autoMarkAwaitingContactsIfEmpty({
+      missionId: mission.id,
+      knownEmpty: contacts.length === 0,
+    }).catch(() => false);
   }
 
   return { ok: true, brandName };

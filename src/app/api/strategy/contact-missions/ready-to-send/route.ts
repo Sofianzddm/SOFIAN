@@ -16,7 +16,10 @@ import {
   INDIV_BRAND_WAVE_DAYS,
 } from "@/lib/contact-cooldown";
 import { brandsLookSame } from "@/lib/brand-match";
-import { autoMarkAwaitingContactsBatch } from "@/lib/resolve-awaiting-enrichissement";
+import {
+  autoMarkAwaitingContactsBatch,
+  needsEnrichissementContacts,
+} from "@/lib/resolve-awaiting-enrichissement";
 import { loadBrandContactsFrAndBe } from "@/lib/crm-brand-contacts";
 import { isBelgianPays } from "@/lib/pays";
 
@@ -110,7 +113,7 @@ function mapMission(m: any, primaryMarqueId: string | null, marqueNomById: Map<s
 /**
  * Missions rédigées (DRAFTED) scindées en :
  * - withContacts : contact email déjà en fiche marque → prêt à planifier
- * - needsEnrichment : pas de contact utilisable → à enrichir
+ * - needsEnrichment : ≤ 1 contact emailable → à enrichir
  * Exclut les marques déjà contactées en pipeline (vague 20 j).
  */
 export async function GET(request: NextRequest) {
@@ -326,10 +329,9 @@ export async function GET(request: NextRequest) {
         : [];
       const marqueContacts = [...frContacts, ...beContacts];
 
-      // Déjà en file enrichissement : si des contacts FR/BE sont dispo, on
-      // débloque ; sinon on laisse dans l’onglet Enrichissement (skip ici).
+      // Déjà en file enrichissement : débloque seulement dès ≥ 2 emails.
       if (isAwaiting) {
-        if (marqueContacts.length === 0) continue;
+        if (needsEnrichissementContacts(marqueContacts.length)) continue;
         awaitingToClear.push(String(m.id));
         (missionPayload as { awaitingContactsCompletion?: boolean }).awaitingContactsCompletion =
           false;
@@ -344,11 +346,11 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
-      if (marqueContacts.length === 0) {
+      if (needsEnrichissementContacts(marqueContacts.length)) {
         needsEnrichment.push({
           mission: missionPayload,
           reason: "no_contacts",
-          crmContactCount: 0,
+          crmContactCount: marqueContacts.length,
         });
         continue;
       }
@@ -413,7 +415,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // 0 contact / pas de fiche → file Enrichissement auto (sans clic Enrichir)
+    // ≤ 1 contact / pas de fiche → file Enrichissement auto (sans clic Enrichir)
     if (needsEnrichment.length > 0) {
       const ids = needsEnrichment
         .map((row) => String((row.mission as { id?: string }).id || ""))

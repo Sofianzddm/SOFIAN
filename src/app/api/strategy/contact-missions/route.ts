@@ -582,7 +582,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 0 contact emailable (ou pas de fiche) → file Enrichissement auto
+    // ≤ 1 contact emailable (ou pas de fiche) → file Enrichissement auto
+    const { MIN_EMAILABLE_CONTACTS_TO_RESOLVE } = await import(
+      "@/lib/resolve-awaiting-enrichissement"
+    );
     let awaitEnrich = !marqueId;
     if (marqueId) {
       const crmContacts = await prisma.marqueContact.findMany({
@@ -598,7 +601,7 @@ export async function POST(request: NextRequest) {
         const email = (c.email || c.emailSuggested || "").trim();
         return email.includes("@");
       }).length;
-      awaitEnrich = emailable === 0;
+      awaitEnrich = emailable < MIN_EMAILABLE_CONTACTS_TO_RESOLVE;
     }
 
     const mission = await contactMissionModel.create({
