@@ -14,6 +14,7 @@ import {
   ownerFirstnameFromEmail,
 } from "@/lib/marque-portfolio";
 import { loadBrandContactsFrAndBe } from "@/lib/crm-brand-contacts";
+import { isBelgianPays } from "@/lib/pays";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -26,6 +27,7 @@ async function loadCampaign(id: string) {
           id: true,
           prenom: true,
           nom: true,
+          pays: true,
           managerId: true,
           photo: true,
           instagram: true,
@@ -183,6 +185,7 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
       name: `${c.talent.prenom} ${c.talent.nom}`.trim(),
       prenom: c.talent.prenom,
       nom: c.talent.nom,
+      pays: c.talent.pays,
       photo: c.talent.photo,
       instagram: c.talent.instagram,
       managerId: c.talent.managerId,
@@ -317,6 +320,7 @@ function serializeCampaign(c: NonNullable<Awaited<ReturnType<typeof loadCampaign
 
 async function attachMarqueContacts<
   T extends {
+    talent?: { pays?: string | null } | null;
     missions: Array<{
       marqueId: string | null;
       marqueNom?: string | null;
@@ -325,7 +329,8 @@ async function attachMarqueContacts<
     }>;
   }
 >(campaign: T): Promise<T> {
-  // Une requête FR+BE par mission (marque liée + homonymes Benelux).
+  // Talent belge → contacts BE uniquement ; sinon FR uniquement.
+  const wantMarket = isBelgianPays(campaign.talent?.pays) ? "BENELUX" : "FR";
   await Promise.all(
     campaign.missions.map(async (m) => {
       const brand = String(m.marqueNom || m.targetBrand || "").trim();
@@ -334,16 +339,18 @@ async function attachMarqueContacts<
         brandNames: brand ? [brand] : [],
         requireEmail: true,
       });
-      m.marqueContacts = contacts.map((c) => ({
-        id: c.id,
-        firstname: c.firstname,
-        lastname: c.lastname,
-        email: c.email,
-        role: c.role,
-        linkedinUrl: c.linkedinUrl,
-        language: c.language,
-        market: c.market,
-      }));
+      m.marqueContacts = contacts
+        .filter((c) => c.market === wantMarket)
+        .map((c) => ({
+          id: c.id,
+          firstname: c.firstname,
+          lastname: c.lastname,
+          email: c.email,
+          role: c.role,
+          linkedinUrl: c.linkedinUrl,
+          language: c.language,
+          market: c.market,
+        }));
     })
   );
   return campaign;

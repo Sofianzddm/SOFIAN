@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { randomBytes } from "crypto";
 import { Prisma, type CondensationRole, type CondensationStatus, type OutreachWaveStatus } from "@prisma/client";
 import { marqueSlug } from "@/lib/marque-resolver";
+import { isBelgianPays } from "@/lib/pays";
 
 export const WAVE_STATUS_LABEL: Record<OutreachWaveStatus, string> = {
   COLLECTING: "Collecte Strategy",
@@ -42,16 +43,27 @@ export function brandClusterKey(opts: {
   marqueNom?: string | null;
   targetBrand: string;
   targetBrandKey: string;
+  /** Marché talent : FR et BE ne condensent jamais ensemble. */
+  market?: "FR" | "BENELUX" | null;
 }): string {
   const root =
     condensationBrandRoot(opts.marqueNom) ||
     condensationBrandRoot(opts.targetBrand) ||
     condensationBrandRoot(opts.targetBrandKey) ||
     opts.targetBrandKey;
+  const market =
+    opts.market === "BENELUX" || opts.market === "FR" ? opts.market : "FR";
   // Clé racine textuelle d'abord (unifie variantes CRM séparées).
-  if (root) return `r:${root}`;
-  if (opts.marqueId) return `m:${opts.marqueId}`;
-  return `k:${opts.targetBrandKey}`;
+  // Suffixe marché : un talent FR et un Belge sur la même marque = 2 clusters.
+  if (root) return `r:${root}:${market}`;
+  if (opts.marqueId) return `m:${opts.marqueId}:${market}`;
+  return `k:${opts.targetBrandKey}:${market}`;
+}
+
+export function condensationMarketFromTalentPays(
+  pays: string | null | undefined
+): "FR" | "BENELUX" {
+  return isBelgianPays(pays) ? "BENELUX" : "FR";
 }
 
 /** Casting / envoi bloqués tant que la vague n'est pas ouverte à la rédaction. */
@@ -214,14 +226,15 @@ type MissionForCluster = {
   targetBrandKey: string;
   marqueId: string | null;
   marqueNom?: string | null;
+  talentPays?: string | null;
   stage: string;
   status: string;
   sentAt: Date | null;
 };
 
 /**
- * Groupe les missions d'une vague par marque racine
- * (ex. L'Oréal ≈ L'Oréal (groupe)), multi-talents uniquement.
+ * Groupe les missions d'une vague par marque racine + marché talent
+ * (ex. L'Oréal FR ≠ L'Oréal BE), multi-talents uniquement.
  */
 export function buildBrandClusters(missions: MissionForCluster[]) {
   const byKey = new Map<
@@ -230,6 +243,7 @@ export function buildBrandClusters(missions: MissionForCluster[]) {
       marqueId: string | null;
       targetBrandKey: string;
       targetBrand: string;
+      market: "FR" | "BENELUX";
       missions: MissionForCluster[];
     }
   >();
@@ -239,11 +253,13 @@ export function buildBrandClusters(missions: MissionForCluster[]) {
     if (m.status === "CANCELLED") continue;
     if (m.stage === "WON" || m.stage === "LOST") continue;
 
+    const market = condensationMarketFromTalentPays(m.talentPays);
     const key = brandClusterKey({
       marqueId: m.marqueId,
       marqueNom: m.marqueNom,
       targetBrand: m.targetBrand,
       targetBrandKey: m.targetBrandKey,
+      market,
     });
     const cur = byKey.get(key);
     if (!cur) {
@@ -252,10 +268,13 @@ export function buildBrandClusters(missions: MissionForCluster[]) {
         [m.marqueNom, m.targetBrand]
           .filter(Boolean)
           .sort((a, b) => String(a).length - String(b).length)[0] || m.targetBrand;
+      const root = condensationBrandRoot(display) || m.targetBrandKey;
       byKey.set(key, {
         marqueId: m.marqueId,
-        targetBrandKey: condensationBrandRoot(display) || m.targetBrandKey,
-        targetBrand: String(display),
+        targetBrandKey: `${root}:${market}`,
+        targetBrand:
+          market === "BENELUX" ? `${display} · Benelux` : String(display),
+        market,
         missions: [m],
       });
       continue;
@@ -263,10 +282,14 @@ export function buildBrandClusters(missions: MissionForCluster[]) {
     cur.missions.push(m);
     // Prefer a resolved marqueId when available
     if (!cur.marqueId && m.marqueId) cur.marqueId = m.marqueId;
-    // Prefer shorter display name
+    // Prefer shorter display name (hors suffixe marché)
     const candidate = m.marqueNom || m.targetBrand;
-    if (candidate && candidate.length < cur.targetBrand.length) {
-      cur.targetBrand = candidate;
+    if (candidate) {
+      const curBase = cur.targetBrand.replace(/\s·\sBenelux$/i, "");
+      if (candidate.length < curBase.length) {
+        cur.targetBrand =
+          cur.market === "BENELUX" ? `${candidate} · Benelux` : candidate;
+      }
     }
   }
 
@@ -274,6 +297,7 @@ export function buildBrandClusters(missions: MissionForCluster[]) {
     marqueId: string | null;
     targetBrandKey: string;
     targetBrand: string;
+    market: "FR" | "BENELUX";
     missions: MissionForCluster[];
   }> = [];
   const solo: typeof multi = [];
@@ -378,6 +402,7 @@ export async function rebuildWaveClusters(waveId: string) {
       sentAt: true,
       brandCooldownUntil: true,
       marque: { select: { nom: true } },
+      talent: { select: { pays: true } },
     },
   });
 
@@ -394,6 +419,7 @@ export async function rebuildWaveClusters(waveId: string) {
     targetBrandKey: m.targetBrandKey,
     marqueId: m.marqueId,
     marqueNom: m.marque?.nom ?? null,
+    talentPays: m.talent?.pays ?? null,
     stage: m.stage,
     status: m.status,
     sentAt: m.sentAt,
@@ -529,6 +555,16 @@ export async function applyWaveClusterDecisions(waveId: string, actorId: string)
   }
 }
 
+function contactMarketTag(c: unknown): "FR" | "BENELUX" | null {
+  if (!c || typeof c !== "object") return null;
+  const raw = String((c as { market?: string }).market || "")
+    .trim()
+    .toUpperCase();
+  if (raw === "BENELUX" || raw === "BE") return "BENELUX";
+  if (raw === "FR") return "FR";
+  return null;
+}
+
 /** Applique Condenser / Solo sur UN cluster (dès le clic Strategy). */
 export async function applyClusterDecision(clusterId: string) {
   const cluster = await prisma.outreachWaveBrandCluster.findUnique({
@@ -547,6 +583,7 @@ export async function applyClusterDecision(clusterId: string) {
           status: true,
           sentAt: true,
           clientContacts: true,
+          talent: { select: { pays: true } },
         },
       },
     },
@@ -581,8 +618,18 @@ export async function applyClusterDecision(clusterId: string) {
       ? cluster.primaryMissionId
       : pickPrimaryMissionId(cluster.missions);
 
+  const primaryMission = cluster.missions.find((m) => m.id === primaryId);
+  const clusterMarket: "FR" | "BENELUX" =
+    /:BENELUX$/i.test(cluster.targetBrandKey) ||
+    /\bbenelux\b/i.test(cluster.targetBrand)
+      ? "BENELUX"
+      : condensationMarketFromTalentPays(primaryMission?.talent?.pays);
+
+  // Union contacts DU MÊME marché uniquement (jamais FR+BE mélangés).
   const contactMap = new Map<string, unknown>();
   for (const m of cluster.missions) {
+    const missionMarket = condensationMarketFromTalentPays(m.talent?.pays);
+    if (missionMarket !== clusterMarket) continue;
     const raw = m.clientContacts;
     const list = Array.isArray(raw) ? raw : [];
     for (const c of list) {
@@ -591,7 +638,14 @@ export async function applyClusterDecision(clusterId: string) {
         .trim()
         .toLowerCase();
       if (!email) continue;
-      if (!contactMap.has(email)) contactMap.set(email, c);
+      const tag = contactMarketTag(c);
+      if (tag && tag !== clusterMarket) continue;
+      if (!contactMap.has(email)) {
+        contactMap.set(email, {
+          ...(c as object),
+          market: tag || clusterMarket,
+        });
+      }
     }
   }
   const unionContacts = [...contactMap.values()];
@@ -1108,21 +1162,46 @@ export async function refreezeWaveIfNewSharedBrand(opts: {
     },
   });
 
+  // Pays talent pour scinder FR / BE (même marque ≠ même cluster).
+  const talentIds = Array.from(
+    new Set(
+      [...opts.newMissions, ...existing]
+        .map((m) => m.talentId)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+  const talents =
+    talentIds.length > 0
+      ? await prisma.talent.findMany({
+          where: { id: { in: talentIds } },
+          select: { id: true, pays: true },
+        })
+      : [];
+  const paysByTalentId = new Map(talents.map((t) => [t.id, t.pays] as const));
+
   const sharedBrands: string[] = [];
   for (const neu of opts.newMissions) {
+    const neuMarket = condensationMarketFromTalentPays(
+      neu.talentId ? paysByTalentId.get(neu.talentId) : null
+    );
     const neuKey = brandClusterKey({
       marqueId: neu.marqueId,
       marqueNom: neu.marqueNom,
       targetBrand: neu.targetBrand,
       targetBrandKey: neu.targetBrandKey,
+      market: neuMarket,
     });
     const neuTalent = neu.talentId || neu.creatorName.toLowerCase();
     for (const old of existing) {
+      const oldMarket = condensationMarketFromTalentPays(
+        old.talentId ? paysByTalentId.get(old.talentId) : null
+      );
       const oldKey = brandClusterKey({
         marqueId: old.marqueId,
         marqueNom: old.marque?.nom,
         targetBrand: old.targetBrand,
         targetBrandKey: old.targetBrandKey,
+        market: oldMarket,
       });
       if (neuKey !== oldKey) continue;
       const oldTalent = old.talentId || old.creatorName.toLowerCase();

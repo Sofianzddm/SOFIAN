@@ -88,6 +88,8 @@ export type CastingContact = {
   lastname?: string;
   email?: string;
   role?: string;
+  /** Marché CRM — FR et BE ne doivent pas se mélanger à l’envoi. */
+  market?: "FR" | "BENELUX";
 };
 
 type SentMessageRecord = {
@@ -194,13 +196,25 @@ function isValidEmail(value: string | undefined | null): boolean {
 
 export function parseCastingContacts(raw: unknown): CastingContact[] {
   if (!Array.isArray(raw)) return [];
-  return (raw as CastingContact[])
-    .map((c) => ({
-      firstname: String(c?.firstname || "").trim(),
-      lastname: String(c?.lastname || "").trim(),
-      email: String(c?.email || "").trim().toLowerCase(),
-      role: String(c?.role || "").trim(),
-    }))
+  return (raw as Array<CastingContact & { market?: string }>)
+    .map((c) => {
+      const marketRaw = String(c?.market || "")
+        .trim()
+        .toUpperCase();
+      const market: "FR" | "BENELUX" | undefined =
+        marketRaw === "BENELUX" || marketRaw === "BE"
+          ? "BENELUX"
+          : marketRaw === "FR"
+            ? "FR"
+            : undefined;
+      return {
+        firstname: String(c?.firstname || "").trim(),
+        lastname: String(c?.lastname || "").trim(),
+        email: String(c?.email || "").trim().toLowerCase(),
+        role: String(c?.role || "").trim(),
+        ...(market ? { market } : {}),
+      };
+    })
     .filter(
       (c) =>
         c.firstname &&
@@ -243,9 +257,11 @@ async function filterAllowedCastingContacts(
   market: "FR" | "BENELUX" = "FR"
 ): Promise<CastingContact[]> {
   const blocklist = await loadCastingRecipientBlocklist();
-  return contacts.filter(
-    (c) => !isForbiddenCastingRecipient(c, blocklist, { brand, market })
-  );
+  return contacts.filter((c) => {
+    // Si le contact a un marché CRM, il doit matcher le marché talent.
+    if (c.market && c.market !== market) return false;
+    return !isForbiddenCastingRecipient(c, blocklist, { brand, market });
+  });
 }
 
 /**
