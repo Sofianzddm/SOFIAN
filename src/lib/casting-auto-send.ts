@@ -1982,6 +1982,7 @@ export async function executeCastingRelance(
       round,
       options,
       releaseClaim,
+      relanceGuardMarket,
     });
   } catch (error) {
     // Ne libère PAS le claim si des mails sont déjà partis (évite un 2e envoi).
@@ -1999,6 +2000,7 @@ async function executeCastingRelanceAfterClaim(args: {
   round: 1 | 2;
   options: CastingRelanceSendOptions;
   releaseClaim: (errorMsg: string) => Promise<void>;
+  relanceGuardMarket: "FR" | "BENELUX";
 }): Promise<{
   attempted: number;
   succeeded: number;
@@ -2014,6 +2016,7 @@ async function executeCastingRelanceAfterClaim(args: {
     round,
     options,
     releaseClaim,
+    relanceGuardMarket,
   } = args;
 
   const sentByEmail =

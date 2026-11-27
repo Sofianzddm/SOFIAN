@@ -360,6 +360,7 @@ export async function GET(request: NextRequest) {
               m.contactsCompletionRequestedAt?.toISOString?.() ??
               m.contactsCompletionRequestedAt ??
               null,
+            forceSend: Boolean(m.forceSend),
             createdAt: m.createdAt,
             updatedAt: m.updatedAt,
           };

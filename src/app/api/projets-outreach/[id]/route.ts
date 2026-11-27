@@ -13,7 +13,10 @@ import {
   portfolioDisplayName,
   ownerFirstnameFromEmail,
 } from "@/lib/marque-portfolio";
-import { loadBrandContactsFrAndBe } from "@/lib/crm-brand-contacts";
+import {
+  contactMatchesMarket,
+  loadBrandContactsFrAndBe,
+} from "@/lib/crm-brand-contacts";
 import { isBelgianPays } from "@/lib/pays";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -339,8 +342,9 @@ async function attachMarqueContacts<
         brandNames: brand ? [brand] : [],
         requireEmail: true,
       });
+      // BOTH (FR+BE = présent sur les 2 fiches) compte pour FR et pour BE.
       m.marqueContacts = contacts
-        .filter((c) => c.market === wantMarket)
+        .filter((c) => contactMatchesMarket(c.market, wantMarket))
         .map((c) => ({
           id: c.id,
           firstname: c.firstname,
@@ -349,7 +353,8 @@ async function attachMarqueContacts<
           role: c.role,
           linkedinUrl: c.linkedinUrl,
           language: c.language,
-          market: c.market,
+          // Affiche le marché du talent (BOTH → FR ou BE selon le projet).
+          market: wantMarket,
         }));
     })
   );

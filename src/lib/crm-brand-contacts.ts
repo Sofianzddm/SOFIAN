@@ -11,7 +11,8 @@ import {
   loadCastingRecipientBlocklist,
 } from "@/lib/casting-recipient-guard";
 
-export type CrmContactMarket = "FR" | "BENELUX";
+/** FR / BE seuls, ou BOTH = même email présent sur les 2 fiches (FR+BE). */
+export type CrmContactMarket = "FR" | "BENELUX" | "BOTH";
 
 export type CrmBrandContact = {
   id: string;
@@ -24,6 +25,15 @@ export type CrmBrandContact = {
   market: CrmContactMarket;
   companyName: string;
 };
+
+/** Talent FR → FR + BOTH ; talent BE → BENELUX + BOTH. */
+export function contactMatchesMarket(
+  market: CrmContactMarket | "FR" | "BENELUX" | null | undefined,
+  want: "FR" | "BENELUX"
+): boolean {
+  if (market === "BOTH") return true;
+  return market === want;
+}
 
 function normalizeEmail(email: string): string {
   return String(email || "").trim().toLowerCase();
@@ -59,7 +69,7 @@ export async function resolveMarqueIdsForBrand(brand: string): Promise<string[]>
 
 /**
  * Charge les contacts emailés FR + Benelux pour des marques / noms donnés.
- * Déduplique par email (FR prioritaire si même adresse).
+ * Même email sur les 2 fiches → market BOTH (disponible FR et BE).
  */
 export async function loadBrandContactsFrAndBe(opts: {
   marqueIds?: string[];
@@ -95,6 +105,7 @@ export async function loadBrandContactsFrAndBe(opts: {
         {
           brand: c.companyName || brandHint,
           // L’Oréal / Nyx bloqués en FR, autorisés en Benelux.
+          // BOTH : on évalue avec le marché du push courant (FR puis BE).
           market: c.market === "BENELUX" ? "BENELUX" : "FR",
         }
       )
@@ -104,10 +115,26 @@ export async function loadBrandContactsFrAndBe(opts: {
     const key = normalizeEmail(c.email);
     if (key) {
       if (seenEmails.has(key)) {
-        // Même email FR+BE : garder EN si l’un des deux l’est (carto étape 2).
+        // Même email sur fiche FR + fiche BE = FR+BE → BOTH.
         const idx = out.findIndex((x) => normalizeEmail(x.email) === key);
-        if (idx >= 0 && c.language === "en" && out[idx].language !== "en") {
-          out[idx] = { ...out[idx], language: "en" };
+        if (idx >= 0) {
+          const prev = out[idx];
+          const marketsDiffer =
+            prev.market !== c.market &&
+            prev.market !== "BOTH" &&
+            c.market !== "BOTH";
+          out[idx] = {
+            ...prev,
+            market: marketsDiffer || prev.market === "BOTH" || c.market === "BOTH"
+              ? "BOTH"
+              : prev.market,
+            language:
+              c.language === "en" || prev.language === "en" ? "en" : prev.language,
+            role: prev.role || c.role,
+            linkedinUrl: prev.linkedinUrl || c.linkedinUrl,
+            firstname: prev.firstname || c.firstname,
+            lastname: prev.lastname || c.lastname,
+          };
         }
         return;
       }

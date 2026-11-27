@@ -28,8 +28,8 @@ type SearchedContact = {
   source: "app";
   /** Langue fiche contact CRM : "fr" | "en" */
   language?: "fr" | "en";
-  /** FR ou Benelux (si includeBenelux). */
-  market?: "FR" | "BENELUX";
+  /** FR, Benelux, ou BOTH (même email sur les 2 fiches / FR+BE). */
+  market?: "FR" | "BENELUX" | "BOTH";
 };
 
 /**

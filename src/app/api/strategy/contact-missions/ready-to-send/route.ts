@@ -20,7 +20,10 @@ import {
   autoMarkAwaitingContactsBatch,
   needsEnrichissementContacts,
 } from "@/lib/resolve-awaiting-enrichissement";
-import { loadBrandContactsFrAndBe } from "@/lib/crm-brand-contacts";
+import {
+  contactMatchesMarket,
+  loadBrandContactsFrAndBe,
+} from "@/lib/crm-brand-contacts";
 import { isBelgianPays } from "@/lib/pays";
 
 const ALLOWED_ROLES = ["HEAD_OF_SALES", "BUSINESS_DEVELOPER", "ADMIN", "HEAD_OF", "CASTING_MANAGER"] as const;
@@ -280,8 +283,9 @@ export async function GET(request: NextRequest) {
               brandNames,
               requireEmail: true,
             });
+            // BE + BOTH (FR+BE = sur les 2 fiches → gère aussi le Benelux).
             const rows: MarqueContactRow[] = merged
-              .filter((c) => c.market === "BENELUX")
+              .filter((c) => contactMatchesMarket(c.market, "BENELUX"))
               .map((c) => ({
                 id: c.id,
                 prenom: c.firstname || null,

@@ -95,6 +95,7 @@ type Mission = {
     email?: string;
     role?: string;
     market?: "FR" | "BENELUX";
+    language?: "fr" | "en";
   }> | null;
   marqueContacts?: Array<{
     id: string;
@@ -364,42 +365,75 @@ function brandCooldownLabel(m: Mission): string {
 }
 
 function effectiveMissionContacts(m: Mission) {
-  // Toujours prioriser la fiche CRM (hors AO) — clientContacts ne sert qu'à
-  // mémoriser la sélection d'envoi, pas à masquer les autres contacts.
-  const crm = (Array.isArray(m.marqueContacts) ? m.marqueContacts : []).map((c) => ({
-    id: c.id,
-    firstname: c.firstname,
-    lastname: c.lastname,
-    email: c.email,
-    role: c.role,
-    linkedinUrl: c.linkedinUrl || "",
-    language: (c.language === "en" ? "en" : "fr") as "fr" | "en",
-    market: (c.market === "BENELUX" ? "BENELUX" : "FR") as "FR" | "BENELUX",
-  }));
-  const fromCrm = crm.filter(
-    (c) => c.email && !c.email.toLowerCase().endsWith("@glowupagence.fr")
-  );
-  if (fromCrm.length > 0) return fromCrm;
+  // CRM + sélection d’envoi (clientContacts) fusionnés par email.
+  // Avant : CRM seul — un hard-block FR résiduel pouvait n’afficher qu’1 contact
+  // BE (ex. samy.com) alors que 5 emails étaient déjà attachés sur la mission.
+  type Row = {
+    id: string;
+    firstname: string;
+    lastname: string;
+    email: string;
+    role: string;
+    linkedinUrl: string;
+    language: "fr" | "en";
+    market: "FR" | "BENELUX";
+  };
+  const byEmail = new Map<string, Row>();
+  const push = (row: Row) => {
+    const email = String(row.email || "").trim();
+    if (!email.includes("@") || email.toLowerCase().endsWith("@glowupagence.fr")) {
+      return;
+    }
+    const key = email.toLowerCase();
+    const prev = byEmail.get(key);
+    if (!prev) {
+      byEmail.set(key, { ...row, email });
+      return;
+    }
+    // CRM gagne sur les métadonnées ; market BENELUX / langue EN conservés si présents.
+    byEmail.set(key, {
+      ...prev,
+      ...row,
+      email,
+      id: row.id.startsWith("manual-") ? prev.id : row.id,
+      market: prev.market === "BENELUX" || row.market === "BENELUX" ? "BENELUX" : "FR",
+      language: prev.language === "en" || row.language === "en" ? "en" : "fr",
+      linkedinUrl: row.linkedinUrl || prev.linkedinUrl,
+      role: row.role || prev.role,
+      firstname: row.firstname || prev.firstname,
+      lastname: row.lastname || prev.lastname,
+    });
+  };
 
-  return Array.isArray(m.clientContacts)
-    ? m.clientContacts
-        .filter((c) => {
-          const email = String(c?.email || "").trim();
-          return (
-            email.includes("@") && !email.toLowerCase().endsWith("@glowupagence.fr")
-          );
-        })
-        .map((c, index) => ({
-          id: `manual-${index}-${String(c.email).trim()}`,
-          firstname: String(c.firstname || "").trim(),
-          lastname: String(c.lastname || "").trim(),
-          email: String(c.email).trim(),
-          role: String(c.role || "").trim(),
-          linkedinUrl: "",
-          language: "fr" as const,
-          market: (c.market === "BENELUX" ? "BENELUX" : "FR") as "FR" | "BENELUX",
-        }))
-    : [];
+  for (const c of Array.isArray(m.marqueContacts) ? m.marqueContacts : []) {
+    push({
+      id: c.id,
+      firstname: c.firstname,
+      lastname: c.lastname,
+      email: c.email,
+      role: c.role,
+      linkedinUrl: c.linkedinUrl || "",
+      language: c.language === "en" ? "en" : "fr",
+      market: c.market === "BENELUX" ? "BENELUX" : "FR",
+    });
+  }
+
+  if (Array.isArray(m.clientContacts)) {
+    m.clientContacts.forEach((c, index) => {
+      push({
+        id: `manual-${index}-${String(c.email || "").trim()}`,
+        firstname: String(c.firstname || "").trim(),
+        lastname: String(c.lastname || "").trim(),
+        email: String(c.email || "").trim(),
+        role: String(c.role || "").trim(),
+        linkedinUrl: "",
+        language: c.language === "en" ? "en" : "fr",
+        market: c.market === "BENELUX" ? "BENELUX" : "FR",
+      });
+    });
+  }
+
+  return Array.from(byEmail.values());
 }
 
 function missionContactsLabel(

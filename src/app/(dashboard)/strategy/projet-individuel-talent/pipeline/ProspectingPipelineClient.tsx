@@ -110,6 +110,8 @@ type Mission = {
   recontactHoldNote?: string | null;
   awaitingContactsCompletion?: boolean;
   contactsCompletionRequestedAt?: string | null;
+  /** Projet urgent : ignore le blocage vague marque (20 j) côté UI + envoi. */
+  forceSend?: boolean;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -387,6 +389,8 @@ function buildBlockedBrandClusters(
   for (const m of missions) {
     if (anchorIds.has(m.id)) continue;
     if (m.stage === "SENT" || m.stage === "RESPONSE_RECEIVED") continue;
+    // forceSend : carte urgente, hors file « marques déjà contactées »
+    if (m.forceSend) continue;
     const label = brandDisplayName(m);
     const hit = roots.find(([, acc]) => {
       if (m.marqueId && acc.marqueIds.has(m.marqueId)) return true;
@@ -2092,6 +2096,8 @@ export function ProspectingPipelineClient() {
   );
 
   const isMissionBrandBlocked = (m: Mission): boolean => {
+    // forceSend (ex. Laura × KERASTASE) contourne la vague marque 20 j.
+    if (m.forceSend) return false;
     if (
       blockedBrandClusters.some((c) =>
         c.talents.some((t) => t.missionId === m.id)
