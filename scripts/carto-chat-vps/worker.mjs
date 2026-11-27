@@ -512,6 +512,18 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "GET" && url.pathname === "/health") {
+    // Auto-heal soft : si Chrome/CDP est mort, tente spawn+reconnect avant le status.
+    let autoHeal = null;
+    if (!(await driver.isBrowserAlive().catch(() => false))) {
+      autoHeal = await driver.ensureBrowserAlive({ force: true }).catch((e) => ({
+        ok: false,
+        action: "ensure-failed",
+        error: e instanceof Error ? e.message : String(e),
+      }));
+      console.warn(
+        `[carto-chat-vps] /health auto-heal → ${autoHeal?.action || "?"} ok=${autoHeal?.ok} loggedIn=${autoHeal?.loggedIn}`
+      );
+    }
     const primary = primaryJob();
     const st = await driver
       .status({ endMarker: primary?.endMarker || undefined })
@@ -539,6 +551,8 @@ const server = http.createServer(async (req, res) => {
 
     return send(res, 200, {
       ...st,
+      autoHeal: autoHeal || undefined,
+      needsLogin: st.loggedIn === false,
       hasEndMarker: hasEnd,
       endMarker: primary?.endMarker || st.endMarker || null,
       job: publicJob(primary) || {
@@ -761,13 +775,30 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/recover") {
     try {
       const body = await readJson(req).catch(() => ({}));
+      // D’abord soigner Chrome/CDP si mort
+      const heal = await driver.ensureBrowserAlive({ force: true }).catch((e) => ({
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      }));
       const result = await driver.recoverComposer({
         timeoutMs: Number(body.timeoutMs) || 20_000,
       });
-      return send(res, result.ok ? 200 : 503, result);
+      return send(res, result.ok ? 200 : 503, { ...result, autoHeal: heal });
     } catch (e) {
       return send(res, 500, {
         error: e instanceof Error ? e.message : "Erreur recover",
+      });
+    }
+  }
+
+  /** Relance Chrome CDP + reconnect Playwright (sans VNC si cookies OK). */
+  if (req.method === "POST" && url.pathname === "/ensure-cdp") {
+    try {
+      const result = await driver.ensureBrowserAlive({ force: true });
+      return send(res, result.ok ? 200 : 503, result);
+    } catch (e) {
+      return send(res, 500, {
+        error: e instanceof Error ? e.message : "Erreur ensure-cdp",
       });
     }
   }
@@ -861,7 +892,19 @@ async function main() {
       "[carto-chat-vps] WARNING: CARTO_CHAT_VPS_SECRET vide — ok en local tunnel only"
     );
   }
-  await driver.start();
+  try {
+    await driver.start();
+  } catch (e) {
+    console.error(
+      "[carto-chat-vps] start initial failed — tente auto-heal CDP:",
+      e instanceof Error ? e.message : e
+    );
+    const heal = await driver.ensureBrowserAlive({ force: true });
+    if (!heal.ok) throw e;
+    console.warn(
+      `[carto-chat-vps] auto-heal boot OK action=${heal.action} loggedIn=${heal.loggedIn}`
+    );
+  }
   server.listen(PORT, BIND, () => {
     console.log(`[carto-chat-vps] listening http://${BIND}:${PORT}`);
     console.log(
@@ -869,7 +912,33 @@ async function main() {
     );
     console.log(`[carto-chat-vps] health → GET /health`);
     console.log(`[carto-chat-vps] ask    → POST /ask-async { prompt, endMarker, kind? }`);
+    console.log(`[carto-chat-vps] ensure → POST /ensure-cdp`);
   });
+
+  // Watchdog : toutes les 45s, relance Chrome si CDP mort (idle seulement).
+  const watchMs = Math.max(
+    15_000,
+    Number(process.env.CARTO_CHAT_WATCHDOG_MS || 45_000) || 45_000
+  );
+  setInterval(() => {
+    if (driver.runningCount > 0) return;
+    driver
+      .isBrowserAlive()
+      .then(async (alive) => {
+        if (alive) return;
+        console.warn("[carto-chat-vps] watchdog: browser mort → ensureBrowserAlive");
+        const r = await driver.ensureBrowserAlive({ force: true });
+        console.warn(
+          `[carto-chat-vps] watchdog: ${r.action} ok=${r.ok} loggedIn=${r.loggedIn || false}`
+        );
+      })
+      .catch((e) => {
+        console.warn(
+          "[carto-chat-vps] watchdog error:",
+          e instanceof Error ? e.message : e
+        );
+      });
+  }, watchMs);
 }
 
 process.on("SIGINT", async () => {

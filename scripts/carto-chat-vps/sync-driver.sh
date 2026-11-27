@@ -34,6 +34,7 @@ rsync -avz \
   "$ROOT/scripts/carto-chat-vps/chatgpt-driver.mjs" \
   "$ROOT/scripts/carto-chat-vps/worker.mjs" \
   "$ROOT/scripts/carto-chat-vps/ecosystem.config.cjs" \
+  "$ROOT/scripts/carto-chat-vps/ensure-chrome-cdp.sh" \
   "$HOST:$REMOTE/"
 
 ssh -o ControlPath="$CTRL" "$HOST" \

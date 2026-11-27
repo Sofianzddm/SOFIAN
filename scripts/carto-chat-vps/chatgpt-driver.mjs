@@ -5,8 +5,10 @@
 
 import { chromium } from "playwright";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { spawn, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 /** Contexte par job parallèle : page + endMarker liés au slot. */
 const pageAls = new AsyncLocalStorage();
@@ -222,6 +224,213 @@ export class ChatGptDriver {
         "[carto-chat-vps] Effort au boot:",
         e instanceof Error ? e.message : e
       );
+    }
+  }
+
+  /** Page / browser encore utilisables ? */
+  async isBrowserAlive() {
+    try {
+      if (!this.page) return false;
+      await this.page.evaluate(() => true);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async cdpEndpointAlive() {
+    const cdp = process.env.CARTO_CHAT_CDP_URL?.trim();
+    if (!cdp) return false;
+    try {
+      const origin = new URL(cdp).origin;
+      const res = await fetch(`${origin}/json/version`, {
+        signal: AbortSignal.timeout(4_000),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  resolveChromeBin() {
+    const fromEnv = process.env.CARTO_CHAT_CHROME_BIN?.trim();
+    if (fromEnv) return fromEnv;
+    for (const bin of ["chromium-browser", "chromium", "google-chrome"]) {
+      try {
+        execFileSync("which", [bin], { stdio: "ignore" });
+        return bin;
+      } catch {
+        /* try next */
+      }
+    }
+    return "chromium-browser";
+  }
+
+  resolveChromeProfileDir() {
+    const fromEnv = process.env.CARTO_CHAT_PROFILE_DIR?.trim();
+    if (fromEnv) return fromEnv;
+    const snap = "/root/snap/chromium/common/chatgpt-profile";
+    if (fs.existsSync(snap) || fs.existsSync(path.dirname(snap))) return snap;
+    return "/opt/chatgpt-profile";
+  }
+
+  /**
+   * Relance Chromium avec CDP si le port 9222 est mort.
+   * Ne peut pas se reconnecter à OpenAI si la session a expiré (VNC encore requis).
+   */
+  async spawnChromeCdp() {
+    if (process.env.CARTO_CHAT_AUTO_SPAWN_CHROME === "0") {
+      return { ok: false, error: "auto-spawn désactivé (CARTO_CHAT_AUTO_SPAWN_CHROME=0)" };
+    }
+    const bin = this.resolveChromeBin();
+    const profile = this.resolveChromeProfileDir();
+    const display = process.env.CARTO_CHAT_DISPLAY?.trim() || ":1";
+    const xauth =
+      process.env.XAUTHORITY?.trim() ||
+      process.env.CARTO_CHAT_XAUTHORITY?.trim() ||
+      "/root/.Xauthority";
+    fs.mkdirSync(profile, { recursive: true });
+
+    console.warn(
+      `[carto-chat-vps] auto-spawn Chrome CDP bin=${bin} profile=${profile} DISPLAY=${display}`
+    );
+
+    // Tue d'anciens process debug pour libérer 9222
+    try {
+      spawn("pkill", ["-f", "remote-debugging-port=9222"], {
+        stdio: "ignore",
+        detached: true,
+      }).unref();
+    } catch {
+      /* ignore */
+    }
+    await delay(800);
+
+    const logFd = fs.openSync("/tmp/chrome-carto.log", "a");
+    const child = spawn(
+      bin,
+      [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--remote-debugging-port=9222",
+        `--user-data-dir=${profile}`,
+        "--no-first-run",
+        "--disable-gpu",
+        CHATGPT_URL,
+      ],
+      {
+        env: {
+          ...process.env,
+          DISPLAY: display,
+          XAUTHORITY: xauth,
+        },
+        detached: true,
+        stdio: ["ignore", logFd, logFd],
+      }
+    );
+    child.unref();
+    fs.closeSync(logFd);
+
+    const deadline = Date.now() + 25_000;
+    while (Date.now() < deadline) {
+      if (await this.cdpEndpointAlive()) {
+        return { ok: true, pid: child.pid, profile, bin };
+      }
+      await delay(800);
+    }
+    return {
+      ok: false,
+      error: "CDP 9222 toujours down après spawn — voir /tmp/chrome-carto.log",
+      pid: child.pid,
+      profile,
+      bin,
+    };
+  }
+
+  async reconnectCdp() {
+    const cdp = process.env.CARTO_CHAT_CDP_URL?.trim();
+    if (!cdp) throw new Error("CARTO_CHAT_CDP_URL manquant pour reconnect");
+    try {
+      await this.close().catch(() => {});
+    } catch {
+      /* ignore */
+    }
+    this.browser = null;
+    this.context = null;
+    this._page = null;
+    this.slots = [];
+    this.mode = null;
+    console.warn(`[carto-chat-vps] reconnect CDP ${cdp}`);
+    this.browser = await chromium.connectOverCDP(cdp);
+    const contexts = this.browser.contexts();
+    this.context = contexts[0] || (await this.browser.newContext());
+    await this.attachBestPage();
+    this.mode = "cdp";
+    if (!/chatgpt\.com|chat\.openai\.com/i.test(this.page?.url?.() || "")) {
+      await this.page.goto(CHATGPT_URL, {
+        waitUntil: "domcontentloaded",
+        timeout: 90_000,
+      });
+    }
+    await this.initSlots();
+    return { ok: true, url: this.page?.url?.() || "" };
+  }
+
+  /**
+   * Si Chrome/CDP est mort : relance Chromium + reconnect Playwright.
+   * @returns {{ ok: boolean, action: string, loggedIn?: boolean, error?: string }}
+   */
+  async ensureBrowserAlive(opts = {}) {
+    const force = Boolean(opts.force);
+    if (!force && (await this.isBrowserAlive())) {
+      const loggedIn = await this.isLoggedIn().catch(() => false);
+      return { ok: true, action: "none", loggedIn };
+    }
+
+    if (this.mode !== "cdp" && !process.env.CARTO_CHAT_CDP_URL?.trim()) {
+      // Mode persistent Playwright — juste relancer start()
+      try {
+        await this.start();
+        const loggedIn = await this.isLoggedIn().catch(() => false);
+        return { ok: true, action: "restart-persistent", loggedIn };
+      } catch (e) {
+        return {
+          ok: false,
+          action: "restart-persistent-failed",
+          error: e instanceof Error ? e.message : String(e),
+        };
+      }
+    }
+
+    let cdpUp = await this.cdpEndpointAlive();
+    let spawned = null;
+    if (!cdpUp) {
+      spawned = await this.spawnChromeCdp();
+      if (!spawned.ok) {
+        return {
+          ok: false,
+          action: "spawn-failed",
+          error: spawned.error,
+        };
+      }
+      cdpUp = true;
+    }
+
+    try {
+      await this.reconnectCdp();
+      const loggedIn = await this.isLoggedIn().catch(() => false);
+      return {
+        ok: true,
+        action: spawned ? "spawn+reconnect" : "reconnect",
+        loggedIn,
+        needsLogin: !loggedIn,
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        action: "reconnect-failed",
+        error: e instanceof Error ? e.message : String(e),
+      };
     }
   }
 
@@ -2140,6 +2349,21 @@ export class ChatGptDriver {
         ? effortOverride
         : undefined;
 
+    // Chrome/CDP mort avant d’acquérir un slot → heal global
+    if (!(await this.isBrowserAlive())) {
+      const ensured = await this.ensureBrowserAlive({ force: true });
+      if (!ensured.ok) {
+        throw new Error(
+          ensured.error || "Chrome CDP down — relance auto échouée"
+        );
+      }
+      if (ensured.loggedIn === false) {
+        throw new Error(
+          "ChatGPT non connecté — session expirée : reconnecte-toi via VNC Contabo"
+        );
+      }
+    }
+
     // Slot fourni par le worker (queue) ou acquis ici
     const slot =
       opts.slot ||
@@ -2155,7 +2379,7 @@ export class ChatGptDriver {
 
           if (!(await this.isLoggedIn())) {
             throw new Error(
-              "ChatGPT non connecté — connecte-toi dans la fenêtre Chrome CDP"
+              "ChatGPT non connecté — session expirée : reconnecte-toi via VNC Contabo"
             );
           }
 

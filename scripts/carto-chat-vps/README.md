@@ -85,4 +85,7 @@ Lab `/lab/carto-pipeline2` sur `app.glowupagence.fr` parle alors directement au 
 
 - Une requête à la fois.
 - Attente UI « Réponse terminée ».
-- Si Chat se déconnecte : relog via VNC.
+- **Auto-heal CDP** : si Chrome meurt, le worker respawn Chromium + reconnect
+  (`/health`, watchdog 45s, `POST /ensure-cdp`). Si `loggedIn:false` après
+  respawn → session OpenAI expirée : relog **une fois** via VNC.
+- Cron optionnel : `*/5 * * * * bash /opt/.../ensure-chrome-cdp.sh`
