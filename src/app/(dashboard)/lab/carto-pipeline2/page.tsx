@@ -2,7 +2,7 @@
 
 /**
  * Même UI que /lab/carto-pipeline.
- * Moteur : session Contabo (statut connexion, sans jargon produit).
+ * Moteur : session Contabo.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -90,15 +90,6 @@ export default function CartoAiPipelineChatLabPage() {
       error?: string | null;
     }[]
   >([]);
-  /** Santé session Contabo — bandeau connexion (libellés neutres). */
-  const [chatStatus, setChatStatus] = useState<{
-    configured: boolean;
-    ok: boolean;
-    loggedIn: boolean;
-    reason?: string | null;
-    error?: string | null;
-    checkedAt: number;
-  } | null>(null);
   /** Dernier jeton lancé via Analyse — pour « Analyser l’écran » ciblé. */
   const [lastEndMarker, setLastEndMarker] = useState<string | null>(null);
   const [preview, setPreview] = useState<CartoChatVpsPreviewResult | null>(
@@ -280,50 +271,6 @@ export default function CartoAiPipelineChatLabPage() {
       .replace(/\bVPS\b/g, "Contabo");
   }
 
-  async function refreshChatStatus() {
-    try {
-      const hRes = await fetch("/api/lab/carto-pipeline2/health", {
-        cache: "no-store",
-      });
-      const h = (await hRes.json().catch(() => ({}))) as {
-        configured?: boolean;
-        ok?: boolean;
-        loggedIn?: boolean;
-        needsLogin?: boolean;
-        blocked?: { reason?: string } | null;
-        error?: string;
-      };
-      setChatStatus({
-        configured: h.configured !== false,
-        ok: Boolean(h.ok),
-        loggedIn: Boolean(h.loggedIn),
-        reason:
-          h.blocked?.reason ||
-          (h.needsLogin || h.loggedIn === false ? "login-wall" : null),
-        error: h.error || null,
-        checkedAt: Date.now(),
-      });
-      return h;
-    } catch (e) {
-      setChatStatus({
-        configured: true,
-        ok: false,
-        loggedIn: false,
-        reason: "unreachable",
-        error: e instanceof Error ? e.message : "VPS injoignable",
-        checkedAt: Date.now(),
-      });
-      return null;
-    }
-  }
-
-  useEffect(() => {
-    if (!allowed) return;
-    void refreshChatStatus();
-    const t = window.setInterval(() => void refreshChatStatus(), 20_000);
-    return () => window.clearInterval(t);
-  }, [allowed]);
-
   async function runPreview() {
     /** Suite FR→BE : on garde commitResult / fiche BE. Sinon reset. */
     const continuingFromFr =
@@ -332,15 +279,6 @@ export default function CartoAiPipelineChatLabPage() {
       continuingFromFr || ficheMarket === "BENELUX" ? "BENELUX" : "FR";
 
     setError(null);
-
-    const health = await refreshChatStatus();
-    if (health && health.loggedIn === false) {
-      setError(
-        "Session d’analyse déconnectée — reconnecte le navigateur Contabo, puis relance."
-      );
-      return;
-    }
-
     setLoading(true);
     setLoadingHint(
       market === "BENELUX" ? "Analyse Benelux en cours" : "Analyse en cours"
@@ -1262,36 +1200,8 @@ export default function CartoAiPipelineChatLabPage() {
         ? "étape 1 · analyse Benelux"
         : "étape 1 · analyse France";
 
-  const chatBanner =
-    chatStatus == null ? null : !chatStatus.configured ? (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-        Session d’analyse non configurée.
-      </div>
-    ) : chatStatus.loggedIn ? (
-      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-900">
-        Analyse · connectée
-        {chatStatus.checkedAt
-          ? ` · vérifié ${new Date(chatStatus.checkedAt).toLocaleTimeString("fr-FR")}`
-          : ""}
-      </div>
-    ) : (
-      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-        <p className="font-medium">Analyse · déconnectée</p>
-        <p className="mt-0.5 text-red-700/90">
-          {chatStatus.error ||
-            (chatStatus.reason === "login-wall"
-              ? "Session Contabo expirée — reconnecte le navigateur, puis réessaie."
-              : chatStatus.reason === "evaluate-failed" ||
-                  chatStatus.reason === "unreachable"
-                ? "Navigateur Contabo indisponible."
-                : `État: ${chatStatus.reason || "inconnu"}`)}
-        </p>
-      </div>
-    );
-
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-6">
-      {chatBanner}
       <div>
         <p className="text-xs uppercase tracking-wide text-amber-700">
           Lab caché · carto · {cartoStepLabel}
