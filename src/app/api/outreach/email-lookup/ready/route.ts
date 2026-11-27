@@ -415,16 +415,26 @@ export async function POST(request: NextRequest) {
             });
 
     let awaitingNote = "";
-    if (market === "FR" && saved.length > 0) {
+    if (saved.length > 0 && (market === "FR" || market === "BENELUX")) {
       const { resolveAwaitingEnrichissementForMarque } = await import(
         "@/lib/resolve-awaiting-enrichissement"
       );
-      const resolved = await resolveAwaitingEnrichissementForMarque({
-        marqueId,
-        actorId: session.user.id,
-      });
-      if (resolved.resolvedCount > 0) {
-        awaitingNote = ` · ${resolved.resolvedCount} demande(s) casting débloquée(s) (${resolved.sourceLabel}).`;
+      let resolveMarqueId = market === "FR" ? marqueId : null;
+      if (market === "BENELUX") {
+        const be = await prisma.beneluxCompany.findUnique({
+          where: { id: marqueId },
+          select: { linkedMarqueId: true },
+        });
+        resolveMarqueId = be?.linkedMarqueId || null;
+      }
+      if (resolveMarqueId) {
+        const resolved = await resolveAwaitingEnrichissementForMarque({
+          marqueId: resolveMarqueId,
+          actorId: session.user.id,
+        });
+        if (resolved.resolvedCount > 0) {
+          awaitingNote = ` · ${resolved.resolvedCount} demande(s) casting débloquée(s) (${resolved.sourceLabel}).`;
+        }
       }
     }
 

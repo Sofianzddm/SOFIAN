@@ -5,6 +5,7 @@ import {
 } from "@/lib/emails/notify-enrichissement";
 import { normalizeMissionBrandKey } from "@/lib/contact-missions";
 import { queueMarqueEnrichissement } from "@/lib/envoyer-marque-outreach";
+import { isBelgianPays } from "@/lib/pays";
 
 export type AwaitingSourceKind = "pipeline" | "projet" | "gift";
 
@@ -33,14 +34,69 @@ export type ResolveAwaitingResult = {
 /** Seuil auto-déblocage : au moins 2 emails utilisables sur la fiche marque. */
 export const MIN_EMAILABLE_CONTACTS_TO_RESOLVE = 2;
 
-function hasEmailableContact(
+function countEmailableFromContacts(
   contacts: Array<{ email: string | null; emailSuggested?: string | null }>
-): { ok: boolean; count: number } {
-  const count = contacts.filter((c) => {
+): number {
+  return contacts.filter((c) => {
     const email = (c.email || c.emailSuggested || "").trim();
     return email.includes("@");
   }).length;
-  return { ok: count >= MIN_EMAILABLE_CONTACTS_TO_RESOLVE, count };
+}
+
+/**
+ * Emails CRM par marché pour une marque FR.
+ *
+ * - FR : contacts marque (ignore `outreachExcluded`, respect opt-out diffusion).
+ * - BE : entreprises Benelux liées (`linkedMarqueId`) — pas la fiche FR.
+ *   Talent belge → seuls les mails BE comptent pour débloquer.
+ */
+export async function countEmailableByMarketForMarque(
+  marqueId: string
+): Promise<{ fr: number; be: number }> {
+  const id = String(marqueId || "").trim();
+  if (!id) return { fr: 0, be: 0 };
+
+  const [frContacts, beCompanies] = await Promise.all([
+    prisma.marqueContact.findMany({
+      where: {
+        marqueId: id,
+        diffusionOptOut: false,
+      },
+      select: { email: true, emailSuggested: true },
+    }),
+    prisma.beneluxCompany.findMany({
+      where: { linkedMarqueId: id },
+      select: {
+        contacts: {
+          select: { email: true, emailSuggested: true },
+        },
+      },
+    }),
+  ]);
+
+  return {
+    fr: countEmailableFromContacts(frContacts),
+    be: countEmailableFromContacts(beCompanies.flatMap((c) => c.contacts)),
+  };
+}
+
+/** Total FR+BE (affichage / legacy). Préférer `countEmailableByMarketForMarque`. */
+export async function countEmailableContactsForMarque(
+  marqueId: string
+): Promise<number> {
+  const { fr, be } = await countEmailableByMarketForMarque(marqueId);
+  return fr + be;
+}
+
+/**
+ * Nombre d’emails qui comptent pour débloquer une mission selon le pays talent.
+ * Belge → fiche BE liée uniquement. Sinon → fiche FR uniquement.
+ */
+export function emailableCountForTalentMarket(
+  counts: { fr: number; be: number },
+  talentPays: string | null | undefined
+): number {
+  return isBelgianPays(talentPays) ? counts.be : counts.fr;
 }
 
 /** Mission créée / taguée par le flux gift (strategyReason). */
@@ -335,8 +391,12 @@ export async function notifyAssistanteTmGiftReady(opts: {
 }
 
 /**
- * Si la fiche marque a au moins un email utilisable, débloque toutes les
- * missions en attente d'enrichissement (pipeline et/ou projets).
+ * Débloque les missions en attente d'enrichissement d'une marque.
+ *
+ * Règle marché :
+ * - talent belge → ≥ 2 emails sur la fiche BE liée (FR ne suffit pas)
+ * - sinon → ≥ 2 emails sur la fiche FR
+ *
  * Best-effort : n'échoue jamais l'action appelante.
  */
 export async function resolveAwaitingEnrichissementForMarque(opts: {
@@ -361,21 +421,12 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
 
     const marque = await prisma.marque.findUnique({
       where: { id: marqueId },
-      select: {
-        id: true,
-        nom: true,
-        contacts: {
-          where: { outreachExcluded: false, diffusionOptOut: false },
-          select: { email: true, emailSuggested: true },
-        },
-      },
+      select: { id: true, nom: true },
     });
     if (!marque) return empty;
 
-    const { ok, count: emailableCount } = hasEmailableContact(marque.contacts);
-    if (!opts.force && !ok) {
-      return { ...empty, emailableCount };
-    }
+    const marketCounts = await countEmailableByMarketForMarque(marqueId);
+    const emailableCount = marketCounts.fr + marketCounts.be;
 
     const awaiting = await prisma.contactMission.findMany({
       where: {
@@ -389,6 +440,7 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
         strategyReason: true,
         campaignId: true,
         campaign: { select: { id: true, title: true } },
+        talent: { select: { pays: true } },
       },
       take: 200,
     });
@@ -396,7 +448,18 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
       return { ...empty, emailableCount };
     }
 
-    const ids = awaiting.map((m) => m.id);
+    const toResolve = opts.force
+      ? awaiting
+      : awaiting.filter((m) => {
+          const n = emailableCountForTalentMarket(marketCounts, m.talent?.pays);
+          return n >= MIN_EMAILABLE_CONTACTS_TO_RESOLVE;
+        });
+
+    if (toResolve.length === 0) {
+      return { ...empty, emailableCount };
+    }
+
+    const ids = toResolve.map((m) => m.id);
     await prisma.contactMission.updateMany({
       where: { id: { in: ids } },
       data: { awaitingContactsCompletion: false },
@@ -408,7 +471,7 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
     );
     const primaryGift = linkedGifts[0] || null;
 
-    const missions: ResolvedAwaitingMission[] = awaiting.map((m) => {
+    const missions: ResolvedAwaitingMission[] = toResolve.map((m) => {
       const reason = String(m.strategyReason || "");
       const isGift = missionReasonLooksLikeGift(reason);
       const source: AwaitingSourceKind = m.campaignId
@@ -444,7 +507,7 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
     ];
     const sourceLabel = formatAwaitingSourcesLabel(sources, projetTitles);
 
-    for (const m of awaiting) {
+    for (const m of toResolve) {
       if (!m.campaignId || !opts.actorId) continue;
       await prisma.prospectingCampaignEvent.create({
         data: {
@@ -457,6 +520,9 @@ export async function resolveAwaitingEnrichissementForMarque(opts: {
             marqueName: marque.nom,
             source: "auto-resolve-enrichissement",
             emailableCount,
+            emailableFr: marketCounts.fr,
+            emailableBe: marketCounts.be,
+            talentBelgian: isBelgianPays(m.talent?.pays),
           },
           actorId: opts.actorId,
         },
@@ -536,15 +602,7 @@ export async function ensureGiftMarqueInAwaitingEnrichissement(opts: {
 
   const marque = await prisma.marque.findUnique({
     where: { id: marqueId },
-    select: {
-      id: true,
-      nom: true,
-      contacts: {
-        where: { outreachExcluded: false, diffusionOptOut: false },
-        select: { email: true, emailSuggested: true },
-        take: 80,
-      },
-    },
+    select: { id: true, nom: true },
   });
   if (!marque) {
     return {
@@ -556,10 +614,19 @@ export async function ensureGiftMarqueInAwaitingEnrichissement(opts: {
     };
   }
 
-  const emailableCount = marque.contacts.filter((c) => {
-    const email = (c.email || c.emailSuggested || "").trim();
-    return email.includes("@");
-  }).length;
+  const marketCounts = await countEmailableByMarketForMarque(marqueId);
+  let talentPays: string | null = null;
+  if (opts.talentId) {
+    const talent = await prisma.talent.findUnique({
+      where: { id: opts.talentId },
+      select: { pays: true },
+    });
+    talentPays = talent?.pays ?? null;
+  }
+  const emailableCount = emailableCountForTalentMarket(
+    marketCounts,
+    talentPays
+  );
 
   if (
     opts.onlyIfNeedsContacts !== false &&
@@ -703,41 +770,35 @@ export async function autoMarkAwaitingContactsIfEmpty(opts: {
     if (!mission.marqueId) {
       needsQueue = true;
     } else {
-      const contacts = await prisma.marqueContact.findMany({
-        where: {
-          marqueId: mission.marqueId,
-          outreachExcluded: false,
-          diffusionOptOut: false,
-        },
-        select: { email: true, emailSuggested: true },
-        take: 50,
-      });
-      let emailable = contacts.filter((c) => {
-        const email = (c.email || c.emailSuggested || "").trim();
-        return email.includes("@");
-      }).length;
+      // Talent belge → mails BE liés seulement ; sinon mails FR seulement.
+      const counts = await countEmailableByMarketForMarque(mission.marqueId);
+      let emailable = emailableCountForTalentMarket(
+        counts,
+        mission.talent?.pays
+      );
 
-      // Talent belge : les contacts Benelux liés comptent aussi (évite faux « à enrichir »).
-      if (needsEnrichissementContacts(emailable)) {
-        const { isBelgianPays } = await import("@/lib/pays");
-        if (isBelgianPays(mission.talent?.pays)) {
-          const { loadBrandContactsFrAndBe } = await import(
-            "@/lib/crm-brand-contacts"
-          );
-          const brandNames = [
-            mission.marque?.nom,
-            mission.targetBrand,
-          ].filter((n): n is string => Boolean(n && String(n).trim()));
-          const merged = await loadBrandContactsFrAndBe({
-            marqueIds: [mission.marqueId],
-            brandNames,
-            requireEmail: true,
-          });
-          emailable = merged.filter((c) => {
-            const email = (c.email || "").trim();
-            return email.includes("@");
-          }).length;
-        }
+      // Talent belge : si BE lié vide, tente les homonymes Benelux (non liés).
+      if (
+        needsEnrichissementContacts(emailable) &&
+        isBelgianPays(mission.talent?.pays)
+      ) {
+        const { loadBrandContactsFrAndBe } = await import(
+          "@/lib/crm-brand-contacts"
+        );
+        const brandNames = [
+          mission.marque?.nom,
+          mission.targetBrand,
+        ].filter((n): n is string => Boolean(n && String(n).trim()));
+        const merged = await loadBrandContactsFrAndBe({
+          marqueIds: [mission.marqueId],
+          brandNames,
+          requireEmail: true,
+        });
+        emailable = merged.filter((c) => {
+          if (c.market !== "BENELUX") return false;
+          const email = (c.email || "").trim();
+          return email.includes("@");
+        }).length;
       }
       needsQueue = needsEnrichissementContacts(emailable);
     }
@@ -799,6 +860,7 @@ export async function autoPromoteOpenProjetMissionsNeedingEnrichissement(
       select: {
         id: true,
         marqueId: true,
+        talent: { select: { pays: true } },
       },
       orderBy: { updatedAt: "desc" },
       take,
@@ -813,31 +875,60 @@ export async function autoPromoteOpenProjetMissionsNeedingEnrichissement(
       )
     );
 
-    const emailableByMarque = new Map<string, number>();
+    const frByMarque = new Map<string, number>();
+    const beByMarque = new Map<string, number>();
     if (marqueIds.length > 0) {
-      const rows = await prisma.marqueContact.groupBy({
-        by: ["marqueId"],
-        where: {
-          marqueId: { in: marqueIds },
-          outreachExcluded: false,
-          diffusionOptOut: false,
-          OR: [
-            { email: { contains: "@" } },
-            { emailSuggested: { contains: "@" } },
-          ],
-        },
-        _count: { _all: true },
-      });
+      const [rows, beCompanies] = await Promise.all([
+        prisma.marqueContact.groupBy({
+          by: ["marqueId"],
+          where: {
+            marqueId: { in: marqueIds },
+            diffusionOptOut: false,
+            OR: [
+              { email: { contains: "@" } },
+              { emailSuggested: { contains: "@" } },
+            ],
+          },
+          _count: { _all: true },
+        }),
+        prisma.beneluxCompany.findMany({
+          where: { linkedMarqueId: { in: marqueIds } },
+          select: {
+            linkedMarqueId: true,
+            contacts: {
+              where: {
+                OR: [
+                  { email: { contains: "@" } },
+                  { emailSuggested: { contains: "@" } },
+                ],
+              },
+              select: { id: true },
+            },
+          },
+        }),
+      ]);
       for (const row of rows) {
-        emailableByMarque.set(row.marqueId, row._count._all);
+        frByMarque.set(row.marqueId, row._count._all);
+      }
+      for (const company of beCompanies) {
+        const mid = company.linkedMarqueId;
+        if (!mid) continue;
+        beByMarque.set(
+          mid,
+          (beByMarque.get(mid) || 0) + company.contacts.length
+        );
       }
     }
 
     const toMark = openMissions
       .filter((m) => {
         if (!m.marqueId) return true;
+        const counts = {
+          fr: frByMarque.get(m.marqueId) || 0,
+          be: beByMarque.get(m.marqueId) || 0,
+        };
         return needsEnrichissementContacts(
-          emailableByMarque.get(m.marqueId) || 0
+          emailableCountForTalentMarket(counts, m.talent?.pays)
         );
       })
       .map((m) => m.id);

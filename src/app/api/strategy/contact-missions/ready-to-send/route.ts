@@ -327,9 +327,12 @@ export async function GET(request: NextRequest) {
       const beContacts = belgianMissionIds.has(String(m.id))
         ? beContactsByMission.get(String(m.id)) || []
         : [];
-      const marqueContacts = [...frContacts, ...beContacts];
+      // Talent belge → contacts BE uniquement (FR remplie ne débloque pas).
+      // Talent non belge → contacts FR uniquement.
+      const isBelgian = belgianMissionIds.has(String(m.id));
+      const marqueContacts = isBelgian ? beContacts : frContacts;
 
-      // Déjà en file enrichissement : débloque seulement dès ≥ 2 emails.
+      // Déjà en file enrichissement : débloque seulement dès ≥ 2 emails marché.
       if (isAwaiting) {
         if (needsEnrichissementContacts(marqueContacts.length)) continue;
         awaitingToClear.push(String(m.id));

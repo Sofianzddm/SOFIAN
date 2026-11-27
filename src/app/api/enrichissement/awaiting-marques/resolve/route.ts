@@ -37,9 +37,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            result.emailableCount < 2
-              ? `Il faut au moins 2 emails utilisables sur la fiche (actuellement ${result.emailableCount}).`
-              : "Aucune demande en attente pour cette marque.",
+            "Impossible de débloquer : talent belge → ≥ 2 emails sur la fiche BE liée ; sinon ≥ 2 emails sur la fiche FR. Ou aucune demande en attente.",
           emailableCount: result.emailableCount,
         },
         { status: 400 }
