@@ -45,6 +45,7 @@ import {
   Ban,
   GitMerge,
   ArrowLeftRight,
+  Link2,
   Search,
   ChevronDown,
   MoreHorizontal,
@@ -565,6 +566,15 @@ export default function MarqueRecordPage({
   const [exporting, setExporting] = useState(false);
   const [transferringMarket, setTransferringMarket] = useState(false);
   const [transferringContactId, setTransferringContactId] = useState<string | null>(null);
+
+  // Associer une fiche BENELUX à une marque FR existante (linkedMarqueId).
+  const [linkFrPanelOpen, setLinkFrPanelOpen] = useState(false);
+  const [linkFrQuery, setLinkFrQuery] = useState("");
+  const [linkFrResults, setLinkFrResults] = useState<
+    { id: string; nom: string; ville: string; contactCount: number }[]
+  >([]);
+  const [linkFrSearching, setLinkFrSearching] = useState(false);
+  const [linkingFrId, setLinkingFrId] = useState<string | null>(null);
 
   // Import d'une cartographie directement depuis la fiche marque
   const [showImportCarto, setShowImportCarto] = useState(false);
@@ -1137,6 +1147,63 @@ export default function MarqueRecordPage({
     }
   };
 
+  /** Associe la fiche BENELUX à une marque FR existante (sans copier les contacts). */
+  const linkToFrMarque = async (fr: { id: string; nom: string }) => {
+    if (!isBenelux || !marque || linkingFrId) return;
+    const ok = confirm(
+      `Associer « ${marque.nom} » (🇧🇪) à la fiche France « ${fr.nom} » ?\n\n` +
+        `Les collabs, négo et activité métier de la fiche France seront visibles ici. ` +
+        `Les contacts BENELUX restent inchangés.`
+    );
+    if (!ok) return;
+    setLinkingFrId(fr.id);
+    try {
+      const res = await fetch(`${recordApi}/link-fr`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marqueId: fr.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Association impossible.");
+      setMarque(data.id ? data : { ...marque, linkedMarqueId: fr.id, linkedMarque: { id: fr.id, nom: fr.nom } });
+      setLinkFrPanelOpen(false);
+      setLinkFrQuery("");
+      setLinkFrResults([]);
+      setActionSuccess(`Associée à la fiche France « ${fr.nom} ».`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur lors de l’association.");
+    } finally {
+      setLinkingFrId(null);
+    }
+  };
+
+  /** Détache le lien vers la fiche France. */
+  const unlinkFrMarque = async () => {
+    if (!isBenelux || !marque?.linkedMarqueId || linkingFrId) return;
+    const label = marque.linkedMarque?.nom || "fiche France";
+    const ok = confirm(
+      `Détacher « ${marque.nom} » de la fiche France « ${label} » ?\n\n` +
+        `Collabs / activité métier ne seront plus visibles ici.`
+    );
+    if (!ok) return;
+    setLinkingFrId("__unlink__");
+    try {
+      const res = await fetch(`${recordApi}/link-fr`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ marqueId: null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Détachement impossible.");
+      setMarque(data.id ? data : { ...marque, linkedMarqueId: null, linkedMarque: null });
+      setActionSuccess("Lien vers la fiche France détaché.");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Erreur lors du détachement.");
+    } finally {
+      setLinkingFrId(null);
+    }
+  };
+
   /** Fusionne une fiche doublon dans la fiche courante (cible = page actuelle). */
   const mergeSimilarIntoCurrent = async (source: { id: string; nom: string }) => {
     if (mergingSimilarId || !marque) return;
@@ -1166,6 +1233,51 @@ export default function MarqueRecordPage({
       setMergingSimilarId(null);
     }
   };
+
+  // Recherche de marques FR pour association BENELUX → FR.
+  useEffect(() => {
+    if (!isBenelux || !linkFrPanelOpen) return;
+    const q = linkFrQuery.trim();
+    if (q.length < 2) {
+      setLinkFrResults([]);
+      setLinkFrSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setLinkFrSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/marques/search?q=${encodeURIComponent(q)}`);
+        if (!res.ok) throw new Error("Recherche impossible");
+        const data = await res.json();
+        if (!cancelled) {
+          setLinkFrResults(
+            ((data.marques || []) as {
+              id: string;
+              nom: string;
+              ville: string;
+              contactCount: number;
+            }[]).slice(0, 10)
+          );
+        }
+      } catch {
+        if (!cancelled) setLinkFrResults([]);
+      } finally {
+        if (!cancelled) setLinkFrSearching(false);
+      }
+    }, 280);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [linkFrQuery, isBenelux, linkFrPanelOpen]);
+
+  useEffect(() => {
+    if (linkFrPanelOpen) return;
+    setLinkFrQuery("");
+    setLinkFrResults([]);
+    setLinkFrSearching(false);
+  }, [linkFrPanelOpen]);
 
   // Recherche manuelle CRM pour fusion (debounce 280 ms, min 2 caractères).
   const marqueIdForMerge = marque?.id;
@@ -1964,6 +2076,32 @@ export default function MarqueRecordPage({
                   nom: "fiche France",
                 }
               : null;
+          // BENELUX sans lien : proposer l’association à une fiche FR existante.
+          if (isBenelux && !frLink && canOutreach) {
+            return (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-xl ring-1 ring-inset"
+                style={{
+                  backgroundColor: "#FFFBEB",
+                  boxShadow: "inset 0 0 0 1px #FDE68A",
+                }}
+              >
+                <p className="text-[13px]" style={{ color: INK }}>
+                  Aucune fiche <span className="font-semibold">🇫🇷 France</span> liée —
+                  collabs et activité métier non disponibles.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setLinkFrPanelOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-lg text-white shrink-0"
+                  style={{ backgroundColor: INK }}
+                >
+                  <Link2 className="w-3.5 h-3.5" style={{ color: ROSE }} />
+                  Associer à une fiche FR
+                </button>
+              </div>
+            );
+          }
           if (!beLink && !frLink) return null;
           return (
             <div
@@ -1992,21 +2130,141 @@ export default function MarqueRecordPage({
                   </>
                 )}
               </p>
-              <Link
-                href={
-                  isBenelux
-                    ? `/marques/${frLink!.id}`
-                    : `/marques/benelux/${beLink!.id}`
-                }
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-lg text-white shrink-0"
-                style={{ backgroundColor: INK }}
-              >
-                <ArrowLeftRight className="w-3.5 h-3.5" style={{ color: ROSE }} />
-                {isBenelux ? "Ouvrir la fiche France" : "Ouvrir la fiche BENELUX"}
-              </Link>
+              <div className="flex items-center gap-2 shrink-0">
+                {isBenelux && canOutreach && (
+                  <button
+                    type="button"
+                    onClick={() => setLinkFrPanelOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-lg ring-1 ring-black/[0.08] bg-white hover:bg-gray-50"
+                    style={{ color: INK }}
+                  >
+                    <Link2 className="w-3.5 h-3.5 text-gray-400" />
+                    Changer
+                  </button>
+                )}
+                <Link
+                  href={
+                    isBenelux
+                      ? `/marques/${frLink!.id}`
+                      : `/marques/benelux/${beLink!.id}`
+                  }
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-lg text-white"
+                  style={{ backgroundColor: INK }}
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" style={{ color: ROSE }} />
+                  {isBenelux ? "Ouvrir la fiche France" : "Ouvrir la fiche BENELUX"}
+                </Link>
+              </div>
             </div>
           );
         })()}
+
+        {/* ====================== Panneau association FR ====================== */}
+        {isBenelux && canOutreach && linkFrPanelOpen && (
+          <div
+            className="rounded-xl ring-1 ring-inset overflow-hidden"
+            style={{
+              backgroundColor: "#FFFBEB",
+              boxShadow: "inset 0 0 0 1px #FDE68A",
+            }}
+          >
+            <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-black/[0.04]">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <Link2 className="w-4 h-4 mt-0.5 shrink-0" style={{ color: ROSE }} />
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold" style={{ color: INK }}>
+                    Associer à une fiche France existante
+                  </p>
+                  <p className="text-[12px] text-gray-500 mt-0.5">
+                    Cherche une marque CRM FR — collabs et activité métier seront visibles ici.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLinkFrPanelOpen(false)}
+                className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-white/60 shrink-0"
+                title="Fermer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-4 py-3 bg-white/50 space-y-3">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                <input
+                  type="search"
+                  value={linkFrQuery}
+                  onChange={(e) => setLinkFrQuery(e.target.value)}
+                  placeholder="Nom de la marque France…"
+                  className="w-full pl-8 pr-3 py-2 text-[13px] rounded-lg bg-white ring-1 ring-black/[0.08] focus:outline-none focus:ring-2 focus:ring-black/20"
+                  style={{ color: INK }}
+                  autoComplete="off"
+                  autoFocus
+                />
+                {linkFrSearching && (
+                  <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-gray-400" />
+                )}
+              </div>
+              {linkFrQuery.trim().length >= 2 && !linkFrSearching && linkFrResults.length === 0 && (
+                <p className="text-[12px] text-gray-400">
+                  Aucune marque trouvée pour « {linkFrQuery.trim()} ».
+                </p>
+              )}
+              {linkFrResults.length > 0 && (
+                <ul className="divide-y divide-black/[0.04] rounded-lg overflow-hidden ring-1 ring-black/[0.06] bg-white">
+                  {linkFrResults.map((m) => (
+                    <li
+                      key={m.id}
+                      className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <Link
+                          href={`/marques/${m.id}`}
+                          className="text-[13px] font-semibold hover:underline"
+                          style={{ color: INK }}
+                        >
+                          {m.nom}
+                        </Link>
+                        <p className="text-[11px] text-gray-400 mt-0.5">
+                          🇫🇷 France
+                          {m.ville ? ` · ${m.ville}` : ""}
+                          {m.contactCount > 0
+                            ? ` · ${m.contactCount} contact${m.contactCount > 1 ? "s" : ""}`
+                            : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void linkToFrMarque(m)}
+                        disabled={linkingFrId === m.id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold rounded-lg text-white hover:opacity-90 disabled:opacity-60 shrink-0"
+                        style={{ backgroundColor: INK }}
+                      >
+                        {linkingFrId === m.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Link2 className="w-3.5 h-3.5" />
+                        )}
+                        Associer
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {marque.linkedMarqueId && (
+                <button
+                  type="button"
+                  onClick={() => void unlinkFrMarque()}
+                  disabled={linkingFrId === "__unlink__"}
+                  className="text-[12px] font-medium text-red-600 hover:underline disabled:opacity-50"
+                >
+                  {linkingFrId === "__unlink__" ? "Détachement…" : "Détacher la fiche France actuelle"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {/* ====================== Record header (HubSpot-style) ====================== */}
         <div className="rounded-xl bg-white ring-1 ring-black/[0.06] px-4 py-4 sm:px-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -2174,6 +2432,22 @@ export default function MarqueRecordPage({
                                 {similarMatches.length}
                               </span>
                             )}
+                          </button>
+                        )}
+                        {isBenelux && canOutreach && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActionsMenuOpen(false);
+                              setLinkFrPanelOpen(true);
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-left hover:bg-gray-50"
+                            style={{ color: INK }}
+                          >
+                            <Link2 className="w-3.5 h-3.5 text-gray-400" />
+                            {marque.linkedMarqueId
+                              ? "Changer la fiche FR"
+                              : "Associer à une fiche FR"}
                           </button>
                         )}
                         {canOutreach && !readOnly && (
@@ -2484,7 +2758,22 @@ export default function MarqueRecordPage({
                     </button>
                   </div>
                   {isBenelux && !marque.linkedMarqueId ? (
-                    <p className="text-[13px] text-gray-400">Aucune fiche France liée — activité métier limitée.</p>
+                    <div className="space-y-2">
+                      <p className="text-[13px] text-gray-400">
+                        Aucune fiche France liée — activité métier limitée.
+                      </p>
+                      {canOutreach && (
+                        <button
+                          type="button"
+                          onClick={() => setLinkFrPanelOpen(true)}
+                          className="inline-flex items-center gap-1.5 text-[12px] font-semibold hover:underline"
+                          style={{ color: ROSE }}
+                        >
+                          <Link2 className="w-3.5 h-3.5" />
+                          Associer à une fiche FR
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <MarqueCrmTab marqueId={marque.linkedMarqueId || marque.id} limit={5} hideFilters />
                   )}
@@ -2504,14 +2793,27 @@ export default function MarqueRecordPage({
                       {contactsInCycle} contact{contactsInCycle > 1 ? "s" : ""} en cycle.
                       Aucune fiche France liée — collabs / négo non disponibles.
                     </p>
-                    <Link
-                      href={`${outreachHref}&q=${encodeURIComponent(marque.nom)}`}
-                      className="inline-flex items-center gap-1.5 mt-4 text-[13px] font-semibold hover:underline"
-                      style={{ color: ROSE }}
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      Ouvrir l&apos;outreach
-                    </Link>
+                    <div className="flex flex-wrap items-center justify-center gap-3 mt-4">
+                      {canOutreach && (
+                        <button
+                          type="button"
+                          onClick={() => setLinkFrPanelOpen(true)}
+                          className="inline-flex items-center gap-1.5 text-[13px] font-semibold hover:underline"
+                          style={{ color: ROSE }}
+                        >
+                          <Link2 className="w-3.5 h-3.5" />
+                          Associer à une fiche FR
+                        </button>
+                      )}
+                      <Link
+                        href={`${outreachHref}&q=${encodeURIComponent(marque.nom)}`}
+                        className="inline-flex items-center gap-1.5 text-[13px] font-semibold hover:underline"
+                        style={{ color: ROSE }}
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        Ouvrir l&apos;outreach
+                      </Link>
+                    </div>
                   </div>
                 ) : (
                   <MarqueCrmTab marqueId={marque.linkedMarqueId || marque.id} />

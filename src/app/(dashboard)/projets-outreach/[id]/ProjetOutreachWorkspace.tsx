@@ -413,7 +413,7 @@ function missionContactsLabel(
     return `${n} contact${n > 1 ? "s" : ""} · 🇫🇷 ${fr} · 🇧🇪 ${be}`;
   }
   if (be > 0) return `${n} contact${n > 1 ? "s" : ""} 🇧🇪`;
-  return `${n} contact${n > 1 ? "s" : ""}`;
+  return `${n} contact${n > 1 ? "s" : ""} 🇫🇷`;
 }
 
 function deriveClientLanguage(
