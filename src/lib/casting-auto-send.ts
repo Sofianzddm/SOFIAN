@@ -42,6 +42,7 @@ import {
   isInternalGlowUpEmail,
   loadCastingRecipientBlocklist,
 } from "@/lib/casting-recipient-guard";
+import { isBelgianPays } from "@/lib/pays";
 import { enrollIfMissingAfterPipelineSend } from "@/lib/outreach-bridge";
 import { scrubIdentityLabels } from "@/lib/identity-label-ban";
 import {
@@ -209,13 +210,41 @@ export function parseCastingContacts(raw: unknown): CastingContact[] {
     );
 }
 
+/** Talent belge → marché BENELUX (L’Oréal/Nyx autorisés) ; sinon FR. */
+async function castingGuardMarketForMission(opts: {
+  missionId?: string | null;
+  talentId?: string | null;
+}): Promise<"FR" | "BENELUX"> {
+  let talentId = opts.talentId || null;
+  if (!talentId && opts.missionId) {
+    const row = await (
+      prisma as unknown as {
+        contactMission: {
+          findUnique: (args: unknown) => Promise<{ talentId: string | null } | null>;
+        };
+      }
+    ).contactMission.findUnique({
+      where: { id: opts.missionId },
+      select: { talentId: true },
+    });
+    talentId = row?.talentId || null;
+  }
+  if (!talentId) return "FR";
+  const talent = await prisma.talent.findUnique({
+    where: { id: talentId },
+    select: { pays: true },
+  });
+  return isBelgianPays(talent?.pays) ? "BENELUX" : "FR";
+}
+
 async function filterAllowedCastingContacts(
   contacts: CastingContact[],
-  brand?: string | null
+  brand?: string | null,
+  market: "FR" | "BENELUX" = "FR"
 ): Promise<CastingContact[]> {
   const blocklist = await loadCastingRecipientBlocklist();
   return contacts.filter(
-    (c) => !isForbiddenCastingRecipient(c, blocklist, { brand })
+    (c) => !isForbiddenCastingRecipient(c, blocklist, { brand, market })
   );
 }
 
@@ -283,7 +312,10 @@ export async function preflightCastingSend(
   if (!subject || !body) {
     return { ok: false, error: "Le brouillon est incomplet (sujet et corps requis)." };
   }
-  if (isHardBlockedCastingBrand(mission.targetBrand)) {
+  const guardMarket = await castingGuardMarketForMission({
+    talentId: mission.talentId,
+  });
+  if (isHardBlockedCastingBrand(mission.targetBrand, { market: guardMarket })) {
     return {
       ok: false,
       error:
@@ -292,7 +324,8 @@ export async function preflightCastingSend(
   }
   const contacts = await filterAllowedCastingContacts(
     parseCastingContacts(mission.clientContacts),
-    mission.targetBrand
+    mission.targetBrand,
+    guardMarket
   );
   if (contacts.length === 0) {
     return {
@@ -609,9 +642,14 @@ export async function buildCastingSendPreview(
     }
   };
 
+  const previewGuardMarket = await castingGuardMarketForMission({
+    missionId: mission.id,
+    talentId: mission.talentId,
+  });
   const allContacts = await filterAllowedCastingContacts(
     parseCastingContacts(mission.clientContacts),
-    mission.targetBrand
+    mission.targetBrand,
+    previewGuardMarket
   );
   // Pas encore de contact sur la carte : on montre quand même l'aperçu avec
   // un contact fictif (les variables sont remplacées par Prénom / Nom) pour
@@ -747,7 +785,11 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
   if (!mission) {
     throw new Error("Mission introuvable");
   }
-  if (isHardBlockedCastingBrand(mission.targetBrand)) {
+  const guardMarket = await castingGuardMarketForMission({
+    missionId,
+    talentId: mission.talentId,
+  });
+  if (isHardBlockedCastingBrand(mission.targetBrand, { market: guardMarket })) {
     throw new Error(
       "Envoi bloqué : marque L’Oréal / Nyx — aucun mail casting ne peut partir vers ce groupe."
     );
@@ -832,7 +874,8 @@ export async function executeCastingSend(missionId: string): Promise<SendOutcome
 
   const allContacts = await filterAllowedCastingContacts(
     parseCastingContacts(mission.clientContacts),
-    mission.targetBrand
+    mission.targetBrand,
+    guardMarket
   );
   const alreadySent = extractAlreadySentEmails(mission.sentMessageIds);
   const newContacts = allContacts.filter(
@@ -1871,7 +1914,15 @@ export async function executeCastingRelance(
   if (mission.relanceCancelledAt) {
     throw new Error("Relances annulées pour cette mission.");
   }
-  if (isHardBlockedCastingBrand(mission.targetBrand)) {
+  const relanceGuardMarket = await castingGuardMarketForMission({
+    missionId,
+    talentId: mission.talentId,
+  });
+  if (
+    isHardBlockedCastingBrand(mission.targetBrand, {
+      market: relanceGuardMarket,
+    })
+  ) {
     throw new Error(
       "Relance bloquée : marque L’Oréal / Nyx — aucun mail casting ne peut partir vers ce groupe."
     );
@@ -2225,7 +2276,7 @@ async function executeCastingRelanceAfterClaim(args: {
           lastname: contactForGuard?.lastname,
         },
         recipientBlocklist,
-        { brand: mission.targetBrand }
+        { brand: mission.targetBrand, market: relanceGuardMarket }
       )
     ) {
       continue;

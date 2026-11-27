@@ -70,8 +70,9 @@ const HARD_BLOCKED_CASTING_EMAILS = new Set<string>([
 ]);
 
 /**
- * Domaines corporate L’Oréal / Nyx — blocage absolu des envois casting
+ * Domaines corporate L’Oréal / Nyx — blocage absolu des envois casting FR
  * (1er envoi + relances), y compris sous-domaines (ex. fr.loreal.com).
+ * Benelux : autorisé (voir `market: "BENELUX"`).
  */
 const HARD_BLOCKED_CASTING_EMAIL_DOMAINS = [
   /(?:^|\.)loreal\.com$/i,
@@ -79,7 +80,7 @@ const HARD_BLOCKED_CASTING_EMAIL_DOMAINS = [
   /(?:^|\.)nyxcosmetic\.com$/i,
 ];
 
-/** Marques L’Oréal / Nyx — même si le contact est sur une boîte agence. */
+/** Marques L’Oréal / Nyx — même si le contact est sur une boîte agence (FR). */
 const HARD_BLOCKED_CASTING_BRAND_RE =
   /l['’`´]?or[eé]al|\bloreal\b|\bnyx\b/i;
 
@@ -94,6 +95,11 @@ const LOREAL_HARD_BLOCK_EXEMPT_BRAND_RE =
 export type CastingRecipientGuardOpts = {
   /** Marque / targetBrand de la mission — peut lever le hard-block L’Oréal. */
   brand?: string | null;
+  /**
+   * BENELUX : pas de hard-block L’Oréal / Nyx (emails + marque).
+   * Le blocage FR reste inchangé.
+   */
+  market?: "FR" | "BENELUX" | null;
 };
 
 export function isLorealHardBlockExemptBrand(
@@ -104,6 +110,14 @@ export function isLorealHardBlockExemptBrand(
 
 function isLorealCorporateDomain(domain: string): boolean {
   return /(?:^|\.)loreal\.com$/i.test(domain);
+}
+
+/** Hard-block L’Oréal / Nyx levé pour Benelux ou marques Luxe exemptées. */
+function allowsLorealHardBlockExemption(
+  opts?: CastingRecipientGuardOpts
+): boolean {
+  if (opts?.market === "BENELUX") return true;
+  return Boolean(opts?.brand) && isLorealHardBlockExemptBrand(opts?.brand);
 }
 
 export function isHardBlockedCastingEmail(
@@ -117,18 +131,21 @@ export function isHardBlockedCastingEmail(
   if (HARD_BLOCKED_CASTING_EMAILS.has(email)) return true;
   const domain = email.split("@")[1] || "";
   if (!domain) return false;
-  const allowLoreal =
-    Boolean(opts?.brand) && isLorealHardBlockExemptBrand(opts?.brand);
+  const allowLoreal = allowsLorealHardBlockExemption(opts);
   return HARD_BLOCKED_CASTING_EMAIL_DOMAINS.some((re) => {
     if (!re.test(domain)) return false;
+    // Benelux : tout domaine L’Oréal / Nyx autorisé.
+    if (opts?.market === "BENELUX") return false;
     if (allowLoreal && isLorealCorporateDomain(domain)) return false;
     return true;
   });
 }
 
 export function isHardBlockedCastingBrand(
-  value: string | undefined | null
+  value: string | undefined | null,
+  opts?: CastingRecipientGuardOpts
 ): boolean {
+  if (opts?.market === "BENELUX") return false;
   const brand = String(value || "");
   if (isLorealHardBlockExemptBrand(brand)) return false;
   return HARD_BLOCKED_CASTING_BRAND_RE.test(brand);

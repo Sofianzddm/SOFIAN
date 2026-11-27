@@ -92,7 +92,11 @@ export async function loadBrandContactsFrAndBe(opts: {
       isForbiddenCastingRecipient(
         { email: c.email, firstname: c.firstname, lastname: c.lastname },
         blocklist,
-        { brand: c.companyName || brandHint }
+        {
+          brand: c.companyName || brandHint,
+          // L’Oréal / Nyx bloqués en FR, autorisés en Benelux.
+          market: c.market === "BENELUX" ? "BENELUX" : "FR",
+        }
       )
     ) {
       return;

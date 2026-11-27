@@ -30,7 +30,11 @@ export async function writeBeneluxContactEmail(
 
   const contact = await prisma.beneluxContact.findFirst({
     where: { id, companyId },
-    select: { prenom: true, nom: true },
+    select: {
+      prenom: true,
+      nom: true,
+      company: { select: { nom: true } },
+    },
   });
   if (contact) {
     const blocklist = await loadCastingRecipientBlocklist();
@@ -41,7 +45,9 @@ export async function writeBeneluxContactEmail(
           prenom: contact.prenom,
           nom: contact.nom,
         },
-        blocklist
+        blocklist,
+        // Benelux : L’Oréal / Nyx autorisés (hard-block = FR seulement).
+        { brand: contact.company?.nom, market: "BENELUX" }
       )
     ) {
       await prisma.beneluxContact.update({
