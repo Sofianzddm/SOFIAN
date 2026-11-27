@@ -337,8 +337,9 @@ export function BrandEnrichPanel({
     }
   }, [isCannes, fichePath]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { soft?: boolean }) => {
+    // soft = garder la liste à l’écran (ex. clic FR/BE/FR+BE) — pas de « reload »
+    if (!opts?.soft) setLoading(true);
     try {
       if (isCannes) {
         const qs = opportuniteId
@@ -382,9 +383,9 @@ export function BrandEnrichPanel({
       }
     } catch (e) {
       setFlash(e instanceof Error ? e.message : "Erreur");
-      setContacts([]);
+      if (!opts?.soft) setContacts([]);
     } finally {
-      setLoading(false);
+      if (!opts?.soft) setLoading(false);
     }
   }, [marqueId, company, isCannes, opportuniteId]);
 
@@ -942,7 +943,7 @@ export function BrandEnrichPanel({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Échec de la mise à jour");
-      await load();
+      await load({ soft: true });
       const label =
         next === "BOTH" ? "FR + BE" : next === "BENELUX" ? "BE" : "FR";
       setFlash(
